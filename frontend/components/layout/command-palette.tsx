@@ -9,15 +9,16 @@ import {
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
-import { cycles, formatCycleDateRange } from '@/mock-data/cycles';
-import { Issue } from '@/mock-data/issues';
-import { labels as allLabels } from '@/mock-data/labels';
-import { priorities } from '@/mock-data/priorities';
-import { projects as allProjects } from '@/mock-data/projects';
-import { status as allStatus } from '@/mock-data/status';
-import { teams } from '@/mock-data/teams';
-import { users } from '@/mock-data/users';
+import { cycles, formatCycleDateRange } from '@/data/cycles';
+import { Issue } from '@/data/issues';
+import { labels as allLabels } from '@/data/labels';
+import { priorities } from '@/data/priorities';
+import { projects as allProjects } from '@/data/projects';
+import { status as allStatus } from '@/data/status';
+import { teams } from '@/data/teams';
+import { currentUser, users } from '@/data/users';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useIssuesStore } from '@/store/issues-store';
 import {
@@ -88,7 +89,7 @@ export function CommandPalette() {
    const { issues, updateIssueStatus, updateIssuePriority, updateIssueAssignee, addIssueLabel, removeIssueLabel, updateIssueProject, updateIssue } = useIssuesStore();
    const { openModal } = useCreateIssueStore();
 
-   const orgId = pathname.split('/')[1] || 'lndev-ui';
+   const orgId = pathname.split('/')[1] || WORKSPACE_SLUG;
 
    const contextIssue = useMemo<Issue | undefined>(() => {
       const match = pathname.match(/^\/[^/]+\/issue\/([^/]+)/);
@@ -141,7 +142,7 @@ export function CommandPalette() {
       ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${orgId}/issue/${issue.identifier}`
       : '';
    const branchName = issue
-      ? `${users[0].id}/${issue.identifier.toLowerCase()}-${issue.title
+      ? `${currentUser.id}/${issue.identifier.toLowerCase()}-${issue.title
            .toLowerCase()
            .replace(/[^a-z0-9]+/g, '-')
            .replace(/^-|-$/g, '')

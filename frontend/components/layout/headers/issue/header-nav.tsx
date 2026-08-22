@@ -3,8 +3,8 @@
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { getCycleById } from '@/mock-data/cycles';
-import { teams } from '@/mock-data/teams';
+import { getCycleById } from '@/data/cycles';
+import { getTeamForUrl } from '@/data/teams';
 import { useIssuesStore } from '@/store/issues-store';
 import { ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Star } from 'lucide-react';
 import Link from 'next/link';
@@ -18,7 +18,7 @@ export default function HeaderNav() {
    const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
    const { issues } = useIssuesStore();
 
-   const team = teams[0];
+   const team = getTeamForUrl(undefined);
    const index = issues.findIndex((candidate) => candidate.identifier === issueId);
    const issue = index >= 0 ? issues[index] : undefined;
    const cycle = issue?.cycleId ? getCycleById(issue.cycleId) : undefined;

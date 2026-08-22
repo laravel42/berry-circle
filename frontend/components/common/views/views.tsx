@@ -11,8 +11,8 @@ import {
    SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { issueViews, projectViews, View } from '@/mock-data/views';
-import { teams } from '@/mock-data/teams';
+import { issueViews, projectViews, View } from '@/data/views';
+import { teams } from '@/data/teams';
 import { useViewsDisplayStore, ViewsOrdering } from '@/store/views-display-store';
 import { ArrowDown, Plus, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
@@ -196,7 +196,7 @@ export default function Views({ teamId }: { teamId?: string }) {
                      LN
                   </span>
                )}
-               <span className="font-medium">{team ? team.name : 'LNDev UI'}</span>
+               <span className="font-medium">{team ? team.name : 'Berry'}</span>
                <span className="text-muted-foreground text-xs">
                   · {team ? 'Team' : 'Workspace'}
                </span>

@@ -8,7 +8,7 @@ import {
    DropdownMenuSeparator,
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { statusUserColors, User, users } from '@/mock-data/users';
+import { statusUserColors, User, users } from '@/data/users';
 import { CheckIcon, CircleUserRound, Send, UserIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
@@ -73,7 +73,7 @@ export function AssigneeUser({ user }: AssigneeUserProps) {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             {users
-               .filter((user) => user.teamIds.includes('CORE'))
+               
                .map((user) => (
                   <DropdownMenuItem
                      key={user.id}

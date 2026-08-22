@@ -33,7 +33,8 @@ import {
    SidebarMenuSubButton,
    SidebarMenuSubItem,
 } from '@/components/ui/sidebar';
-import { teams } from '@/mock-data/teams';
+import { teams } from '@/data/teams';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { RiDonutChartFill } from '@remixicon/react';
 
 export function NavTeams() {
@@ -102,7 +103,7 @@ export function NavTeams() {
                         <SidebarMenuSub>
                            <SidebarMenuSubItem>
                               <SidebarMenuSubButton asChild>
-                                 <Link href={`/lndev-ui/team/${item.id}/overview`}>
+                                 <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/overview`}>
                                     <Home size={14} />
                                     <span>Home</span>
                                  </Link>
@@ -110,7 +111,7 @@ export function NavTeams() {
                            </SidebarMenuSubItem>
                            <SidebarMenuSubItem>
                               <SidebarMenuSubButton asChild>
-                                 <Link href={`/lndev-ui/team/${item.id}/all`}>
+                                 <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/all`}>
                                     <CopyMinus size={14} />
                                     <span>Issues</span>
                                  </Link>
@@ -118,7 +119,7 @@ export function NavTeams() {
                            </SidebarMenuSubItem>
                            <SidebarMenuSubItem>
                               <SidebarMenuSubButton asChild>
-                                 <Link href={`/lndev-ui/team/${item.id}/cycles`}>
+                                 <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/cycles`}>
                                     <RiDonutChartFill size={14} />
                                     <span>Cycles</span>
                                  </Link>
@@ -126,14 +127,14 @@ export function NavTeams() {
                               <SidebarMenuSub className="mr-0 pr-0">
                                  <SidebarMenuSubItem>
                                     <SidebarMenuSubButton asChild>
-                                       <Link href={`/lndev-ui/team/${item.id}/cycle/active`}>
+                                       <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/cycle/active`}>
                                           <span>Current</span>
                                        </Link>
                                     </SidebarMenuSubButton>
                                  </SidebarMenuSubItem>
                                  <SidebarMenuSubItem>
                                     <SidebarMenuSubButton asChild>
-                                       <Link href={`/lndev-ui/team/${item.id}/cycle/upcoming`}>
+                                       <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/cycle/upcoming`}>
                                           <span>Upcoming</span>
                                        </Link>
                                     </SidebarMenuSubButton>
@@ -142,7 +143,7 @@ export function NavTeams() {
                            </SidebarMenuSubItem>
                            <SidebarMenuSubItem>
                               <SidebarMenuSubButton asChild>
-                                 <Link href={`/lndev-ui/team/${item.id}/projects`}>
+                                 <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/projects`}>
                                     <Box size={14} />
                                     <span>Projects</span>
                                  </Link>
@@ -150,7 +151,7 @@ export function NavTeams() {
                            </SidebarMenuSubItem>
                            <SidebarMenuSubItem>
                               <SidebarMenuSubButton asChild>
-                                 <Link href={`/lndev-ui/team/${item.id}/views`}>
+                                 <Link href={`/${WORKSPACE_SLUG}/team/${item.id}/views`}>
                                     <Layers size={14} />
                                     <span>Views</span>
                                  </Link>

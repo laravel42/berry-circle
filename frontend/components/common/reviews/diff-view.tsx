@@ -2,7 +2,7 @@
 
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
-import { FileDiff } from '@/mock-data/reviews';
+import { FileDiff } from '@/data/reviews';
 import { ArrowDownToLine, FileCode2, MoreHorizontal } from 'lucide-react';
 import { DiffStat } from './review-shared';
 

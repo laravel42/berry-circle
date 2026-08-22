@@ -2,8 +2,8 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { ActivityItem } from '@/mock-data/issue-details';
-import { users } from '@/mock-data/users';
+import { ActivityItem } from '@/data/issue-details';
+import { currentUser } from '@/data/users';
 import {
    Ban,
    CircleDot,
@@ -83,7 +83,6 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
 export function ActivityFeed({ activity }: { activity: ActivityItem[] }) {
    const [items, setItems] = useState<ActivityItem[]>(activity);
    const [draft, setDraft] = useState('');
-   const currentUser = users[0];
 
    const submitComment = () => {
       const text = draft.trim();

@@ -1,6 +1,6 @@
 'use client';
 
-import { InboxItem } from '@/mock-data/inbox';
+import { InboxItem } from '@/data/inbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { motion } from 'motion/react';

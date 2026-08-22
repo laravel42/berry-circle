@@ -9,9 +9,9 @@ import {
    SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { Issue } from '@/mock-data/issues';
-import { priorities } from '@/mock-data/priorities';
-import { Status, workflowOrderedStatus } from '@/mock-data/status';
+import { Issue } from '@/data/issues';
+import { priorities } from '@/data/priorities';
+import { Status, workflowOrderedStatus } from '@/data/status';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { X } from 'lucide-react';
 import { useMemo } from 'react';

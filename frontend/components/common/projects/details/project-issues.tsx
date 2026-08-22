@@ -3,9 +3,9 @@
 import { GroupedIssuesView } from '@/components/common/issues/grouped-issues-view';
 import { applyIssueFilters } from '@/components/common/issues/issue-filter-columns';
 import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
-import { getProjectDetail } from '@/mock-data/project-details';
-import { getProjectById } from '@/mock-data/projects';
-import { displayOrderedStatus } from '@/mock-data/status';
+import { getProjectDetail } from '@/data/project-details';
+import { getProjectById } from '@/data/projects';
+import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useMemo } from 'react';

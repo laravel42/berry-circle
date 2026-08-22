@@ -1,8 +1,8 @@
 'use client';
 
 import { CycleDetailsPanel } from '@/components/common/cycles/cycle-details-panel';
-import { getCurrentCycle, getUpcomingCycle } from '@/mock-data/cycles';
-import { displayOrderedStatus } from '@/mock-data/status';
+import { getCurrentCycle, getUpcomingCycle } from '@/data/cycles';
+import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { applyIssueFilters } from './issue-filter-columns';
@@ -39,14 +39,22 @@ export default function CycleIssues({ cycleView }: CycleIssuesProps) {
    const isViewTypeGrid = viewType === 'grid';
 
    const cycleIssues = useMemo(
-      () => issues.filter((issue) => issue.cycleId === cycle.id),
-      [issues, cycle.id]
+      () => (cycle ? issues.filter((issue) => issue.cycleId === cycle.id) : []),
+      [issues, cycle]
    );
 
    const displayedIssues = useMemo(
       () => applyIssueFilters(cycleIssues, filters),
       [cycleIssues, filters]
    );
+
+   if (!cycle) {
+      return (
+         <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+            No cycle yet — cycles will appear here once they come from the gateway.
+         </div>
+      );
+   }
 
    if (isSearching) {
       return (

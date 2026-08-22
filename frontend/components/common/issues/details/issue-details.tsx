@@ -1,6 +1,6 @@
 'use client';
 
-import { getIssueDetail } from '@/mock-data/issue-details';
+import { getIssueDetail } from '@/data/issue-details';
 import { useIssuesStore } from '@/store/issues-store';
 import { Paperclip, Plus, SmilePlus } from 'lucide-react';
 import Link from 'next/link';
@@ -10,6 +10,7 @@ import { AssigneeUser } from '../assignee-user';
 import { ActivityFeed } from './activity-feed';
 import { ContentBlocks } from './content-blocks';
 import { IssuePropertiesPanel } from './issue-properties-panel';
+import { WORKSPACE_SLUG } from '@/lib/config';
 
 /**
  * Issue detail page: rich description, sub-issues, activity feed and a
@@ -30,7 +31,7 @@ export default function IssueDetails() {
       return (
          <div className="flex flex-col items-center justify-center h-full gap-2 text-sm text-muted-foreground">
             <p>Issue {issueId} not found.</p>
-            <Link href={`/${orgId ?? 'lndev-ui'}/team/CORE/all`} className="underline">
+            <Link href={`/${orgId ?? WORKSPACE_SLUG}/teams`} className="underline">
                Back to issues
             </Link>
          </div>
@@ -81,7 +82,7 @@ export default function IssueDetails() {
                            {subIssues.map((subIssue) => (
                               <Link
                                  key={subIssue.id}
-                                 href={`/${orgId ?? 'lndev-ui'}/issue/${subIssue.identifier}`}
+                                 href={`/${orgId ?? WORKSPACE_SLUG}/issue/${subIssue.identifier}`}
                                  className="flex items-center gap-2.5 h-10 px-1 border-b border-border/50 hover:bg-sidebar/50 text-sm min-w-0"
                               >
                                  <subIssue.status.icon />

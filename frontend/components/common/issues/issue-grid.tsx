@@ -1,6 +1,6 @@
 'use client';
 
-import { Issue } from '@/mock-data/issues';
+import { Issue } from '@/data/issues';
 import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -16,6 +16,7 @@ import { ProjectBadge } from './project-badge';
 import { StatusSelector } from './status-selector';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { IssueContextMenu } from './issue-context-menu';
+import { WORKSPACE_SLUG } from '@/lib/config';
 
 export const IssueDragType = 'ISSUE';
 type IssueGridProps = {
@@ -131,7 +132,7 @@ export function IssueGrid({ issue }: IssueGridProps) {
                      <StatusSelector status={issue.status} issueId={issue.id} />
                   )}
                </div>
-               <Link href={`/${orgId ?? 'lndev-ui'}/issue/${issue.identifier}`}>
+               <Link href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}>
                   <h3 className="text-sm font-semibold mb-3 line-clamp-2">{issue.title}</h3>
                </Link>
                <div className="flex flex-wrap gap-1.5 mb-3 min-h-[1.5rem]">

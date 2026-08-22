@@ -1,7 +1,7 @@
 import ProjectActivity from '@/components/common/projects/details/project-activity';
 import Header from '@/components/layout/headers/project/header';
 import MainLayout from '@/components/layout/main-layout';
-import { getProjectById } from '@/mock-data/projects';
+import { getProjectById } from '@/data/projects';
 import { notFound } from 'next/navigation';
 
 interface ProjectPageProps {

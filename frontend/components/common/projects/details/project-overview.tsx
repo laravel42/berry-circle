@@ -2,10 +2,10 @@
 
 import { ContentBlocks } from '@/components/common/issues/details/content-blocks';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getProjectDetail } from '@/mock-data/project-details';
-import { getProjectById } from '@/mock-data/projects';
+import { getProjectDetail } from '@/data/project-details';
+import { getProjectById } from '@/data/projects';
 import { useIssuesStore } from '@/store/issues-store';
-import { teams } from '@/mock-data/teams';
+import { teams } from '@/data/teams';
 import { format, parseISO } from 'date-fns';
 import { ArrowRight, ChevronDown, FileText, PenLine, Plus } from 'lucide-react';
 import Link from 'next/link';

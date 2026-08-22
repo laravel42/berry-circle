@@ -10,7 +10,7 @@ import {
    SidebarMenuButton,
    SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { teams } from '@/mock-data/teams';
+import { teams } from '@/data/teams';
 import { Button } from '@/components/ui/button';
 import { useParams } from 'next/navigation';
 

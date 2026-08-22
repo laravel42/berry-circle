@@ -1,7 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { ContentBlock } from '@/mock-data/issue-details';
+import { ContentBlock } from '@/data/issue-details';
 import { AlignLeft } from 'lucide-react';
 import { RefObject, useEffect, useMemo, useState } from 'react';
 

@@ -11,7 +11,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useMemo, useState } from 'react';
 import { ArrowUpDown, CheckIcon, ChevronRight, ListFilter, Shield } from 'lucide-react';
-import { Team, teams } from '@/mock-data/teams';
+import { Team, teams } from '@/data/teams';
 import { useTeamsFilterStore } from '@/store/team-filter-store';
 
 type FilterType = 'membership' | 'sort' | 'identifiers';

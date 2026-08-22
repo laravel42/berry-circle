@@ -1,7 +1,7 @@
 import MemberProfile from '@/components/common/members/member-profile';
 import Header from '@/components/layout/headers/profile/header';
 import MainLayout from '@/components/layout/main-layout';
-import { users } from '@/mock-data/users';
+import { users } from '@/data/users';
 import { notFound } from 'next/navigation';
 
 interface MemberProfilePageProps {

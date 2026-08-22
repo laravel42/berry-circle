@@ -10,7 +10,7 @@ import {
    Plus,
    Upload,
 } from 'lucide-react';
-import { NotificationType } from '@/mock-data/inbox';
+import { NotificationType } from '@/data/inbox';
 import { cn } from '@/lib/utils';
 
 export function getNotificationIcon(type: NotificationType, className?: string) {

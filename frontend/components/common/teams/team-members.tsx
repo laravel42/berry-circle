@@ -2,7 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { teams } from '@/mock-data/teams';
+import { getTeamForUrl } from '@/data/teams';
 import { Plus, SlidersHorizontal } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
@@ -12,7 +12,7 @@ import { useParams } from 'next/navigation';
  */
 export default function TeamMembers() {
    const { teamId } = useParams<{ orgId: string; teamId: string }>();
-   const team = teams.find((t) => t.id === teamId) ?? teams[0];
+   const team = getTeamForUrl(teamId);
 
    const members = [...team.members].sort((a, b) => a.name.localeCompare(b.name));
 

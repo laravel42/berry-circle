@@ -1,13 +1,13 @@
 'use client';
 
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { teams } from '@/mock-data/teams';
+import { getTeamForUrl } from '@/data/teams';
 import { Link2, MoreHorizontal, Star } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 export default function HeaderNav() {
    const { teamId } = useParams<{ orgId: string; teamId: string }>();
-   const team = teams.find((t) => t.id === teamId) ?? teams[0];
+   const team = getTeamForUrl(teamId);
 
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">

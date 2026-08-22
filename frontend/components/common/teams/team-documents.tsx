@@ -3,7 +3,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { documentFolders } from '@/mock-data/documents';
+import { documentFolders } from '@/data/documents';
 import { formatDistanceToNowStrict, parseISO } from 'date-fns';
 import { ChevronRight, Pin, Plus, SlidersHorizontal } from 'lucide-react';
 

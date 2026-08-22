@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { chatTitleFrom, getAgentReply } from '@/mock-data/agent';
+import { chatTitleFrom, getAgentReply } from '@/data/agent';
 
 export interface AgentMessage {
    id: string;

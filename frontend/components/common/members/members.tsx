@@ -1,6 +1,6 @@
 'use client';
 
-import { users as allUsers } from '@/mock-data/users';
+import { users as allUsers } from '@/data/users';
 import MemberLine from './member-line';
 import { useMembersFilterStore } from '@/store/members-filter-store';
 import { ArrowDown } from 'lucide-react';

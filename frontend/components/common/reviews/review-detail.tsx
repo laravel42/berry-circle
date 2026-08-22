@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { getReviewById } from '@/mock-data/reviews';
+import { getReviewById } from '@/data/reviews';
 import { Eye, Link2, MoreHorizontal, Play, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';

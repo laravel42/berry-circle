@@ -1,6 +1,6 @@
 'use client';
 
-import { Team } from '@/mock-data/teams';
+import { Team } from '@/data/teams';
 import { parseAsArrayOf, parseAsString, parseAsStringLiteral, useQueryStates } from 'nuqs';
 
 export type TeamsSort =

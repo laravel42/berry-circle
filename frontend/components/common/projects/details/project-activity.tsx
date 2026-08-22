@@ -16,8 +16,8 @@ import {
    ProjectUpdateHealth,
    projectUpdateHealthColor,
    projectUpdateHealthLabel,
-} from '@/mock-data/project-details';
-import { getProjectById } from '@/mock-data/projects';
+} from '@/data/project-details';
+import { getProjectById } from '@/data/projects';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectUpdatesStore } from '@/store/project-updates-store';
 import { format, parseISO } from 'date-fns';

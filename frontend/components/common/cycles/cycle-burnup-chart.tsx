@@ -1,6 +1,6 @@
 'use client';
 
-import { Cycle } from '@/mock-data/cycles';
+import { Cycle } from '@/data/cycles';
 import { format, parseISO } from 'date-fns';
 import {
    Area,

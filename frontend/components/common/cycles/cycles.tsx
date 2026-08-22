@@ -1,6 +1,6 @@
 'use client';
 
-import { cycles } from '@/mock-data/cycles';
+import { cycles } from '@/data/cycles';
 import { format, parseISO } from 'date-fns';
 import { Fragment } from 'react';
 import CycleLine from './cycle-line';

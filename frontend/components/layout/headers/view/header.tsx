@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { filterIssuesForView, filterProjectsForView, getViewById } from '@/mock-data/views';
+import { filterIssuesForView, filterProjectsForView, getViewById } from '@/data/views';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, MoreHorizontal, Star } from 'lucide-react';
 import { useParams } from 'next/navigation';

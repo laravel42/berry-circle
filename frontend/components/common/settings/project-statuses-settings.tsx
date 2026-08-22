@@ -1,7 +1,7 @@
 'use client';
 
-import { projects } from '@/mock-data/projects';
-import { StatusCategory } from '@/mock-data/status';
+import { projects } from '@/data/projects';
+import { StatusCategory } from '@/data/status';
 import { Plus } from 'lucide-react';
 import { useMemo } from 'react';
 import { SettingsShell } from './shared';

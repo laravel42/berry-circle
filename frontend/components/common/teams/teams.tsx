@@ -1,6 +1,6 @@
 'use client';
 
-import { teams as allTeams } from '@/mock-data/teams';
+import { teams as allTeams } from '@/data/teams';
 import { useTeamsFilterStore } from '@/store/team-filter-store';
 import { useTeamsDisplayStore } from '@/store/teams-display-store';
 import { useMemo } from 'react';

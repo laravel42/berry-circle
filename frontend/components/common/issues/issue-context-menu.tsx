@@ -35,11 +35,11 @@ import {
 } from 'lucide-react';
 import React, { useState } from 'react';
 import { useIssuesStore } from '@/store/issues-store';
-import { status } from '@/mock-data/status';
-import { priorities } from '@/mock-data/priorities';
-import { users } from '@/mock-data/users';
-import { labels } from '@/mock-data/labels';
-import { projects } from '@/mock-data/projects';
+import { status } from '@/data/status';
+import { priorities } from '@/data/priorities';
+import { users } from '@/data/users';
+import { labels } from '@/data/labels';
+import { projects } from '@/data/projects';
 import { toast } from 'sonner';
 
 interface IssueContextMenuProps {
@@ -190,7 +190,7 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                      <User className="size-4" /> Unassigned
                   </ContextMenuItem>
                   {users
-                     .filter((user) => user.teamIds.includes('CORE'))
+                     
                      .map((user) => (
                         <ContextMenuItem
                            key={user.id}

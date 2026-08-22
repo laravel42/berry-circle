@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { IssueFilterTrigger } from '@/components/common/issues/issue-filter-trigger';
-import { getCurrentCycle, getUpcomingCycle } from '@/mock-data/cycles';
+import { getCurrentCycle, getUpcomingCycle } from '@/data/cycles';
 import { useIssuesStore } from '@/store/issues-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, PanelRight } from 'lucide-react';
@@ -14,7 +14,7 @@ export default function HeaderOptions({ cycleView }: { cycleView: CycleView }) {
    const { issues } = useIssuesStore();
 
    const cycle = cycleView === 'active' ? getCurrentCycle() : getUpcomingCycle();
-   const count = issues.filter((issue) => issue.cycleId === cycle.id).length;
+   const count = cycle ? issues.filter((issue) => issue.cycleId === cycle.id).length : 0;
 
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">

@@ -2,7 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import { User } from '@/mock-data/users';
+import { User } from '@/data/users';
 import { format, parseISO } from 'date-fns';
 import { SquareUser } from 'lucide-react';
 import Link from 'next/link';

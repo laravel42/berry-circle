@@ -8,7 +8,7 @@ import {
    Review,
    ReviewList,
    ReviewStatus,
-} from '@/mock-data/reviews';
+} from '@/data/reviews';
 import { ListFilter, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';

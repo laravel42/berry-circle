@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import { ProjectUpdate, ProjectUpdateHealth } from '@/mock-data/project-details';
-import { users } from '@/mock-data/users';
+import { ProjectUpdate, ProjectUpdateHealth } from '@/data/project-details';
+import { currentUser } from '@/data/users';
 
 interface ProjectUpdatesState {
    /** Updates posted at runtime, newest first, keyed by project id. */
@@ -20,7 +20,7 @@ export const useProjectUpdatesStore = create<ProjectUpdatesState>((set) => ({
       set((state) => {
          const update: ProjectUpdate = {
             id: `posted-${nextId++}`,
-            author: users[0],
+            author: currentUser,
             date: new Date().toISOString().slice(0, 10),
             health,
             blocks: text

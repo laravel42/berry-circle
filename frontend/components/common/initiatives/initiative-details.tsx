@@ -9,8 +9,8 @@ import {
    getInitiativeProjects,
    Initiative,
    INITIATIVE_STATUS_META,
-} from '@/mock-data/initiatives';
-import { Project } from '@/mock-data/projects';
+} from '@/data/initiatives';
+import { Project } from '@/data/projects';
 import {
    CalendarRange,
    ChevronDown,

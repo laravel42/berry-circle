@@ -26,10 +26,10 @@ import {
    INITIATIVE_STATUS_META,
    initiatives as allInitiatives,
    InitiativeStatus,
-} from '@/mock-data/initiatives';
-import { priorities } from '@/mock-data/priorities';
-import { health as allHealth } from '@/mock-data/projects';
-import { users } from '@/mock-data/users';
+} from '@/data/initiatives';
+import { priorities } from '@/data/priorities';
+import { health as allHealth } from '@/data/projects';
+import { users } from '@/data/users';
 import {
    InitiativesFilterType,
    useInitiativesFilterStore,

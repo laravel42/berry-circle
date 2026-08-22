@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ContactRound } from 'lucide-react';
-import { teams } from '@/mock-data/teams';
+import { teams } from '@/data/teams';
 
 interface TeamsTooltipProps {
    teamIds: string[];

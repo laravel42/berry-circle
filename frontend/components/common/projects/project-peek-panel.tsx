@@ -1,9 +1,9 @@
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getProjectDetail } from '@/mock-data/project-details';
-import { getProjectById } from '@/mock-data/projects';
-import { teams } from '@/mock-data/teams';
+import { getProjectDetail } from '@/data/project-details';
+import { getProjectById } from '@/data/projects';
+import { teams } from '@/data/teams';
 import { useIssuesStore } from '@/store/issues-store';
 import { format, parseISO } from 'date-fns';
 import {

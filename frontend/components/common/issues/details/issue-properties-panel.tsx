@@ -2,9 +2,9 @@
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
 import { Button } from '@/components/ui/button';
-import { getCycleById } from '@/mock-data/cycles';
-import { IssueDetail } from '@/mock-data/issue-details';
-import { Issue } from '@/mock-data/issues';
+import { getCycleById } from '@/data/cycles';
+import { IssueDetail } from '@/data/issue-details';
+import { Issue } from '@/data/issues';
 import { Ban, GitPullRequestArrow, Plus } from 'lucide-react';
 import { AssigneeUser } from '../assignee-user';
 import { LabelBadge } from '../label-badge';

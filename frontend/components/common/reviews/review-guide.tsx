@@ -5,7 +5,7 @@ import {
    getReviewFileDiff,
    getReviewGuide,
    Review,
-} from '@/mock-data/reviews';
+} from '@/data/reviews';
 import { FileCode2 } from 'lucide-react';
 import { useMemo } from 'react';
 import { DiffView } from './diff-view';

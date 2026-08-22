@@ -3,11 +3,11 @@
 import { CapacityRing } from '@/components/common/cycles/capacity-ring';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Issue } from '@/mock-data/issues';
-import { getCycleById } from '@/mock-data/cycles';
-import { ProjectDetail } from '@/mock-data/project-details';
-import { Project } from '@/mock-data/projects';
-import { teams } from '@/mock-data/teams';
+import { Issue } from '@/data/issues';
+import { getCycleById } from '@/data/cycles';
+import { ProjectDetail } from '@/data/project-details';
+import { Project } from '@/data/projects';
+import { teams } from '@/data/teams';
 import { PanelFilterTarget, usePanelFilter } from '@/components/common/issues/use-panel-filter';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';

@@ -7,9 +7,9 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { RiEditLine } from '@remixicon/react';
 import { useState, useEffect, useCallback } from 'react';
-import { Issue } from '@/mock-data/issues';
-import { priorities } from '@/mock-data/priorities';
-import { status } from '@/mock-data/status';
+import { Issue } from '@/data/issues';
+import { priorities } from '@/data/priorities';
+import { status } from '@/data/status';
 import { useIssuesStore } from '@/store/issues-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { toast } from 'sonner';
@@ -19,7 +19,8 @@ import { PrioritySelector } from './priority-selector';
 import { AssigneeSelector } from './assignee-selector';
 import { ProjectSelector } from './project-selector';
 import { LabelSelector } from './label-selector';
-import { ranks } from '@/mock-data/issues';
+import { ranks } from '@/data/issues';
+import { ISSUE_IDENTIFIER_PREFIX, WORKSPACE_NAME } from '@/lib/config';
 import { DialogTitle } from '@radix-ui/react-dialog';
 
 export function CreateNewIssue() {
@@ -32,7 +33,7 @@ export function CreateNewIssue() {
       let identifier = Math.floor(Math.random() * 999)
          .toString()
          .padStart(3, '0');
-      while (identifiers.includes(`LNUI-${identifier}`)) {
+      while (identifiers.includes(`${ISSUE_IDENTIFIER_PREFIX}-${identifier}`)) {
          identifier = Math.floor(Math.random() * 999)
             .toString()
             .padStart(3, '0');
@@ -44,7 +45,7 @@ export function CreateNewIssue() {
       const identifier = generateUniqueIdentifier();
       return {
          id: uuidv4(),
-         identifier: `LNUI-${identifier}`,
+         identifier: `${ISSUE_IDENTIFIER_PREFIX}-${identifier}`,
          title: '',
          description: '',
          status: defaultStatus || status.find((s) => s.id === 'to-do')!,
@@ -91,7 +92,7 @@ export function CreateNewIssue() {
                   <div className="flex items-center px-4 pt-4 gap-2">
                      <Button size="sm" variant="outline" className="gap-1.5">
                         <Heart className="size-4 text-orange-500 fill-orange-500" />
-                        <span className="font-medium">CORE</span>
+                        <span className="font-medium">{WORKSPACE_NAME}</span>
                      </Button>
                   </div>
                </DialogTitle>

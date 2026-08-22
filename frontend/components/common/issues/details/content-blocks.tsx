@@ -1,12 +1,13 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { ContentBlock } from '@/mock-data/issue-details';
+import { ContentBlock } from '@/data/issue-details';
 import { useIssuesStore } from '@/store/issues-store';
 import { Check, ImageIcon, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Fragment } from 'react';
+import { WORKSPACE_SLUG } from '@/lib/config';
 
 /**
  * Lightweight inline formatting: `code` spans and **bold** runs.
@@ -95,7 +96,7 @@ function IssueRef({ identifier, note }: { identifier: string; note?: string }) {
          <span className="mt-1 size-1 rounded-full bg-muted-foreground shrink-0" />
          <div className="min-w-0">
             <Link
-               href={`/${orgId ?? 'lndev-ui'}/issue/${identifier}`}
+               href={`/${orgId ?? WORKSPACE_SLUG}/issue/${identifier}`}
                className="inline-flex items-center gap-1.5 bg-accent/60 rounded px-1.5 py-0.5 hover:bg-accent"
             >
                {issue && <issue.status.icon />}
@@ -245,7 +246,7 @@ export function IssueRefRow({ identifier }: { identifier: string }) {
 
    return (
       <Link
-         href={`/${orgId ?? 'lndev-ui'}/issue/${identifier}`}
+         href={`/${orgId ?? WORKSPACE_SLUG}/issue/${identifier}`}
          className="flex items-center gap-2 py-1 text-sm hover:bg-sidebar/50 rounded px-1.5 -mx-1.5 min-w-0"
       >
          <issue.status.icon />

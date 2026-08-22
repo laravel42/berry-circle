@@ -2,8 +2,8 @@
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { getCurrentCycle, getUpcomingCycle } from '@/mock-data/cycles';
-import { teams } from '@/mock-data/teams';
+import { getCurrentCycle, getUpcomingCycle } from '@/data/cycles';
+import { getTeamForUrl } from '@/data/teams';
 import { ChevronRight, MoreHorizontal, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -11,8 +11,26 @@ import { CycleView } from '@/components/common/issues/cycle-issues';
 
 export default function HeaderNav({ cycleView }: { cycleView: CycleView }) {
    const { orgId, teamId } = useParams<{ orgId: string; teamId: string }>();
-   const team = teams.find((t) => t.id === teamId) ?? teams[0];
+   const team = getTeamForUrl(teamId);
    const cycle = cycleView === 'active' ? getCurrentCycle() : getUpcomingCycle();
+
+   if (!cycle) {
+      return (
+         <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
+            <div className="flex items-center gap-2 min-w-0">
+               <SidebarTrigger />
+               <Link
+                  href={`/${orgId}/team/${team.id}/cycles`}
+                  className="text-sm font-medium text-muted-foreground hover:text-foreground"
+               >
+                  Cycles
+               </Link>
+               <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
+               <span className="text-sm text-muted-foreground">No cycle yet</span>
+            </div>
+         </div>
+      );
+   }
 
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">

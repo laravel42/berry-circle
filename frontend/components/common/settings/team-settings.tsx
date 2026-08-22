@@ -1,9 +1,9 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { getCyclesByTeam } from '@/mock-data/cycles';
-import { status } from '@/mock-data/status';
-import { teams } from '@/mock-data/teams';
+import { getCyclesByTeam } from '@/data/cycles';
+import { status } from '@/data/status';
+import { teams } from '@/data/teams';
 import {
    Bot,
    ChevronRight,

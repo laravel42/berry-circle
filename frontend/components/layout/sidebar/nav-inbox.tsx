@@ -7,8 +7,8 @@ import {
    SidebarMenuButton,
    SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { forYouReviews } from '@/mock-data/reviews';
-import { inboxItems } from '@/mock-data/side-bar-nav';
+import { forYouReviews } from '@/data/reviews';
+import { inboxItems } from '@/data/side-bar-nav';
 import { useNotificationsStore } from '@/store/notifications-store';
 import {
    isSidebarItemVisible,

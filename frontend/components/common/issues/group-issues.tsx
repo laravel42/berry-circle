@@ -1,7 +1,7 @@
 'use client';
 
-import { Issue } from '@/mock-data/issues';
-import { Status } from '@/mock-data/status';
+import { Issue } from '@/data/issues';
+import { Status } from '@/data/status';
 import { useIssuesStore } from '@/store/issues-store';
 import { useViewStore } from '@/store/view-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';

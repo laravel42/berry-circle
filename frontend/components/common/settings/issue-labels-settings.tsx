@@ -2,8 +2,8 @@
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { issues } from '@/mock-data/issues';
-import { labels } from '@/mock-data/labels';
+import { issues } from '@/data/issues';
+import { labels } from '@/data/labels';
 import { useMemo, useState } from 'react';
 import { SelectMenu } from './shared';
 

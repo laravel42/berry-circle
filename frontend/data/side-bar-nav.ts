@@ -18,25 +18,31 @@ import {
    UserRound,
 } from 'lucide-react';
 
+/**
+ * Static sidebar navigation items. URLs use the default workspace slug
+ * (`berry`) — kept in sync with the redirect targets in `app/page.tsx`.
+ */
+const ORG = 'berry';
+
 export const inboxItems = [
    {
       name: 'Inbox',
-      url: '/lndev-ui/inbox',
+      url: `/${ORG}/inbox`,
       icon: Inbox,
    },
    {
       name: 'Reviews',
-      url: '/lndev-ui/reviews',
+      url: `/${ORG}/reviews`,
       icon: GitPullRequestArrow,
    },
    {
       name: 'My issues',
-      url: '/lndev-ui/my-issues',
+      url: `/${ORG}/my-issues`,
       icon: FolderKanban,
    },
    {
       name: 'Agent',
-      url: '/lndev-ui/agent',
+      url: `/${ORG}/agent`,
       icon: Bot,
    },
 ];
@@ -44,17 +50,17 @@ export const inboxItems = [
 export const workspaceItems = [
    {
       name: 'Teams',
-      url: '/lndev-ui/teams',
+      url: `/${ORG}/teams`,
       icon: ContactRound,
    },
    {
       name: 'Projects',
-      url: '/lndev-ui/projects',
+      url: `/${ORG}/projects`,
       icon: Box,
    },
    {
       name: 'Members',
-      url: '/lndev-ui/members',
+      url: `/${ORG}/members`,
       icon: UserRound,
    },
 ];

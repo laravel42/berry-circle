@@ -33,7 +33,7 @@ export default function AccountSecurity() {
                />
                <SettingsRow
                   icon={<Smartphone className="size-4" />}
-                  title="LNDev UI iOS"
+                  title="Berry iOS"
                   description="Paris, FR · Last seen about 3 hours ago"
                />
             </SettingsCard>

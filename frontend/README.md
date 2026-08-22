@@ -1,49 +1,56 @@
-# Circle
+# Berry — Frontend
 
-<br />
-<a href="https://vercel.com/oss">
-  <img alt="Vercel OSS Program" src="https://vercel.com/oss/program-badge.svg" />
-</a>
+Next.js frontend for Berry, a team workspace where humans and AI coding
+agents share one board. Vendored from the MIT-licensed
+[Circle](https://github.com/ln-dev7/circle) template (see `LICENSE.md` for
+the upstream notice) with its demo/mock data layer stripped: every list
+(issues, projects, teams, members, cycles, views, reviews, inbox) boots
+empty and will be filled from the Berry gateway (BFF) as wiring lands.
 
-<br />
-<br />
+## Stack
 
-Project management interface inspired by Linear. Built with Next.js and shadcn/ui, this application allows tracking of issues, projects and teams with a modern, responsive UI.
+Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS v4 ·
+shadcn/ui · Zustand · nuqs. Managed with Bun.
 
-> The BaseUI code is available on [Square UI Pro](https://pro.lndevui.com/templates/circle-baseui).
-
-## 🛠️ Technologies
-
-- **Framework**: [Next.js](https://nextjs.org/)
-- **Langage**: [TypeScript](https://www.typescriptlang.org/)
-- **UI Components**: [shadcn/ui](https://ui.shadcn.com/)
-- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
-
-### 📦 Installation
+## Getting started
 
 ```shell
-git clone https://github.com/ln-dev7/circle.git
-cd circle
+bun install
+cp .env.example .env.local   # optional until the gateway exists
+bun run dev
 ```
 
-### Install dependencies
+## Configuration
 
-```shell
-pnpm install
-```
+All configuration is environment-driven (`NEXT_PUBLIC_*`, inlined at build
+time — see `.env.example`):
 
-### Start the development server
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `NEXT_PUBLIC_BERRY_API_URL` | Base URL of the Berry gateway (BFF) | _(empty — app boots with no data)_ |
+| `NEXT_PUBLIC_WORKSPACE_SLUG` | URL segment for workspace routes (`/{slug}/…`) | `berry` |
+| `NEXT_PUBLIC_WORKSPACE_NAME` | Workspace display name | `Berry` |
+| `NEXT_PUBLIC_ISSUE_PREFIX` | Issue identifier prefix (e.g. `BERRY-123`) | `BERRY` |
 
-```shell
-pnpm dev
-```
+The gateway client lives in `lib/api.ts` (`apiUrl` / `apiFetch`) and reads
+its base URL from `lib/config.ts`. Feature wiring (board, issue detail,
+mutations) plugs into that seam — see BERR-29 / BERR-30.
 
-## Star History
+## Data layer
 
-<a href="https://www.star-history.com/#ln-dev7/circle&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ln-dev7/circle&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ln-dev7/circle&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ln-dev7/circle&type=Date" />
- </picture>
-</a>
+Circle kept all domain types next to its demo data in `mock-data/`. The
+directory is renamed `data/` and every demo dataset was removed, but the
+module layout is unchanged so the upcoming gateway wiring can adopt it
+incrementally:
+
+- `data/*.ts` — domain types (`Issue`, `Project`, `Team`, `User`, …) and
+  pure helpers (filtering, grouping, status ordering), all operating on
+  empty arrays until real data arrives.
+- `store/*.ts` — Zustand stores; seeded from the (empty) data modules.
+- `data/users.ts` exports a `currentUser` placeholder used by flows that
+  need an identity before auth exists (comment composer, issue creation).
+
+## License
+
+Berry's own code and the Circle template code in this directory are
+MIT-licensed. The upstream Circle notice is retained in `LICENSE.md`.

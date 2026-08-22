@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { projects } from '@/mock-data/projects';
+import { projects } from '@/data/projects';
 import { Plus } from 'lucide-react';
 
 export default function HeaderNav() {

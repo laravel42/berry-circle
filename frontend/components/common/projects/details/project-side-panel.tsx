@@ -1,9 +1,9 @@
 'use client';
 
 import { InsightsPanel } from '@/components/common/issues/insights-panel';
-import { Issue } from '@/mock-data/issues';
-import { ProjectDetail } from '@/mock-data/project-details';
-import { Project } from '@/mock-data/projects';
+import { Issue } from '@/data/issues';
+import { ProjectDetail } from '@/data/project-details';
+import { Project } from '@/data/projects';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { ProjectPropertiesPanel } from './project-properties-panel';
 

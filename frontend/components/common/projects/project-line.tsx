@@ -1,7 +1,7 @@
 'use client';
 
-import { Issue } from '@/mock-data/issues';
-import { Project } from '@/mock-data/projects';
+import { Issue } from '@/data/issues';
+import { Project } from '@/data/projects';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsDisplayStore } from '@/store/projects-display-store';
 import Link from 'next/link';

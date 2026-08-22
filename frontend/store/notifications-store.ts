@@ -1,4 +1,4 @@
-import { InboxItem, inboxItems as mockNotifications, NotificationType } from '@/mock-data/inbox';
+import { InboxItem, inboxItems as mockNotifications, NotificationType } from '@/data/inbox';
 import { create } from 'zustand';
 
 interface NotificationsState {
