@@ -12,7 +12,7 @@ Endpoint names and shapes were checked against the upstream API reference and ro
 
 | Berry feature | OpenFang endpoint(s) | Gaps / Berry responsibility |
 |---|---|---|
-| **Agents** | `GET /api/agents`<br>`POST /api/agents`<br>`GET /api/agents/{id}`<br>`PUT /api/agents/{id}/update`<br>`DELETE /api/agents/{id}` | No endpoint gap for the required lifecycle. Berry stores its product-facing agent identity, workspace/team bindings, and the OpenFang agent ID. |
+| **Agents** | `GET /api/agents`<br>`POST /api/agents`<br>`GET /api/agents/{id}`<br>`PATCH /api/agents/{id}` (partial field update)<br>`PUT /api/agents/{id}/update` (full-manifest acknowledgement)<br>`DELETE /api/agents/{id}` | No endpoint gap for the required lifecycle. Partial field edits (name, description, system_prompt, model) use `PATCH /api/agents/{id}`; the pinned `PUT /api/agents/{id}/update` only **acknowledges** a full manifest and does not apply it in place — replacing a manifest requires `DELETE` + re-`POST`. Berry stores its product-facing agent identity, workspace/team bindings, and the OpenFang agent ID. |
 | **Runs** | Dispatch: `POST /api/agents/{id}/message/stream`<br>Cancel active execution: `POST /api/agents/{id}/stop`<br>Conversation evidence: `GET /api/agents/{id}/session`<br>Global audit evidence: `GET /api/audit/recent`<br>Usage evidence: `GET /api/usage`<br>Workflow-only history: `GET /api/workflows/{id}/runs` | **GAP — no durable agent-run resource.** OpenFang exposes an active execution and supporting evidence, but no issue-correlated `GET /api/agents/{id}/runs` or `GET /api/runs/{id}` resource. Berry must assign its own run ID before dispatch and persist status, steps/tool activity, output, token usage, cost, timestamps, issue ID, and agent ID. Audit, session, and usage APIs are reconciliation evidence, not substitutes for that record. |
 | **Memory** | `GET /api/memory/agents/{id}/kv`<br>`GET /api/memory/agents/{id}/kv/{key}`<br>`PUT /api/memory/agents/{id}/kv/{key}`<br>`DELETE /api/memory/agents/{id}/kv/{key}` | No endpoint gap for agent KV memory. Berry-owned issue/project context remains in Berry and is included explicitly at dispatch; it must not be treated as OpenFang KV memory. |
 | **Workflows** | `GET /api/workflows`<br>`POST /api/workflows`<br>`GET /api/workflows/{id}`<br>`PUT /api/workflows/{id}`<br>`DELETE /api/workflows/{id}`<br>`POST /api/workflows/{id}/run`<br>`GET /api/workflows/{id}/runs` | No endpoint gap for definition lifecycle, execution, and execution history. The pinned router exposes get/update/delete even though the pinned API reference's endpoint summary omits them; adapter tests must cover the router behavior. |
@@ -49,7 +49,8 @@ These are the minimum upstream shapes Berry depends on. Fields not listed are pa
 | Operation | Request | Success response Berry consumes |
 |---|---|---|
 | Spawn agent | `POST /api/agents` with `{ "manifest_toml": string }` | `201` with `{ "agent_id": string, "name": string }` |
-| Update agent | `PUT /api/agents/{id}/update` with any supported subset of `{ "description"?: string, "system_prompt"?: string, "tags"?: string[] }` | `200` with `{ "status": "updated", "agent_id": string }` |
+| Partial-update agent fields | `PATCH /api/agents/{id}` with any supported subset of `{ "name"?: string, "description"?: string, "system_prompt"?: string, "model"?: string, "provider"?: string }` | `200` with `{ "status": "ok", "agent_id": string, "name": string }`. Applied immediately and observable via `GET /api/agents/{id}`. |
+| Acknowledge full-manifest update | `PUT /api/agents/{id}/update` with `{ "manifest_toml": string }` (the complete manifest; `manifest_toml` is **required**) | `200` with `{ "status": "acknowledged", "agent_id": string, "note": string }`. The pinned router validates the manifest but does **not** apply it in place. |
 | Dispatch blocking agent message | `POST /api/agents/{id}/message` with `{ "message": string }` | `200` with `{ "response": string, "input_tokens": number, "output_tokens": number, "iterations": number }` |
 | Dispatch streaming agent message | `POST /api/agents/{id}/message/stream` with `{ "message": string }`; response content type is `text/event-stream` | SSE events defined below |
 | Set memory value | `PUT /api/memory/agents/{id}/kv/{key}` with `{ "value": JSON value }` | `200` with `{ "status": "stored", "key": string }` |
@@ -59,6 +60,11 @@ These are the minimum upstream shapes Berry depends on. Fields not listed are pa
 | Delete workflow | `DELETE /api/workflows/{id}` | `200` with `{ "status": "removed", "workflow_id": string }` |
 | Run workflow | `POST /api/workflows/{id}/run` with `{ "input": string }` | `200` with `{ "run_id": string, "output": string, "status": string }` |
 | Chat completion | `POST /v1/chat/completions` with OpenAI-compatible `{ "model": string, "messages": Message[], "stream"?: boolean }` | OpenAI-compatible completion JSON, or SSE chunks when `stream: true` |
+
+Agent-update contract, reconciled against the pinned router (validated by `apps/gateway/tests/openfang-smoke.ts`, check `agent create/list/get/update`):
+
+- `PUT /api/agents/{id}/update` deserializes into a DTO whose only field is a **required** `manifest_toml`. A partial body such as `{ "description": …, "tags": … }` is rejected with `422 Unprocessable Entity` (`missing field \`manifest_toml\``), and even a well-formed full manifest is only acknowledged — the pinned handler does not apply the change in place. Berry must not model this endpoint as a partial patch.
+- Partial field edits go through `PATCH /api/agents/{id}`. The pinned handler recognizes `name`, `description`, `system_prompt`, and `model` (with optional `provider`); unrecognized keys are ignored. `tags` are **not** partial-updatable on this revision — a tag change requires a full manifest replace (`DELETE` + re-`POST`), because tags live only inside the manifest TOML.
 
 A workflow step may identify an agent by `agent_id` or `agent_name` and includes `name`, `prompt`, `mode`, `timeout_secs`, `error_mode`, and optional retry/flow-control fields. Berry must validate its authored workflow payload against the upstream version before sending it.
 
