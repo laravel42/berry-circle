@@ -148,6 +148,7 @@ against data you want to keep.
 - [Gateway API contract](docs/api/gateway-v1.md)
 - [Coding playbook](docs/coding-playbook.md)
 - [Release-readiness report template](docs/release-readiness-report-template.md)
+- [Changelog](CHANGELOG.md) — notable changes per release ([process](docs/changelog-process.md))
 
 ## Licensing
 
