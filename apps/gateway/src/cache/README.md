@@ -59,7 +59,8 @@ atomically abandons the old keyspace (old keys are never read again and expire).
 | `issues:list` | `issues:list:<boardId>:<fp>` | issues read path (BERR-23) | `CACHE_TTL_ISSUE_LIST_SECONDS` (15s) | any issue create/update on the board → `invalidateIssue` / `invalidateIssuesForBoard` |
 
 `<fp>` is a 128-bit SHA-256 fingerprint of the request's query parameters
-(order-independent; absent and null filters collapse to the same page). SHA-256
+(order-independent; undefined filters are dropped, explicit `null` is preserved
+so an "unassigned" page cannot collide with the unfiltered list). SHA-256
 rather than a fast lossy hash so two different filter sets can never collide onto
 one cached page. `boardId` is kept in the clear in `issues:list` keys so a single
 board's pages can be dropped with one prefix scan.
