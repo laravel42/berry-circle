@@ -17,6 +17,11 @@
     "db:migrate": "bun run src/db/migrate.ts"
   },
   "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-prometheus": "^0.221.0",
+    "@opentelemetry/resources": "^2.10.0",
+    "@opentelemetry/sdk-metrics": "^2.10.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
     "drizzle-orm": "^0.36.4",
     "hono": "^4.6.0",
     "pino": "^9.5.0",

@@ -1,6 +1,7 @@
 import { createApp } from "~/app";
 import { config } from "~/config";
 import { logger } from "~/logger";
+import { shutdownMetrics } from "~/observability";
 
 const app = createApp();
 
@@ -15,6 +16,7 @@ logger.info({ port: server.port, hostname: server.hostname }, "berry-gateway lis
 async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
   await server.stop(); // no `true`: let in-flight requests drain
+  await shutdownMetrics();
   process.exit(0);
 }
 

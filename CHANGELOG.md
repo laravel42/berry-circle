@@ -56,6 +56,14 @@ the initial gateway service groundwork.
   fault-isolated resource cleanup, abort-timeout hardening on body reads, and assertions
   on `usage.input_tokens` / `usage.output_tokens` (the Berry token-total dependency) —
   BERR-18 ([#12]).
+- Gateway observability — structured Pino request logging (one `request.completed` line per
+  request with `requestId`, `traceId`, matched `route`, `status`, `durationMs`; secrets
+  redacted), W3C trace propagation to the OpenFang adapter via an `AsyncLocalStorage`
+  request context (`getTraceHeaders`/`tracedFetch`, `x-trace-id` response header), and a
+  Prometheus `GET /metrics` endpoint backed by OpenTelemetry (`http_server_request_duration
+  _seconds`, `http_server_active_requests`, `openfang_client_request_duration_seconds`).
+  New config: `SERVICE_NAME`, `SERVICE_VERSION`, `METRICS_ENABLED`, `METRICS_PATH` —
+  BERR-27 ([#22]).
 
 ### Fixed
 
@@ -85,3 +93,4 @@ the initial gateway service groundwork.
 [#11]: https://github.com/laravel42/berry-circle/pull/11
 [#12]: https://github.com/laravel42/berry-circle/pull/12
 [#13]: https://github.com/laravel42/berry-circle/pull/13
+[#22]: https://github.com/laravel42/berry-circle/pull/22
