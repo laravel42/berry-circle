@@ -1,0 +1,110 @@
+# Berry local stack — the execution substrate + backing services Berry builds against.
+#
+#   openfang   OpenFang agent kernel + REST/WS/SSE + OpenAI-compatible API (localhost:4200)
+#   postgres   Berry-owned durable product state (issues, runs, comments, ...) — ADR-0002
+#   valkey     Berry shared cache + ephemeral coordination state — ADR-0002
+#
+# OpenFang is PINNED to an immutable upstream commit (ADR-0003). The single source of
+# truth for the pin is deploy/openfang.pin.json; the OPENFANG_COMMIT default below MUST
+# equal the `commit` field there. OpenFang keeps its own state in a SQLite database under
+# the /data volume — it does NOT use the Berry Postgres or Valkey instances.
+#
+# Boot from clean:  cp .env.example .env  &&  docker compose up -d --build
+# Full guide:       README.md
+
+name: berry-stack
+
+services:
+  openfang:
+    # Build from the exact pinned upstream commit (BuildKit git context). No mutable
+    # branch or image tag is trusted. GHCR image is not public yet; build from source.
+    build:
+      context: "https://github.com/RightNow-AI/openfang.git#${OPENFANG_COMMIT:-acf2587e46be174c10200489c9a2d23a39a98aeb}"
+      # Dev-fast defaults: skip LTO and use more codegen units. Override to LTO=true /
+      # CODEGEN_UNITS=1 for a release-optimized build (much slower to compile).
+      args:
+        LTO: "${OPENFANG_BUILD_LTO:-false}"
+        CODEGEN_UNITS: "${OPENFANG_BUILD_CODEGEN_UNITS:-16}"
+    image: "berry-openfang:${OPENFANG_COMMIT_SHORT:-acf2587e}"
+    ports:
+      - "${OPENFANG_PORT:-4200}:4200"
+    environment:
+      # Required in Docker: OpenFang binds loopback-only by default, which is unreachable
+      # through a published port. See docs/adr/0003 and OpenFang docs/configuration.md.
+      OPENFANG_LISTEN: "0.0.0.0:4200"
+      # Strongly recommended once bound to a non-loopback address. Empty => fail-closed:
+      # authenticated routes reject non-loopback requests (health stays public).
+      OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
+      OPENFANG_HOME: "/data"
+      RUST_LOG: "${OPENFANG_LOG:-info}"
+      # LLM providers — set only the ones you use (auto-detected at boot).
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      # Qwen via a local vLLM server (parent issue BERR-2). Point at the host, e.g.
+      # VLLM_BASE_URL=http://host.docker.internal:8000
+      VLLM_BASE_URL: "${VLLM_BASE_URL:-}"
+      VLLM_API_KEY: "${VLLM_API_KEY:-}"
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
+    volumes:
+      - openfang-data:/data
+    # Lets the container reach host-run providers (vLLM/Ollama) via host.docker.internal.
+    # No-op on Docker Desktop; required on Linux/colima.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      # python3 ships in the OpenFang runtime image; curl/wget do not.
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4200/api/health', timeout=3).status==200 else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 40s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    # Berry's durable system of record. Defaults match apps/gateway/.env.example
+    # (DATABASE_URL=postgres://berry:berry@localhost:5432/berry).
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-berry}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-berry}"
+      POSTGRES_DB: "${POSTGRES_DB:-berry}"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - berry-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "pg_isready -U ${POSTGRES_USER:-berry} -d ${POSTGRES_DB:-berry}"
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  valkey:
+    # Shared cache + ephemeral coordination. Must tolerate a clean flush (ADR-0002):
+    # nothing durable lives here, so light persistence is enough.
+    image: valkey/valkey:8-alpine
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    ports:
+      - "${VALKEY_PORT:-6379}:6379"
+    volumes:
+      - berry-valkey:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  openfang-data:
+  berry-postgres:
+  berry-valkey:
