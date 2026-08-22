@@ -12,11 +12,11 @@ const server = Bun.serve({
 
 logger.info({ port: server.port, hostname: server.hostname }, "berry-gateway listening");
 
-function shutdown(signal: string) {
+async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
-  server.stop(true);
+  await server.stop(); // no `true`: let in-flight requests drain
   process.exit(0);
 }
 
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

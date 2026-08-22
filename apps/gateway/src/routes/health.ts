@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 
-const startedAt = new Date().toISOString();
+const startedAtMs = Date.now();
+const startedAt = new Date(startedAtMs).toISOString();
 
 export const health = new Hono().get("/health", (c) => {
   return c.json({
@@ -8,6 +9,6 @@ export const health = new Hono().get("/health", (c) => {
     service: "berry-gateway",
     version: process.env.npm_package_version ?? "0.1.0",
     startedAt,
-    uptimeSeconds: Math.floor(process.uptime()),
+    uptimeSeconds: Math.floor((Date.now() - startedAtMs) / 1000),
   });
 });
