@@ -12,8 +12,9 @@ how releases are cut.
 No version has been tagged yet — Berry is pre-release. The first tagged release is cut at
 milestone **M6 (Release 1)**; until then all shipped work accumulates here. This first
 entry covers everything merged to `main` as of 2026-08-22, spanning the foundation
-docs/knowledge base (**M0**), the OpenFang integration proof (**M1**, in progress), and
-the initial gateway service groundwork.
+docs/knowledge base (**M0**), the OpenFang integration proof (**M1**), and the gateway
+service core (**M2**). See the [M2 milestone run report](docs/milestones/m2-gateway.md)
+for the integrated test state and known issues.
 
 ### Added
 
@@ -56,6 +57,13 @@ the initial gateway service groundwork.
   fault-isolated resource cleanup, abort-timeout hardening on body reads, and assertions
   on `usage.input_tokens` / `usage.output_tokens` (the Berry token-total dependency) —
   BERR-18 ([#12]).
+- Gateway OpenFang adapter — typed native-fetch client for the pinned upstream agent,
+  execution, memory, workflow, audit, session, and usage endpoints, with Zod boundary
+  validation, normalized errors, idempotency-aware retries, timeouts, and typed SSE
+  parsing that reports interrupted streams without redispatching — BERR-20 ([#21]).
+- Shared gateway DTO schemas for Board, Issue, Comment, Agent, Run, pagination, errors,
+  and the 11 documented SSE event types. Public types derive from their Zod schemas and
+  preserve the contract's camel-case enum spelling at the API boundary — BERR-22 ([#17]).
 - Gateway issue & comment CRUD endpoints (`/api/v1/issues`, `/api/v1/comments`) backed by
   Postgres, per the gateway contract: identifier-or-UUID lookup, server-side issue-number
   allocation, filtered listing with opaque millisecond-precise cursor pagination,
@@ -84,6 +92,16 @@ the initial gateway service groundwork.
   _seconds`, `http_server_active_requests`, `openfang_client_request_duration_seconds`).
   New config: `SERVICE_NAME`, `SERVICE_VERSION`, `METRICS_ENABLED`, `METRICS_PATH` —
   BERR-27 ([#22]).
+- Gateway cache-aside module — a Bun-native Valkey store with configurable TTLs,
+  tenant-scoped versioned keys, single-flight loading, exact/prefix invalidation,
+  bounded operation timeouts, and fail-open circuit breaking. Domain helpers cover board
+  and issue hot reads; route adoption remains a known integration gap in the
+  [M2 report](docs/milestones/m2-gateway.md) — BERR-25 ([#19]).
+- Gateway run-event SSE transport at `GET /api/v1/runs/{runId}/events`, with retained
+  cursor replay, gap-free live fan-out, heartbeats, bounded subscriber buffers,
+  disconnect cleanup, and terminal-event stream closure. Connecting OpenFang producers
+  to this in-memory event-store seam is deferred to the agent execution loop — BERR-26
+  ([#20]).
 
 ### Fixed
 
@@ -113,6 +131,10 @@ the initial gateway service groundwork.
 [#11]: https://github.com/laravel42/berry-circle/pull/11
 [#12]: https://github.com/laravel42/berry-circle/pull/12
 [#13]: https://github.com/laravel42/berry-circle/pull/13
+[#17]: https://github.com/laravel42/berry-circle/pull/17
 [#18]: https://github.com/laravel42/berry-circle/pull/18
+[#19]: https://github.com/laravel42/berry-circle/pull/19
+[#20]: https://github.com/laravel42/berry-circle/pull/20
+[#21]: https://github.com/laravel42/berry-circle/pull/21
 [#22]: https://github.com/laravel42/berry-circle/pull/22
 [#23]: https://github.com/laravel42/berry-circle/pull/23
