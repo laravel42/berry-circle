@@ -4,6 +4,7 @@ import { HTTPException } from "hono/http-exception";
 import { logger as honoLogger } from "hono/logger";
 import { requestId } from "hono/request-id";
 import { logger } from "~/logger";
+import { auth } from "~/routes/auth";
 import { health } from "~/routes/health";
 
 export function createApp() {
@@ -17,6 +18,7 @@ export function createApp() {
   app.use("*", cors());
 
   app.route("/", health);
+  app.route("/api/v1/auth", auth);
 
   app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Route not found" } }, 404));
 

@@ -1,5 +1,6 @@
 import { createApp } from "~/app";
 import { config } from "~/config";
+import { closeDb } from "~/db/client";
 import { logger } from "~/logger";
 
 const app = createApp();
@@ -15,6 +16,7 @@ logger.info({ port: server.port, hostname: server.hostname }, "berry-gateway lis
 async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
   await server.stop(); // no `true`: let in-flight requests drain
+  await closeDb(); // release the DB pool if it was ever opened
   process.exit(0);
 }
 

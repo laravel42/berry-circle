@@ -7,6 +7,11 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   OPENFANG_BASE_URL: z.string().url().default("http://localhost:4200"),
   OPENFANG_API_KEY: z.string().optional(),
+  // Berry-owned Postgres. Optional so the app boots (and `bun test` runs) with no
+  // database; request paths that need it fail fast via `getDb()` (src/db/client.ts).
+  DATABASE_URL: z.string().url().optional(),
+  // Lifetime of a login session before its token expires. 720h = 30 days.
+  SESSION_TTL_HOURS: z.coerce.number().int().positive().default(720),
 });
 
 export type Config = z.infer<typeof envSchema>;
