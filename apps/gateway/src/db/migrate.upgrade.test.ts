@@ -75,11 +75,14 @@ function folderWith0000Only(): string {
 }
 
 describeIf("migration 0001 upgrade path (pre-fix data)", () => {
-  const adminUrl = withDatabase(databaseUrl ?? "", "postgres");
+  // Deferred to call time: describe.skip still runs this callback at registration,
+  // so building the URL eagerly would throw `new URL("")` on a DATABASE_URL-less
+  // checkout before the skip can take effect (BERR-50).
+  const adminUrl = (): string => withDatabase(databaseUrl ?? "", "postgres");
 
   async function createDatabase(): Promise<string> {
     const name = `berry_upgrade_${crypto.randomUUID().replace(/-/g, "")}`;
-    const admin = postgres(adminUrl, { max: 1 });
+    const admin = postgres(adminUrl(), { max: 1 });
     try {
       await admin.unsafe(`CREATE DATABASE "${name}"`);
     } finally {
@@ -89,7 +92,7 @@ describeIf("migration 0001 upgrade path (pre-fix data)", () => {
   }
 
   async function dropDatabase(name: string): Promise<void> {
-    const admin = postgres(adminUrl, { max: 1 });
+    const admin = postgres(adminUrl(), { max: 1 });
     try {
       await admin.unsafe(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
     } finally {
