@@ -16,7 +16,7 @@ Berry-owned product state lives in PostgreSQL. Agent execution state (runs, tool
 ## Integrity guarantees
 
 - `issues.number` is allocated server-side via `boards.issue_counter` (`UPDATE boards SET issue_counter = issue_counter + 1 WHERE id = $1 RETURNING issue_counter`, in the same transaction as the issue insert) — never `MAX(number)+1`, which races under concurrent creation.
-- `comments.parent_id` is a self-referencing FK (`ON DELETE CASCADE`); dangling/cross-issue parents are rejected at the DB.
+- `comments.parent_id` is a self-referencing FK (`ON DELETE CASCADE`); dangling parents are rejected at the DB and deleting a comment cascades to its replies. (Same-issue threading — parent and reply sharing an `issue_id` — is not DB-enforced; validate it on the write path.)
 - `updated_at` on `users`/`boards`/`issues`/`comments` is maintained by a `BEFORE UPDATE` trigger (`set_updated_at()`), not just `defaultNow()` at insert time.
 - `issues.assignee_type`/`assignee_id` are enforced both-or-neither via a CHECK constraint.
 - `users.email` uniqueness is case-insensitive (`lower(email)`).

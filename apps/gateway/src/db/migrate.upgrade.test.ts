@@ -142,6 +142,23 @@ describeIf("migration 0001 upgrade path (pre-fix data)", () => {
       const constraints =
         await client`SELECT conname FROM pg_constraint WHERE conname IN ('comments_parent_id_comments_id_fk', 'issues_assignee_pair_ck', 'boards_columns_is_array')`;
       expect(constraints.length).toBe(3);
+
+      // issue_counter must be backfilled to each board's highest existing number,
+      // or the allocator re-hands out 1 and wedges on issues_board_number_key.
+      const [seededBoard] = await client`SELECT issue_counter FROM boards WHERE id = ${boardId}`;
+      expect(seededBoard?.issue_counter).toBe(2);
+
+      // The documented allocator (bump inside the insert's transaction) now hands
+      // out the next free number instead of colliding with an existing issue.
+      const [allocated] = await client`
+        WITH bump AS (
+          UPDATE boards SET issue_counter = issue_counter + 1
+          WHERE id = ${boardId} RETURNING issue_counter
+        )
+        INSERT INTO issues (board_id, number, title)
+        SELECT ${boardId}, issue_counter, 'allocated' FROM bump
+        RETURNING number`;
+      expect(allocated?.number).toBe(3);
     } finally {
       await client.end();
       await dropDatabase(dbName);

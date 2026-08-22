@@ -1,5 +1,14 @@
 DROP INDEX IF EXISTS "users_email_key";--> statement-breakpoint
 ALTER TABLE "boards" ADD COLUMN "issue_counter" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+-- Backfill issue_counter from the highest existing number per board. 0000 allowed
+-- boards to already hold issues numbered 1..N; without this the DEFAULT 0 counter
+-- re-hands out 1, which collides with issue #1 on issues_board_number_key and,
+-- because the bump shares the insert's transaction, permanently wedges that board's
+-- issue creation. No-op on greenfield boards (max() is NULL -> COALESCE 0 = default).
+UPDATE "boards" AS "b" SET "issue_counter" = COALESCE(
+  (SELECT max("i"."number") FROM "issues" "i" WHERE "i"."board_id" = "b"."id"),
+  0
+);--> statement-breakpoint
 -- Backend PR Adversary re-review BLOCKER: 0001 must be applicable to a database
 -- that already holds the data 0000 permitted. Each constraint added below forbids
 -- a state that 0000 explicitly allowed, so remediate the pre-existing violations
