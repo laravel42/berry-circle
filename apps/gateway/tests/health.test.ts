@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createApp } from "~/app";
 
@@ -25,18 +24,23 @@ describe("GET /health", () => {
 
 describe("app.onError", () => {
   it("preserves the thrown HTTPException status instead of collapsing to 500", async () => {
-    const app = new Hono();
+    const app = createApp();
     app.get("/boom", () => {
       throw new HTTPException(400, { message: "bad input" });
-    });
-    app.onError((err, c) => {
-      if (err instanceof HTTPException) {
-        return err.getResponse();
-      }
-      return c.json({ error: { code: "INTERNAL", message: "Internal server error" } }, 500);
     });
 
     const res = await app.request("/boom");
     expect(res.status).toBe(400);
+  });
+
+  it("collapses non-HTTP errors to 500 without leaking internals", async () => {
+    const app = createApp();
+    app.get("/crash", () => {
+      throw new Error("internal detail");
+    });
+
+    const res = await app.request("/crash");
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("internal detail");
   });
 });
