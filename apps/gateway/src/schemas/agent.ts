@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { paginationQuerySchema, timestampSchema, uuidSchema } from "~/schemas/common";
+import {
+  httpUrlSchema,
+  paginationQuerySchema,
+  timestampSchema,
+  uuidSchema,
+} from "~/schemas/common";
 import { agentStatusSchema } from "~/schemas/enums";
 
 /**
@@ -11,10 +16,12 @@ export const agentSchema = z.object({
   id: uuidSchema,
   name: z.string().min(1).max(100),
   description: z.string().max(5000).nullable(),
-  avatarUrl: z.string().url().nullable(),
+  avatarUrl: httpUrlSchema.nullable(),
   status: agentStatusSchema,
-  /** Sorted, unique capability identifiers. */
-  capabilities: z.array(z.string()),
+  /** Unique capability identifiers (the gateway emits them sorted). */
+  capabilities: z.array(z.string()).refine((caps) => new Set(caps).size === caps.length, {
+    message: "Capabilities must be unique.",
+  }),
   createdAt: timestampSchema,
   updatedAt: timestampSchema,
 });

@@ -4,19 +4,28 @@ import { runStatusSchema } from "~/schemas/enums";
 
 /** Run DTOs: the resource shape, its nested usage/failure, and the dispatch body. */
 
-/** Cumulative normalized token/cost usage for a run. */
-export const runUsageSchema = z.object({
-  inputTokens: z.number().int().nonnegative(),
-  outputTokens: z.number().int().nonnegative(),
-  totalTokens: z.number().int().nonnegative(),
-  /** Non-negative millionths of the billing currency; null when unavailable. */
-  costMicros: z.number().int().nonnegative().nullable(),
-  /** ISO 4217 uppercase code; null with an unavailable cost. */
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/, "Currency must be an ISO 4217 uppercase code.")
-    .nullable(),
-});
+/**
+ * Cumulative normalized token/cost usage for a run. `costMicros` and `currency`
+ * are coupled: either both are present or both are null (cost is meaningless
+ * without its currency, and vice versa).
+ */
+export const runUsageSchema = z
+  .object({
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    totalTokens: z.number().int().nonnegative(),
+    /** Non-negative millionths of the billing currency; null when unavailable. */
+    costMicros: z.number().int().nonnegative().nullable(),
+    /** ISO 4217 uppercase code; null with an unavailable cost. */
+    currency: z
+      .string()
+      .regex(/^[A-Z]{3}$/, "Currency must be an ISO 4217 uppercase code.")
+      .nullable(),
+  })
+  .refine((usage) => (usage.costMicros === null) === (usage.currency === null), {
+    message: "costMicros and currency must both be present or both be null.",
+    path: ["currency"],
+  });
 export type RunUsage = z.infer<typeof runUsageSchema>;
 
 /** Present only when a run's `status` is `failed`. */

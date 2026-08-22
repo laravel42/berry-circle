@@ -15,6 +15,8 @@ import {
   errorEnvelopeSchema,
   eventEnvelopeSchema,
   eventSchema,
+  httpUrlSchema,
+  idempotencyKeySchema,
   isActiveRunStatus,
   isTerminalRunStatus,
   issueListQuerySchema,
@@ -53,6 +55,30 @@ describe("common primitives", () => {
     expect(actorRefSchema.safeParse(AGENT_REF).success).toBe(true);
     const { avatarUrl: _omit, ...withoutAvatar } = AGENT_REF;
     expect(actorRefSchema.safeParse(withoutAvatar).success).toBe(false);
+  });
+
+  it("restricts avatarUrl to http(s) schemes", () => {
+    expect(httpUrlSchema.safeParse("https://cdn.example.com/a.png").success).toBe(true);
+    expect(httpUrlSchema.safeParse("http://example.com/a.png").success).toBe(true);
+    for (const bad of [
+      "javascript:alert(1)",
+      "data:text/html,x",
+      "file:///etc/passwd",
+      "ftp://h/x",
+    ]) {
+      expect(httpUrlSchema.safeParse(bad).success).toBe(false);
+    }
+    // A dangerous avatar scheme must not pass the ActorRef boundary.
+    expect(
+      actorRefSchema.safeParse({ ...AGENT_REF, avatarUrl: "javascript:alert(1)" }).success,
+    ).toBe(false);
+  });
+
+  it("bounds the idempotency key to 16..128 characters", () => {
+    expect(idempotencyKeySchema.safeParse("a".repeat(16)).success).toBe(true);
+    expect(idempotencyKeySchema.safeParse("a".repeat(128)).success).toBe(true);
+    expect(idempotencyKeySchema.safeParse("short").success).toBe(false);
+    expect(idempotencyKeySchema.safeParse("a".repeat(129)).success).toBe(false);
   });
 });
 
@@ -278,6 +304,24 @@ describe("agent", () => {
     };
     expect(agentSchema.safeParse(agent).success).toBe(true);
   });
+
+  it("rejects duplicate capabilities and non-http avatar URLs", () => {
+    const agent = {
+      id: "f8957903-6534-4ca3-a218-d95e537a5076",
+      name: "Builder",
+      description: null,
+      avatarUrl: null,
+      status: "available",
+      capabilities: ["code", "git"],
+      createdAt: "2026-08-20T15:00:00.000Z",
+      updatedAt: "2026-08-22T06:42:01.000Z",
+    };
+    expect(agentSchema.safeParse({ ...agent, capabilities: ["code", "code"] }).success).toBe(false);
+    expect(agentSchema.safeParse({ ...agent, avatarUrl: "data:text/html,x" }).success).toBe(false);
+    expect(
+      agentSchema.safeParse({ ...agent, avatarUrl: "https://cdn.example.com/a.png" }).success,
+    ).toBe(true);
+  });
 });
 
 describe("run", () => {
@@ -315,6 +359,22 @@ describe("run", () => {
     expect(runUsageSchema.safeParse(usage).success).toBe(true);
     expect(runUsageSchema.safeParse({ ...usage, currency: "usd" }).success).toBe(false);
     expect(runUsageSchema.safeParse({ ...usage, currency: "US" }).success).toBe(false);
+  });
+
+  it("couples costMicros and currency (both present or both null)", () => {
+    const zero = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    expect(runUsageSchema.safeParse({ ...zero, costMicros: null, currency: null }).success).toBe(
+      true,
+    );
+    expect(runUsageSchema.safeParse({ ...zero, costMicros: 1000, currency: "USD" }).success).toBe(
+      true,
+    );
+    expect(runUsageSchema.safeParse({ ...zero, costMicros: 1000, currency: null }).success).toBe(
+      false,
+    );
+    expect(runUsageSchema.safeParse({ ...zero, costMicros: null, currency: "USD" }).success).toBe(
+      false,
+    );
   });
 
   it("accepts an empty dispatch body", () => {
@@ -378,6 +438,36 @@ describe("events", () => {
 
   it("rejects an unknown event type in the strict union", () => {
     expect(eventSchema.safeParse({ ...RUN_STARTED, type: "run.bogus" }).success).toBe(false);
+  });
+
+  it("requires a non-null runId and sequence on run.* events", () => {
+    expect(eventSchema.safeParse({ ...RUN_STARTED, runId: null }).success).toBe(false);
+    expect(eventSchema.safeParse({ ...RUN_STARTED, sequence: null }).success).toBe(false);
+  });
+
+  it("requires sequence to be null on board-level events", () => {
+    const commentCreated = {
+      id: "evt_c1",
+      type: "comment.created",
+      occurredAt: "2026-08-22T06:45:00.000Z",
+      boardId: "bb99372f-88c4-44f0-914f-a343bf30e6fb",
+      issueId: "8138a662-f20f-41aa-bd5a-cf46e35ba952",
+      runId: null,
+      sequence: null,
+      payload: {
+        comment: {
+          id: "3299af16-2bc9-4d2d-b8b7-b76d284ec40d",
+          issueId: "8138a662-f20f-41aa-bd5a-cf46e35ba952",
+          body: "The gateway contract is ready for review.",
+          author: AGENT_REF,
+          parentId: null,
+          createdAt: "2026-08-22T06:45:00.000Z",
+          updatedAt: "2026-08-22T06:45:00.000Z",
+        },
+      },
+    };
+    expect(eventSchema.safeParse(commentCreated).success).toBe(true);
+    expect(eventSchema.safeParse({ ...commentCreated, sequence: 3 }).success).toBe(false);
   });
 
   it("tolerates an unknown event type in the forward-compatible envelope", () => {

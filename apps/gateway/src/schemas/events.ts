@@ -69,51 +69,83 @@ const eventBaseShape = {
 };
 
 /**
+ * Base for `run.*` events: a run is always in scope, so `runId` and `sequence`
+ * are non-null in outbound frames.
+ */
+const runEventBaseShape = {
+  ...eventBaseShape,
+  runId: uuidSchema,
+  sequence: z.number().int().nonnegative(),
+};
+
+/**
+ * Base for board-level product events (`issue.updated`, `comment.created`):
+ * they carry no run sequence, and `runId` is the causing run only when
+ * applicable.
+ */
+const productEventBaseShape = {
+  ...eventBaseShape,
+  sequence: z.null(),
+};
+
+/**
  * Strict, fully-typed event envelope: a discriminated union on `type` that ties
  * each event type to its payload shape. Use this to build/serialize events and
  * to narrow a known event.
  */
 export const eventSchema = z.discriminatedUnion("type", [
-  z.object({ ...eventBaseShape, type: z.literal("run.created"), payload: runCreatedPayloadSchema }),
-  z.object({ ...eventBaseShape, type: z.literal("run.started"), payload: runStartedPayloadSchema }),
   z.object({
-    ...eventBaseShape,
+    ...runEventBaseShape,
+    type: z.literal("run.created"),
+    payload: runCreatedPayloadSchema,
+  }),
+  z.object({
+    ...runEventBaseShape,
+    type: z.literal("run.started"),
+    payload: runStartedPayloadSchema,
+  }),
+  z.object({
+    ...runEventBaseShape,
     type: z.literal("run.output.delta"),
     payload: runOutputDeltaPayloadSchema,
   }),
   z.object({
-    ...eventBaseShape,
+    ...runEventBaseShape,
     type: z.literal("run.tool.started"),
     payload: runToolStartedPayloadSchema,
   }),
   z.object({
-    ...eventBaseShape,
+    ...runEventBaseShape,
     type: z.literal("run.tool.completed"),
     payload: runToolCompletedPayloadSchema,
   }),
   z.object({
-    ...eventBaseShape,
+    ...runEventBaseShape,
     type: z.literal("run.usage.updated"),
     payload: runUsageUpdatedPayloadSchema,
   }),
   z.object({
-    ...eventBaseShape,
+    ...runEventBaseShape,
     type: z.literal("run.completed"),
     payload: runCompletedPayloadSchema,
   }),
-  z.object({ ...eventBaseShape, type: z.literal("run.failed"), payload: runFailedPayloadSchema }),
   z.object({
-    ...eventBaseShape,
+    ...runEventBaseShape,
+    type: z.literal("run.failed"),
+    payload: runFailedPayloadSchema,
+  }),
+  z.object({
+    ...runEventBaseShape,
     type: z.literal("run.cancelled"),
     payload: runCancelledPayloadSchema,
   }),
   z.object({
-    ...eventBaseShape,
+    ...productEventBaseShape,
     type: z.literal("issue.updated"),
     payload: issueUpdatedPayloadSchema,
   }),
   z.object({
-    ...eventBaseShape,
+    ...productEventBaseShape,
     type: z.literal("comment.created"),
     payload: commentCreatedPayloadSchema,
   }),

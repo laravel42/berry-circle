@@ -28,6 +28,19 @@ export type Timestamp = z.infer<typeof timestampSchema>;
 export const cursorSchema = z.string().min(1);
 export type Cursor = z.infer<typeof cursorSchema>;
 
+/**
+ * Absolute HTTP(S) URL. Plain `z.string().url()` also accepts `javascript:`,
+ * `data:`, `file:`, and `ftp:` URLs; since these values (avatars) are embedded
+ * in responses and SSE payloads that reach the browser, the scheme is
+ * restricted to `http`/`https` to close that injection vector.
+ */
+export const httpUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:$/.test(new URL(value).protocol), {
+    message: "Must be an absolute http(s) URL.",
+  });
+
 // ---------- actors ----------
 
 /** Discriminator selecting the namespace an actor id lives in. */
@@ -43,7 +56,7 @@ export const actorRefSchema = z.object({
   type: actorTypeSchema,
   id: uuidSchema,
   name: z.string(),
-  avatarUrl: z.string().url().nullable(),
+  avatarUrl: httpUrlSchema.nullable(),
 });
 export type ActorRef = z.infer<typeof actorRefSchema>;
 
@@ -107,6 +120,14 @@ export function commaSeparated<T extends z.ZodEnum<[string, ...string[]]>>(schem
 
 /** Refinement predicate: at least one key is present (for PATCH subset bodies). */
 export const hasAtLeastOneKey = (value: object): boolean => Object.keys(value).length > 0;
+
+/**
+ * `Idempotency-Key` request header for mutating create/dispatch endpoints: an
+ * opaque, client-generated string of 16–128 characters. Shared here so every
+ * idempotent route validates the header identically.
+ */
+export const idempotencyKeySchema = z.string().min(16).max(128);
+export type IdempotencyKey = z.infer<typeof idempotencyKeySchema>;
 
 // ---------- errors ----------
 
