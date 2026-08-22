@@ -11,16 +11,21 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "test": "bun test"
+    "test": "bun test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/db/migrate.ts"
   },
   "dependencies": {
+    "drizzle-orm": "^0.36.4",
     "hono": "^4.6.0",
     "pino": "^9.5.0",
+    "postgres": "^3.4.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "^1.1.14",
+    "drizzle-kit": "^0.28.1",
     "typescript": "^5.6.3"
   }
 }
