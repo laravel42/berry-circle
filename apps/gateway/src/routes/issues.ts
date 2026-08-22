@@ -5,10 +5,10 @@ import { type ActorKey, resolveRef, resolveRefs } from "~/api/actors";
 import { createIssueSchema, serializeIssue, updateIssueSchema } from "~/api/dto";
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, statusToApi, statusToDb } from "~/api/enums";
 import { findIssueByRef } from "~/api/lookups";
-import { assertTransition } from "~/api/workflow";
+import { assertTransition, canCreateWithStatus } from "~/api/workflow";
 import { assignments, boards, issues, users } from "~/db/schema";
 import { requireActor, requireDb } from "~/http/context";
-import { notFound } from "~/http/errors";
+import { invalidStateTransition, notFound } from "~/http/errors";
 import {
   buildConnection,
   decodeCursor,
@@ -147,6 +147,11 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
     const db = requireDb(deps.db);
     const actor = await requireActor(c, db);
     const input = parseBody(createIssueSchema, await readJsonBody(c));
+    // Create is not a free-form status write: `done` / `inReview` would skip
+    // the review gate. Treat omitted status as backlog (schema default).
+    if (input.status && !canCreateWithStatus(input.status)) {
+      throw invalidStateTransition("backlog", input.status);
+    }
 
     const created = await db.transaction(async (tx) => {
       const [board] = await tx

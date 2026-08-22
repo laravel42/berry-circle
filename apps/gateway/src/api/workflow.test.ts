@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { assertTransition, canTransition } from "~/api/workflow";
+import { assertTransition, canCreateWithStatus, canTransition } from "~/api/workflow";
 import type { ApiError } from "~/http/errors";
 
 describe("issue status workflow", () => {
@@ -12,6 +12,15 @@ describe("issue status workflow", () => {
 
   test("treats a same-status write as a no-op, not a transition", () => {
     expect(canTransition("inProgress", "inProgress")).toBe(true);
+  });
+
+  test("create may not start in review or done", () => {
+    expect(canCreateWithStatus("backlog")).toBe(true);
+    expect(canCreateWithStatus("todo")).toBe(true);
+    expect(canCreateWithStatus("inProgress")).toBe(true);
+    expect(canCreateWithStatus("cancelled")).toBe(true);
+    expect(canCreateWithStatus("inReview")).toBe(false);
+    expect(canCreateWithStatus("done")).toBe(false);
   });
 
   test("forbids jumping straight to done (review gate)", () => {

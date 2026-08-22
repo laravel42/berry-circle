@@ -4,11 +4,17 @@ import { config } from "~/config";
 import * as schema from "~/db/schema";
 
 /**
- * Shared drizzle handle for Berry-owned product state. `migrate.ts` opens its
- * own short-lived connection for the migration run; this is the long-lived
- * request-path pool the routes use.
+ * Shared request-time database handle.
+ *
+ * `src/db/migrate.ts` owns its own single-connection client for the migration
+ * step; this module is the pooled handle used by request handlers. It is built
+ * lazily on first use so that importing a route module (or running `bun test`
+ * with no `DATABASE_URL`) never opens a connection — a request path that truly
+ * needs the database fails fast here with a clear message instead.
  */
+
 export type BerryDb = PostgresJsDatabase<typeof schema>;
+export type Database = BerryDb;
 
 /** Builds a database handle for an explicit connection string (used by tests
  * that connect to an ephemeral Postgres). */
@@ -16,17 +22,25 @@ export function createDb(databaseUrl: string, max = 10): BerryDb {
   return drizzle(postgres(databaseUrl, { max }), { schema });
 }
 
-let singleton: BerryDb | null | undefined;
+let pool: ReturnType<typeof postgres> | undefined;
+let db: BerryDb | undefined;
 
-/**
- * Process-wide database handle built lazily from `DATABASE_URL`, or `null` when
- * unset. Returning `null` (rather than throwing) keeps `createApp()` usable for
- * the health endpoint and unit tests with no database configured; storage-backed
- * routes translate a `null` handle into `503 DEPENDENCY_UNAVAILABLE`.
- */
-export function getDb(): BerryDb | null {
-  if (singleton === undefined) {
-    singleton = config.DATABASE_URL ? createDb(config.DATABASE_URL) : null;
+export function getDb(): BerryDb {
+  if (!db) {
+    if (!config.DATABASE_URL) {
+      throw new Error("DATABASE_URL is not configured; this endpoint requires a database.");
+    }
+    pool = postgres(config.DATABASE_URL, { max: 10 });
+    db = drizzle(pool, { schema });
   }
-  return singleton;
+  return db;
+}
+
+/** Closes the pool. Intended for graceful shutdown and test teardown. */
+export async function closeDb(): Promise<void> {
+  if (pool) {
+    await pool.end();
+    pool = undefined;
+    db = undefined;
+  }
 }

@@ -6,8 +6,8 @@ Berry-owned product state lives in PostgreSQL. Agent execution state (runs, tool
 
 | Table | Purpose |
 | --- | --- |
-| `users` | Human members of the workspace (email uniqueness is case-insensitive) |
-| `sessions` | Login sessions (token hash, expiry) |
+| `users` | Human members of the workspace (email uniqueness is case-insensitive; `role` is `admin`/`member`) |
+| `sessions` | Login sessions (SHA-256 token hash, expiry) — see gateway auth (BERR-24) |
 | `boards` | Issue boards (Linear-shaped columns config, per-board issue number counter) |
 | `issues` | Issues: status, priority, current assignee (human or agent), OpenFang run link |
 | `assignments` | Assignment history per issue |

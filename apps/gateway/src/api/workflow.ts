@@ -20,6 +20,19 @@ const ALLOWED_TRANSITIONS: Record<ApiIssueStatus, readonly ApiIssueStatus[]> = {
   cancelled: ["backlog", "todo"],
 };
 
+/** Statuses a newly created issue may start in. `inReview`/`done` would skip
+ * the review gate, so they are not creatable. */
+const CREATABLE_STATUSES: readonly ApiIssueStatus[] = [
+  "backlog",
+  "todo",
+  "inProgress",
+  "cancelled",
+];
+
+export function canCreateWithStatus(status: ApiIssueStatus): boolean {
+  return CREATABLE_STATUSES.includes(status);
+}
+
 export function canTransition(from: ApiIssueStatus, to: ApiIssueStatus): boolean {
   return from === to || ALLOWED_TRANSITIONS[from].includes(to);
 }

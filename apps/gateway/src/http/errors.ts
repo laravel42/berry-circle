@@ -1,33 +1,36 @@
+import { HTTPException } from "hono/http-exception";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { z } from "zod";
 
 /**
- * The gateway's single error envelope, per the M0 API contract
- * (`docs/api/gateway-v1.md` → ErrorEnvelope). Every non-2xx JSON response —
- * validation, not-found, conflict, upstream failure — is serialized from an
- * `ApiError` so clients see one stable shape.
+ * Envelope-shaped API errors.
+ *
+ * `ApiError` carries the envelope as *data* (status/code/message/details) rather
+ * than a pre-built `Response`, so the central `app.onError` boundary can render
+ * it with the request-scoped `error.requestId` (and preserve the `X-Request-Id`
+ * header) that the gateway-v1 contract requires. `code`s are the stable
+ * `SCREAMING_SNAKE_CASE` strings from that contract.
  */
 
-export interface FieldError {
-  /** JSON Pointer into the body, or a `/query/*` / `/headers/*` name. */
+/** A single field-level validation error, per the contract's `details.fields`. */
+export type FieldError = {
   path: string;
-  /** Stable validator code. */
   code: string;
   message: string;
-}
+};
 
 export type ErrorDetails = Record<string, unknown> | null;
 
-export interface ErrorEnvelope {
+export type ErrorEnvelope = {
   error: {
     code: string;
     message: string;
     requestId: string;
     details: ErrorDetails;
   };
-}
+};
 
-export class ApiError extends Error {
-  readonly status: ContentfulStatusCode;
+export class ApiError extends HTTPException {
   readonly code: string;
   readonly details: ErrorDetails;
 
@@ -37,74 +40,89 @@ export class ApiError extends Error {
     message: string,
     details: ErrorDetails = null,
   ) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
+    super(status, { message });
     this.code = code;
     this.details = details;
   }
-
-  toEnvelope(requestId: string): ErrorEnvelope {
-    return {
-      error: {
-        code: this.code,
-        message: this.message,
-        requestId,
-        details: this.details,
-      },
-    };
-  }
 }
 
-// ---------- factories (one per documented status/code) ----------
-
-/** 400 — malformed JSON, parameters, or cursor. */
-export function invalidRequest(message = "The request is invalid.", details: ErrorDetails = null) {
-  return new ApiError(400, "INVALID_REQUEST", message, details);
+/** Builds an envelope-shaped `ApiError`. Throw it; `app.onError` renders it. */
+export function apiError(
+  status: ContentfulStatusCode,
+  code: string,
+  message: string,
+  details: ErrorDetails = null,
+): ApiError {
+  return new ApiError(status, code, message, details);
 }
 
-/** 400 INVALID_CURSOR — a pagination cursor that does not belong to this
- * endpoint, filter set, and sort. */
-export function invalidCursor(message = "The pagination cursor is invalid.") {
-  return new ApiError(400, "INVALID_CURSOR", message);
-}
+export const invalidRequest = (message = "The request is invalid.", details: ErrorDetails = null) =>
+  apiError(400, "INVALID_REQUEST", message, details);
 
-/** 401 — missing, invalid, or expired session. */
-export function unauthenticated(message = "Authentication is required.") {
-  return new ApiError(401, "UNAUTHENTICATED", message);
-}
+export const invalidCursor = (message = "The pagination cursor is invalid.") =>
+  apiError(400, "INVALID_CURSOR", message);
 
-/** 403 — authenticated actor lacks permission. */
-export function forbidden(message = "You do not have permission to perform this action.") {
-  return new ApiError(403, "FORBIDDEN", message);
-}
+export const unauthenticated = (message = "Authentication required.") =>
+  apiError(401, "UNAUTHENTICATED", message);
 
-/** 404 — resource does not exist or is not visible to the actor. */
-export function notFound(message = "The requested resource was not found.") {
-  return new ApiError(404, "NOT_FOUND", message);
-}
+export const forbidden = (message = "You do not have permission to perform this action.") =>
+  apiError(403, "FORBIDDEN", message);
 
-/** 409 CONFLICT — generic state / uniqueness conflict. */
-export function conflict(message: string, details: ErrorDetails = null) {
-  return new ApiError(409, "CONFLICT", message, details);
-}
+export const notFound = (message = "The requested resource was not found.") =>
+  apiError(404, "NOT_FOUND", message);
 
-/** 409 INVALID_STATE_TRANSITION — an issue status change the workflow forbids. */
-export function invalidStateTransition(from: string, to: string) {
-  return new ApiError(
+export const conflict = (message: string, details: ErrorDetails = null) =>
+  apiError(409, "CONFLICT", message, details);
+
+export const invalidStateTransition = (from: string, to: string) =>
+  apiError(
     409,
     "INVALID_STATE_TRANSITION",
     `Cannot transition an issue from "${from}" to "${to}".`,
-    { from, to },
+    {
+      from,
+      to,
+    },
   );
+
+export const validationFailed = (fields: FieldError[], message = "The request is invalid.") =>
+  apiError(422, "VALIDATION_FAILED", message, { fields });
+
+export const dependencyUnavailable = (message = "A required dependency is unavailable.") =>
+  apiError(503, "DEPENDENCY_UNAVAILABLE", message);
+
+/** Maps a Zod error to the contract's `details.fields` validation shape. */
+export function validationError(error: z.ZodError, message = "The request is invalid."): ApiError {
+  const fields: FieldError[] = error.issues.map((issue) => ({
+    path: `/${issue.path.join("/")}`,
+    code: issue.code,
+    message: issue.message,
+  }));
+  return apiError(422, "VALIDATION_FAILED", message, { fields });
 }
 
-/** 422 — body is well-formed but fails schema/domain validation. */
-export function validationFailed(fields: FieldError[], message = "The request is invalid.") {
-  return new ApiError(422, "VALIDATION_FAILED", message, { fields });
-}
-
-/** 503 — a runtime dependency (here, the database) is unavailable. */
-export function dependencyUnavailable(message = "A required dependency is unavailable.") {
-  return new ApiError(503, "DEPENDENCY_UNAVAILABLE", message);
+/** Default stable error code for a bare HTTP status (non-`ApiError` throws). */
+export function codeForStatus(status: number): string {
+  switch (status) {
+    case 400:
+      return "INVALID_REQUEST";
+    case 401:
+      return "UNAUTHENTICATED";
+    case 403:
+      return "FORBIDDEN";
+    case 404:
+      return "NOT_FOUND";
+    case 409:
+      return "CONFLICT";
+    case 422:
+      return "VALIDATION_FAILED";
+    case 429:
+      return "RATE_LIMITED";
+    case 502:
+      return "DEPENDENCY_BAD_RESPONSE";
+    case 503:
+      return "DEPENDENCY_UNAVAILABLE";
+    default:
+      return "INTERNAL";
+  }
 }

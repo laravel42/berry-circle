@@ -15,6 +15,13 @@
       "when": 1787374974602,
       "tag": "0001_stormy_spyke",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787386605448,
+      "tag": "0002_smiling_kate_bishop",
+      "breakpoints": true
     }
   ]
 }
