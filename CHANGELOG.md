@@ -56,6 +56,13 @@ the initial gateway service groundwork.
   fault-isolated resource cleanup, abort-timeout hardening on body reads, and assertions
   on `usage.input_tokens` / `usage.output_tokens` (the Berry token-total dependency) —
   BERR-18 ([#12]).
+- Gateway session authentication — `POST /api/v1/auth/login` (email → session token + user),
+  `GET /api/v1/auth/me`, and `POST /api/v1/auth/logout`, backed by opaque 256-bit bearer
+  tokens whose SHA-256 hash alone is stored (`sessions.token_hash`), with expiry enforced on
+  every request and revocation on logout. Adds `requireAuth`/`requireRole` route guards
+  (exported for other routers) and a `users.role` column (`admin`/`member`, default `member`,
+  migration `0002`) plumbed through login, `me`, and the request context. New config keys
+  `DATABASE_URL` and `SESSION_TTL_HOURS` — BERR-24 ([#18]).
 
 ### Fixed
 
@@ -85,3 +92,4 @@ the initial gateway service groundwork.
 [#11]: https://github.com/laravel42/berry-circle/pull/11
 [#12]: https://github.com/laravel42/berry-circle/pull/12
 [#13]: https://github.com/laravel42/berry-circle/pull/13
+[#18]: https://github.com/laravel42/berry-circle/pull/18
