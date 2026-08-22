@@ -18,7 +18,13 @@ import type { BerryDb } from "~/db/client";
 import { comments } from "~/db/schema";
 import { requireActor, requireDb } from "~/http/context";
 import { forbidden, notFound, validationFailed } from "~/http/errors";
-import { buildConnection, decodeCursor, pageArgsSchema, scopeKey } from "~/http/pagination";
+import {
+  buildConnection,
+  decodeCursor,
+  pageArgsSchema,
+  scopeKey,
+  timestampIdKeySchema,
+} from "~/http/pagination";
 import { parseBody, parseQuery } from "~/http/validation";
 import { type RouteDeps, readJsonBody } from "~/routes/support";
 
@@ -39,7 +45,7 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
 
     const conditions: (SQL | undefined)[] = [eq(comments.issueId, issue.issue.id)];
     if (page.after) {
-      const [createdAt, id] = decodeCursor(scope, page.after);
+      const [createdAt, id] = decodeCursor(scope, page.after, timestampIdKeySchema);
       // Keyset seek at millisecond precision (see the note in issues.ts): both
       // sides truncated to ms, cursor timestamp bound as a string.
       conditions.push(
@@ -77,37 +83,44 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
     if (!issue) throw notFound("Issue not found.");
     const input = parseBody(createCommentSchema, await readJsonBody(c));
 
-    if (input.parentId) {
-      const [parent] = await db
-        .select({ id: comments.id, issueId: comments.issueId, parentId: comments.parentId })
-        .from(comments)
-        .where(eq(comments.id, input.parentId))
-        .limit(1);
-      if (!parent || parent.issueId !== issue.issue.id) {
-        throw notFound("Parent comment not found.");
+    // Validate the parent and insert in one transaction with the parent row
+    // locked, so a concurrent delete of the parent can't slip between the check
+    // and the insert and turn the parent FK into a 500 instead of a clean 4xx.
+    const comment = await db.transaction(async (tx) => {
+      if (input.parentId) {
+        const [parent] = await tx
+          .select({ id: comments.id, issueId: comments.issueId, parentId: comments.parentId })
+          .from(comments)
+          .where(eq(comments.id, input.parentId))
+          .for("update")
+          .limit(1);
+        if (!parent || parent.issueId !== issue.issue.id) {
+          throw notFound("Parent comment not found.");
+        }
+        if (parent.parentId !== null) {
+          // One-level threading: a reply cannot itself be a parent.
+          throw validationFailed([
+            {
+              path: "/parentId",
+              code: "invalid_parent",
+              message: "A reply cannot be nested under another reply.",
+            },
+          ]);
+        }
       }
-      if (parent.parentId !== null) {
-        // One-level threading: a reply cannot itself be a parent.
-        throw validationFailed([
-          {
-            path: "/parentId",
-            code: "invalid_parent",
-            message: "A reply cannot be nested under another reply.",
-          },
-        ]);
-      }
-    }
 
-    const [comment] = await db
-      .insert(comments)
-      .values({
-        issueId: issue.issue.id,
-        authorType: actor.type,
-        authorId: actor.id,
-        body: input.body,
-        parentId: input.parentId ?? null,
-      })
-      .returning();
+      const [row] = await tx
+        .insert(comments)
+        .values({
+          issueId: issue.issue.id,
+          authorType: actor.type,
+          authorId: actor.id,
+          body: input.body,
+          parentId: input.parentId ?? null,
+        })
+        .returning();
+      return row;
+    });
 
     const author = await resolveRefRequired(db, {
       type: comment.authorType,

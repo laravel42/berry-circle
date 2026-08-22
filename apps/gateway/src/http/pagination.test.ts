@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { ApiError } from "~/http/errors";
 import {
   buildConnection,
@@ -6,27 +7,30 @@ import {
   encodeCursor,
   pageArgsSchema,
   scopeKey,
+  timestampIdKeySchema,
 } from "~/http/pagination";
+
+const anySortKeySchema = z.array(z.union([z.string(), z.number()]));
 
 describe("cursor codec", () => {
   test("round-trips a sort key within the same scope", () => {
     const scope = scopeKey("issues", "updatedAt:desc,id:desc", { boardId: "b1" });
     const key = ["2026-08-22T06:30:00.000Z", "8138a662-f20f-41aa-bd5a-cf46e35ba952"];
-    expect(decodeCursor(scope, encodeCursor(scope, key))).toEqual(key);
+    expect(decodeCursor(scope, encodeCursor(scope, key), timestampIdKeySchema)).toEqual(key);
   });
 
   test("rejects a cursor minted for a different endpoint", () => {
     const cursor = encodeCursor(scopeKey("issues", "s", { boardId: "b1" }), ["x", "y"]);
-    expect(() => decodeCursor(scopeKey("issue-comments", "s", { boardId: "b1" }), cursor)).toThrow(
-      ApiError,
-    );
+    expect(() =>
+      decodeCursor(scopeKey("issue-comments", "s", { boardId: "b1" }), cursor, anySortKeySchema),
+    ).toThrow(ApiError);
   });
 
   test("rejects a cursor minted for a different filter set", () => {
     const cursor = encodeCursor(scopeKey("issues", "s", { status: ["todo"] }), ["x", "y"]);
     let code: string | undefined;
     try {
-      decodeCursor(scopeKey("issues", "s", { status: ["done"] }), cursor);
+      decodeCursor(scopeKey("issues", "s", { status: ["done"] }), cursor, anySortKeySchema);
     } catch (err) {
       code = (err as ApiError).code;
     }
@@ -34,7 +38,26 @@ describe("cursor codec", () => {
   });
 
   test("rejects a structurally invalid cursor", () => {
-    expect(() => decodeCursor("scope", "not-base64-$$$")).toThrow(ApiError);
+    expect(() => decodeCursor("scope", "not-base64-$$$", anySortKeySchema)).toThrow(ApiError);
+  });
+
+  // A cursor's scope is deterministic and client-reconstructible, so a matching
+  // scope must not be enough to trust the key: its contents feed ::timestamptz /
+  // ::uuid casts and would 500 on a bad value if not rejected up front.
+  test.each([
+    ["a non-timestamp head", ["not-a-timestamp", "8138a662-f20f-41aa-bd5a-cf46e35ba952"]],
+    ["a non-uuid tiebreak", ["2026-08-22T06:30:00.000Z", "nope"]],
+    ["an empty key", []],
+    ["an over-long key", ["2026-08-22T06:30:00.000Z", "8138a662-f20f-41aa-bd5a-cf46e35ba952", "x"]],
+  ])("rejects a correctly-scoped cursor with %s", (_label, key) => {
+    const scope = scopeKey("issues", "s", { boardId: "b1" });
+    let code: string | undefined;
+    try {
+      decodeCursor(scope, encodeCursor(scope, key as (string | number)[]), timestampIdKeySchema);
+    } catch (err) {
+      code = (err as ApiError).code;
+    }
+    expect(code).toBe("INVALID_CURSOR");
   });
 });
 

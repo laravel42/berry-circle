@@ -7,6 +7,7 @@ import {
   type IssueResource,
   makeTestContext,
   readJson,
+  tamperCursorKey,
 } from "./testkit";
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -135,6 +136,22 @@ describeIfDb("comment routes", () => {
     // ...in non-decreasing createdAt order (the documented sort).
     const times = all.map((n) => Date.parse(n.createdAt));
     expect(times).toEqual([...times].sort((a, b) => a - b));
+  });
+
+  test("GET list rejects a correctly-scoped cursor with malformed SQL keys", async () => {
+    const { user, issue } = await seedIssue();
+    await createComment(issue.id, ctx.userHeaders(user.id), { body: "one" });
+    await createComment(issue.id, ctx.userHeaders(user.id), { body: "two" });
+    const page = await readJson<CommentConnection>(
+      await ctx.app.request(`/api/v1/issues/${issue.id}/comments?first=1`),
+    );
+    const malformed = tamperCursorKey(page.pageInfo.endCursor ?? "", ["not-a-date", "not-a-uuid"]);
+
+    const response = await ctx.app.request(
+      `/api/v1/issues/${issue.id}/comments?first=1&after=${encodeURIComponent(malformed)}`,
+    );
+    expect(response.status).toBe(400);
+    expect((await readJson<ErrorEnvelope>(response)).error.code).toBe("INVALID_CURSOR");
   });
 
   test("GET a comment by id, or 404 when absent", async () => {

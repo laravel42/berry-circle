@@ -20,6 +20,18 @@ export async function readJson<T>(res: Response): Promise<T> {
 }
 
 /**
+ * Rewrites the key tuple of a real (server-issued) cursor while preserving its
+ * scope fingerprint — the way a client could reconstruct a valid scope but
+ * present a corrupt key. Used to prove the endpoints reject that with 400, not
+ * 500.
+ */
+export function tamperCursorKey(cursor: string, key: unknown): string {
+  const payload = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+  payload.k = key;
+  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+/**
  * Shared harness for the route/integration tests. Each suite gets its own
  * connection and a `createApp` wired to it, plus seed helpers that track what
  * they create so `cleanup()` can drop it (issues/comments cascade from boards).

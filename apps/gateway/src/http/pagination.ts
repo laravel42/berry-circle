@@ -12,6 +12,18 @@ import { invalidCursor } from "~/http/errors";
 /** The trailing sort-key tuple of a page's last node, e.g. `[updatedAtIso, id]`. */
 export type SortKey = (string | number)[];
 
+/**
+ * The sort-key shape used by every list endpoint: an RFC 3339 timestamp plus a
+ * UUID tiebreak. `decodeCursor` validates the decoded `k` against this before it
+ * is spliced into the seek SQL as `::timestamptz` / `::uuid`, so a cursor with a
+ * valid (client-reconstructible) scope but a corrupt key is rejected with
+ * `400 INVALID_CURSOR` instead of reaching Postgres and failing the cast (500).
+ */
+export const timestampIdKeySchema = z.tuple([
+  z.string().datetime({ offset: true }),
+  z.string().uuid(),
+]);
+
 interface CursorPayload {
   v: 1;
   /** Scope fingerprint: endpoint + sort + normalized filters. */
@@ -59,9 +71,17 @@ export function encodeCursor(scope: string, key: SortKey): string {
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
 }
 
-/** Decodes a cursor and verifies it belongs to `scope`, or throws
- * `400 INVALID_CURSOR`. */
-export function decodeCursor(scope: string, cursor: string): SortKey {
+/**
+ * Decodes a cursor, verifies it belongs to `scope`, and validates the key tuple
+ * against `keySchema` — throwing `400 INVALID_CURSOR` on any mismatch. Both the
+ * envelope (base64/JSON/version/scope) and the key *contents* are checked, so no
+ * unvalidated value is ever interpolated into the seek SQL.
+ */
+export function decodeCursor(
+  scope: string,
+  cursor: string,
+  keySchema: z.ZodType<SortKey>,
+): SortKey {
   let payload: unknown;
   try {
     payload = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
@@ -72,12 +92,15 @@ export function decodeCursor(scope: string, cursor: string): SortKey {
     typeof payload !== "object" ||
     payload === null ||
     (payload as CursorPayload).v !== 1 ||
-    (payload as CursorPayload).s !== scope ||
-    !Array.isArray((payload as CursorPayload).k)
+    (payload as CursorPayload).s !== scope
   ) {
     throw invalidCursor();
   }
-  return (payload as CursorPayload).k;
+  const key = keySchema.safeParse((payload as CursorPayload).k);
+  if (!key.success) {
+    throw invalidCursor();
+  }
+  return key.data as SortKey;
 }
 
 /**

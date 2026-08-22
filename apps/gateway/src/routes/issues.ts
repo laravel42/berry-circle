@@ -9,7 +9,13 @@ import { assertTransition } from "~/api/workflow";
 import { assignments, boards, issues, users } from "~/db/schema";
 import { requireActor, requireDb } from "~/http/context";
 import { notFound } from "~/http/errors";
-import { buildConnection, decodeCursor, pageArgsSchema, scopeKey } from "~/http/pagination";
+import {
+  buildConnection,
+  decodeCursor,
+  pageArgsSchema,
+  scopeKey,
+  timestampIdKeySchema,
+} from "~/http/pagination";
 import { parseBody, parseQuery } from "~/http/validation";
 import {
   type RouteDeps,
@@ -92,7 +98,7 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
       );
     }
     if (q.after) {
-      const [updatedAt, id] = decodeCursor(scope, q.after);
+      const [updatedAt, id] = decodeCursor(scope, q.after, timestampIdKeySchema);
       // Keyset seek at millisecond precision. JS Dates and API timestamps are
       // ms-precise while the stored value carries sub-ms microseconds; both
       // sides are truncated to ms so the boundary row is neither re-emitted nor
@@ -223,18 +229,6 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
     if (!found) throw notFound("Issue not found.");
     const input = parseBody(updateIssueSchema, await readJsonBody(c));
 
-    if (input.status !== undefined) {
-      assertTransition(statusToApi(found.issue.status), input.status);
-    }
-    if (input.assignee && input.assignee.type === "user") {
-      const [assignee] = await db
-        .select({ id: users.id })
-        .from(users)
-        .where(eq(users.id, input.assignee.id))
-        .limit(1);
-      if (!assignee) throw notFound("Assignee not found.");
-    }
-
     const patch: Partial<typeof issues.$inferInsert> = {};
     if (input.title !== undefined) patch.title = input.title;
     if (input.description !== undefined) patch.description = input.description;
@@ -248,6 +242,28 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
     }
 
     const updated = await db.transaction(async (tx) => {
+      // Lock the row and re-read the authoritative status inside the tx: the
+      // workflow gate must run against the committed state, or two concurrent
+      // PATCHes on the same issue could both pass and race the transition.
+      const [current] = await tx
+        .select({ status: issues.status })
+        .from(issues)
+        .where(eq(issues.id, found.issue.id))
+        .for("update")
+        .limit(1);
+      if (!current) throw notFound("Issue not found.");
+      if (input.status !== undefined) {
+        assertTransition(statusToApi(current.status), input.status);
+      }
+      if (input.assignee && input.assignee.type === "user") {
+        const [assignee] = await tx
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.id, input.assignee.id))
+          .limit(1);
+        if (!assignee) throw notFound("Assignee not found.");
+      }
+
       const [row] = await tx
         .update(issues)
         .set(patch)

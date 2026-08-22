@@ -7,6 +7,7 @@ import {
   type IssueResource,
   makeTestContext,
   readJson,
+  tamperCursorKey,
 } from "./testkit";
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
@@ -193,6 +194,23 @@ describeIfDb("issue routes", () => {
     );
     expect(crossScope.status).toBe(400);
     expect((await readJson<ErrorEnvelope>(crossScope)).error.code).toBe("INVALID_CURSOR");
+  });
+
+  test("GET list rejects a correctly-scoped cursor with malformed SQL keys", async () => {
+    const board = await ctx.seedBoard();
+    const user = await ctx.seedUser();
+    await createIssue(ctx.userHeaders(user.id), { boardId: board.id, title: "One" });
+    await createIssue(ctx.userHeaders(user.id), { boardId: board.id, title: "Two" });
+    const page = await readJson<IssueConnection>(
+      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&first=1`),
+    );
+    const malformed = tamperCursorKey(page.pageInfo.endCursor ?? "", ["not-a-date", "not-a-uuid"]);
+
+    const response = await ctx.app.request(
+      `/api/v1/issues?boardId=${board.id}&first=1&after=${encodeURIComponent(malformed)}`,
+    );
+    expect(response.status).toBe(400);
+    expect((await readJson<ErrorEnvelope>(response)).error.code).toBe("INVALID_CURSOR");
   });
 
   test("PATCH enforces the status workflow and applies valid changes", async () => {
