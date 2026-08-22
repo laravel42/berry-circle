@@ -1,4 +1,5 @@
 import { createApp } from "~/app";
+import { closeCache } from "~/cache";
 import { config } from "~/config";
 import { logger } from "~/logger";
 
@@ -15,6 +16,7 @@ logger.info({ port: server.port, hostname: server.hostname }, "berry-gateway lis
 async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
   await server.stop(); // no `true`: let in-flight requests drain
+  await closeCache();
   process.exit(0);
 }
 
