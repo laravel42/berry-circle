@@ -13,7 +13,8 @@ export function createApp() {
 
   app.use("*", requestId());
   app.use("*", observability());
-  app.use("*", cors());
+  // Expose the correlation headers so browser clients can read them cross-origin.
+  app.use("*", cors({ exposeHeaders: ["x-request-id", "x-trace-id"] }));
 
   app.route("/", health);
   app.route("/", metrics);

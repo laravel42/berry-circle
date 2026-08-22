@@ -6,6 +6,8 @@ import {
   formatTraceparent,
   getTraceHeaders,
   parseTraceparent,
+  recordOpenfangClientRequest,
+  renderMetrics,
   runWithContext,
   tracedFetch,
 } from "~/observability";
@@ -69,10 +71,25 @@ describe("GET /metrics", () => {
     expect(res.headers.get("content-type")).toContain("text/plain");
 
     const body = await res.text();
-    expect(body).toContain("http_server_request_duration");
+    // Assert the exact emitted series: a prefix match would pass with or without
+    // the `_seconds` unit suffix and could not catch instrument-name drift.
+    expect(body).toContain("http_server_request_duration_seconds_bucket");
+    expect(body).toContain("http_server_request_duration_seconds_count");
     expect(body).toContain("http_server_active_requests");
     // Resource attributes surface as the target_info metric.
     expect(body).toContain("berry-gateway");
+  });
+
+  it("names the OpenFang client histogram with the _seconds suffix", async () => {
+    recordOpenfangClientRequest({
+      method: "GET",
+      route: "GET /api/agents",
+      status: 200,
+      durationSeconds: 0.042,
+    });
+    const body = await renderMetrics();
+    expect(body).toContain("openfang_client_request_duration_seconds_bucket");
+    expect(body).toContain("openfang_client_request_duration_seconds_count");
   });
 });
 

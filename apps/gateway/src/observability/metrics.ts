@@ -18,9 +18,15 @@ export const PROMETHEUS_CONTENT_TYPE = "text/plain; version=0.0.4; charset=utf-8
 // Second-scale latency buckets; the OTel defaults are tuned for milliseconds.
 const DURATION_BUCKETS_SECONDS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 
-const HTTP_SERVER_DURATION = "http.server.request.duration";
+// The instrument name carries the `seconds` unit because
+// exporter-prometheus@0.221.0's serializer does NOT fold `unit:"s"` into the
+// series name (only `.`→`_`, and `_total` for counters) — it would surface a
+// unit only as an OpenMetrics `# UNIT` comment that the `version=0.0.4` text
+// format ignores. Baking the unit into the name yields the conventional
+// Prometheus `*_seconds` series that the docs and dashboards expect.
+const HTTP_SERVER_DURATION = "http.server.request.duration.seconds";
 const HTTP_SERVER_ACTIVE = "http.server.active_requests";
-const OPENFANG_CLIENT_DURATION = "openfang.client.request.duration";
+const OPENFANG_CLIENT_DURATION = "openfang.client.request.duration.seconds";
 
 interface MetricsState {
   provider: MeterProvider;
@@ -60,15 +66,14 @@ function build(): MetricsState {
   const meter = provider.getMeter(config.SERVICE_NAME);
 
   const httpServerDuration = meter.createHistogram(HTTP_SERVER_DURATION, {
-    description: "Duration of inbound HTTP requests handled by the gateway.",
-    unit: "s",
+    description: "Duration in seconds of inbound HTTP requests handled by the gateway.",
   });
   const httpServerActive = meter.createUpDownCounter(HTTP_SERVER_ACTIVE, {
     description: "Number of in-flight inbound HTTP requests.",
   });
   const openfangClientDuration = meter.createHistogram(OPENFANG_CLIENT_DURATION, {
-    description: "Duration of outbound requests from the gateway to the OpenFang substrate.",
-    unit: "s",
+    description:
+      "Duration in seconds of outbound requests from the gateway to the OpenFang substrate.",
   });
 
   return {
