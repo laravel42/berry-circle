@@ -7,10 +7,21 @@ type CheckResult = {
   detail: string;
 };
 
+function positiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(`${name}="${raw}" is not a positive number; falling back to ${fallback} ms`);
+    return fallback;
+  }
+  return parsed;
+}
+
 const baseUrl = (process.env.OPENFANG_BASE_URL ?? "http://127.0.0.1:4200").replace(/\/$/, "");
 const apiKey = process.env.OPENFANG_API_KEY;
-const timeoutMs = Number(process.env.OPENFANG_SMOKE_TIMEOUT_MS ?? 30_000);
-const llmTimeoutMs = Number(process.env.OPENFANG_SMOKE_LLM_TIMEOUT_MS ?? 120_000);
+const timeoutMs = positiveIntEnv("OPENFANG_SMOKE_TIMEOUT_MS", 30_000);
+const llmTimeoutMs = positiveIntEnv("OPENFANG_SMOKE_LLM_TIMEOUT_MS", 120_000);
 const runId = crypto.randomUUID().slice(0, 8);
 const agentName = `berry-smoke-${runId}`;
 const modelProvider = process.env.OPENFANG_SMOKE_PROVIDER ?? "lmstudio";
@@ -64,13 +75,17 @@ function stringField(value: Json, field: string, label: string) {
   return candidate;
 }
 
-async function request(
-  method: string,
-  path: string,
-  options: { body?: Json; expected?: number; timeout?: number; accept?: string } = {},
-) {
+type RequestOptions = { body?: Json; expected?: number; timeout?: number; accept?: string };
+
+// The abort timer must stay armed until the caller has fully consumed the body,
+// otherwise a stalled upstream would hang `response.json()`/`response.text()`
+// after the headers arrive. `request()` therefore hands back a `dispose()` the
+// caller MUST invoke once the body is read (or the read has failed).
+async function request(method: string, path: string, options: RequestOptions = {}) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeout ?? timeoutMs);
+  const timeout = options.timeout ?? timeoutMs;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  const dispose = () => clearTimeout(timer);
   try {
     const headers = new Headers({ Accept: options.accept ?? "application/json" });
     if (apiKey) headers.set("Authorization", `Bearer ${apiKey}`);
@@ -88,18 +103,28 @@ async function request(
         `${method} ${path} returned ${response.status}, expected ${expected}: ${responseBody}`,
       );
     }
-    return response;
-  } finally {
-    clearTimeout(timer);
+    // Timer intentionally left armed; the caller disposes after reading the body.
+    return { response, dispose, controller };
+  } catch (error) {
+    dispose();
+    if (controller.signal.aborted) {
+      throw new Error(`${method} ${path} timed out after ${timeout} ms`);
+    }
+    throw error;
   }
 }
 
-async function json(method: string, path: string, options: Parameters<typeof request>[2] = {}) {
-  const response = await request(method, path, options);
+async function json(method: string, path: string, options: RequestOptions = {}) {
+  const { response, dispose, controller } = await request(method, path, options);
   try {
     return (await response.json()) as Json;
   } catch {
+    if (controller.signal.aborted) {
+      throw new Error(`${method} ${path} timed out while reading the response body`);
+    }
     throw new Error(`${method} ${path} did not return valid JSON`);
+  } finally {
+    dispose();
   }
 }
 
@@ -151,18 +176,36 @@ function manifest() {
   ].join("\n");
 }
 
-async function parseSse(response: Response) {
+async function parseSse(response: Response, controller: AbortController) {
   assert(
     response.headers.get("content-type")?.includes("text/event-stream"),
     "stream must use text/event-stream",
   );
-  const raw = await response.text();
+  let raw: string;
+  try {
+    raw = await response.text();
+  } catch {
+    if (controller.signal.aborted) throw new Error("stream timed out before completing");
+    throw new Error("stream body could not be read");
+  }
   const events = raw
     .split(/\r?\n\r?\n/)
     .map((block) => {
-      const event = block.match(/^event:\s*(.+)$/m)?.[1];
-      const data = block.match(/^data:\s*(.+)$/m)?.[1];
-      if (!event || !data) return undefined;
+      // Per the SSE spec an event may carry several `data:` lines that are
+      // concatenated with "\n"; collect them all rather than only the first.
+      let event: string | undefined;
+      const dataLines: string[] = [];
+      for (const line of block.split(/\r?\n/)) {
+        const eventMatch = line.match(/^event: ?(.*)$/);
+        if (eventMatch) {
+          event = eventMatch[1];
+          continue;
+        }
+        const dataMatch = line.match(/^data: ?(.*)$/);
+        if (dataMatch) dataLines.push(dataMatch[1]);
+      }
+      if (!event || dataLines.length === 0) return undefined;
+      const data = dataLines.join("\n");
       try {
         return { event, data: JSON.parse(data) as Json };
       } catch {
@@ -176,7 +219,14 @@ async function parseSse(response: Response) {
     done,
     `stream ended without done event (received: ${events.map((event) => event.event).join(", ")})`,
   );
-  assert(object(done.data, "done event").done === true, "done event must contain done=true");
+  const doneData = object(done.data, "done event");
+  assert(doneData.done === true, "done event must contain done=true");
+  const usage = object(doneData.usage, "done event usage");
+  assert(typeof usage.input_tokens === "number", "done event usage.input_tokens must be a number");
+  assert(
+    typeof usage.output_tokens === "number",
+    "done event usage.output_tokens must be a number",
+  );
 }
 
 await bootStack();
@@ -319,12 +369,20 @@ await check("chat completion", async () => {
 
 await check("agent SSE stream", async () => {
   assert(agentId, "agent create check failed");
-  const response = await request("POST", `/api/agents/${agentId}/message/stream`, {
-    timeout: llmTimeoutMs,
-    accept: "text/event-stream",
-    body: { message: "Reply with the single word berry." },
-  });
-  await parseSse(response);
+  const { response, dispose, controller } = await request(
+    "POST",
+    `/api/agents/${agentId}/message/stream`,
+    {
+      timeout: llmTimeoutMs,
+      accept: "text/event-stream",
+      body: { message: "Reply with the single word berry." },
+    },
+  );
+  try {
+    await parseSse(response, controller);
+  } finally {
+    dispose();
+  }
 });
 
 await check("agent stop", async () => {
@@ -363,22 +421,38 @@ await check("session/audit/usage", async () => {
 });
 
 await check("cleanup", async () => {
+  // Each resource is torn down independently: a failed workflow delete must not
+  // skip the agent delete, or the disposable `berry-smoke-<runId>` agent would
+  // leak on the shared OpenFang instance (unique names mean it is never reclaimed).
+  const failures: string[] = [];
+
   if (workflowId) {
-    const removed = await json("DELETE", `/api/workflows/${workflowId}`);
-    assert(
-      object(removed, "deleted workflow").status === "removed",
-      "workflow cleanup status must equal removed",
-    );
-    workflowId = undefined;
+    try {
+      const removed = await json("DELETE", `/api/workflows/${workflowId}`);
+      assert(
+        object(removed, "deleted workflow").status === "removed",
+        "workflow cleanup status must equal removed",
+      );
+      workflowId = undefined;
+    } catch (error) {
+      failures.push(`workflow ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
+
   if (agentId) {
-    const removed = await json("DELETE", `/api/agents/${agentId}`);
-    assert(
-      object(removed, "deleted agent").status === "killed",
-      "agent cleanup status must equal killed",
-    );
-    agentId = undefined;
+    try {
+      const removed = await json("DELETE", `/api/agents/${agentId}`);
+      assert(
+        object(removed, "deleted agent").status === "killed",
+        "agent cleanup status must equal killed",
+      );
+      agentId = undefined;
+    } catch (error) {
+      failures.push(`agent ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
+
+  assert(failures.length === 0, `cleanup failed: ${failures.join("; ")}`);
 });
 
 const passed = results.filter((result) => result.status === "pass").length;
