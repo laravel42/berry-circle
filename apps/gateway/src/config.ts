@@ -7,6 +7,9 @@ const envSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace"]).default("info"),
   OPENFANG_BASE_URL: z.string().url().default("http://localhost:4200"),
   OPENFANG_API_KEY: z.string().optional(),
+  // Berry-owned Postgres. Optional so health checks and unit tests run with no
+  // database; routes that touch storage return 503 DEPENDENCY_UNAVAILABLE when unset.
+  DATABASE_URL: z.string().url().optional(),
 });
 
 export type Config = z.infer<typeof envSchema>;
