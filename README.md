@@ -147,6 +147,7 @@ against data you want to keep.
 - [OpenFang integration spec](docs/integrations/berry-openfang.md)
 - [Gateway API contract](docs/api/gateway-v1.md)
 - [Coding playbook](docs/coding-playbook.md)
+- [Release-readiness report template](docs/release-readiness-report-template.md)
 
 ## Licensing
 
