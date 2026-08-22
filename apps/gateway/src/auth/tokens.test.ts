@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { extractBearerToken, generateSessionToken, hashToken, tokenHashesEqual } from "./tokens";
+import { extractBearerToken, generateSessionToken, hashToken } from "./tokens";
 
 describe("generateSessionToken", () => {
   test("produces unique, high-entropy URL-safe tokens", () => {
@@ -23,15 +23,6 @@ describe("hashToken", () => {
 
   test("different tokens hash differently", () => {
     expect(hashToken(generateSessionToken())).not.toBe(hashToken(generateSessionToken()));
-  });
-});
-
-describe("tokenHashesEqual", () => {
-  test("matches equal hashes and rejects mismatches", () => {
-    const hash = hashToken("token");
-    expect(tokenHashesEqual(hash, hashToken("token"))).toBe(true);
-    expect(tokenHashesEqual(hash, hashToken("other"))).toBe(false);
-    expect(tokenHashesEqual(hash, "short")).toBe(false);
   });
 });
 

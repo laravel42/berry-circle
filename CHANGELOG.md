@@ -61,8 +61,13 @@ the initial gateway service groundwork.
   tokens whose SHA-256 hash alone is stored (`sessions.token_hash`), with expiry enforced on
   every request and revocation on logout. Adds `requireAuth`/`requireRole` route guards
   (exported for other routers) and a `users.role` column (`admin`/`member`, default `member`,
-  migration `0002`) plumbed through login, `me`, and the request context. New config keys
-  `DATABASE_URL` and `SESSION_TTL_HOURS` — BERR-24 ([#18]).
+  migration `0002`) plumbed through login, `me`, and the request context. The credential-less
+  login path is gated behind `AUTH_ALLOW_PASSWORDLESS_LOGIN` (off by default, hard-ignored
+  under `NODE_ENV=production`, else `403 PASSWORDLESS_LOGIN_DISABLED`). Error responses now
+  carry the contract-required `error.requestId` (matching `X-Request-Id`) and `error.details`,
+  rendered centrally in `app.onError`. New config keys `DATABASE_URL`, `SESSION_TTL_HOURS`,
+  and `AUTH_ALLOW_PASSWORDLESS_LOGIN`; `DATABASE_URL` is required at boot in production —
+  BERR-24 ([#18]).
 
 ### Fixed
 

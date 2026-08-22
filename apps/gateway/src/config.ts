@@ -12,6 +12,14 @@ const envSchema = z.object({
   DATABASE_URL: z.string().url().optional(),
   // Lifetime of a login session before its token expires. 720h = 30 days.
   SESSION_TTL_HOURS: z.coerce.number().int().positive().default(720),
+  // Opt-in for the insecure, credential-less "log in by known email" path. Off by
+  // default and NEVER honored under NODE_ENV=production (see passwordlessLoginAllowed),
+  // so the no-credentials mode can never reach a production deploy silently. `z.coerce
+  // .boolean()` is intentionally avoided — it treats the string "false" as truthy.
+  AUTH_ALLOW_PASSWORDLESS_LOGIN: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
 });
 
 export type Config = z.infer<typeof envSchema>;
@@ -26,3 +34,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
 }
 
 export const config = loadConfig();
+
+/**
+ * Whether the credential-less "log in by known email" path may be used.
+ * Requires the explicit opt-in AND a non-production environment: the flag is
+ * hard-ignored under `NODE_ENV=production` so the insecure mode cannot ship.
+ */
+export function passwordlessLoginAllowed(cfg: Config = config): boolean {
+  return cfg.AUTH_ALLOW_PASSWORDLESS_LOGIN && cfg.NODE_ENV !== "production";
+}

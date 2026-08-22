@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 /**
  * Session token primitives.
@@ -21,16 +21,6 @@ export function generateSessionToken(): string {
 /** Returns the hex SHA-256 hash of a token, as stored in `sessions.token_hash`. */
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
-}
-
-/** Constant-time comparison of two token hashes. */
-export function tokenHashesEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) {
-    return false;
-  }
-  return timingSafeEqual(bufA, bufB);
 }
 
 /**

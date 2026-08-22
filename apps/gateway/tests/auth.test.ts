@@ -7,19 +7,23 @@ import { createApp } from "~/app";
 import { requireAuth, requireRole } from "~/auth/middleware";
 import { hashToken } from "~/auth/tokens";
 import type { AuthEnv } from "~/auth/types";
+import { passwordlessLoginAllowed } from "~/config";
 import { closeDb } from "~/db/client";
 import { sessions, users } from "~/db/schema";
 
 /**
  * Auth endpoint + middleware coverage (BERR-24).
  *
- * The guard/validation cases run without a database because they short-circuit
- * before any DB access. The full login → me → logout flow, expiry, and role
- * plumbing are integration tests gated on DATABASE_URL, matching the pattern in
+ * The guard/validation/envelope cases run without a database because they
+ * short-circuit before any DB access. The full login → me → logout flow,
+ * expiry, and role plumbing are integration tests gated on both DATABASE_URL
+ * and the passwordless-login opt-in, matching the self-skip pattern in
  * `src/db/schema.constraints.test.ts` so a plain `bun test` stays green.
  */
 
-type ErrorEnvelope = { error: { code: string; message: string; details?: unknown } };
+type ErrorEnvelope = {
+  error: { code: string; message: string; requestId?: unknown; details?: unknown };
+};
 
 /** Asserts a value is defined and returns it narrowed, without `!`. */
 function must<T>(value: T | undefined | null): T {
@@ -29,7 +33,7 @@ function must<T>(value: T | undefined | null): T {
   return value;
 }
 
-describe("auth guards (no database required)", () => {
+describe("auth guards + error envelope (no database required)", () => {
   test("GET /api/v1/auth/me without a token is 401 UNAUTHENTICATED", async () => {
     const app = createApp();
     const res = await app.request("/api/v1/auth/me");
@@ -88,10 +92,51 @@ describe("auth guards (no database required)", () => {
     const body = (await res.json()) as ErrorEnvelope;
     expect(body.error.code).toBe("INVALID_REQUEST");
   });
+
+  test("error envelope carries requestId (body + X-Request-Id header) and details", async () => {
+    const app = createApp();
+    const res = await app.request("/api/v1/auth/me");
+    const headerId = res.headers.get("x-request-id");
+    expect(headerId).toBeTruthy();
+    const body = (await res.json()) as ErrorEnvelope;
+    expect(typeof body.error.requestId).toBe("string");
+    expect(body.error.requestId).toBe(headerId);
+    // `details` is a required key of the envelope: null when there is none.
+    expect(body.error.details).toBeNull();
+  });
+
+  test("404 uses the same envelope with a requestId", async () => {
+    const app = createApp();
+    const res = await app.request("/no-such-route");
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as ErrorEnvelope;
+    expect(body.error.code).toBe("NOT_FOUND");
+    expect(typeof body.error.requestId).toBe("string");
+    expect(body.error.requestId).toBe(res.headers.get("x-request-id"));
+  });
+});
+
+const loginDisabled = !passwordlessLoginAllowed();
+const describeIfLoginDisabled = loginDisabled ? describe : describe.skip;
+
+describeIfLoginDisabled("passwordless login disabled (default / production)", () => {
+  test("POST /api/v1/auth/login with a valid email is 403 PASSWORDLESS_LOGIN_DISABLED", async () => {
+    const app = createApp();
+    const res = await app.request("/api/v1/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email: "someone@example.test" }),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as ErrorEnvelope;
+    expect(body.error.code).toBe("PASSWORDLESS_LOGIN_DISABLED");
+  });
 });
 
 const databaseUrl = process.env.DATABASE_URL;
-const describeIfDb = databaseUrl ? describe : describe.skip;
+// Integration tests need a database AND the passwordless path enabled — run them
+// with `AUTH_ALLOW_PASSWORDLESS_LOGIN=true DATABASE_URL=... bun test`.
+const describeIfDb = databaseUrl && passwordlessLoginAllowed() ? describe : describe.skip;
 
 describeIfDb("auth flow (integration)", () => {
   const client = postgres(databaseUrl ?? "", { max: 1 });
@@ -229,7 +274,8 @@ describeIfDb("auth flow (integration)", () => {
     const asMember = await roleApp.request("/admin-only", {
       headers: { authorization: `Bearer ${memberToken}` },
     });
+    // Status-only assertion: this bare app exercises the guard, not the central
+    // envelope renderer (covered by the no-DB envelope test above).
     expect(asMember.status).toBe(403);
-    expect(((await asMember.json()) as ErrorEnvelope).error.code).toBe("FORBIDDEN");
   });
 });

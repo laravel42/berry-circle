@@ -1,4 +1,4 @@
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, eq, gt, lt, sql } from "drizzle-orm";
 import { generateSessionToken, hashToken } from "~/auth/tokens";
 import type { AuthUser } from "~/auth/types";
 import { config } from "~/config";
@@ -68,8 +68,10 @@ export async function createSession(
 
 /**
  * Resolves a raw bearer token to its user, or null when the token is unknown
- * or its session has expired. Expiry is enforced in the query, so an expired
- * token never authenticates even before the row is swept.
+ * or its session has expired. Expiry is enforced in the query (`expires_at >
+ * now()`), so an expired token never authenticates. Note expired rows are not
+ * deleted here — they linger until `logout` or a `deleteExpiredSessions()`
+ * sweep runs.
  */
 export async function resolveSession(token: string): Promise<AuthUser | null> {
   const db = getDb();
@@ -86,4 +88,20 @@ export async function resolveSession(token: string): Promise<AuthUser | null> {
 export async function revokeSession(token: string): Promise<void> {
   const db = getDb();
   await db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token)));
+}
+
+/**
+ * Deletes all sessions whose expiry has passed and returns the number removed.
+ * Expiry is already enforced at resolve time, so this is pure housekeeping to
+ * keep the `sessions` table from growing without bound; it is index-backed by
+ * `sessions_expires_at_idx`. Intended to be driven by a scheduled job (a
+ * periodic sweeper is a tracked follow-up, not wired up in this issue).
+ */
+export async function deleteExpiredSessions(now: Date = new Date()): Promise<number> {
+  const db = getDb();
+  const deleted = await db
+    .delete(sessions)
+    .where(lt(sessions.expiresAt, now))
+    .returning({ id: sessions.id });
+  return deleted.length;
 }
