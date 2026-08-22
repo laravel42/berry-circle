@@ -257,14 +257,31 @@ await check("agent create/list/get/update", async () => {
   const fetched = await json("GET", `/api/agents/${agentId}`);
   assert(stringField(fetched, "id", "fetched agent") === agentId, "fetched agent id must match");
 
-  const updated = await json("PUT", `/api/agents/${agentId}/update`, {
+  // Agent-update contract (BERR-49), reconciled against the pinned router.
+  // The legacy `PUT /api/agents/{id}/update` DTO requires a full `manifest_toml`,
+  // so a partial body is rejected 422 (`missing field manifest_toml`) — it is NOT
+  // a partial patch. Guard that so the adapter never regresses to it.
+  const rejected = await request("PUT", `/api/agents/${agentId}/update`, {
     body: { description: "Berry smoke update", tags: ["berry-smoke"] },
+    expected: 422,
+    accept: "*/*",
   });
+  rejected.dispose();
+
+  // Partial field edits go through `PATCH /api/agents/{id}` → `{ status: "ok" }`,
+  // applied in place and observable via GET.
+  const newDescription = "Berry smoke update (patched)";
+  const patched = await json("PATCH", `/api/agents/${agentId}`, {
+    body: { description: newDescription },
+  });
+  assert(object(patched, "patched agent").status === "ok", "agent patch status must equal ok");
+  assert(object(patched, "patched agent").agent_id === agentId, "patched agent id must match");
+
+  const refetched = await json("GET", `/api/agents/${agentId}`);
   assert(
-    object(updated, "updated agent").status === "updated",
-    "agent update status must equal updated",
+    object(refetched, "refetched agent").description === newDescription,
+    "PATCH description must be observable via GET",
   );
-  assert(object(updated, "updated agent").agent_id === agentId, "updated agent id must match");
 });
 
 await check("agent memory lifecycle", async () => {

@@ -22,13 +22,17 @@ testing. `OPENFANG_BASE_URL`, `OPENFANG_API_KEY`, `OPENFANG_SMOKE_PROVIDER`,
 ## Result
 
 The API process at `http://127.0.0.1:4200` reported version `0.6.9`. The live run
-passed 7 of 11 groups: health, memory lifecycle, workflow lifecycle, model
-discovery, stop, session/audit/usage, and cleanup.
+passed 8 of 11 groups: health, agent create/list/get/update, memory lifecycle,
+workflow lifecycle, model discovery, stop, session/audit/usage, and cleanup.
 
-Four groups failed:
+The agent-update contract is now reconciled (BERR-49): the runner asserts that the
+legacy `PUT /api/agents/{id}/update` rejects a partial body with `422` (it requires
+a full `manifest_toml`) and that partial field edits go through
+`PATCH /api/agents/{id}`, which returns `{ "status": "ok" }` and is observable via
+`GET`.
 
-- Agent update returned `422` because the pinned API requires
-  `manifest_toml`, contrary to the documented partial-update body (BERR-49).
+Three groups failed, all from the same provider outage:
+
 - Chat completion returned `500` because the configured `lmstudio` provider
   targeted `http://localhost:1234/v1/chat/completions`, where no model server
   was available.
