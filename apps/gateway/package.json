@@ -12,7 +12,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "test": "bun test",
-    "test:smoke:openfang": "bun test ./tests/openfang-smoke.ts",
+    "test:smoke:openfang": "bun run tests/openfang-smoke.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/db/migrate.ts"
   },
