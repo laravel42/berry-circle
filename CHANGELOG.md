@@ -56,6 +56,18 @@ the initial gateway service groundwork.
   fault-isolated resource cleanup, abort-timeout hardening on body reads, and assertions
   on `usage.input_tokens` / `usage.output_tokens` (the Berry token-total dependency) —
   BERR-18 ([#12]).
+- Gateway session authentication — `POST /api/v1/auth/login` (email → session token + user),
+  `GET /api/v1/auth/me`, and `POST /api/v1/auth/logout`, backed by opaque 256-bit bearer
+  tokens whose SHA-256 hash alone is stored (`sessions.token_hash`), with expiry enforced on
+  every request and revocation on logout. Adds `requireAuth`/`requireRole` route guards
+  (exported for other routers) and a `users.role` column (`admin`/`member`, default `member`,
+  migration `0002`) plumbed through login, `me`, and the request context. The credential-less
+  login path is gated behind `AUTH_ALLOW_PASSWORDLESS_LOGIN` (off by default, hard-ignored
+  under `NODE_ENV=production`, else `403 PASSWORDLESS_LOGIN_DISABLED`). Error responses now
+  carry the contract-required `error.requestId` (matching `X-Request-Id`) and `error.details`,
+  rendered centrally in `app.onError`. New config keys `DATABASE_URL`, `SESSION_TTL_HOURS`,
+  and `AUTH_ALLOW_PASSWORDLESS_LOGIN`; `DATABASE_URL` is required at boot in production —
+  BERR-24 ([#18]).
 - Gateway observability — structured Pino request logging (one `request.completed` line per
   request with `requestId`, `traceId`, matched `route`, `status`, `durationMs`; secrets
   redacted), W3C trace propagation to the OpenFang adapter via an `AsyncLocalStorage`
@@ -93,4 +105,5 @@ the initial gateway service groundwork.
 [#11]: https://github.com/laravel42/berry-circle/pull/11
 [#12]: https://github.com/laravel42/berry-circle/pull/12
 [#13]: https://github.com/laravel42/berry-circle/pull/13
+[#18]: https://github.com/laravel42/berry-circle/pull/18
 [#22]: https://github.com/laravel42/berry-circle/pull/22
