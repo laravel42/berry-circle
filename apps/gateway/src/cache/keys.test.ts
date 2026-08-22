@@ -16,10 +16,9 @@ describe("fingerprint", () => {
     );
   });
 
-  it("ignores undefined and null values (absent filter === null filter)", () => {
-    expect(fingerprint({ first: 50, after: undefined, query: null })).toBe(
-      fingerprint({ first: 50 }),
-    );
+  it("ignores undefined values but preserves explicit null filters", () => {
+    expect(fingerprint({ first: 50, after: undefined })).toBe(fingerprint({ first: 50 }));
+    expect(fingerprint({ first: 50, query: null })).not.toBe(fingerprint({ first: 50 }));
   });
 
   it("distinguishes different parameter values", () => {

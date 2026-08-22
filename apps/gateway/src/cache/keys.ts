@@ -29,8 +29,9 @@ export type CacheParams = Record<string, unknown>;
 /**
  * Canonical, order-independent fingerprint of a set of query parameters.
  *
- * Keys are sorted; `undefined`/`null` values are dropped (an absent filter and
- * an explicitly-null filter address the same cached page); array values are
+ * Keys are sorted; `undefined` values are dropped while explicit `null` values
+ * are preserved (an absent filter and a null filter may select different
+ * resources); array values are
  * serialized in place (callers that treat arrays as sets should pre-sort). The
  * result is a 32-hex-char (128-bit) SHA-256 prefix — collision-safe for our
  * parameter space while keeping keys short.
@@ -39,7 +40,7 @@ export function fingerprint(params: CacheParams = {}): string {
   const normalized: Record<string, unknown> = {};
   for (const key of Object.keys(params).sort()) {
     const value = params[key];
-    if (value === undefined || value === null) continue;
+    if (value === undefined) continue;
     normalized[key] = value;
   }
   const canonical = JSON.stringify(normalized);
