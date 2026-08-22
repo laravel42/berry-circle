@@ -37,7 +37,7 @@ export default function Profile() {
                />
                <SettingsRow
                   title="Full name"
-                  trailing={<Input defaultValue="LN" className="h-8 w-44" />}
+                  trailing={<Input placeholder="Your name" className="h-8 w-44" />}
                />
                <SettingsRow
                   title="Title"
@@ -47,7 +47,7 @@ export default function Profile() {
                <SettingsRow
                   title="Username"
                   description="One word, like a nickname or first name"
-                  trailing={<Input defaultValue="ln" className="h-8 w-44" />}
+                  trailing={<Input placeholder="username" className="h-8 w-44" />}
                />
             </SettingsCard>
          </SettingsSection>

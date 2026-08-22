@@ -1,7 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { KeyRound, Laptop, Smartphone } from 'lucide-react';
+import { KeyRound } from 'lucide-react';
 import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 
 /** Personal "Security & access" settings (sessions, passkeys, API keys). */
@@ -10,32 +10,7 @@ export default function AccountSecurity() {
       <SettingsShell title="Security & access">
          <SettingsSection title="Sessions" description="Devices logged into your account">
             <SettingsCard>
-               <SettingsRow
-                  icon={<Laptop className="size-4" />}
-                  title="Chrome on macOS"
-                  description={
-                     <span className="inline-flex items-center gap-1.5">
-                        <span className="size-1.5 rounded-full bg-[#00cc66]" />
-                        <span className="text-[#00a05a]">Current session</span> · Paris, FR · (EN,
-                        FR)
-                     </span>
-                  }
-               />
-            </SettingsCard>
-            <SettingsCard>
-               <SettingsRow
-                  title="1 other session"
-                  trailing={
-                     <Button size="xs" variant="ghost">
-                        Revoke all
-                     </Button>
-                  }
-               />
-               <SettingsRow
-                  icon={<Smartphone className="size-4" />}
-                  title="Berry iOS"
-                  description="Paris, FR · Last seen about 3 hours ago"
-               />
+               <SettingsRow title="No sessions yet" description="Active sessions will appear here" />
             </SettingsCard>
          </SettingsSection>
 
@@ -57,28 +32,17 @@ export default function AccountSecurity() {
 
          <SettingsSection
             title="Personal API keys"
-            description="Use the GraphQL API to build your own integrations"
+            description="Use the API to build your own integrations"
          >
             <SettingsCard>
                <SettingsRow
-                  title="1 API key"
+                  icon={<KeyRound className="size-4" />}
+                  title="No API keys"
                   trailing={
                      <Button size="xs" variant="ghost">
                         New API key
                      </Button>
                   }
-               />
-               <SettingsRow
-                  icon={<KeyRound className="size-4" />}
-                  title={
-                     <>
-                        LNDEV_PERSONAL_API_KEY
-                        <span className="text-xs text-muted-foreground font-normal">
-                           · full access · public & private teams
-                        </span>
-                     </>
-                  }
-                  description="Created 2 months ago · last used on Jul 16, 2026"
                />
             </SettingsCard>
          </SettingsSection>

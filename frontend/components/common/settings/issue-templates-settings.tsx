@@ -4,12 +4,8 @@ import { Button } from '@/components/ui/button';
 import { FileText, Plus } from 'lucide-react';
 import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 
-/** Invented workspace issue templates. */
-const TEMPLATES = [
-   { name: 'Bug report intake', meta: 'Created by sophia.reed 1 year ago' },
-   { name: 'Component feature request', meta: 'Created by mason.carter 1 year ago' },
-   { name: 'Release checklist', meta: 'Updated by alex.zhang 2 years ago' },
-];
+/** Populated via the gateway API at runtime. */
+const TEMPLATES: { name: string; meta: string }[] = [];
 
 /** Workspace "Issue templates" settings. */
 export default function IssueTemplatesSettings() {
@@ -21,7 +17,7 @@ export default function IssueTemplatesSettings() {
          <SettingsSection>
             <SettingsCard>
                <SettingsRow
-                  title={`${TEMPLATES.length} issue templates`}
+                  title={`${TEMPLATES.length} issue template${TEMPLATES.length === 1 ? '' : 's'}`}
                   trailing={
                      <Button size="icon" variant="ghost" className="size-7">
                         <Plus className="size-4" />

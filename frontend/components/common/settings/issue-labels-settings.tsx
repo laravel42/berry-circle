@@ -7,29 +7,6 @@ import { labels } from '@/data/labels';
 import { useMemo, useState } from 'react';
 import { SelectMenu } from './shared';
 
-/** Invented descriptions for a few labels (Linear shows a Description column). */
-const DESCRIPTIONS: Record<string, string> = {
-   bug: 'Something is broken and needs a fix',
-   accessibility: 'Keyboard, focus and screen-reader work',
-   performance: 'Speed, memory and bundle size work',
-};
-
-const hashString = (value: string): number => {
-   let hash = 0;
-   for (let i = 0; i < value.length; i++) hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
-   return hash;
-};
-
-const LAST_APPLIED = [
-   '12 minutes ago',
-   '41 minutes ago',
-   '3 hours ago',
-   '17 hours ago',
-   '2 days ago',
-   '6 days ago',
-];
-const CREATED = ['Sep 2023', 'Jan 2024', 'Jun 2024', 'Feb 2025', 'Jun 2025', 'Jul 12'];
-
 const formatCount = (count: number) =>
    count >= 1000 ? `${(count / 1000).toFixed(1)}K` : String(count);
 
@@ -48,9 +25,6 @@ export default function IssueLabelsSettings() {
          .map((label) => ({
             ...label,
             issues: counts.get(label.id) ?? 0,
-            description: DESCRIPTIONS[label.id],
-            lastApplied: LAST_APPLIED[hashString(label.id) % LAST_APPLIED.length],
-            created: CREATED[hashString(label.name) % CREATED.length],
          }))
          .filter((label) => label.name.toLowerCase().includes(query.toLowerCase()))
          .sort((a, b) => a.name.localeCompare(b.name));
@@ -82,10 +56,7 @@ export default function IssueLabelsSettings() {
             {/* Header */}
             <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground border-b">
                <div className="flex-1 min-w-0">Name ↓</div>
-               <div className="hidden md:block w-[260px]">Description</div>
                <div className="w-[70px]">Issues</div>
-               <div className="hidden sm:block w-[110px]">Last applied</div>
-               <div className="w-[80px]">Created</div>
             </div>
 
             {rows.map((label) => (
@@ -100,16 +71,9 @@ export default function IssueLabelsSettings() {
                      />
                      <span className="truncate">{label.name}</span>
                   </div>
-                  <div className="hidden md:block w-[260px] text-xs text-muted-foreground truncate pr-4">
-                     {label.description}
-                  </div>
                   <div className="w-[70px] text-xs text-muted-foreground">
                      {label.issues > 0 && formatCount(label.issues)}
                   </div>
-                  <div className="hidden sm:block w-[110px] text-xs text-muted-foreground">
-                     {label.issues > 0 && label.lastApplied}
-                  </div>
-                  <div className="w-[80px] text-xs text-muted-foreground">{label.created}</div>
                </div>
             ))}
             {rows.length === 0 && (

@@ -8,12 +8,12 @@ const CHANNELS = [
    {
       icon: <Monitor className="size-4" />,
       title: 'Desktop',
-      status: 'Enabled for assignments, status changes, 13 others',
+      status: 'Enabled for assignments and status changes',
    },
    {
       icon: <Smartphone className="size-4" />,
       title: 'Mobile',
-      status: 'Enabled for assignments, status changes, 13 others',
+      status: 'Enabled for assignments and status changes',
    },
    { icon: <Mail className="size-4" />, title: 'Email', status: 'Enabled for all notifications' },
    { icon: <Slack className="size-4" />, title: 'Slack', status: 'Enabled for all notifications' },
