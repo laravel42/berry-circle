@@ -74,7 +74,9 @@ services:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-berry}"
       POSTGRES_DB: "${POSTGRES_DB:-berry}"
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # Loopback-only: default creds are weak dev creds, so never expose Postgres
+      # beyond the local host. The gateway reaches it via localhost.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - berry-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -93,7 +95,9 @@ services:
     image: valkey/valkey:8-alpine
     command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
     ports:
-      - "${VALKEY_PORT:-6379}:6379"
+      # Loopback-only: Valkey runs without auth here, so never expose it beyond
+      # the local host. The gateway reaches it via localhost.
+      - "127.0.0.1:${VALKEY_PORT:-6379}:6379"
     volumes:
       - berry-valkey:/data
     healthcheck:

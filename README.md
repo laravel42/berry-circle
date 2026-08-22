@@ -19,15 +19,21 @@ OpenFang's API.
 `docker-compose.yml` stands up the substrate and the backing services Berry builds
 against:
 
-| Service | Image / source | Host port | Purpose |
+| Service | Image / source | Host bind | Purpose |
 | ------- | -------------- | --------- | ------- |
 | `openfang` | built from pinned commit `acf2587e` | `4200` | Agent kernel + REST/WS/SSE + OpenAI-compatible API |
-| `postgres` | `postgres:16-alpine` | `5432` | Berry's durable product state (ADR-0002) |
-| `valkey` | `valkey/valkey:8-alpine` | `6379` | Shared cache + ephemeral coordination (ADR-0002) |
+| `postgres` | `postgres:16-alpine` | `127.0.0.1:5432` | Berry's durable product state (ADR-0002) |
+| `valkey` | `valkey/valkey:8-alpine` | `127.0.0.1:6379` | Shared cache + ephemeral coordination (ADR-0002) |
 
 OpenFang keeps its own state in a SQLite database on the `openfang-data` volume; it does
 **not** use the Berry Postgres or Valkey instances. Postgres and Valkey are Berry's own
 backing services (consumed by `apps/gateway`).
+
+Postgres and Valkey run with weak/no auth for local development, so their published ports
+are **bound to `127.0.0.1`** — reachable from the host (and the host-run gateway) but never
+from the LAN. OpenFang publishes on all interfaces because it enforces auth on its API; set
+`OPENFANG_API_KEY` before exposing the host on an untrusted network (see
+[Securing the API](#troubleshooting)).
 
 ### The OpenFang pin
 
@@ -123,11 +129,12 @@ against data you want to keep.
   `0.0.0.0:4200` (set by the compose file); the loopback default is unreachable through a
   published port.
 - **Securing the API** — with `OPENFANG_API_KEY` empty, requests OpenFang sees as
-  loopback pass without a key (Docker port-forwarded requests from the host often appear
-  as loopback, so `curl localhost:4200/api/agents` may return `200`). Genuinely
-  non-loopback clients are rejected with `401` (fail-closed). To require a key from every
-  client, set `OPENFANG_API_KEY` and send `Authorization: Bearer <key>`; `/api/health`
-  always stays public.
+  loopback pass without a key (Docker port-forwarded requests often appear as loopback, so
+  `curl localhost:4200/api/agents` may return `200`). Because that source-masking can also
+  hide a LAN client's real address behind the Docker proxy, do **not** rely on the
+  fail-closed guard when the host is on an untrusted network: set `OPENFANG_API_KEY` and
+  send `Authorization: Bearer <key>` so every non-`/api/health` route requires it.
+  `/api/health` always stays public.
 - **Container can't reach a host-run vLLM/Ollama** — use `host.docker.internal`, not
   `localhost`, in `VLLM_BASE_URL` / `OLLAMA_BASE_URL`.
 - **Port already in use** — override `OPENFANG_PORT`, `POSTGRES_PORT`, or `VALKEY_PORT`
