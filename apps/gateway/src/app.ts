@@ -5,8 +5,17 @@ import { logger as honoLogger } from "hono/logger";
 import { requestId } from "hono/request-id";
 import { logger } from "~/logger";
 import { health } from "~/routes/health";
+import { runEventsRoutes } from "~/routes/run-events";
+import type { RunEventStream } from "~/runs/event-store";
 
-export function createApp() {
+export interface CreateAppOptions {
+  /** Run event source for the SSE stream; defaults to the process-wide store. */
+  runEventStore?: RunEventStream;
+  /** Server-Sent Events tuning. */
+  sse?: { heartbeatMs?: number };
+}
+
+export function createApp(options: CreateAppOptions = {}) {
   const app = new Hono();
 
   app.use("*", requestId());
@@ -17,6 +26,10 @@ export function createApp() {
   app.use("*", cors());
 
   app.route("/", health);
+  app.route(
+    "/",
+    runEventsRoutes({ store: options.runEventStore, heartbeatMs: options.sse?.heartbeatMs }),
+  );
 
   app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Route not found" } }, 404));
 
