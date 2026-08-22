@@ -56,6 +56,14 @@ the initial gateway service groundwork.
   fault-isolated resource cleanup, abort-timeout hardening on body reads, and assertions
   on `usage.input_tokens` / `usage.output_tokens` (the Berry token-total dependency) —
   BERR-18 ([#12]).
+- Gateway issue & comment CRUD endpoints (`/api/v1/issues`, `/api/v1/comments`) backed by
+  Postgres, per the gateway contract: identifier-or-UUID lookup, server-side issue-number
+  allocation, filtered listing with opaque millisecond-precise cursor pagination,
+  workflow-enforced status transitions, one-level comment threading, the shared
+  `ErrorEnvelope`, and Zod request validation — with unit and DB-gated route tests. The
+  request/response schemas are a self-contained slice pending the shared DTO module
+  (BERR-22); a temporary actor header seam stands in for session auth (BERR-24) —
+  BERR-23 ([#23]).
 
 ### Fixed
 
@@ -85,3 +93,4 @@ the initial gateway service groundwork.
 [#11]: https://github.com/laravel42/berry-circle/pull/11
 [#12]: https://github.com/laravel42/berry-circle/pull/12
 [#13]: https://github.com/laravel42/berry-circle/pull/13
+[#23]: https://github.com/laravel42/berry-circle/pull/23
