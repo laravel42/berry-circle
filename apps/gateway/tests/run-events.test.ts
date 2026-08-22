@@ -117,6 +117,21 @@ describe("GET /api/v1/runs/:runId/events — stream framing", () => {
 });
 
 describe("GET /api/v1/runs/:runId/events — resume", () => {
+  it("closes immediately when reconnecting after the terminal event", async () => {
+    const completed = runCompleted(1);
+    const { app } = setup(
+      (s) => {
+        s.append(runCreated(0));
+        s.append(completed);
+      },
+      { heartbeatMs: 20 },
+    );
+    const res = await app.request(path, { headers: { "Last-Event-ID": completed.id } });
+    const frames = parseSseFrames(await res.text());
+    expect(frames.some((frame) => frame.comments.includes("heartbeat"))).toBe(false);
+    expect(eventNames(frames)).toEqual([]);
+  });
+
   it("replays only events after a Last-Event-ID cursor", async () => {
     const created = runCreated(0);
     const { app } = setup((s) => {

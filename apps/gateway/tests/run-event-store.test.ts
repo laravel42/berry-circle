@@ -76,9 +76,47 @@ describe("InMemoryRunEventStream — retention", () => {
       expect(withCursor.ok).toBe(false);
     });
   });
+
+  it("evicts a terminal run after all retained events expire", () => {
+    let now = 1_000_000;
+    const store = new InMemoryRunEventStream({ retentionMs: 1000, now: () => now });
+    store.append(runCompleted(0));
+    expect(store.hasRun(RUN_ID)).toBe(true);
+
+    now += 2000;
+    expect(store.hasRun(RUN_ID)).toBe(false);
+    expect(store.open(RUN_ID)).toEqual({ ok: false, reason: "not_found" });
+  });
 });
 
 describe("InMemoryRunEventStream — live follow", () => {
+  it("does not materialize an unknown run when opened", () => {
+    const store = new InMemoryRunEventStream();
+    expect(store.open(RUN_ID)).toEqual({ ok: false, reason: "not_found" });
+    expect(store.hasRun(RUN_ID)).toBe(false);
+  });
+
+  it("closes a terminal subscription after its buffered events are drained", async () => {
+    const store = new InMemoryRunEventStream();
+    store.append(runCreated(0));
+    const completed = runCompleted(1);
+    store.append(completed);
+    const opened = store.open(RUN_ID, { afterCursor: completed.id });
+    if (!opened.ok) throw new Error("expected open to succeed");
+    expect((await opened.subscription.next(1000)).kind).toBe("closed");
+  });
+
+  it("disconnects a subscriber whose live buffer reaches its bound", async () => {
+    const store = new InMemoryRunEventStream({ maxBufferedEvents: 2 });
+    store.ensureRun(RUN_ID);
+    const opened = store.open(RUN_ID);
+    if (!opened.ok) throw new Error("expected open to succeed");
+
+    store.append(runOutputDelta(0, "one"));
+    store.append(runOutputDelta(1, "two"));
+    store.append(runOutputDelta(2, "overflow"));
+    expect((await opened.subscription.next(10)).kind).toBe("closed");
+  });
   it("delivers events appended after open, in order after any backlog", async () => {
     const store = new InMemoryRunEventStream();
     const created = runCreated(0);

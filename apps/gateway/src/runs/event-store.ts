@@ -11,7 +11,9 @@
 // without touching the route.
 
 import type { RunEventEnvelope } from "~/runs/events";
-import { DEFAULT_RETENTION_MS } from "~/runs/events";
+import { DEFAULT_RETENTION_MS, isTerminalRunEventType } from "~/runs/events";
+
+const DEFAULT_MAX_BUFFERED_EVENTS = 1024;
 
 /** One pull from a subscription: the next event, an idle tick, or the end. */
 export type NextResult =
@@ -36,7 +38,7 @@ export interface RunEventSubscription {
 
 export type OpenResult =
   | { ok: true; subscription: RunEventSubscription }
-  | { ok: false; reason: "cursor_expired" };
+  | { ok: false; reason: "cursor_expired" | "not_found" };
 
 export interface RunEventStream {
   /** Whether the run is known to the store (has been created or has events). */
@@ -62,6 +64,7 @@ interface StoredEvent {
 interface RunLog {
   events: StoredEvent[];
   subscriptions: Set<InMemorySubscription>;
+  terminal: boolean;
 }
 
 class InMemorySubscription implements RunEventSubscription {
@@ -73,6 +76,8 @@ class InMemorySubscription implements RunEventSubscription {
   constructor(
     backlog: readonly RunEventEnvelope[],
     private readonly onClose: () => void,
+    private readonly isTerminal: () => boolean,
+    private readonly maxBufferedEvents: number,
   ) {
     this.buffer = [...backlog];
   }
@@ -83,6 +88,13 @@ class InMemorySubscription implements RunEventSubscription {
     if (this.waiter) {
       this.settle({ kind: "event", event });
     } else {
+      // A stalled reader must not grow a per-connection queue without bound.
+      // Closing is lossless from the client's perspective: it reconnects with
+      // its last delivered event id and the retained store supplies the gap.
+      if (this.buffer.length >= this.maxBufferedEvents) {
+        this.close();
+        return;
+      }
       this.buffer.push(event);
     }
   }
@@ -94,6 +106,10 @@ class InMemorySubscription implements RunEventSubscription {
     const buffered = this.buffer.shift();
     if (buffered) {
       return Promise.resolve({ kind: "event", event: buffered });
+    }
+    if (this.isTerminal()) {
+      this.close();
+      return Promise.resolve({ kind: "closed" });
     }
     return new Promise<NextResult>((resolve) => {
       this.waiter = resolve;
@@ -126,19 +142,29 @@ export interface InMemoryRunEventStreamOptions {
   retentionMs?: number;
   /** Injectable clock for deterministic retention tests. */
   now?: () => number;
+  /** Maximum live events queued for a stalled subscriber before disconnect. */
+  maxBufferedEvents?: number;
 }
 
 export class InMemoryRunEventStream implements RunEventStream {
   private readonly runs = new Map<string, RunLog>();
   private readonly retentionMs: number;
   private readonly now: () => number;
+  private readonly maxBufferedEvents: number;
 
   constructor(options: InMemoryRunEventStreamOptions = {}) {
     this.retentionMs = options.retentionMs ?? DEFAULT_RETENTION_MS;
     this.now = options.now ?? (() => Date.now());
+    this.maxBufferedEvents = options.maxBufferedEvents ?? DEFAULT_MAX_BUFFERED_EVENTS;
+    if (!Number.isInteger(this.maxBufferedEvents) || this.maxBufferedEvents < 1) {
+      throw new RangeError("maxBufferedEvents must be a positive integer");
+    }
   }
 
   hasRun(runId: string): boolean {
+    const log = this.runs.get(runId);
+    if (!log) return false;
+    this.prune(runId, log);
     return this.runs.has(runId);
   }
 
@@ -149,15 +175,20 @@ export class InMemoryRunEventStream implements RunEventStream {
   append(event: RunEventEnvelope): void {
     const log = this.getOrCreate(event.runId);
     log.events.push({ event, storedAtMs: this.now() });
-    this.prune(log);
+    if (isTerminalRunEventType(event.type)) {
+      log.terminal = true;
+    }
+    this.prune(event.runId, log);
     for (const subscription of log.subscriptions) {
       subscription.deliver(event);
     }
   }
 
   open(runId: string, opts: { afterCursor?: string } = {}): OpenResult {
-    const log = this.getOrCreate(runId);
-    this.prune(log);
+    const log = this.runs.get(runId);
+    if (!log) return { ok: false, reason: "not_found" };
+    this.prune(runId, log);
+    if (!this.runs.has(runId)) return { ok: false, reason: "not_found" };
 
     const afterCursor = opts.afterCursor;
     let backlog: RunEventEnvelope[];
@@ -174,9 +205,15 @@ export class InMemoryRunEventStream implements RunEventStream {
       backlog = log.events.map((stored) => stored.event);
     }
 
-    const subscription = new InMemorySubscription(backlog, () => {
-      log.subscriptions.delete(subscription);
-    });
+    const subscription = new InMemorySubscription(
+      backlog,
+      () => {
+        log.subscriptions.delete(subscription);
+        this.prune(runId, log);
+      },
+      () => log.terminal,
+      this.maxBufferedEvents,
+    );
     log.subscriptions.add(subscription);
     return { ok: true, subscription };
   }
@@ -186,13 +223,13 @@ export class InMemoryRunEventStream implements RunEventStream {
     if (existing) {
       return existing;
     }
-    const created: RunLog = { events: [], subscriptions: new Set() };
+    const created: RunLog = { events: [], subscriptions: new Set(), terminal: false };
     this.runs.set(runId, created);
     return created;
   }
 
   /** Drop events older than the retention window (they lead the array). */
-  private prune(log: RunLog): void {
+  private prune(runId: string, log: RunLog): void {
     const cutoff = this.now() - this.retentionMs;
     let removeCount = 0;
     while (removeCount < log.events.length && log.events[removeCount].storedAtMs < cutoff) {
@@ -200,6 +237,9 @@ export class InMemoryRunEventStream implements RunEventStream {
     }
     if (removeCount > 0) {
       log.events.splice(0, removeCount);
+    }
+    if (log.terminal && log.events.length === 0 && log.subscriptions.size === 0) {
+      this.runs.delete(runId);
     }
   }
 }

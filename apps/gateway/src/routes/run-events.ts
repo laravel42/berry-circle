@@ -25,7 +25,6 @@ import {
   HEARTBEAT_FRAME,
   RETRY_DIRECTIVE,
   formatEventFrame,
-  isTerminalRunEventType,
 } from "~/runs/events";
 
 export interface RunEventsRouteOptions {
@@ -92,6 +91,9 @@ export function runEventsRoutes(options: RunEventsRouteOptions = {}) {
 
     const opened = store.open(runId, { afterCursor: cursor });
     if (!opened.ok) {
+      if (opened.reason === "not_found") {
+        return errorResponse(c, 404, "NOT_FOUND", "Run not found.");
+      }
       return errorResponse(
         c,
         409,
@@ -113,44 +115,41 @@ export function runEventsRoutes(options: RunEventsRouteOptions = {}) {
     }
 
     const encoder = new TextEncoder();
+    let retrySent = false;
+    let streamClosed = false;
+    const cleanup = () => {
+      if (streamClosed) return;
+      streamClosed = true;
+      subscription.close();
+      signal.removeEventListener("abort", onAbort);
+    };
+
     const body = new ReadableStream<Uint8Array>({
-      start: async (controller) => {
-        const enqueue = (text: string): boolean => {
-          try {
-            controller.enqueue(encoder.encode(text));
-            return true;
-          } catch {
-            return false; // stream already closed / cancelled
-          }
-        };
-
-        try {
-          if (!enqueue(RETRY_DIRECTIVE)) return;
-
-          while (!signal.aborted) {
-            const item = await subscription.next(heartbeatMs);
-            if (item.kind === "closed") break;
-            if (item.kind === "idle") {
-              if (!enqueue(HEARTBEAT_FRAME)) break;
-              continue;
-            }
-            if (!enqueue(formatEventFrame(item.event))) break;
-            // A run-specific stream terminates once the run reaches a terminal
-            // event; there is nothing further to follow.
-            if (isTerminalRunEventType(item.event.type)) break;
-          }
-        } finally {
-          subscription.close();
-          signal.removeEventListener("abort", onAbort);
-          try {
-            controller.close();
-          } catch {
-            // already closed
-          }
+      // Pull-based production honors the consumer's desired size. The store
+      // independently caps its live subscriber buffer, so a stalled socket is
+      // bounded at both layers.
+      pull: async (controller) => {
+        if (streamClosed) return;
+        if (!retrySent) {
+          retrySent = true;
+          controller.enqueue(encoder.encode(RETRY_DIRECTIVE));
+          return;
         }
+
+        const item = await subscription.next(heartbeatMs);
+        if (item.kind === "closed" || signal.aborted) {
+          cleanup();
+          controller.close();
+          return;
+        }
+        if (item.kind === "idle") {
+          controller.enqueue(encoder.encode(HEARTBEAT_FRAME));
+          return;
+        }
+        controller.enqueue(encoder.encode(formatEventFrame(item.event)));
       },
       cancel: () => {
-        subscription.close();
+        cleanup();
       },
     });
 
