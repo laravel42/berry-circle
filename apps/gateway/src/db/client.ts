@@ -1,4 +1,4 @@
-import { drizzle } from "drizzle-orm/postgres-js";
+import { type PostgresJsDatabase, drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { config } from "~/config";
 import * as schema from "~/db/schema";
@@ -13,12 +13,19 @@ import * as schema from "~/db/schema";
  * needs the database fails fast here with a clear message instead.
  */
 
+export type BerryDb = PostgresJsDatabase<typeof schema>;
+export type Database = BerryDb;
+
+/** Builds a database handle for an explicit connection string (used by tests
+ * that connect to an ephemeral Postgres). */
+export function createDb(databaseUrl: string, max = 10): BerryDb {
+  return drizzle(postgres(databaseUrl, { max }), { schema });
+}
+
 let pool: ReturnType<typeof postgres> | undefined;
-let db: ReturnType<typeof drizzle<typeof schema>> | undefined;
+let db: BerryDb | undefined;
 
-export type Database = ReturnType<typeof drizzle<typeof schema>>;
-
-export function getDb(): Database {
+export function getDb(): BerryDb {
   if (!db) {
     if (!config.DATABASE_URL) {
       throw new Error("DATABASE_URL is not configured; this endpoint requires a database.");

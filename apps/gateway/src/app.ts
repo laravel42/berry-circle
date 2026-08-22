@@ -2,13 +2,17 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { HTTPException } from "hono/http-exception";
 import { requestId } from "hono/request-id";
+import type { BerryDb } from "~/db/client";
 import { ApiError, codeForStatus } from "~/http/errors";
 import { logger } from "~/logger";
 import { observability } from "~/observability";
 import { auth } from "~/routes/auth";
+import { makeCommentRoutes } from "~/routes/comments";
 import { health } from "~/routes/health";
+import { makeIssueRoutes } from "~/routes/issues";
 import { metrics } from "~/routes/metrics";
 import { runEventsRoutes } from "~/routes/run-events";
+import type { RouteDeps } from "~/routes/support";
 import type { RunEventStream } from "~/runs/event-store";
 import type { AppEnv } from "~/types";
 
@@ -17,9 +21,14 @@ export interface CreateAppOptions {
   runEventStore?: RunEventStream;
   /** Server-Sent Events tuning. */
   sse?: { heartbeatMs?: number };
+  /** Injected DB for tests; production routes call `getDb()` via `requireDb`. */
+  db?: BerryDb | null;
 }
 
+export type AppDeps = RouteDeps;
+
 export function createApp(options: CreateAppOptions = {}) {
+  const deps: RouteDeps = { db: options.db ?? null };
   const app = new Hono<AppEnv>();
 
   app.use("*", requestId());
@@ -30,6 +39,8 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/", health);
   app.route("/", metrics);
   app.route("/api/v1/auth", auth);
+  app.route("/api/v1", makeIssueRoutes(deps));
+  app.route("/api/v1", makeCommentRoutes(deps));
   app.route(
     "/",
     runEventsRoutes({ store: options.runEventStore, heartbeatMs: options.sse?.heartbeatMs }),
