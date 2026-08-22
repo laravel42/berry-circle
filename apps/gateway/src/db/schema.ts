@@ -44,6 +44,15 @@ export const issuePriorityEnum = pgEnum("issue_priority", [
 
 export const assigneeTypeEnum = pgEnum("assignee_type", ["user", "agent"]);
 
+/** Authorization role carried by a Berry user (BERR-24). `admin` maps to the
+ * contract's "administrator permission"; `member` is the default workspace
+ * participant. Kept intentionally small — finer-grained board membership is a
+ * later product-layer concern (gateway-v1 contract, open question 3). */
+export const userRoleEnum = pgEnum("user_role", ["admin", "member"]);
+
+/** The set of authorization roles, derived from the enum so it never drifts. */
+export type UserRole = (typeof userRoleEnum.enumValues)[number];
+
 /** Shape stored in `boards.columns`; enforced at the DB level via a CHECK
  * that the column is a JSON array, and should also be validated with Zod
  * on every write path. */
@@ -61,6 +70,8 @@ export const users = pgTable(
     email: text("email").notNull(),
     name: text("name").notNull(),
     avatarUrl: text("avatar_url"),
+    /** Authorization role; new users default to `member`. */
+    role: userRoleEnum("role").notNull().default("member"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
