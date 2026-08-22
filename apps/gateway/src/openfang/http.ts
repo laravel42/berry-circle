@@ -155,6 +155,18 @@ export class HttpTransport {
         }
 
         const bodyText = await safeText(response);
+        // safeText swallows read failures; still honor the armed timeout so a
+        // hung error body is UPSTREAM_TIMEOUT (and retryable) rather than the
+        // HTTP status with an empty detail string.
+        if (spec.signal?.aborted && !state.timedOut) throw spec.signal.reason;
+        if (state.timedOut) {
+          const timeoutErr = this.transportError(spec, timeoutMs, true, undefined);
+          if (attempt < maxRetries) {
+            await this.backoff(spec, attempt, timeoutErr);
+            continue;
+          }
+          throw timeoutErr;
+        }
         const retryAfterMs =
           response.status === 429
             ? this.parseRetryAfter(response.headers.get("retry-after"))
@@ -204,6 +216,10 @@ export class HttpTransport {
     if (response.status !== expected) {
       const bodyText = await safeText(response);
       state.dispose();
+      if (spec.signal?.aborted && !state.timedOut) throw spec.signal.reason;
+      if (state.timedOut) {
+        throw this.transportError(spec, timeoutMs, true, undefined);
+      }
       throw OpenFangError.fromResponse(spec.method, spec.path, response.status, bodyText, {
         requestId,
       });

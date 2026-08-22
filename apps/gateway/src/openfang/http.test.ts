@@ -276,6 +276,30 @@ describe("transport — timeout", () => {
     expect(calls).toBe(2);
   });
 
+  it("classifies a timeout while reading a non-2xx body as UPSTREAM_TIMEOUT", async () => {
+    const fetch = async (_input: string | URL | Request, init?: RequestInit) => {
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          signal?.addEventListener(
+            "abort",
+            () => controller.error(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body, { status: 404, headers: { "content-type": "application/json" } });
+    };
+    const client = new OpenFangClient({
+      baseUrl: BASE,
+      fetch,
+      timeoutMs: 20,
+      retry: { maxRetries: 0 },
+    });
+    const err = await captureError(() => client.getAgent("agent-1"));
+    expect(err.code).toBe("UPSTREAM_TIMEOUT");
+  });
+
   it("preserves caller abort while consuming a successful JSON body", async () => {
     const controller = new AbortController();
     const reason = new Error("downstream gone");
