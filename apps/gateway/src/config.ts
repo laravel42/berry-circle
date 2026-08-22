@@ -1,5 +1,15 @@
 import { z } from "zod";
 
+// `z.coerce.boolean()` is unusable for env flags: it delegates to `Boolean(str)`,
+// so the string "false" coerces to `true`. Parse the common truthy spellings by hand.
+const boolFromEnv = (fallback: boolean) =>
+  z
+    .string()
+    .optional()
+    .transform((value) =>
+      value === undefined ? fallback : ["1", "true", "yes", "on"].includes(value.toLowerCase()),
+    );
+
 const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   HOST: z.string().default("0.0.0.0"),
@@ -20,6 +30,11 @@ const envSchema = z.object({
     .enum(["true", "false"])
     .default("false")
     .transform((v) => v === "true"),
+  // Observability (Pino logging + OpenTelemetry metrics).
+  SERVICE_NAME: z.string().default("berry-gateway"),
+  SERVICE_VERSION: z.string().default(process.env.npm_package_version ?? "0.1.0"),
+  METRICS_ENABLED: boolFromEnv(true),
+  METRICS_PATH: z.string().startsWith("/").default("/metrics"),
 });
 
 export type Config = z.infer<typeof envSchema>;

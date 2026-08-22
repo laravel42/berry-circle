@@ -2,6 +2,7 @@ import { createApp } from "~/app";
 import { config } from "~/config";
 import { closeDb } from "~/db/client";
 import { logger } from "~/logger";
+import { shutdownMetrics } from "~/observability";
 
 // Fail loudly on a misconfigured production deploy instead of turning every
 // DB-backed request into an opaque 500 (getDb throws) at runtime.
@@ -29,6 +30,7 @@ async function shutdown(signal: string) {
   logger.info({ signal }, "shutting down");
   await server.stop(); // no `true`: let in-flight requests drain
   await closeDb(); // release the DB pool if it was ever opened
+  await shutdownMetrics();
   process.exit(0);
 }
 

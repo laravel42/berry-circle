@@ -74,6 +74,7 @@ export const auth = new Hono<AuthEnv>()
       ip: clientIp(c.req.header("x-forwarded-for")),
     });
 
+    c.header("Cache-Control", "no-store");
     return c.json({ token, expiresAt: expiresAt.toISOString(), user: toUserDto(user) });
   })
   .post("/logout", requireAuth, async (c) => {

@@ -68,6 +68,14 @@ the initial gateway service groundwork.
   rendered centrally in `app.onError`. New config keys `DATABASE_URL`, `SESSION_TTL_HOURS`,
   and `AUTH_ALLOW_PASSWORDLESS_LOGIN`; `DATABASE_URL` is required at boot in production —
   BERR-24 ([#18]).
+- Gateway observability — structured Pino request logging (one `request.completed` line per
+  request with `requestId`, `traceId`, matched `route`, `status`, `durationMs`; secrets
+  redacted), W3C trace propagation to the OpenFang adapter via an `AsyncLocalStorage`
+  request context (`getTraceHeaders`/`tracedFetch`, `x-trace-id` response header), and a
+  Prometheus `GET /metrics` endpoint backed by OpenTelemetry (`http_server_request_duration
+  _seconds`, `http_server_active_requests`, `openfang_client_request_duration_seconds`).
+  New config: `SERVICE_NAME`, `SERVICE_VERSION`, `METRICS_ENABLED`, `METRICS_PATH` —
+  BERR-27 ([#22]).
 
 ### Fixed
 
@@ -98,3 +106,4 @@ the initial gateway service groundwork.
 [#12]: https://github.com/laravel42/berry-circle/pull/12
 [#13]: https://github.com/laravel42/berry-circle/pull/13
 [#18]: https://github.com/laravel42/berry-circle/pull/18
+[#22]: https://github.com/laravel42/berry-circle/pull/22

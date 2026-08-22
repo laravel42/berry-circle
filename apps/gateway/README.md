@@ -11,6 +11,7 @@ src/
   app.ts          # Hono app factory (middleware, routes, error handling)
   config.ts       # Zod-validated env config
   logger.ts       # Pino logger
+  types.ts        # Shared Hono app env (variables) type
   http/
     errors.ts     # envelope-shaped HTTPException helpers (apiError, validationError, …)
   auth/
@@ -23,12 +24,20 @@ src/
     client.ts     # lazy, pooled request-time drizzle handle (getDb)
     schema.ts     # drizzle schema (users/sessions/boards/issues/…)
     migrate.ts    # migration runner
+  observability/
+    context.ts    # AsyncLocalStorage request context + W3C traceparent helpers
+    metrics.ts    # OpenTelemetry meter + Prometheus exporter/serializer
+    middleware.ts # per-request logging + metrics + trace context
+    http.ts       # tracedFetch: instrumented outbound fetch for the OpenFang adapter
+    index.ts      # observability barrel export
   routes/
     health.ts     # GET /health
+    metrics.ts    # GET /metrics (Prometheus scrape)
     auth.ts       # POST /api/v1/auth/login, POST /logout, GET /me
 tests/
-  health.test.ts  # bun:test coverage for the health endpoint + 404 handler
-  auth.test.ts    # auth guards (no-DB) + login/me/logout/expiry/role (DB-gated)
+  health.test.ts        # health endpoint + error handler coverage
+  observability.test.ts # trace propagation, /metrics, request instrumentation
+  auth.test.ts          # auth guards (no-DB) + login/me/logout/expiry/role (DB-gated)
 ```
 
 ## Commands
@@ -51,6 +60,8 @@ Copy `.env.example` to `.env`. Key values:
 - `DATABASE_URL` — Berry-owned Postgres; optional so the app boots and `bun test` runs without a DB (request paths that need it fail fast). Required at boot under `NODE_ENV=production`.
 - `SESSION_TTL_HOURS` — login session lifetime before token expiry (default `720`, i.e. 30 days)
 - `AUTH_ALLOW_PASSWORDLESS_LOGIN` — opt-in for the credential-less login path (default off; hard-ignored in production). See below.
+- `SERVICE_NAME` (default `berry-gateway`), `SERVICE_VERSION` (defaults to the package version) — identify the service in logs and the `target_info` metric
+- `METRICS_ENABLED` (default `true`), `METRICS_PATH` (default `/metrics`)
 
 ## Authentication
 
@@ -97,6 +108,36 @@ as `{ error: { code, message, requestId, details } }`, where `requestId` matches
 `X-Request-Id` response header and `details` is `null` when absent — per the contract's
 `ErrorEnvelope`. Throw an `ApiError` (or the `unauthenticated()`/`forbidden()`/`validationError()`
 helpers in `~/http/errors`); the boundary stamps the request id and preserves the header.
+
+## Observability
+
+Structured logging, request tracing, and metrics live in `src/observability/`.
+
+**Logging** — Pino emits one structured `request.completed` line per request with
+`requestId`, `traceId`, `method`, `path`, matched `route`, `status`, and
+`durationMs`. `/health` and the metrics path log at `debug` to keep probe/scrape
+noise down; 4xx logs at `warn`, 5xx at `error`. Auth headers, cookies, and API
+keys are redacted.
+
+**Tracing** — each request establishes an `AsyncLocalStorage` context carrying a
+W3C trace. An inbound `traceparent` is continued; otherwise a fresh trace id is
+minted. The active trace id is echoed back as the `x-trace-id` response header.
+The OpenFang adapter propagates the trace upstream by routing calls through
+`tracedFetch` (or spreading `getTraceHeaders()` into its request headers), which
+also records the outbound-call metric.
+
+**Metrics** — an OpenTelemetry `MeterProvider` feeds a Prometheus exporter
+(`preventServerStart`) served on `GET /metrics` in the standard text exposition
+format. Instruments:
+
+| Metric | Type | Key attributes |
+| ------ | ---- | -------------- |
+| `http_server_request_duration_seconds` | histogram | `http_request_method`, `http_route`, `http_response_status_code` |
+| `http_server_active_requests` | gauge | — |
+| `openfang_client_request_duration_seconds` | histogram | `openfang_request_method`, `openfang_route`, `openfang_response_status_code` |
+
+Route labels use the matched Hono route pattern (not the raw path) to keep
+metric cardinality bounded.
 
 ## Docker
 
