@@ -8,9 +8,18 @@ import { observability } from "~/observability";
 import { auth } from "~/routes/auth";
 import { health } from "~/routes/health";
 import { metrics } from "~/routes/metrics";
+import { runEventsRoutes } from "~/routes/run-events";
+import type { RunEventStream } from "~/runs/event-store";
 import type { AppEnv } from "~/types";
 
-export function createApp() {
+export interface CreateAppOptions {
+  /** Run event source for the SSE stream; defaults to the process-wide store. */
+  runEventStore?: RunEventStream;
+  /** Server-Sent Events tuning. */
+  sse?: { heartbeatMs?: number };
+}
+
+export function createApp(options: CreateAppOptions = {}) {
   const app = new Hono<AppEnv>();
 
   app.use("*", requestId());
@@ -21,6 +30,10 @@ export function createApp() {
   app.route("/", health);
   app.route("/", metrics);
   app.route("/api/v1/auth", auth);
+  app.route(
+    "/",
+    runEventsRoutes({ store: options.runEventStore, heartbeatMs: options.sse?.heartbeatMs }),
+  );
 
   // 404s and errors share one envelope: { error: { code, message, requestId, details } }.
   // Rendering here (not via a pre-built Response) is what lets every error carry the
