@@ -38,12 +38,12 @@ export interface Cycle {
 /** Populated via the gateway API at runtime. */
 export const cycles: Cycle[] = [];
 
-export function getCurrentCycle(): Cycle {
-   return cycles[0] as unknown as Cycle;
+export function getCurrentCycle(): Cycle | undefined {
+   return cycles[0];
 }
 
-export function getUpcomingCycle(): Cycle {
-   return cycles[0] as unknown as Cycle;
+export function getUpcomingCycle(): Cycle | undefined {
+   return cycles[0];
 }
 
 export function getCycleById(id: string): Cycle | undefined {

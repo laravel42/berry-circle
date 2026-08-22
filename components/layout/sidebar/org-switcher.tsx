@@ -21,6 +21,7 @@ import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui
 import { CreateNewIssue } from './create-new-issue';
 import { ThemeToggle } from '../theme-toggle';
 import Link from 'next/link';
+import { WORKSPACE_NAME, WORKSPACE_SLUG } from '@/lib/config';
 
 export function OrgSwitcher() {
    return (
@@ -34,10 +35,10 @@ export function OrgSwitcher() {
                         className="h-8 p-1 data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
                      >
                         <div className="flex aspect-square size-6 items-center justify-center rounded bg-orange-500 text-sidebar-primary-foreground">
-                           LN
+                           {WORKSPACE_NAME.slice(0, 2).toUpperCase()}
                         </div>
                         <div className="grid flex-1 text-left text-sm leading-tight">
-                           <span className="truncate font-semibold">lndev-ui</span>
+                           <span className="truncate font-semibold">{WORKSPACE_NAME}</span>
                         </div>
                         <ChevronsUpDown className="ml-auto" />
                      </SidebarMenuButton>
@@ -55,7 +56,7 @@ export function OrgSwitcher() {
                >
                   <DropdownMenuGroup>
                      <DropdownMenuItem asChild>
-                        <Link href="/lndev-ui/settings">
+                        <Link href={`/${WORKSPACE_SLUG}/settings`}>
                            Settings
                            <DropdownMenuShortcut>G then S</DropdownMenuShortcut>
                         </Link>
@@ -71,13 +72,13 @@ export function OrgSwitcher() {
                      <DropdownMenuSubTrigger>Switch Workspace</DropdownMenuSubTrigger>
                      <DropdownMenuPortal>
                         <DropdownMenuSubContent>
-                           <DropdownMenuLabel>leonelngoya@gmail.com</DropdownMenuLabel>
+                           <DropdownMenuLabel>{WORKSPACE_NAME}</DropdownMenuLabel>
                            <DropdownMenuSeparator />
                            <DropdownMenuItem>
                               <div className="flex aspect-square size-6 items-center justify-center rounded bg-orange-500 text-sidebar-primary-foreground">
-                                 LN
+                                 {WORKSPACE_NAME.slice(0, 2).toUpperCase()}
                               </div>
-                              lndev-ui
+                              {WORKSPACE_NAME}
                            </DropdownMenuItem>
                            <DropdownMenuSeparator />
                            <DropdownMenuItem>Create or join workspace</DropdownMenuItem>

@@ -17,26 +17,27 @@ import {
    Zap,
    UserRound,
 } from 'lucide-react';
+import { WORKSPACE_SLUG } from '@/lib/config';
 
 export const inboxItems = [
    {
       name: 'Inbox',
-      url: '/lndev-ui/inbox',
+      url: `/${WORKSPACE_SLUG}/inbox`,
       icon: Inbox,
    },
    {
       name: 'Reviews',
-      url: '/lndev-ui/reviews',
+      url: `/${WORKSPACE_SLUG}/reviews`,
       icon: GitPullRequestArrow,
    },
    {
       name: 'My issues',
-      url: '/lndev-ui/my-issues',
+      url: `/${WORKSPACE_SLUG}/my-issues`,
       icon: FolderKanban,
    },
    {
       name: 'Agent',
-      url: '/lndev-ui/agent',
+      url: `/${WORKSPACE_SLUG}/agent`,
       icon: Bot,
    },
 ];
@@ -44,17 +45,17 @@ export const inboxItems = [
 export const workspaceItems = [
    {
       name: 'Teams',
-      url: '/lndev-ui/teams',
+      url: `/${WORKSPACE_SLUG}/teams`,
       icon: ContactRound,
    },
    {
       name: 'Projects',
-      url: '/lndev-ui/projects',
+      url: `/${WORKSPACE_SLUG}/projects`,
       icon: Box,
    },
    {
       name: 'Members',
-      url: '/lndev-ui/members',
+      url: `/${WORKSPACE_SLUG}/members`,
       icon: UserRound,
    },
 ];

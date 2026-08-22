@@ -14,7 +14,7 @@ export default function HeaderOptions({ cycleView }: { cycleView: CycleView }) {
    const { issues } = useIssuesStore();
 
    const cycle = cycleView === 'active' ? getCurrentCycle() : getUpcomingCycle();
-   const count = issues.filter((issue) => issue.cycleId === cycle.id).length;
+   const count = issues.filter((issue) => issue.cycleId === cycle?.id).length;
 
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">

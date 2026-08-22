@@ -1,5 +1,6 @@
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { redirect } from 'next/navigation';
 
 export default function OrgIdPage() {
-   redirect('lndev-ui/team/CORE/all');
+   redirect(`${WORKSPACE_SLUG}/teams`);
 }

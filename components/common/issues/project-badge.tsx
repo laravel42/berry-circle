@@ -1,10 +1,14 @@
 import { Badge } from '@/components/ui/badge';
 import { Project } from '@/lib/domain/projects';
 import Link from 'next/link';
+import { WORKSPACE_SLUG } from '@/lib/config';
 
 export function ProjectBadge({ project }: { project: Project }) {
    return (
-      <Link href={`/lndev-ui/projects/all`} className="flex items-center justify-center gap-.5">
+      <Link
+         href={`/${WORKSPACE_SLUG}/projects`}
+         className="flex items-center justify-center gap-.5"
+      >
          <Badge
             variant="outline"
             className="gap-1.5 rounded-full text-muted-foreground bg-background"

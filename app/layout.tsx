@@ -13,44 +13,27 @@ const geistMono = Geist_Mono({
    subsets: ['latin'],
 });
 
-const siteUrl = 'https://circle.lndev.me';
-
 export const metadata: Metadata = {
    title: {
-      template: '%s | Circle by lndev-ui',
-      default: 'Circle by lndev-ui',
+      template: '%s | Berry',
+      default: 'Berry',
    },
    description:
-      'Project management interface inspired by Linear. Built with Next.js and shadcn/ui, this application allows tracking of issues, projects and teams with a modern, responsive UI.',
+      'Berry — a Linear-style team workspace where humans and AI coding agents share one board. Built with Next.js and shadcn/ui.',
    openGraph: {
       type: 'website',
       locale: 'en_US',
-      url: siteUrl,
-      siteName: 'Circle',
+      siteName: 'Berry',
       images: [
          {
-            url: `${siteUrl}/banner.png`,
+            url: '/banner.png',
             width: 2560,
             height: 1440,
-            alt: 'lndev/ui',
+            alt: 'Berry',
          },
       ],
    },
-   twitter: {
-      card: 'summary_large_image',
-      site: '@ln_dev7',
-      creator: '@ln_dev7',
-      images: [
-         {
-            url: `${siteUrl}/banner.png`,
-            width: 2560,
-            height: 1440,
-            alt: 'Circle',
-         },
-      ],
-   },
-   authors: [{ name: 'Leonel NGOYA', url: 'https://lndev.me/' }],
-   keywords: ['ui', 'lndev', 'components', 'template'],
+   keywords: ['berry', 'project management', 'issues', 'team workspace'],
 };
 
 import { ThemeProvider } from '@/components/layout/theme-provider';

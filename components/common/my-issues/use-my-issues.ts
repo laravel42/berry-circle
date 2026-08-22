@@ -1,7 +1,7 @@
 'use client';
 
 import { Issue, issueCreatorIndex } from '@/lib/domain/issues';
-import { users } from '@/lib/domain/users';
+import { User, users } from '@/lib/domain/users';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 
 export const MY_ISSUES_TABS = ['assigned', 'created', 'subscribed', 'activity'] as const;
@@ -14,8 +14,8 @@ export const MY_ISSUES_TAB_ITEMS: { label: string; value: MyIssuesTab }[] = [
    { label: 'Activity', value: 'activity' },
 ];
 
-/** The "current" user of the mock workspace. */
-export const ME = users[0];
+/** The current user, once the gateway provides one. */
+export const ME = users[0] as User | undefined;
 
 /** Shared tab state (URL-backed) between the header and the page body. */
 export function useMyIssuesTab() {
@@ -24,13 +24,13 @@ export function useMyIssuesTab() {
 
 const isCreatedByMe = (issue: Issue): boolean => issueCreatorIndex(issue, users.length) === 0;
 const isSubscribed = (issue: Issue): boolean =>
-   issue.assignee?.id === ME.id || isCreatedByMe(issue) || issueCreatorIndex(issue, 7) === 3;
+   issue.assignee?.id === ME?.id || isCreatedByMe(issue) || issueCreatorIndex(issue, 7) === 3;
 
 /** Issues shown by each My issues tab. */
 export function scopeMyIssues(issues: Issue[], tab: MyIssuesTab): Issue[] {
    switch (tab) {
       case 'assigned':
-         return issues.filter((issue) => issue.assignee?.id === ME.id);
+         return issues.filter((issue) => issue.assignee?.id === ME?.id);
       case 'created':
          return issues.filter(isCreatedByMe);
       case 'subscribed':

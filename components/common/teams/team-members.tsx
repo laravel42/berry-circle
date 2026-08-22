@@ -12,7 +12,15 @@ import { useParams } from 'next/navigation';
  */
 export default function TeamMembers() {
    const { teamId } = useParams<{ orgId: string; teamId: string }>();
-   const team = teams.find((t) => t.id === teamId) ?? teams[0];
+   const team = teams.find((t) => t.id === teamId);
+
+   if (!team) {
+      return (
+         <div className="w-full px-6 py-6">
+            <p className="text-sm text-muted-foreground">Team not found.</p>
+         </div>
+      );
+   }
 
    const members = [...team.members].sort((a, b) => a.name.localeCompare(b.name));
 

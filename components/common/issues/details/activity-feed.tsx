@@ -3,7 +3,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActivityItem } from '@/lib/domain/issue-details';
-import { users } from '@/lib/domain/users';
+import { User, users } from '@/lib/domain/users';
 import {
    Ban,
    CircleDot,
@@ -83,11 +83,11 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
 export function ActivityFeed({ activity }: { activity: ActivityItem[] }) {
    const [items, setItems] = useState<ActivityItem[]>(activity);
    const [draft, setDraft] = useState('');
-   const currentUser = users[0];
+   const currentUser = users[0] as User | undefined;
 
    const submitComment = () => {
       const text = draft.trim();
-      if (!text) return;
+      if (!text || !currentUser) return;
       setItems((previous) => [
          ...previous,
          {

@@ -12,7 +12,7 @@ interface MemberLineProps {
    user: User;
 }
 
-/** "mason.carter" → "Mason Carter" (Linear shows display name + handle). */
+/** "jane.doe" → "Jane Doe" (Linear shows display name + handle). */
 const displayNameOf = (user: User) =>
    user.name
       .split('.')

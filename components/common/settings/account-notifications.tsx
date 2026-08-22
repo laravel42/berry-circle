@@ -42,8 +42,8 @@ export default function AccountNotifications() {
          </SettingsSection>
 
          <SettingsSection
-            title="Updates from LNDev UI"
-            description="Subscribe to product announcements and important changes from the LNDev UI team"
+            title="Updates from Berry"
+            description="Subscribe to product announcements and important changes from the Berry team"
          >
             <h3 className="text-sm font-medium mt-2">Changelog</h3>
             <SettingsCard>
@@ -63,7 +63,7 @@ export default function AccountNotifications() {
             <SettingsCard>
                <SettingsRow
                   title="Marketing and onboarding"
-                  description="Occasional updates to help you get the most out of LNDev UI"
+                  description="Occasional updates to help you get the most out of Berry"
                   trailing={<Switch />}
                />
             </SettingsCard>

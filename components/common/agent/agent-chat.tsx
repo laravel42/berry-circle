@@ -246,8 +246,8 @@ export default function AgentChat() {
                               {message.content}
                            </div>
                            <Avatar className="size-6 mt-1 shrink-0">
-                              <AvatarImage src={users[0].avatarUrl} alt={users[0].name} />
-                              <AvatarFallback>{users[0].name[0]}</AvatarFallback>
+                              <AvatarImage src={users[0]?.avatarUrl} alt={users[0]?.name} />
+                              <AvatarFallback>{users[0]?.name?.[0] ?? '?'}</AvatarFallback>
                            </Avatar>
                         </div>
                      </div>

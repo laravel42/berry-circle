@@ -17,6 +17,7 @@ import { projects as allProjects } from '@/lib/domain/projects';
 import { status as allStatus } from '@/lib/domain/status';
 import { teams } from '@/lib/domain/teams';
 import { users } from '@/lib/domain/users';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useIssuesStore } from '@/store/issues-store';
@@ -97,7 +98,7 @@ export function CommandPalette() {
    } = useIssuesStore();
    const { openModal } = useCreateIssueStore();
 
-   const orgId = pathname.split('/')[1] || 'lndev-ui';
+   const orgId = pathname.split('/')[1] || WORKSPACE_SLUG;
 
    const contextIssue = useMemo<Issue | undefined>(() => {
       const match = pathname.match(/^\/[^/]+\/issue\/([^/]+)/);
@@ -150,7 +151,7 @@ export function CommandPalette() {
       ? `${typeof window !== 'undefined' ? window.location.origin : ''}/${orgId}/issue/${issue.identifier}`
       : '';
    const branchName = issue
-      ? `${users[0].id}/${issue.identifier.toLowerCase()}-${issue.title
+      ? `${users[0]?.id ?? 'me'}/${issue.identifier.toLowerCase()}-${issue.title
            .toLowerCase()
            .replace(/[^a-z0-9]+/g, '-')
            .replace(/^-|-$/g, '')

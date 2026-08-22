@@ -15,7 +15,15 @@ import { useParams } from 'next/navigation';
  */
 export default function TeamOverview() {
    const { orgId, teamId } = useParams<{ orgId: string; teamId: string }>();
-   const team = teams.find((t) => t.id === teamId) ?? teams[0];
+   const team = teams.find((t) => t.id === teamId);
+
+   if (!team) {
+      return (
+         <div className="w-full max-w-5xl mx-auto px-8 py-10">
+            <p className="text-sm text-muted-foreground">Team not found.</p>
+         </div>
+      );
+   }
 
    const pinnedDocuments = documentFolders
       .flatMap((folder) => folder.documents)

@@ -6,6 +6,7 @@ import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { AssigneeUser } from './assignee-user';
 import { LabelBadge } from './label-badge';
 import { PrioritySelector } from './priority-selector';
@@ -42,7 +43,7 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                   )}
                </div>
                <Link
-                  href={`/${orgId ?? 'lndev-ui'}/issue/${issue.identifier}`}
+                  href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}
                   className="min-w-0 flex items-center justify-start mr-1 ml-0.5"
                >
                   <span className="text-xs sm:text-sm font-medium sm:font-semibold truncate">

@@ -3,13 +3,13 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { users } from '@/lib/domain/users';
+import { User, users } from '@/lib/domain/users';
 import { Pencil } from 'lucide-react';
 import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 
 /** Personal "Profile" settings. */
 export default function Profile() {
-   const me = users[0];
+   const me = users[0] as User | undefined;
 
    return (
       <SettingsShell title="Profile">
@@ -19,8 +19,8 @@ export default function Profile() {
                   title="Profile picture"
                   trailing={
                      <Avatar className="size-9">
-                        <AvatarImage src={me.avatarUrl} alt={me.name} />
-                        <AvatarFallback>{me.name[0]}</AvatarFallback>
+                        <AvatarImage src={me?.avatarUrl} alt={me?.name} />
+                        <AvatarFallback>{me?.name?.[0]}</AvatarFallback>
                      </Avatar>
                   }
                />
@@ -28,7 +28,7 @@ export default function Profile() {
                   title="Email"
                   trailing={
                      <span className="inline-flex items-center gap-2 text-foreground">
-                        {me.email}
+                        {me?.email}
                         <Button size="icon" variant="ghost" className="size-6">
                            <Pencil className="size-3" />
                         </Button>

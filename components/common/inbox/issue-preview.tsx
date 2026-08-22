@@ -14,6 +14,7 @@ import { useNotificationsStore } from '@/store/notifications-store';
 import { ArrowUpRight, Check, Paperclip, Send } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { NotificationBox } from './icons/motification-box';
 
 interface IssuePreviewProps {
@@ -74,7 +75,7 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                   </Button>
                )}
                <Button variant="ghost" size="xs" asChild>
-                  <Link href={`/${orgId ?? 'lndev-ui'}/issue/${displayIssue.identifier}`}>
+                  <Link href={`/${orgId ?? WORKSPACE_SLUG}/issue/${displayIssue.identifier}`}>
                      Open
                      <ArrowUpRight className="size-3.5 ml-0.5" />
                   </Link>

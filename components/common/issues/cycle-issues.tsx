@@ -39,8 +39,8 @@ export default function CycleIssues({ cycleView }: CycleIssuesProps) {
    const isViewTypeGrid = viewType === 'grid';
 
    const cycleIssues = useMemo(
-      () => issues.filter((issue) => issue.cycleId === cycle.id),
-      [issues, cycle.id]
+      () => issues.filter((issue) => issue.cycleId === cycle?.id),
+      [issues, cycle?.id]
    );
 
    const displayedIssues = useMemo(
@@ -76,7 +76,7 @@ export default function CycleIssues({ cycleView }: CycleIssuesProps) {
                   <InsightsPanel issues={displayedIssues} />
                </aside>
             )}
-            {openPanel === 'cycle-details' && (
+            {openPanel === 'cycle-details' && cycle && (
                <aside className="hidden lg:flex w-[420px] shrink-0 border-l h-full overflow-hidden bg-container">
                   <CycleDetailsPanel cycle={cycle} issues={cycleIssues} />
                </aside>

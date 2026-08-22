@@ -17,6 +17,7 @@ import { useViewsDisplayStore, ViewsOrdering } from '@/store/views-display-store
 import { ArrowDown, Plus, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { WORKSPACE_NAME } from '@/lib/config';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useMemo } from 'react';
 
@@ -193,10 +194,10 @@ export default function Views({ teamId }: { teamId?: string }) {
                   </span>
                ) : (
                   <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground text-[10px] font-semibold">
-                     LN
+                     {WORKSPACE_NAME.slice(0, 2).toUpperCase()}
                   </span>
                )}
-               <span className="font-medium">{team ? team.name : 'LNDev UI'}</span>
+               <span className="font-medium">{team ? team.name : WORKSPACE_NAME}</span>
                <span className="text-muted-foreground text-xs">
                   · {team ? 'Team' : 'Workspace'}
                </span>

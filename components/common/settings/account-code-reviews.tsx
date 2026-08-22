@@ -30,7 +30,7 @@ export default function AccountCodeReviews() {
    return (
       <SettingsShell
          title="Code & reviews"
-         description="Review GitHub pull requests and agent code diffs in LNDev UI"
+         description="Review GitHub pull requests and agent code diffs in Berry"
       >
          <SettingsSection>
             <SettingsCard>
@@ -61,7 +61,7 @@ export default function AccountCodeReviews() {
                <SettingsRow
                   title="Code theme"
                   description="Select the syntax highlighting theme used in code diffs and viewers"
-                  trailing={<SelectMenu options={['LNDev Light', 'LNDev Dark', 'Contrast']} />}
+                  trailing={<SelectMenu options={['Light', 'Dark', 'Contrast']} />}
                />
                <SettingsRow
                   title="Font"
