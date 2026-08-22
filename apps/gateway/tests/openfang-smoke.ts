@@ -4,6 +4,7 @@
  * Exercises the agent lifecycle surface of the pinned OpenFang revision
  * (acf2587e46be174c10200489c9a2d23a39a98aeb) that Berry's gateway adapter is
  * built on. The assertions lock the *reconciled* contract documented in
+ * docs/api/openfang-gateway-consumption.md (normative) and summarized in
  * docs/integrations/berry-openfang.md — in particular that agent updates split
  * across two endpoints on this revision:
  *
