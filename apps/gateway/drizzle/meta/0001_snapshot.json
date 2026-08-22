@@ -1,6 +1,6 @@
 {
-	"id": "536973eb-a54b-4376-ae32-bcca82a55251",
-	"prevId": "00000000-0000-0000-0000-000000000000",
+	"id": "5f4bef41-8e75-401d-929a-8c61868fc231",
+	"prevId": "536973eb-a54b-4376-ae32-bcca82a55251",
 	"version": "7",
 	"dialect": "postgresql",
 	"tables": {
@@ -127,6 +127,13 @@
 					"notNull": true,
 					"default": "'[]'::jsonb"
 				},
+				"issue_counter": {
+					"name": "issue_counter",
+					"type": "integer",
+					"primaryKey": false,
+					"notNull": true,
+					"default": 0
+				},
 				"created_by": {
 					"name": "created_by",
 					"type": "uuid",
@@ -179,7 +186,12 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"policies": {},
-			"checkConstraints": {},
+			"checkConstraints": {
+				"boards_columns_is_array": {
+					"name": "boards_columns_is_array",
+					"value": "jsonb_typeof(\"boards\".\"columns\") = 'array'"
+				}
+			},
 			"isRLSEnabled": false
 		},
 		"public.comments": {
@@ -254,6 +266,21 @@
 					"concurrently": false,
 					"method": "btree",
 					"with": {}
+				},
+				"comments_parent_id_idx": {
+					"name": "comments_parent_id_idx",
+					"columns": [
+						{
+							"expression": "parent_id",
+							"isExpression": false,
+							"asc": true,
+							"nulls": "last"
+						}
+					],
+					"isUnique": false,
+					"concurrently": false,
+					"method": "btree",
+					"with": {}
 				}
 			},
 			"foreignKeys": {
@@ -262,6 +289,15 @@
 					"tableFrom": "comments",
 					"tableTo": "issues",
 					"columnsFrom": ["issue_id"],
+					"columnsTo": ["id"],
+					"onDelete": "cascade",
+					"onUpdate": "no action"
+				},
+				"comments_parent_id_comments_id_fk": {
+					"name": "comments_parent_id_comments_id_fk",
+					"tableFrom": "comments",
+					"tableTo": "comments",
+					"columnsFrom": ["parent_id"],
 					"columnsTo": ["id"],
 					"onDelete": "cascade",
 					"onUpdate": "no action"
@@ -465,7 +501,12 @@
 			"compositePrimaryKeys": {},
 			"uniqueConstraints": {},
 			"policies": {},
-			"checkConstraints": {},
+			"checkConstraints": {
+				"issues_assignee_pair_ck": {
+					"name": "issues_assignee_pair_ck",
+					"value": "(\"issues\".\"assignee_type\" IS NULL AND \"issues\".\"assignee_id\" IS NULL) OR (\"issues\".\"assignee_type\" IS NOT NULL AND \"issues\".\"assignee_id\" IS NOT NULL)"
+				}
+			},
 			"isRLSEnabled": false
 		},
 		"public.sessions": {
@@ -630,9 +671,9 @@
 					"name": "users_email_key",
 					"columns": [
 						{
-							"expression": "email",
-							"isExpression": false,
+							"expression": "lower(\"email\")",
 							"asc": true,
+							"isExpression": true,
 							"nulls": "last"
 						}
 					],

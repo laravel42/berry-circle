@@ -6,12 +6,21 @@ Berry-owned product state lives in PostgreSQL. Agent execution state (runs, tool
 
 | Table | Purpose |
 | --- | --- |
-| `users` | Human members of the workspace |
+| `users` | Human members of the workspace (email uniqueness is case-insensitive) |
 | `sessions` | Login sessions (token hash, expiry) |
-| `boards` | Issue boards (Linear-shaped columns config) |
+| `boards` | Issue boards (Linear-shaped columns config, per-board issue number counter) |
 | `issues` | Issues: status, priority, current assignee (human or agent), OpenFang run link |
 | `assignments` | Assignment history per issue |
-| `comments` | Issue comments, authored by users or agents |
+| `comments` | Issue comments, authored by users or agents (threaded via self-referencing `parent_id`) |
+
+## Integrity guarantees
+
+- `issues.number` is allocated server-side via `boards.issue_counter` (`UPDATE boards SET issue_counter = issue_counter + 1 WHERE id = $1 RETURNING issue_counter`, in the same transaction as the issue insert) — never `MAX(number)+1`, which races under concurrent creation.
+- `comments.parent_id` is a self-referencing FK (`ON DELETE CASCADE`); dangling/cross-issue parents are rejected at the DB.
+- `updated_at` on `users`/`boards`/`issues`/`comments` is maintained by a `BEFORE UPDATE` trigger (`set_updated_at()`), not just `defaultNow()` at insert time.
+- `issues.assignee_type`/`assignee_id` are enforced both-or-neither via a CHECK constraint.
+- `users.email` uniqueness is case-insensitive (`lower(email)`).
+- `boards.columns` is CHECKed to be a JSON array at the DB level; validate with Zod on the write path too.
 
 ## Migrations
 
@@ -23,7 +32,7 @@ bun run db:generate   # generate a new migration after editing schema.ts
 bun run db:migrate    # apply pending migrations (uses DATABASE_URL)
 ```
 
-`DATABASE_URL` defaults to `postgres://berry:berry@localhost:5432/berry`.
+`DATABASE_URL` is required — copy `.env.example` to `.env` and adjust. Both `db:generate` and `db:migrate` fail fast with a clear error if it's unset, rather than silently attempting a connection to a placeholder DSN.
 
 ## Status of this schema
 
