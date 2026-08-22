@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { OpenFangClient } from "~/openfang/client";
 import type { OpenFangError, OpenFangErrorCode } from "~/openfang/errors";
+import { DEFAULT_RETRY, HttpTransport } from "~/openfang/http";
 import {
   jsonResponse,
   queue,
@@ -180,6 +181,49 @@ describe("transport — retry policy", () => {
     expect(result.status).toBe("stored");
     expect(calls).toHaveLength(2);
     expect(delays).toHaveLength(1);
+  });
+
+  it("does not auto-retry deleteMemory (contract: deletes need reconciliation)", async () => {
+    const { sleep, delays } = recordingSleep();
+    const { fetch, calls } = recordingFetch(queue(jsonResponse(500, { error: "storage" })));
+    const client = new OpenFangClient({ baseUrl: BASE, fetch, sleep });
+    const err = await captureError(() => client.deleteMemory("a1", "k"));
+    expect(err.code).toBe("UPSTREAM_SERVER_ERROR");
+    expect(calls).toHaveLength(1);
+    expect(delays).toHaveLength(0);
+  });
+});
+
+describe("transport — backoff cancellation", () => {
+  it("aborts promptly during backoff instead of stalling for the full delay", async () => {
+    // First attempt 500 → transport would sleep a long backoff before retry;
+    // aborting the caller's signal mid-sleep must reject at once, not wait it out.
+    const { fetch, calls } = recordingFetch(queue(jsonResponse(500, { error: "boom" })));
+    const transport = new HttpTransport({
+      baseUrl: BASE,
+      fetchImpl: fetch,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      timeoutMs: 30_000,
+      streamTimeoutMs: 120_000,
+      retry: { ...DEFAULT_RETRY, baseDelayMs: 10_000, jitter: 0 },
+    });
+    const controller = new AbortController();
+    const reason = new Error("client gone");
+    setTimeout(() => controller.abort(reason), 15);
+
+    let caught: unknown;
+    try {
+      await transport.request({
+        method: "GET",
+        path: "/api/agents",
+        idempotency: "read",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(reason); // the abort reason, not a 10s-later server error
+    expect(calls).toHaveLength(1); // never reached the second attempt
   });
 });
 

@@ -80,9 +80,15 @@ export class OpenFangError extends Error {
     }
   }
 
-  /** Berry's stable error envelope, matching the gateway's central handler. */
+  /**
+   * Berry's stable, client-safe error envelope, matching the gateway's central
+   * handler. The message is a generic per-`code` string — the detailed
+   * `this.message` (which folds in truncated raw upstream body text) stays for
+   * logs/diagnostics only, so upstream internals never reach a browser client if
+   * the route layer returns this envelope verbatim.
+   */
   toErrorEnvelope(): { error: { code: OpenFangErrorCode; message: string } } {
-    return { error: { code: this.code, message: this.message } };
+    return { error: { code: this.code, message: publicMessageForCode(this.code) } };
   }
 
   /** Map an upstream HTTP status to a stable code. */
@@ -130,6 +136,36 @@ export class OpenFangError extends Error {
       retryAfterMs: context.retryAfterMs,
       upstreamMessage,
     });
+  }
+}
+
+/** Generic, client-safe message per code — carries no raw upstream detail. */
+export function publicMessageForCode(code: OpenFangErrorCode): string {
+  switch (code) {
+    case "INVALID_REQUEST":
+      return "The request to the upstream service was invalid.";
+    case "UPSTREAM_BAD_REQUEST":
+      return "The upstream service rejected the request.";
+    case "UPSTREAM_UNAUTHORIZED":
+      return "The gateway is not authorized to call the upstream service.";
+    case "UPSTREAM_FORBIDDEN":
+      return "The upstream service refused the request.";
+    case "UPSTREAM_NOT_FOUND":
+      return "The requested upstream resource was not found.";
+    case "UPSTREAM_PAYLOAD_TOO_LARGE":
+      return "The request payload was too large for the upstream service.";
+    case "UPSTREAM_RATE_LIMITED":
+      return "The upstream service is rate limiting requests.";
+    case "UPSTREAM_SERVER_ERROR":
+      return "The upstream service reported an error.";
+    case "UPSTREAM_UNAVAILABLE":
+      return "The upstream service is unavailable.";
+    case "UPSTREAM_TIMEOUT":
+      return "The upstream service timed out.";
+    case "UPSTREAM_INVALID_RESPONSE":
+      return "The upstream service returned an unexpected response.";
+    case "STREAM_INTERRUPTED":
+      return "The upstream stream was interrupted.";
   }
 }
 

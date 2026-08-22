@@ -8,6 +8,7 @@ import {
   queue,
   recordingFetch,
   sseResponse,
+  sseResponseWithCancelSpy,
 } from "~/openfang/test-support";
 import type {
   AgentDetail,
@@ -262,5 +263,48 @@ describe("streaming", () => {
     const client = new OpenFangClient({ baseUrl: BASE, fetch });
     const err = await captureError(() => collect(client));
     expect(err.code).toBe("STREAM_INTERRUPTED");
+  });
+
+  it("cancels the upstream body when the consumer breaks early (downstream disconnect)", async () => {
+    const spy = sseResponseWithCancelSpy(['event: chunk\ndata: {"content":"one"}\n\n']);
+    const { fetch } = recordingFetch(queue(spy.response));
+    const client = new OpenFangClient({ baseUrl: BASE, fetch });
+    for await (const _event of client.streamAgentMessage("a1", { message: "hi" })) {
+      break; // consumer hangs up mid-run
+    }
+    expect(spy.cancelled()).toBe(true);
+  });
+
+  it("cancels the upstream body on a mid-stream interruption", async () => {
+    const spy = sseResponseWithCancelSpy([
+      'event: chunk\ndata: {"content":"ok"}\n\nevent: chunk\ndata: {bad json}\n\n',
+    ]);
+    const { fetch } = recordingFetch(queue(spy.response));
+    const client = new OpenFangClient({ baseUrl: BASE, fetch });
+    const err = await captureError(() => collect(client));
+    expect(err.code).toBe("STREAM_INTERRUPTED");
+    expect(spy.cancelled()).toBe(true);
+  });
+});
+
+describe("workflow run reconciliation", () => {
+  it("accepts an unknown run state instead of dropping the whole page", async () => {
+    const { fetch } = recordingFetch(
+      queue(
+        jsonResponse(200, [
+          {
+            id: "r1",
+            workflow_name: "wf",
+            state: "cancelling", // not one of the four documented states
+            steps_completed: 1,
+            started_at: "2026-08-22T06:30:00Z",
+            completed_at: null,
+          },
+        ]),
+      ),
+    );
+    const runs = await new OpenFangClient({ baseUrl: BASE, fetch }).listWorkflowRuns("w1");
+    expect(runs).toHaveLength(1);
+    expect(runs[0].state).toBe("cancelling");
   });
 });

@@ -174,6 +174,19 @@ export class OpenFangClient {
     try {
       yield* parseOpenFangStream(handle.body);
     } finally {
+      // Release the upstream socket on EVERY exit — normal `done`, an early
+      // consumer `break` (downstream disconnect), or a thrown
+      // `STREAM_INTERRUPTED`. `dispose()` only clears the whole-stream timeout
+      // and abort wiring, so without an explicit cancel the abnormal-exit paths
+      // would leave the `text/event-stream` connection open with no reaper.
+      // `parseOpenFangStream` has already released the reader lock in its own
+      // `finally`, so `cancel()` is safe here and a harmless no-op on the
+      // already-cancelled `done`/EOF paths.
+      try {
+        await handle.body.cancel();
+      } catch {
+        // Body already cancelled or settled — nothing left to release.
+      }
       handle.dispose();
     }
   }
@@ -228,10 +241,14 @@ export class OpenFangClient {
 
   deleteMemory(agentId: string, key: string): Promise<MemoryMutationResponse> {
     const path = memoryKeyPath(agentId, key);
+    // Not auto-retried (default `unsafe`). The contract classifies retry per
+    // operation: memory PUT is idempotent-retryable, but "Deletes may be
+    // repeated only through an explicit reconciliation action that understands
+    // 404/missing semantics" — so DELETE must not silently consume the upstream
+    // rate-limit budget the contract reserves for reads/PUTs.
     return this.send(memoryMutationResponseSchema, `DELETE ${path}`, {
       method: "DELETE",
       path,
-      idempotency: "idempotent-write",
     });
   }
 

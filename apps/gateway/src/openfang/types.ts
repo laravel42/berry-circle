@@ -351,10 +351,18 @@ export const workflowRunResponseSchema = z.object({
 });
 export type WorkflowRunResponse = z.infer<typeof workflowRunResponseSchema>;
 
+/** Documented run states, for reference by consumers that narrow `state`. */
+export const WORKFLOW_RUN_STATES = ["pending", "running", "completed", "failed"] as const;
+
 export const workflowRunSummarySchema = z.object({
   id: z.string(),
   workflow_name: z.string(),
-  state: z.enum(["pending", "running", "completed", "failed"]),
+  // Open string rather than a strict enum: this endpoint is reconciliation
+  // evidence and `parseResponse` validates the whole array, so a single run with
+  // an additive upstream state must not hard-fail (and drop) the entire page.
+  // Mirrors the deliberately-open agent `state`/`mode` above; the raw value is
+  // preserved verbatim for the caller to narrow against `WORKFLOW_RUN_STATES`.
+  state: z.string(),
   steps_completed: z.number().int(),
   started_at: z.string(),
   completed_at: z.string().nullable(),

@@ -91,6 +91,34 @@ export function sseResponse(chunks: string[], headers: Record<string, string> = 
   });
 }
 
+/**
+ * A `200` SSE response whose body is left OPEN (never closed) and records
+ * whether its underlying source was cancelled. Simulates an upstream that keeps
+ * the `text/event-stream` socket open, so a leak on abnormal exit is observable
+ * as `cancelled() === false`.
+ */
+export function sseResponseWithCancelSpy(chunks: string[]): {
+  response: Response;
+  cancelled: () => boolean;
+} {
+  let wasCancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      // Deliberately not closed — the socket stays open until the consumer
+      // cancels it, which is exactly what the leak-on-abnormal-exit test checks.
+    },
+    cancel() {
+      wasCancelled = true;
+    },
+  });
+  const response = new Response(stream, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+  return { response, cancelled: () => wasCancelled };
+}
+
 /** A sleep stub that records requested delays instead of waiting. */
 export function recordingSleep(): { sleep: (ms: number) => Promise<void>; delays: number[] } {
   const delays: number[] = [];

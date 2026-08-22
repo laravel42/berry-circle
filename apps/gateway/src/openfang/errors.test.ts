@@ -73,8 +73,19 @@ describe("OpenFangError.gatewayStatus", () => {
 });
 
 describe("OpenFangError.toErrorEnvelope", () => {
-  it("produces Berry's stable error envelope", () => {
-    const envelope = new OpenFangError("UPSTREAM_SERVER_ERROR", "boom").toErrorEnvelope();
-    expect(envelope).toEqual({ error: { code: "UPSTREAM_SERVER_ERROR", message: "boom" } });
+  it("carries a generic per-code message, not the raw upstream detail", () => {
+    // `message` folds in the raw (truncated) upstream body; the envelope must not.
+    const err = OpenFangError.fromResponse(
+      "GET",
+      "/api/agents",
+      500,
+      JSON.stringify({ error: "stack trace: secret internal detail" }),
+    );
+    const envelope = err.toErrorEnvelope();
+    expect(envelope.error.code).toBe("UPSTREAM_SERVER_ERROR");
+    expect(envelope.error.message).toBe("The upstream service reported an error.");
+    expect(envelope.error.message).not.toContain("secret internal detail");
+    // The detailed message is retained on the error itself for logs.
+    expect(err.message).toContain("secret internal detail");
   });
 });

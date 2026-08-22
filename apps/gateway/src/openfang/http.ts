@@ -10,10 +10,12 @@
  * and idempotency policy) is keyed on an idempotency class per request:
  *   - `read`             safe GETs — retry `429` (honoring `Retry-After`) and
  *                        `5xx`/network failures with bounded exponential backoff.
- *   - `idempotent-write` memory PUT/DELETE at a deterministic key — same policy;
- *                        replaying is safe because it overwrites/removes one key.
- *   - `unsafe`           create/execute/dispatch/patch/kill — never retried, so
- *                        an ambiguous failure preserves state for reconciliation.
+ *   - `idempotent-write` memory PUT at a deterministic key — same policy;
+ *                        replaying is safe because it overwrites one key.
+ *   - `unsafe`           create/execute/dispatch/patch/kill, and deletes (which
+ *                        the contract says may be repeated only via explicit
+ *                        reconciliation) — never retried, so an ambiguous failure
+ *                        preserves state for reconciliation.
  */
 
 import { OpenFangError } from "~/openfang/errors";
@@ -272,7 +274,31 @@ export class HttpTransport {
       },
       "retrying OpenFang request",
     );
-    await this.ctx.sleep(delay);
+    await this.sleepOrAbort(delay, spec.signal);
+  }
+
+  /**
+   * Sleep for `ms`, but reject promptly with the signal's reason if the caller
+   * aborts during the wait — otherwise a cancelled request could stall for the
+   * full backoff / `Retry-After` window (up to `maxRetryAfterMs`) before the
+   * next attempt even checks the signal. With no signal we defer to the injected
+   * `sleep` (so tests stay deterministic); with a signal we own a timer we can
+   * clear on abort, leaving nothing pending on the event loop.
+   */
+  private sleepOrAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) return this.ctx.sleep(ms);
+    if (signal.aborted) return Promise.reject(signal.reason);
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(resolve, ms);
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          reject(signal.reason);
+        },
+        { once: true },
+      );
+    });
   }
 
   private computeBackoff(attempt: number): number {
