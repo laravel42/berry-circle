@@ -1,0 +1,39 @@
+---
+description: Berry project shape, boundaries, and where authoritative docs live
+alwaysApply: true
+---
+
+# Berry
+
+Self-hosted workspace where humans and agents share one board. Product layer on
+OpenFang; do not reimplement execution, sandboxing, or LLM providers.
+
+Read `AGENTS.md` first. Then the matching doc under `docs/` (product brief,
+coding playbook, gateway-v1, OpenFang integration, ADRs, design system).
+
+## Two workspaces
+
+`apps/gateway` (Bun, Hono, Biome, `~/`, Zod 3) and `frontend` (Next.js, Prettier
+**3-space** + ESLint, `@/`, Zod 4) do not share a toolchain. Never format one
+with the other.
+
+## Boundaries
+
+- Browsers call the gateway only. Never leak `OPENFANG_API_KEY`.
+- Postgres is source of record for product data and the run ledger. Valkey is
+  cache only (not wired yet). OpenFang uses its own SQLite.
+- Pin OpenFang at `deploy/openfang.pin.json`. Upgrade pin + compose default +
+  integration contract together.
+- MIT / Apache-2.0 dependencies only. No Linear/OpenFang product branding or
+  copied schema. No new `Linear*` identifiers.
+- `strict` on, no `any` except vendored `frontend/components/data-table-filter/**`.
+
+## Missing on purpose
+
+`/api/v1` routes, OpenFang adapter, Valkey, and frontend gateway wiring are not
+built. Empty `frontend/data/*` is intentional — do not restore demo data.
+
+## Process
+
+Commits: `type(scope): summary (BERR-NN)`. One issue per PR. Reviewers:
+Sentinel (frontend), Backend PR Adversary (gateway).
