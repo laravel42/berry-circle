@@ -133,6 +133,19 @@ export class HttpTransport {
           try {
             return { data: await response.json(), requestId };
           } catch (cause) {
+            // The request timeout remains armed until the success body is fully
+            // consumed. Preserve caller cancellation and treat a timer abort
+            // during JSON parsing exactly like a pre-header transport timeout,
+            // including the retry policy for reads/idempotent writes.
+            if (spec.signal?.aborted && !state.timedOut) throw spec.signal.reason;
+            if (state.timedOut) {
+              const err = this.transportError(spec, timeoutMs, true, cause);
+              if (attempt < maxRetries) {
+                await this.backoff(spec, attempt, err);
+                continue;
+              }
+              throw err;
+            }
             throw new OpenFangError(
               "UPSTREAM_INVALID_RESPONSE",
               `OpenFang ${spec.method} ${spec.path} returned invalid JSON`,
@@ -289,15 +302,19 @@ export class HttpTransport {
     if (!signal) return this.ctx.sleep(ms);
     if (signal.aborted) return Promise.reject(signal.reason);
     return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(resolve, ms);
-      signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timer);
-          reject(signal.reason);
-        },
-        { once: true },
-      );
+      let settled = false;
+      const finish = (action: () => void) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        action();
+      };
+      const onAbort = () => {
+        clearTimeout(timer);
+        finish(() => reject(signal.reason));
+      };
+      const timer = setTimeout(() => finish(resolve), ms);
+      signal.addEventListener("abort", onAbort, { once: true });
     });
   }
 

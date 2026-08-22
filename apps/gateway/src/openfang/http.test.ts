@@ -246,4 +246,69 @@ describe("transport — timeout", () => {
     const err = await captureError(() => client.listAgents());
     expect(err.code).toBe("UPSTREAM_TIMEOUT");
   });
+
+  it("retries a read that times out while consuming a successful JSON body", async () => {
+    let calls = 0;
+    const fetch = async (_input: string | URL | Request, init?: RequestInit) => {
+      calls += 1;
+      if (calls > 1) return jsonResponse(200, []);
+      const signal = init?.signal;
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          signal?.addEventListener(
+            "abort",
+            () => controller.error(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "application/json" } });
+    };
+    const client = new OpenFangClient({
+      baseUrl: BASE,
+      fetch,
+      sleep: async () => {},
+      timeoutMs: 20,
+      retry: { maxRetries: 1, jitter: 0 },
+    });
+
+    expect(await client.listAgents()).toEqual([]);
+    expect(calls).toBe(2);
+  });
+
+  it("preserves caller abort while consuming a successful JSON body", async () => {
+    const controller = new AbortController();
+    const reason = new Error("downstream gone");
+    const transport = new HttpTransport({
+      baseUrl: BASE,
+      fetchImpl: async (_input, init) => {
+        const body = new ReadableStream<Uint8Array>({
+          start(stream) {
+            init?.signal?.addEventListener("abort", () => stream.error(init.signal?.reason), {
+              once: true,
+            });
+          },
+        });
+        return new Response(body, { status: 200 });
+      },
+      sleep: async () => {},
+      timeoutMs: 30_000,
+      streamTimeoutMs: 120_000,
+      retry: DEFAULT_RETRY,
+    });
+    setTimeout(() => controller.abort(reason), 10);
+
+    let caught: unknown;
+    try {
+      await transport.request({
+        method: "GET",
+        path: "/api/agents",
+        idempotency: "read",
+        signal: controller.signal,
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBe(reason);
+  });
 });
