@@ -301,6 +301,45 @@ with no idempotency key. A crash between spawn and record leaks one upstream
 agent, which is recoverable. Skipping the probe would duplicate on every boot,
 which is not. Hence probe-first, and only a 404 authorises a spawn.
 
+### Routing: the orchestrator assigns work to the right agent
+
+Product requirement, 2026-08-23: the orchestrator assigns available tasks to
+the right agent. It is therefore a router first and an executor of last resort
+second.
+
+Routing is **deterministic and explainable**, not model-driven. An LLM router
+would be non-reproducible, cost a call per issue, and produce assignments
+nobody can audit — and an automatic assignment a human cannot account for is
+worse than no automatic assignment. The signal already exists in the schema:
+`issue_label_memberships` names, matched against `agents.capabilities`.
+
+Precedence, applied per issue in one query:
+
+| Order | Rule | Why |
+|---|---|---|
+| 1 | An existing agent assignment wins outright | It is a human decision. Routing never reroutes around it, even into a better capability match. |
+| 2 | Real agents before the built-in orchestrator | The orchestrator is a fallback, not a competitor. |
+| 3 | Strongest label ↔ capability overlap | The actual "right agent" signal. |
+| 4 | Fewest active runs | Spreads work; a busy agent would queue behind its own one-writer guard. |
+| 5 | Stable name, then id | Makes routing reproducible so a test can assert an exact choice. |
+
+Every candidate carries a `Routing` reason — `assigned`, `routed`, or
+`fallback` — and its capability match count, both logged per dispatch and
+counted per tick.
+
+**The orchestrator does not step in for a busy specialist.** Fallback applies
+only when a workspace defines no non-protected agent at all. Waiting for the
+right agent beats handing specialised work to a generic one, and the narrower
+rule also keeps a transient `offline` sync from making the orchestrator
+swallow the backlog.
+
+Verified against a real PostgreSQL instance with migrations applied, not only
+in unit tests: a backend-labelled issue routes to the backend agent, a
+frontend-labelled issue to the frontend agent, an unlabelled issue to the
+least-loaded, an explicitly assigned issue to its assignee despite a capability
+mismatch, and every issue to the orchestrator once no other agent exists. The
+five protection guards were exercised the same way.
+
 ### Still needed: the run group
 
 Groups are still required — they hold plan-level state that belongs to no

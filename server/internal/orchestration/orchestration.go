@@ -70,4 +70,10 @@ type IntakeResult struct {
 	Admitted   int      `json:"admitted"`
 	Skipped    int      `json:"skipped"`
 	RunIDs     []string `json:"runIds"`
+	// Routed counts issues the orchestrator assigned by capability match, and
+	// Fallback counts those it took itself for want of any other agent. Both
+	// are surfaced because an automatic assignment nobody can account for is
+	// worse than no automatic assignment.
+	Routed   int `json:"routed"`
+	Fallback int `json:"fallback"`
 }

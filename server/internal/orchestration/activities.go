@@ -131,6 +131,21 @@ func (activities *Activities) ClaimIntakeBatch(
 		// will correct the board regardless.
 		_ = activities.Intake.MarkInProgress(ctx, candidate.IssueID, run.ID)
 
+		switch candidate.Routing {
+		case intake.RoutingRouted:
+			result.Routed++
+		case intake.RoutingFallback:
+			result.Fallback++
+		}
+		activity.GetLogger(ctx).Info(
+			"intake dispatched issue",
+			"runId", run.ID,
+			"issueId", candidate.IssueID,
+			"agentId", candidate.AgentID,
+			"routing", candidate.Routing,
+			"capabilityMatches", candidate.CapabilityMatches,
+		)
+
 		result.Admitted++
 		result.RunIDs = append(result.RunIDs, run.ID.String())
 	}

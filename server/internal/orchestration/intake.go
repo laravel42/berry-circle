@@ -68,6 +68,8 @@ func IntakeOrchestration(ctx workflow.Context, params IntakeParams) error {
 			logger.Info(
 				"intake admitted runs",
 				"admitted", result.Admitted,
+				"routed", result.Routed,
+				"fallback", result.Fallback,
 				"skipped", result.Skipped,
 				"considered", result.Considered,
 			)
