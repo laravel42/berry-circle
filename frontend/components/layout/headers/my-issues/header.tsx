@@ -1,6 +1,7 @@
 'use client';
 
 import {
+   DEFAULT_MY_ISSUES_TAB,
    MY_ISSUES_TAB_ITEMS,
    scopeMyIssues,
    useMyIssuesTab,
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
+import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { useSearchStore } from '@/store/search-store';
@@ -49,7 +51,7 @@ function HeaderNav() {
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
          <div className="flex items-center gap-2">
             <SidebarTrigger />
-            <span className="text-sm font-medium">My issues</span>
+            <span className="text-sm font-medium">Issues</span>
          </div>
          <div className="flex items-center gap-2">
             {isSearchOpen ? (
@@ -92,54 +94,66 @@ function HeaderNav() {
 function HeaderOptions() {
    const [tab, setTab] = useMyIssuesTab();
    const { issues } = useIssuesStore();
+   const { hasActiveFilters } = useFilterStore();
    const { openPanel, togglePanel } = useRightPanelStore();
 
    const count = scopeMyIssues(issues, tab).length;
+   const showQueueChrome = count > 0 || hasActiveFilters();
 
    return (
-      <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
+      <div className="mb-1 flex h-10 w-full items-center justify-between border-b px-6 py-1.5">
          <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
-               {MY_ISSUES_TAB_ITEMS.map((item) => (
-                  <button
-                     key={item.value}
-                     type="button"
-                     onClick={() => void setTab(item.value === 'assigned' ? null : item.value)}
-                     className={cn(
-                        'px-2.5 h-7 inline-flex items-center rounded-full border text-xs font-medium transition-colors',
-                        tab === item.value
-                           ? 'bg-accent text-foreground border-border'
-                           : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                     )}
-                  >
-                     {item.label}
-                  </button>
-               ))}
+               {MY_ISSUES_TAB_ITEMS.map((item) => {
+                  const isActive = tab === item.value;
+                  return (
+                     <button
+                        key={item.value}
+                        type="button"
+                        aria-current={isActive ? 'page' : undefined}
+                        onClick={() =>
+                           void setTab(item.value === DEFAULT_MY_ISSUES_TAB ? null : item.value)
+                        }
+                        className={cn(
+                           'inline-flex h-7 cursor-pointer items-center rounded-sm border px-3.5 text-xs font-medium transition-colors',
+                           isActive
+                              ? 'border-border/70 bg-accent text-foreground'
+                              : 'border-border/40 text-muted-foreground hover:border-border/60 hover:bg-accent/50 hover:text-foreground'
+                        )}
+                     >
+                        {item.label}
+                     </button>
+                  );
+               })}
             </div>
-            <span className="text-sm text-muted-foreground hidden sm:inline">
+            <span className="hidden text-xs text-muted-foreground sm:inline">
                {count} {count === 1 ? 'issue' : 'issues'}
             </span>
          </div>
-         <div className="flex items-center gap-1">
-            <IssueFilterTrigger />
-            <Button
-               size="xs"
-               variant={openPanel === 'insights' ? 'secondary' : 'ghost'}
-               onClick={() => togglePanel('insights')}
-               aria-label="Toggle insights panel"
-            >
-               <BarChart3 className="size-4" />
-            </Button>
-            <Button
-               size="xs"
-               variant={openPanel === 'breakdown' ? 'secondary' : 'ghost'}
-               onClick={() => togglePanel('breakdown')}
-               aria-label="Toggle breakdown panel"
-            >
-               <PanelRight className="size-4" />
-            </Button>
-            <DisplayOptions />
-         </div>
+         {showQueueChrome ? (
+            <div className="flex items-center gap-1">
+               <IssueFilterTrigger iconOnly />
+               <Button
+                  size="xs"
+                  variant={openPanel === 'insights' ? 'secondary' : 'ghost'}
+                  onClick={() => togglePanel('insights')}
+                  aria-label="Toggle insights panel"
+               >
+                  <BarChart3 className="size-4" />
+               </Button>
+               <Button
+                  size="xs"
+                  variant={openPanel === 'breakdown' ? 'secondary' : 'ghost'}
+                  onClick={() => togglePanel('breakdown')}
+                  aria-label="Toggle breakdown panel"
+               >
+                  <PanelRight className="size-4" />
+               </Button>
+               <DisplayOptions iconOnly />
+            </div>
+         ) : (
+            <div />
+         )}
       </div>
    );
 }

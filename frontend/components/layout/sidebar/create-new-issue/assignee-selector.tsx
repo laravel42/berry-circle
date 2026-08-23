@@ -5,13 +5,14 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIssuesStore } from '@/store/issues-store';
 import { User, users } from '@/data/users';
+import { agentToUser } from '@/lib/agents';
+import { useAgentsStore } from '@/store/agents-store';
 import { CheckIcon, UserCircle } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -27,6 +28,10 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
    const [value, setValue] = useState<string | null>(assignee?.id || null);
 
    const { filterByAssignee } = useIssuesStore();
+   const agents = useAgentsStore((state) => state.agents);
+   const people: User[] = [...users, ...agents.map(agentToUser)].filter(
+      (person, index, list) => list.findIndex((entry) => entry.id === person.id) === index
+   );
 
    useEffect(() => {
       setValue(assignee?.id || null);
@@ -38,7 +43,7 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
          onChange(null);
       } else {
          setValue(userId);
-         const newAssignee = users.find((u) => u.id === userId);
+         const newAssignee = people.find((u) => u.id === userId);
          if (newAssignee) {
             onChange(newAssignee);
          }
@@ -60,7 +65,7 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                >
                   {value ? (
                      (() => {
-                        const selectedUser = users.find((user) => user.id === value);
+                        const selectedUser = people.find((user) => user.id === value);
                         if (selectedUser) {
                            return (
                               <Avatar className="size-5">
@@ -78,7 +83,7 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                      <UserCircle className="size-5" />
                   )}
                   <span>
-                     {value ? users.find((user) => user.id === value)?.name : 'Unassigned'}
+                     {value ? people.find((user) => user.id === value)?.name : 'Unassigned'}
                   </span>
                </Button>
             </PopoverTrigger>
@@ -87,7 +92,6 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                align="start"
             >
                <Command>
-                  <CommandInput placeholder="Assign to..." />
                   <CommandList>
                      <CommandEmpty>No users found.</CommandEmpty>
                      <CommandGroup>
@@ -105,28 +109,26 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                               {filterByAssignee(null).length}
                            </span>
                         </CommandItem>
-                        {users
-                           
-                           .map((user) => (
-                              <CommandItem
-                                 key={user.id}
-                                 value={user.id}
-                                 onSelect={() => handleAssigneeChange(user.id)}
-                                 className="flex items-center justify-between"
-                              >
-                                 <div className="flex items-center gap-2">
-                                    <Avatar className="size-5">
-                                       <AvatarImage src={user.avatarUrl} alt={user.name} />
-                                       <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                                    </Avatar>
-                                    {user.name}
-                                 </div>
-                                 {value === user.id && <CheckIcon size={16} className="ml-auto" />}
-                                 <span className="text-muted-foreground text-xs">
-                                    {filterByAssignee(user.id).length}
-                                 </span>
-                              </CommandItem>
-                           ))}
+                        {people.map((user) => (
+                           <CommandItem
+                              key={user.id}
+                              value={user.id}
+                              onSelect={() => handleAssigneeChange(user.id)}
+                              className="flex items-center justify-between"
+                           >
+                              <div className="flex items-center gap-2">
+                                 <Avatar className="size-5">
+                                    <AvatarImage src={user.avatarUrl} alt={user.name} />
+                                    <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                                 </Avatar>
+                                 {user.name}
+                              </div>
+                              {value === user.id && <CheckIcon size={16} className="ml-auto" />}
+                              <span className="text-muted-foreground text-xs">
+                                 {filterByAssignee(user.id).length}
+                              </span>
+                           </CommandItem>
+                        ))}
                      </CommandGroup>
                   </CommandList>
                </Command>

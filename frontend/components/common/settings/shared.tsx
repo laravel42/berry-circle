@@ -23,7 +23,7 @@ export function SettingsShell({
    return (
       <div className="w-full overflow-y-auto h-full">
          <div className="max-w-2xl mx-auto px-6 py-10 pb-20">
-            <h1 className="text-2xl font-medium">{title}</h1>
+            <h1 className="font-display text-3xl tracking-[-0.025em]">{title}</h1>
             {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
             <div className="flex flex-col gap-10 mt-10">{children}</div>
          </div>

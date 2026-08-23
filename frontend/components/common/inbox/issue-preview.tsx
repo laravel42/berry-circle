@@ -149,7 +149,7 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                   {/* Comment composer */}
                   <div className="relative w-full flex flex-col mt-10">
                      <Textarea
-                        className="w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-accent pb-14 resize-none"
+                        className="w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-accent pb-14 resize-none"
                         placeholder="Leave a comment..."
                         rows={3}
                      />

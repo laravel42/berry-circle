@@ -5,6 +5,7 @@ import { Switch } from '@/components/ui/switch';
 import { RiSlackFill } from '@remixicon/react';
 import { Bot, MessageCircleQuestion, Radar, RefreshCcw, Sparkles, Terminal } from 'lucide-react';
 import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
+import { ModelPlayground } from './model-playground';
 
 const AGENT_FEATURES = [
    {
@@ -80,6 +81,8 @@ export default function AiAgents() {
                ))}
             </SettingsCard>
          </SettingsSection>
+
+         <ModelPlayground />
 
          <SettingsSection
             title="Agent integrations"

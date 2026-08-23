@@ -5,7 +5,9 @@ import MainLayout from '@/components/layout/main-layout';
 export default function IssueDetailPage() {
    return (
       <MainLayout header={<Header />} headersNumber={1}>
-         <IssueDetails />
+         <div className="h-full min-h-0 overflow-hidden">
+            <IssueDetails />
+         </div>
       </MainLayout>
    );
 }

@@ -11,7 +11,7 @@ import { SettingsShell } from './shared';
  * workflow in the mock data) are mapped onto the five project categories.
  */
 const CATEGORY_GROUPS: { label: string; categories: StatusCategory[] }[] = [
-   { label: 'Backlog', categories: ['backlog', 'triage'] },
+   { label: 'Backlog', categories: ['backlog'] },
    { label: 'Planned', categories: ['unstarted'] },
    { label: 'In Progress', categories: ['started'] },
    { label: 'Completed', categories: ['completed'] },

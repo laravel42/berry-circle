@@ -1,46 +1,43 @@
 'use client';
 
-import { Issue, issueCreatorIndex } from '@/data/issues';
-import { currentUser } from '@/data/users';
+import { Issue } from '@/data/issues';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 
-export const MY_ISSUES_TABS = ['assigned', 'created', 'subscribed', 'activity'] as const;
+export const MY_ISSUES_TABS = ['all', 'members', 'agent'] as const;
 export type MyIssuesTab = (typeof MY_ISSUES_TABS)[number];
 
 export const MY_ISSUES_TAB_ITEMS: { label: string; value: MyIssuesTab }[] = [
-   { label: 'Assigned', value: 'assigned' },
-   { label: 'Created', value: 'created' },
-   { label: 'Subscribed', value: 'subscribed' },
-   { label: 'Activity', value: 'activity' },
+   { label: 'All', value: 'all' },
+   { label: 'Members', value: 'members' },
+   { label: 'Agent', value: 'agent' },
 ];
 
-/** The signed-in user. Placeholder until gateway identity lands. */
-export const ME = currentUser;
+/** Default Issues tab when the URL omits `?tab=`. */
+export const DEFAULT_MY_ISSUES_TAB: MyIssuesTab = 'all';
 
 /** Shared tab state (URL-backed) between the header and the page body. */
 export function useMyIssuesTab() {
-   return useQueryState('tab', parseAsStringLiteral(MY_ISSUES_TABS).withDefault('assigned'));
+   const [tab, setTab] = useQueryState(
+      'tab',
+      parseAsStringLiteral(MY_ISSUES_TABS).withDefault(DEFAULT_MY_ISSUES_TAB)
+   );
+   const activeTab = tab ?? DEFAULT_MY_ISSUES_TAB;
+   return [activeTab, setTab] as const;
 }
 
-const isCreatedByMe = (issue: Issue): boolean => issueCreatorIndex(issue, 1) === 0;
-const isSubscribed = (issue: Issue): boolean =>
-   issue.assignee?.id === ME.id || isCreatedByMe(issue) || issueCreatorIndex(issue, 7) === 3;
+const isAgentAssignee = (issue: Issue): boolean => issue.assignee?.role === 'Application';
+const isMemberAssignee = (issue: Issue): boolean =>
+   issue.assignee !== null && issue.assignee.role !== 'Application';
 
-/** Issues shown by each My issues tab. */
+/** Issues shown by each Issues actor tab. */
 export function scopeMyIssues(issues: Issue[], tab: MyIssuesTab): Issue[] {
    switch (tab) {
-      case 'assigned':
-         return issues.filter((issue) => issue.assignee?.id === ME.id);
-      case 'created':
-         return issues.filter(isCreatedByMe);
-      case 'subscribed':
-         return issues.filter(isSubscribed);
-      case 'activity':
+      case 'members':
+         return issues.filter(isMemberAssignee);
+      case 'agent':
+         return issues.filter(isAgentAssignee);
+      case 'all':
       default:
-         // "Activity" = everything I touch, most recent first.
-         return issues
-            .filter(isSubscribed)
-            .slice()
-            .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+         return issues;
    }
 }

@@ -5,25 +5,31 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { users, User } from '@/data/users';
 import { CheckIcon } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import type { User } from '@/data/users';
 
 interface LeadSelectorProps {
    lead: User;
+   members: User[];
    onLeadChange?: (userId: string) => void;
 }
 
-export function LeadSelector({ lead, onLeadChange }: LeadSelectorProps) {
+export function LeadSelector({ lead, members, onLeadChange }: LeadSelectorProps) {
    const id = useId();
    const [open, setOpen] = useState<boolean>(false);
    const [value, setValue] = useState<string>(lead.id);
+
+   useEffect(() => {
+      setValue(lead.id);
+   }, [lead.id]);
+
+   const roster = members.length > 0 ? members : [lead];
 
    const handleLeadChange = (userId: string) => {
       setValue(userId);
@@ -47,7 +53,7 @@ export function LeadSelector({ lead, onLeadChange }: LeadSelectorProps) {
                   aria-expanded={open}
                >
                   {(() => {
-                     const selectedUser = users.find((user) => user.id === value);
+                     const selectedUser = roster.find((user) => user.id === value);
                      if (selectedUser) {
                         return (
                            <>
@@ -68,11 +74,10 @@ export function LeadSelector({ lead, onLeadChange }: LeadSelectorProps) {
             </PopoverTrigger>
             <PopoverContent className="border-input w-48 p-0" align="start">
                <Command>
-                  <CommandInput placeholder="Set lead..." />
                   <CommandList>
                      <CommandEmpty>No user found.</CommandEmpty>
                      <CommandGroup>
-                        {users.map((user) => (
+                        {roster.map((user) => (
                            <CommandItem
                               key={user.id}
                               value={user.id}

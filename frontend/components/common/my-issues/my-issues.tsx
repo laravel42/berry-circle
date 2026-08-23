@@ -18,7 +18,7 @@ import { scopeMyIssues, useMyIssuesTab } from './use-my-issues';
 /**
  * "My issues" body — the exact same machinery as the team issue views
  * (search, filter bar, list/board display, insights panel), scoped to the
- * current tab (Assigned / Created / Subscribed / Activity).
+ * current tab (All / Members / Agent).
  */
 export default function MyIssues() {
    const [tab] = useMyIssuesTab();

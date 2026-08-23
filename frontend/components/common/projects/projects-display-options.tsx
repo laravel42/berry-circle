@@ -35,7 +35,8 @@ const VIEW_TYPES: { value: ProjectsViewType; label: string; icon: React.ElementT
 ];
 
 const GROUPINGS: { value: ProjectsGrouping; label: string }[] = [
-   { value: 'team', label: 'Team' },
+   { value: 'status', label: 'Status' },
+   { value: 'team', label: 'Crew' },
    { value: 'none', label: 'No grouping' },
 ];
 

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+   <style>
+      .bracket {
+         stroke: #111113;
+      }
+      @media (prefers-color-scheme: dark) {
+         .bracket {
+            stroke: #f8f8f4;
+         }
+      }
+   </style>
+   <path
+      class="bracket"
+      d="M20 10H10V54H20M44 10H54V54H44"
+      stroke-width="6"
+      stroke-linecap="butt"
+      stroke-linejoin="miter"
+   />
+   <circle cx="32" cy="32" r="10" fill="#c74a5e" />
+</svg>

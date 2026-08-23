@@ -2,7 +2,7 @@
 
 import { cn } from '@/lib/utils';
 import { Issue } from '@/data/issues';
-import { teams } from '@/data/teams';
+import { useTeamsStore } from '@/store/teams-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -43,6 +43,7 @@ const PRIORITY_COLORS: Record<string, string> = {
  * over the currently displayed issues (Linear side panel).
  */
 export function BreakdownPanel({ issues }: { issues: Issue[] }) {
+   const teams = useTeamsStore((state) => state.teams);
    const { closePanel } = useRightPanelStore();
    const [tab, setTab] = useState<BreakdownTab>('labels');
 
@@ -81,7 +82,7 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
          }
       }
       return [...counter.values()].sort((a, b) => b.count - a.count);
-   }, [tab, issues]);
+   }, [tab, issues, teams]);
 
    return (
       <div className="w-full h-full overflow-y-auto p-4 flex flex-col gap-4">
@@ -92,7 +93,7 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
                      ['labels', 'Labels'],
                      ['priority', 'Priority'],
                      ['projects', 'Projects'],
-                     ['teams', 'Teams'],
+                     ['teams', 'Crews'],
                   ] as const
                ).map(([key, label]) => (
                   <button

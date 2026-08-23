@@ -2,6 +2,7 @@ import React from 'react';
 import { AppSidebar } from '@/components/layout/sidebar/app-sidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { CreateIssueModalProvider } from '@/components/common/issues/create-issue-modal-provider';
+import { IssuesHydrator } from '@/components/common/issues/issues-hydrator';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { cn } from '@/lib/utils';
 
@@ -27,23 +28,20 @@ const isEmptyHeader = (header: React.ReactNode | undefined): boolean => {
    return false;
 };
 
-export default function MainLayout({ children, header, headersNumber = 2 }: MainLayoutProps) {
-   const height = {
-      1: 'h-[calc(100svh-40px)] lg:h-[calc(100svh-56px)]',
-      2: 'h-[calc(100svh-80px)] lg:h-[calc(100svh-96px)]',
-   };
+export default function MainLayout({ children, header }: MainLayoutProps) {
    return (
       <SidebarProvider>
+         <IssuesHydrator />
          <CreateIssueModalProvider />
          <CommandPalette />
          <AppSidebar />
-         <div className="h-svh overflow-hidden lg:p-2 w-full">
-            <div className="lg:border lg:rounded-md overflow-hidden flex flex-col items-center justify-start bg-container h-full w-full">
+         <div className="h-svh w-full overflow-hidden bg-background lg:p-2">
+            <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden border-y border-border bg-container lg:rounded-sm lg:border">
                {header}
                <div
                   className={cn(
-                     'overflow-auto w-full',
-                     isEmptyHeader(header) ? 'h-full' : height[headersNumber as keyof typeof height]
+                     'w-full overflow-auto',
+                     isEmptyHeader(header) ? 'h-full' : 'min-h-0 flex-1'
                   )}
                >
                   {children}

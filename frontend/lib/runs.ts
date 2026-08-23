@@ -1,0 +1,267 @@
+import { z } from 'zod';
+import { BerryApiError, apiFetch, apiStream } from './api';
+import { connectionSchema, newIdempotencyKey } from './api-schemas';
+
+const runStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
+
+const runSchema = z.object({
+   id: z.string(),
+   issueId: z.string(),
+   agentId: z.string(),
+   status: runStatusSchema,
+   sequence: z.number(),
+   summary: z.string().nullable(),
+   usage: z.object({
+      inputTokens: z.number(),
+      outputTokens: z.number(),
+      totalTokens: z.number(),
+      costMicros: z.number().nullable(),
+      currency: z.string().nullable(),
+   }),
+   failure: z
+      .object({
+         code: z.string(),
+         message: z.string(),
+         retryable: z.boolean(),
+      })
+      .nullable(),
+   createdAt: z.string(),
+   startedAt: z.string().nullable(),
+   completedAt: z.string().nullable(),
+});
+
+const runConnectionSchema = connectionSchema(runSchema);
+
+const runEventSchema = z.object({
+   id: z.string(),
+   type: z.string(),
+   occurredAt: z.string(),
+   boardId: z.string(),
+   issueId: z.string(),
+   runId: z.string(),
+   sequence: z.number(),
+   payload: z.unknown(),
+});
+
+export type RunRecord = z.infer<typeof runSchema>;
+export type RunEvent = z.infer<typeof runEventSchema>;
+export type RunStatus = z.infer<typeof runStatusSchema>;
+
+export function isTerminalRunStatus(status: string): boolean {
+   return status === 'succeeded' || status === 'failed' || status === 'cancelled';
+}
+
+export function isTerminalRunEvent(type: string): boolean {
+   return type === 'run.completed' || type === 'run.failed' || type === 'run.cancelled';
+}
+
+export function runDurationMs(run: RunRecord): number | null {
+   if (!run.startedAt) return null;
+   const end = run.completedAt ?? new Date().toISOString();
+   return Math.max(0, new Date(end).getTime() - new Date(run.startedAt).getTime());
+}
+
+export function formatRunDuration(ms: number): string {
+   const totalSeconds = Math.floor(ms / 1000);
+   const minutes = Math.floor(totalSeconds / 60);
+   const seconds = totalSeconds % 60;
+   if (minutes === 0) return `${seconds}s`;
+   return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+}
+
+export async function listIssueRuns(issueId: string): Promise<RunRecord[]> {
+   const json: unknown = await apiFetch(`/api/v1/issues/${issueId}/runs?first=100`);
+   const parsed = runConnectionSchema.safeParse(json);
+   if (!parsed.success) return [];
+   return parsed.data.nodes;
+}
+
+export interface BoardRunsQuery {
+   agentId?: string;
+   status?: RunStatus;
+   first?: number;
+}
+
+export async function listBoardRuns(
+   boardId: string,
+   query: BoardRunsQuery = {}
+): Promise<RunRecord[]> {
+   const collected: RunRecord[] = [];
+   let after: string | undefined;
+   const pageSize = query.first ?? 100;
+   for (let page = 0; page < 20; page += 1) {
+      const params = new URLSearchParams({ first: String(Math.min(pageSize, 100)) });
+      if (query.agentId) params.set('agentId', query.agentId);
+      if (query.status) params.set('status', query.status);
+      if (after) params.set('after', after);
+      const json: unknown = await apiFetch(`/api/v1/boards/${boardId}/runs?${params.toString()}`);
+      const parsed = runConnectionSchema.safeParse(json);
+      if (!parsed.success) {
+         throw new Error('Run list was not recognized');
+      }
+      collected.push(...parsed.data.nodes);
+      const { hasNextPage, endCursor } = parsed.data.pageInfo;
+      if (!hasNextPage || !endCursor || parsed.data.nodes.length === 0) {
+         break;
+      }
+      after = endCursor;
+      if (collected.length >= pageSize) {
+         break;
+      }
+   }
+   return collected.slice(0, pageSize);
+}
+
+export async function cancelRun(runId: string): Promise<RunRecord> {
+   const json: unknown = await apiFetch(`/api/v1/runs/${runId}/cancel`, {
+      method: 'POST',
+   });
+   const parsed = runSchema.safeParse(json);
+   if (!parsed.success) {
+      throw new Error('Run response was not recognized');
+   }
+   return parsed.data;
+}
+
+export async function loadBoardRuns(
+   boardId: string,
+   query: BoardRunsQuery = {}
+): Promise<RunRecord[]> {
+   try {
+      return await listBoardRuns(boardId, query);
+   } catch {
+      return [];
+   }
+}
+
+export async function getRun(runId: string): Promise<RunRecord> {
+   const json: unknown = await apiFetch(`/api/v1/runs/${runId}`);
+   const parsed = runSchema.safeParse(json);
+   if (!parsed.success) {
+      throw new Error('Run response was not recognized');
+   }
+   return parsed.data;
+}
+
+export async function createIssueRun(
+   issueId: string,
+   input: { agentId?: string; instructions?: string } = {}
+): Promise<RunRecord> {
+   const body: Record<string, string | null> = {};
+   if (input.agentId) body.agentId = input.agentId;
+   if (input.instructions) body.instructions = input.instructions;
+
+   try {
+      const json: unknown = await apiFetch(`/api/v1/issues/${issueId}/runs`, {
+         method: 'POST',
+         headers: { 'Idempotency-Key': newIdempotencyKey() },
+         body: JSON.stringify(body),
+      });
+      const parsed = runSchema.safeParse(json);
+      if (!parsed.success) {
+         throw new Error('Run response was not recognized');
+      }
+      return parsed.data;
+   } catch (error) {
+      if (error instanceof BerryApiError && error.code === 'ACTIVE_RUN_EXISTS') {
+         const runId = activeRunIdFromDetails(error.details);
+         if (runId) return getRun(runId);
+      }
+      throw error;
+   }
+}
+
+export async function loadRunsForIssues(issueIds: string[]): Promise<RunRecord[]> {
+   const pages = await Promise.all(
+      issueIds.map(async (issueId) => {
+         try {
+            return await listIssueRuns(issueId);
+         } catch {
+            return [] as RunRecord[];
+         }
+      })
+   );
+   return pages.flat().sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+}
+
+export async function* streamRunEvents(
+   runId: string,
+   signal?: AbortSignal
+): AsyncGenerator<RunEvent> {
+   const response = await apiStream(`/api/v1/runs/${runId}/events`, undefined, { signal });
+   if (!response.body) {
+      throw new Error('Run event stream had no body');
+   }
+   const reader = response.body.getReader();
+   const decoder = new TextDecoder();
+   let buffer = '';
+   try {
+      while (true) {
+         const { done, value } = await reader.read();
+         if (done) break;
+         buffer += decoder.decode(value, { stream: true });
+         const blocks = buffer.split('\n\n');
+         buffer = blocks.pop() ?? '';
+         for (const block of blocks) {
+            const event = parseSseBlock(block);
+            if (event) yield event;
+         }
+      }
+      const tail = parseSseBlock(buffer);
+      if (tail) yield tail;
+   } finally {
+      reader.releaseLock();
+   }
+}
+
+function parseSseBlock(block: string): RunEvent | undefined {
+   let eventName = '';
+   const dataLines: string[] = [];
+   for (const rawLine of block.split('\n')) {
+      const line = rawLine.replace(/\r$/, '');
+      if (!line || line.startsWith(':')) continue;
+      if (line.startsWith('event:')) {
+         eventName = line.slice(6).trim();
+         continue;
+      }
+      if (line.startsWith('data:')) {
+         dataLines.push(line.slice(5).trimStart());
+      }
+   }
+   if (!eventName || dataLines.length === 0) return undefined;
+   try {
+      const parsed = runEventSchema.safeParse(JSON.parse(dataLines.join('\n')));
+      return parsed.success ? parsed.data : undefined;
+   } catch {
+      return undefined;
+   }
+}
+
+function activeRunIdFromDetails(details: unknown): string | undefined {
+   if (typeof details !== 'object' || details === null || Array.isArray(details)) {
+      return undefined;
+   }
+   const runId = (details as { runId?: unknown }).runId;
+   return typeof runId === 'string' && runId ? runId : undefined;
+}
+
+export function textFromRunEvent(event: RunEvent): string {
+   if (
+      typeof event.payload !== 'object' ||
+      event.payload === null ||
+      Array.isArray(event.payload)
+   ) {
+      return '';
+   }
+   const payload = event.payload as Record<string, unknown>;
+   if (event.type === 'run.output.delta' && typeof payload.text === 'string') {
+      return payload.text;
+   }
+   if (event.type === 'run.tool.started' && typeof payload.name === 'string') {
+      return `\n[${payload.name}]\n`;
+   }
+   if (event.type === 'run.failed' && typeof payload.message === 'string') {
+      return payload.message;
+   }
+   return '';
+}

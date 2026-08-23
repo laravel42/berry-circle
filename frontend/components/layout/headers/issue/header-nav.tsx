@@ -1,12 +1,13 @@
 'use client';
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
+import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getCycleById } from '@/data/cycles';
-import { getTeamForUrl } from '@/data/teams';
+import { getTeamForUrl } from '@/store/teams-store';
 import { useIssuesStore } from '@/store/issues-store';
-import { ChevronDown, ChevronRight, ChevronUp, MoreHorizontal, Star } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
@@ -17,6 +18,7 @@ import { useParams } from 'next/navigation';
 export default function HeaderNav() {
    const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
    const { issues } = useIssuesStore();
+   const inDrawer = useInDetailDrawer();
 
    const team = getTeamForUrl(undefined);
    const index = issues.findIndex((candidate) => candidate.identifier === issueId);
@@ -29,7 +31,7 @@ export default function HeaderNav() {
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10 gap-4">
          <div className="flex items-center gap-2 min-w-0">
-            <SidebarTrigger />
+            {!inDrawer && <SidebarTrigger />}
             <Link
                href={`/${orgId}/team/${team.id}/overview`}
                className="flex items-center gap-1.5 shrink-0 hover:opacity-80"
@@ -60,8 +62,6 @@ export default function HeaderNav() {
                   <span className="font-medium">{issue.title}</span>
                </span>
             )}
-            <Star className="size-3.5 text-muted-foreground shrink-0" />
-            <MoreHorizontal className="size-3.5 text-muted-foreground shrink-0" />
          </div>
 
          <div className="flex items-center gap-1 shrink-0">

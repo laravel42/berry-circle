@@ -2,29 +2,30 @@
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { teams } from '@/data/teams';
+import { useTeamsStore } from '@/store/teams-store';
 import { Check } from 'lucide-react';
 import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 
-/** "Join or create a team" settings page. */
+/** "Join or create a crew" settings page. */
 export default function NewTeam() {
+   const teams = useTeamsStore((state) => state.teams);
    const notJoined = teams.filter((team) => !team.joined);
 
    return (
       <SettingsShell
-         title="Join or create a team"
-         description="Teams organize issues, cycles and projects around the people working together"
+         title="Join or create a crew"
+         description="Crews organize issues, cycles and projects around the people working together"
       >
-         <SettingsSection title="Create a new team">
+         <SettingsSection title="Create a new crew">
             <SettingsCard>
                <div className="flex items-center gap-3 p-4">
-                  <Input placeholder="Team name, e.g. Mobile" className="h-8 flex-1" />
-                  <Button size="xs">Create team</Button>
+                  <Input placeholder="Crew name, e.g. Platform" className="h-8 flex-1" />
+                  <Button size="xs">Create crew</Button>
                </div>
             </SettingsCard>
          </SettingsSection>
 
-         <SettingsSection title="Join an existing team">
+         <SettingsSection title="Join an existing crew">
             <SettingsCard>
                {notJoined.map((team) => (
                   <SettingsRow

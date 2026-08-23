@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
-import { getProjectById } from '@/data/projects';
+import { useProject } from '@/hooks/use-project';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, ChevronRight, Link2, MoreHorizontal, PanelRight, Star } from 'lucide-react';
 import Link from 'next/link';
@@ -71,8 +71,14 @@ function PanelToggles() {
 
 export default function Header({ projectId }: { projectId: string }) {
    const { orgId } = useParams<{ orgId: string }>();
-   const project = getProjectById(projectId);
-   if (!project) return null;
+   const project = useProject(projectId);
+   if (!project) {
+      return (
+         <div className="w-full flex items-center border-b py-1.5 px-6 h-10 text-sm text-muted-foreground">
+            Loading project…
+         </div>
+      );
+   }
 
    return (
       <>

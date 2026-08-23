@@ -1,12 +1,17 @@
 'use client';
 
 import { Issue } from '@/data/issues';
+import { priorities } from '@/data/priorities';
 import { Project } from '@/data/projects';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsDisplayStore } from '@/store/projects-display-store';
+import { useProjectsStore } from '@/store/projects-store';
+import { useMembersStore } from '@/store/members-store';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useMemo } from 'react';
+import { format } from 'date-fns';
+import { projectCreateStatusOptions } from './create-project/project-status-options';
 import { HealthPopover } from './health-popover';
 import { PrioritySelector } from './priority-selector';
 import { LeadSelector } from './lead-selector';
@@ -23,6 +28,13 @@ const countIssues = (issues: Issue[], projectId: string) =>
 export default function ProjectLine({ project }: ProjectLineProps) {
    const { orgId } = useParams<{ orgId: string }>();
    const { issues } = useIssuesStore();
+   const members = useMembersStore((state) => state.members);
+   const {
+      updateProjectStatus,
+      updateProjectPriority,
+      updateProjectTargetDate,
+      updateProjectLead,
+   } = useProjectsStore();
    const { displayProperties } = useProjectsDisplayStore();
    const issueCount = useMemo(() => countIssues(issues, project.id), [issues, project.id]);
 
@@ -64,17 +76,38 @@ export default function ProjectLine({ project }: ProjectLineProps) {
          )}
          {displayProperties.priority && (
             <div className="hidden md:block w-[70px] shrink-0">
-               <PrioritySelector priority={project.priority} />
+               <PrioritySelector
+                  priority={project.priority}
+                  onPriorityChange={(priorityId) => {
+                     const match = priorities.find((entry) => entry.id === priorityId);
+                     if (match) updateProjectPriority(project.id, match);
+                  }}
+               />
             </div>
          )}
          {displayProperties.lead && (
             <div className="hidden xl:block w-[130px] shrink-0">
-               <LeadSelector lead={project.lead} />
+               <LeadSelector
+                  lead={project.lead}
+                  members={members}
+                  onLeadChange={(userId) => {
+                     const member = members.find((entry) => entry.id === userId);
+                     if (member) updateProjectLead(project.id, member);
+                  }}
+               />
             </div>
          )}
          {displayProperties.targetDate && (
             <div className="hidden xl:block w-[110px] shrink-0">
-               <DatePicker date={project.targetDate ? new Date(project.targetDate) : undefined} />
+               <DatePicker
+                  date={project.targetDate ? new Date(project.targetDate) : undefined}
+                  onDateChange={(date) => {
+                     updateProjectTargetDate(
+                        project.id,
+                        date ? format(date, 'yyyy-MM-dd') : undefined
+                     );
+                  }}
+               />
             </div>
          )}
          {displayProperties.issues && (
@@ -87,6 +120,12 @@ export default function ProjectLine({ project }: ProjectLineProps) {
                <StatusWithPercent
                   status={project.status}
                   percentComplete={project.percentComplete}
+                  onStatusChange={(statusId) => {
+                     const match = projectCreateStatusOptions.find(
+                        (option) => option.status.id === statusId
+                     );
+                     if (match) updateProjectStatus(project.id, match.status);
+                  }}
                />
             </div>
          )}

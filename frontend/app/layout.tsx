@@ -1,16 +1,18 @@
 import type { Metadata } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { DM_Serif_Display, Geist_Mono } from 'next/font/google';
 import { Toaster } from '@/components/ui/sonner';
 import './globals.css';
 
-const geistSans = Geist({
-   variable: '--font-geist-sans',
+const dmSerifDisplay = DM_Serif_Display({
+   variable: '--font-dm-serif',
    subsets: ['latin'],
+   weight: '400',
 });
 
 const geistMono = Geist_Mono({
    variable: '--font-geist-mono',
    subsets: ['latin'],
+   weight: ['300', '400', '500', '600'],
 });
 
 export const metadata: Metadata = {
@@ -23,6 +25,7 @@ export const metadata: Metadata = {
 };
 
 import { ThemeProvider } from '@/components/layout/theme-provider';
+import { SessionGate } from '@/components/layout/session-gate';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
 
 export default function RootLayout({
@@ -32,17 +35,16 @@ export default function RootLayout({
 }>) {
    return (
       <html lang="en" suppressHydrationWarning>
-         <head>
-            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-         </head>
          <body
-            className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background`}
+            className={`${dmSerifDisplay.variable} ${geistMono.variable} bg-background antialiased`}
             suppressHydrationWarning
          >
             <NuqsAdapter>
                <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-                  {children}
-                  <Toaster />
+                  <SessionGate>
+                     {children}
+                     <Toaster />
+                  </SessionGate>
                </ThemeProvider>
             </NuqsAdapter>
          </body>

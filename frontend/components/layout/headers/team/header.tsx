@@ -1,3 +1,5 @@
+'use client';
+
 import HeaderNav from './header-nav';
 import HeaderTabs from './header-tabs';
 

@@ -7,7 +7,7 @@ import { Issue } from '@/data/issues';
 import { getCycleById } from '@/data/cycles';
 import { ProjectDetail } from '@/data/project-details';
 import { Project } from '@/data/projects';
-import { teams } from '@/data/teams';
+import { useTeamsStore } from '@/store/teams-store';
 import { PanelFilterTarget, usePanelFilter } from '@/components/common/issues/use-panel-filter';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -111,6 +111,7 @@ function PropertyRow({ label, children }: { label: string; children: React.React
  * progress breakdowns and a compact activity feed.
  */
 export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPropertiesPanelProps) {
+   const teams = useTeamsStore((state) => state.teams);
    const panelFilter = usePanelFilter();
    const completed = issues.filter(isCompleted).length;
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { SidebarTrigger } from '@/components/ui/sidebar';
-import { getTeamForUrl } from '@/data/teams';
+import { getTeamForUrl } from '@/store/teams-store';
 import { Link2, MoreHorizontal, Star } from 'lucide-react';
 import { useParams } from 'next/navigation';
 

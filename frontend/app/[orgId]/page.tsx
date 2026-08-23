@@ -1,6 +1,6 @@
-import { WORKSPACE_SLUG } from '@/lib/config';
 import { redirect } from 'next/navigation';
 
-export default function OrgIdPage() {
-   redirect(`${WORKSPACE_SLUG}/teams`);
+export default async function OrgIdPage({ params }: { params: Promise<{ orgId: string }> }) {
+   const { orgId } = await params;
+   redirect(`/${orgId}/runs`);
 }

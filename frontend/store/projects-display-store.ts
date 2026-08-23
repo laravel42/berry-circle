@@ -5,7 +5,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 export type ProjectsViewType = 'timeline' | 'board' | 'list';
 export type ProjectsTab = 'all' | 'active';
-export type ProjectsGrouping = 'team' | 'none';
+export type ProjectsGrouping = 'status' | 'team' | 'none';
 export type ProjectsOrdering = 'start-date' | 'target-date' | 'title';
 export type ClosedProjectsFilter = 'all' | 'hide';
 
@@ -71,7 +71,7 @@ interface ProjectsDisplayState {
 
 const DEFAULTS = {
    viewTypes: { all: 'list', active: 'timeline' } as Record<ProjectsTab, ProjectsViewType>,
-   grouping: 'team' as ProjectsGrouping,
+   grouping: 'status' as ProjectsGrouping,
    ordering: 'start-date' as ProjectsOrdering,
    closedProjects: 'all' as ClosedProjectsFilter,
    showEmptyGroups: false,

@@ -3,7 +3,7 @@
 import { Button } from '@/components/ui/button';
 import { getCyclesByTeam } from '@/data/cycles';
 import { status } from '@/data/status';
-import { teams } from '@/data/teams';
+import { useTeamsStore } from '@/store/teams-store';
 import {
    Bot,
    ChevronRight,
@@ -30,6 +30,7 @@ interface TeamSettingsProps {
 
 /** Per-team settings page (general, workflow, AI and danger zone). */
 export default function TeamSettings({ teamId }: TeamSettingsProps) {
+   const teams = useTeamsStore((state) => state.teams);
    const { orgId } = useParams<{ orgId: string }>();
    const team = teams.find((candidate) => candidate.id === teamId);
 

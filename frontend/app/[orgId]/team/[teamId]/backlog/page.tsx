@@ -5,7 +5,7 @@ import MainLayout from '@/components/layout/main-layout';
 export default function BacklogIssuesPage() {
    return (
       <MainLayout header={<Header />}>
-         <AllIssues categories={['backlog', 'triage']} />
+         <AllIssues categories={['backlog']} />
       </MainLayout>
    );
 }

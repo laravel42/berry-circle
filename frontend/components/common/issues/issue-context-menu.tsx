@@ -37,9 +37,9 @@ import React, { useState } from 'react';
 import { useIssuesStore } from '@/store/issues-store';
 import { status } from '@/data/status';
 import { priorities } from '@/data/priorities';
-import { users } from '@/data/users';
-import { labels } from '@/data/labels';
-import { projects } from '@/data/projects';
+import { useLabelsStore } from '@/store/labels-store';
+import { useMembersStore } from '@/store/members-store';
+import { useProjectsStore } from '@/store/projects-store';
 import { toast } from 'sonner';
 
 interface IssueContextMenuProps {
@@ -60,6 +60,9 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
       updateIssue,
       getIssueById,
    } = useIssuesStore();
+   const projects = useProjectsStore((state) => state.projects);
+   const members = useMembersStore((state) => state.members);
+   const labels = useLabelsStore((state) => state.labels);
 
    const handleStatusChange = (statusId: string) => {
       if (!issueId) return;
@@ -81,7 +84,7 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
 
    const handleAssigneeChange = (userId: string | null) => {
       if (!issueId) return;
-      const newAssignee = userId ? users.find((u) => u.id === userId) || null : null;
+      const newAssignee = userId ? members.find((u) => u.id === userId) || null : null;
       updateIssueAssignee(issueId, newAssignee);
       toast.success(newAssignee ? `Assigned to ${newAssignee.name}` : 'Unassigned');
    };
@@ -189,20 +192,15 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                   <ContextMenuItem onClick={() => handleAssigneeChange(null)}>
                      <User className="size-4" /> Unassigned
                   </ContextMenuItem>
-                  {users
-                     
-                     .map((user) => (
-                        <ContextMenuItem
-                           key={user.id}
-                           onClick={() => handleAssigneeChange(user.id)}
-                        >
-                           <Avatar className="size-4">
-                              <AvatarImage src={user.avatarUrl} alt={user.name} />
-                              <AvatarFallback>{user.name[0]}</AvatarFallback>
-                           </Avatar>
-                           {user.name}
-                        </ContextMenuItem>
-                     ))}
+                  {members.map((user) => (
+                     <ContextMenuItem key={user.id} onClick={() => handleAssigneeChange(user.id)}>
+                        <Avatar className="size-4">
+                           <AvatarImage src={user.avatarUrl} alt={user.name} />
+                           <AvatarFallback>{user.name[0]}</AvatarFallback>
+                        </Avatar>
+                        {user.name}
+                     </ContextMenuItem>
+                  ))}
                </ContextMenuSubContent>
             </ContextMenuSub>
 

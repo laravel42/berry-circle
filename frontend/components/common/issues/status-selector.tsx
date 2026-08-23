@@ -5,7 +5,6 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
@@ -55,6 +54,7 @@ export function StatusSelector({ status, issueId }: StatusSelectorProps) {
                   variant="ghost"
                   role="combobox"
                   aria-expanded={open}
+                  aria-label={`Change status, current ${status.name}`}
                >
                   {renderStatusIcon(value)}
                </Button>
@@ -64,9 +64,8 @@ export function StatusSelector({ status, issueId }: StatusSelectorProps) {
                align="start"
             >
                <Command>
-                  <CommandInput placeholder="Set status..." />
                   <CommandList>
-                     <CommandEmpty>No status found.</CommandEmpty>
+                     <CommandEmpty>no status found.</CommandEmpty>
                      <CommandGroup>
                         {allStatus.map((item) => (
                            <CommandItem

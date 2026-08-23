@@ -3,7 +3,7 @@
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getCurrentCycle, getUpcomingCycle } from '@/data/cycles';
-import { getTeamForUrl } from '@/data/teams';
+import { getTeamForUrl } from '@/store/teams-store';
 import { ChevronRight, MoreHorizontal, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';

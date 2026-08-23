@@ -1,15 +1,17 @@
 'use client';
 
-import { teams as allTeams } from '@/data/teams';
 import { useTeamsFilterStore } from '@/store/team-filter-store';
 import { useTeamsDisplayStore } from '@/store/teams-display-store';
+import { useTeamsStore } from '@/store/teams-store';
 import { useMemo } from 'react';
 import { Filter } from '@/components/layout/headers/teams/filter';
+import { CrewDetailDrawer } from './crew-detail-drawer';
 import TeamLine from './team-line';
 import { TeamsDisplayOptions } from './teams-display-options';
 
 export default function Teams() {
-   const { filters } = useTeamsFilterStore();
+   const allTeams = useTeamsStore((state) => state.teams);
+   const { filters, sort } = useTeamsFilterStore();
    const { ordering, displayProperties } = useTeamsDisplayStore();
 
    const displayed = useMemo(() => {
@@ -23,29 +25,48 @@ export default function Teams() {
       }
       if (filters.identifier.length > 0) {
          const selectedIdentifiers = new Set(filters.identifier);
-         list = list.filter((team) => selectedIdentifiers.has(team.id));
+         list = list.filter((team) => selectedIdentifiers.has(team.identifier));
       }
 
       const compare = (a: (typeof list)[number], b: (typeof list)[number]) => {
-         switch (ordering) {
-            case 'members':
+         switch (sort) {
+            case 'name-desc':
+               return b.name.localeCompare(a.name);
+            case 'members-asc':
+               return a.members.length - b.members.length;
+            case 'members-desc':
                return b.members.length - a.members.length;
-            case 'projects':
+            case 'projects-asc':
+               return a.projects.length - b.projects.length;
+            case 'projects-desc':
                return b.projects.length - a.projects.length;
-            case 'name':
+            case 'name-asc':
             default:
                return a.name.localeCompare(b.name);
          }
       };
-      return list.sort(compare);
-   }, [filters, ordering]);
+
+      if (sort !== 'name-asc') {
+         return list.sort(compare);
+      }
+
+      switch (ordering) {
+         case 'members':
+            return list.sort((a, b) => b.members.length - a.members.length);
+         case 'projects':
+            return list.sort((a, b) => b.projects.length - a.projects.length);
+         case 'name':
+         default:
+            return list.sort((a, b) => a.name.localeCompare(b.name));
+      }
+   }, [allTeams, filters, sort, ordering]);
 
    return (
       <div className="w-full">
-         {/* Count + view controls (Linear-style) */}
+         <CrewDetailDrawer />
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10 sticky top-0 bg-container z-20">
             <span className="text-sm text-muted-foreground">
-               {displayed.length} {displayed.length === 1 ? 'team' : 'teams'}
+               {displayed.length} {displayed.length === 1 ? 'crew' : 'crews'}
             </span>
             <div className="flex items-center gap-1">
                <Filter />
@@ -53,7 +74,6 @@ export default function Teams() {
             </div>
          </div>
 
-         {/* Column headers */}
          <div className="bg-container px-6 py-1.5 text-sm flex items-center text-muted-foreground border-b sticky top-10 z-10">
             <div className="flex-1 min-w-0">Name</div>
             {displayProperties.membership && (
@@ -78,9 +98,13 @@ export default function Teams() {
          </div>
 
          <div className="w-full">
-            {displayed.map((team) => (
-               <TeamLine key={team.id} team={team} />
-            ))}
+            {displayed.length === 0 ? (
+               <div className="px-6 py-12 text-sm text-muted-foreground">
+                  No crews yet. Create one to organize issues and runs.
+               </div>
+            ) : (
+               displayed.map((team) => <TeamLine key={team.id} team={team} />)
+            )}
          </div>
       </div>
    );

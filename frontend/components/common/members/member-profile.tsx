@@ -11,7 +11,7 @@ import { Issue, issueCreatorIndex } from '@/data/issues';
 import { labels } from '@/data/labels';
 import { priorities } from '@/data/priorities';
 import { projects } from '@/data/projects';
-import { teams } from '@/data/teams';
+import { useTeamsStore } from '@/store/teams-store';
 import { statusUserColors, User, users } from '@/data/users';
 import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
@@ -100,6 +100,7 @@ function useClientTimes(member: User) {
  * per-label / priority / project / team breakdowns.
  */
 export default function MemberProfile({ member }: { member: User }) {
+   const teams = useTeamsStore((state) => state.teams);
    const { issues } = useIssuesStore();
    const [activeTab] = useQueryState('tab', parseAsString.withDefault('assigned'));
    const { localTime, joinedAgo } = useClientTimes(member);
@@ -130,7 +131,7 @@ export default function MemberProfile({ member }: { member: User }) {
 
    const memberTeams = useMemo(
       () => teams.filter((team) => member.teamIds.includes(team.id)),
-      [member.teamIds]
+      [member.teamIds, teams]
    );
 
    const memberProjects = useMemo(() => {
@@ -276,7 +277,7 @@ export default function MemberProfile({ member }: { member: User }) {
                   <span>{member.role}</span>
                </div>
                <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0 pt-0.5">Teams</span>
+                  <span className="text-muted-foreground shrink-0 pt-0.5">Crews</span>
                   <div className="flex flex-wrap justify-end gap-1.5">
                      {memberTeams.map((team) => (
                         <span
@@ -319,7 +320,7 @@ export default function MemberProfile({ member }: { member: User }) {
                         Projects
                      </TabsTrigger>
                      <TabsTrigger value="teams" className="text-xs px-2.5 rounded-full">
-                        Teams
+                        Crews
                      </TabsTrigger>
                   </TabsList>
                   <TabsContent value="labels">

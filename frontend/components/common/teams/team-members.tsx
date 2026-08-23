@@ -2,12 +2,12 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { getTeamForUrl } from '@/data/teams';
+import { getTeamForUrl } from '@/store/teams-store';
 import { Plus, SlidersHorizontal } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 /**
- * Team Home — "Members" tab: members of the current team with
+ * Crew home — "Members" tab: members of the current crew with
  * their email and role.
  */
 export default function TeamMembers() {

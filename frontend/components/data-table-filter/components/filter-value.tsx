@@ -5,7 +5,6 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
   CommandSeparator,
@@ -517,7 +516,6 @@ export function FilterValueOptionController<TData>({
 
   return (
     <Command loop>
-      <CommandInput autoFocus placeholder={t('search', locale)} />
       <CommandEmpty>{t('noresults', locale)}</CommandEmpty>
       <CommandList className="max-h-fit">
         <CommandGroup className={cn(selectedOptions.length === 0 && 'hidden')}>
@@ -596,7 +594,6 @@ export function FilterValueMultiOptionController<TData>({
 
   return (
     <Command loop>
-      <CommandInput autoFocus placeholder={t('search', locale)} />
       <CommandEmpty>{t('noresults', locale)}</CommandEmpty>
       <CommandList>
         <CommandGroup className={cn(selectedOptions.length === 0 && 'hidden')}>

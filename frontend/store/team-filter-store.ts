@@ -23,18 +23,18 @@ const SORTS: TeamsSort[] = [
 export interface TeamsFilterState {
    filters: {
       membership: ('Joined' | 'Not-Joined')[];
-      identifier: Team['id'][];
+      identifier: Team['identifier'][];
    };
    sort: TeamsSort;
 
    setSort: (sort: TeamsSort) => void;
    setFilter: (
       type: 'membership' | 'identifier',
-      ids: 'Joined' | 'Not-Joined' | Team['id']
+      ids: 'Joined' | 'Not-Joined' | Team['identifier']
    ) => void;
    toggleFilter: (
       type: 'membership' | 'identifier',
-      id: 'Joined' | 'Not-Joined' | Team['id']
+      id: 'Joined' | 'Not-Joined' | Team['identifier']
    ) => void;
    clearFilters: () => void;
    clearFilterType: (type: 'membership' | 'identifier') => void;

@@ -12,25 +12,17 @@ import {
    Blocks,
    Bot,
    Code,
-   Compass,
-   FileText,
-   Flame,
-   HeartHandshake,
    KeyRound,
    LucideIcon,
-   MessageCircleQuestion,
-   Rocket,
    Settings,
-   Smile,
    Sparkles,
    Tag,
-   Target,
    UserRound,
    Users,
-   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
+import { isNavItemActive } from '@/lib/nav-active';
 
 interface SettingsNavItem {
    name: string;
@@ -44,49 +36,26 @@ interface SettingsNavGroup {
    items: SettingsNavItem[];
 }
 
-/** Linear-style settings navigation. */
+/** Default settings navigation. Unused routes stay live; they are not listed here. */
 export const settingsNav: SettingsNavGroup[] = [
    {
-      label: 'Personal',
+      label: 'personal',
       items: [
-         { name: 'Preferences', url: '/settings/preferences', icon: Settings },
-         { name: 'Profile', url: '/settings/profile', icon: UserRound },
-         { name: 'Notifications', url: '/settings/notifications', icon: Bell },
-         { name: 'Code & reviews', url: '/settings/code-and-reviews', icon: Code },
-         { name: 'Security & access', url: '/settings/security', icon: KeyRound },
-         { name: 'Connected accounts', url: '/settings/connected-accounts', icon: Users },
-         { name: 'Agent personalization', url: '/settings/agent-personalization', icon: Bot },
+         { name: 'preferences', url: '/settings/preferences', icon: Settings },
+         { name: 'profile', url: '/settings/profile', icon: UserRound },
+         { name: 'notifications', url: '/settings/notifications', icon: Bell },
+         { name: 'security & access', url: '/settings/security', icon: KeyRound },
+         { name: 'connected accounts', url: '/settings/connected-accounts', icon: Users },
       ],
    },
    {
-      label: 'Issues',
+      label: 'workspace',
       items: [
-         { name: 'Labels', url: '/settings/issue-labels', icon: Tag },
-         { name: 'Templates', url: '/settings/issue-templates', icon: FileText },
-         { name: 'SLAs', url: '/settings/slas', icon: Flame },
-      ],
-   },
-   {
-      label: 'Projects',
-      items: [
-         { name: 'Labels', url: '/settings/project-labels', icon: Tag },
-         { name: 'Templates', url: '/settings/project-templates', icon: FileText },
-         { name: 'Statuses', url: '/settings/project-statuses', icon: Target },
-         { name: 'Updates', url: '/settings/project-updates', icon: Zap },
-      ],
-   },
-   {
-      label: 'Features',
-      items: [
-         { name: 'AI & Agents', url: '/settings/ai', icon: Sparkles },
-         { name: 'Initiatives', url: '/settings/initiatives', icon: Compass },
-         { name: 'Documents', url: '/settings/documents', icon: FileText },
-         { name: 'Customer requests', url: '/settings/customer-requests', icon: HeartHandshake },
-         { name: 'Releases', url: '/settings/releases', icon: Rocket },
-         { name: 'Pulse', url: '/settings/pulse', icon: Zap },
-         { name: 'Asks', url: '/settings/asks', icon: MessageCircleQuestion },
-         { name: 'Emojis', url: '/settings/emojis', icon: Smile },
-         { name: 'Integrations', url: '/settings/integrations', icon: Blocks },
+         { name: 'agents', url: '/settings/ai', icon: Sparkles },
+         { name: 'agent personalization', url: '/settings/agent-personalization', icon: Bot },
+         { name: 'code & reviews', url: '/settings/code-and-reviews', icon: Code },
+         { name: 'issue labels', url: '/settings/issue-labels', icon: Tag },
+         { name: 'integrations', url: '/settings/integrations', icon: Blocks },
       ],
    },
 ];
@@ -103,12 +72,12 @@ export function NavSettings() {
                <SidebarMenu>
                   {group.items.map((item) => {
                      const href = `/${orgId}${item.url}`;
-                     const isActive = pathname === href;
+                     const isActive = isNavItemActive(pathname, href);
                      return (
                         <SidebarMenuItem key={`${group.label}-${item.name}`}>
-                           <SidebarMenuButton asChild isActive={isActive}>
+                           <SidebarMenuButton asChild size="sm" isActive={isActive}>
                               <Link href={href}>
-                                 <item.icon className="size-4" />
+                                 <item.icon />
                                  <span>{item.name}</span>
                               </Link>
                            </SidebarMenuButton>

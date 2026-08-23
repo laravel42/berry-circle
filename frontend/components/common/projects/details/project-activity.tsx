@@ -17,7 +17,7 @@ import {
    projectUpdateHealthColor,
    projectUpdateHealthLabel,
 } from '@/data/project-details';
-import { getProjectById } from '@/data/projects';
+import { useProject } from '@/hooks/use-project';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectUpdatesStore } from '@/store/project-updates-store';
 import { format, parseISO } from 'date-fns';
@@ -66,12 +66,12 @@ function UpdateCard({ update }: { update: ProjectUpdate }) {
 
 /** Project "Activity" tab: update composer + monthly timeline. */
 export default function ProjectActivity({ projectId }: ProjectActivityProps) {
-   const project = getProjectById(projectId)!;
+   const project = useProject(projectId);
    const detail = getProjectDetail(projectId);
    const { issues: allIssues } = useIssuesStore();
    const issues = useMemo(
-      () => allIssues.filter((issue) => issue.project?.id === project.id),
-      [allIssues, project.id]
+      () => (project ? allIssues.filter((issue) => issue.project?.id === project.id) : []),
+      [allIssues, project]
    );
    const { postedUpdates, postUpdate } = useProjectUpdatesStore();
    const [mode, setMode] = useState<'comment' | 'update'>('update');
@@ -79,8 +79,11 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
    const [text, setText] = useState('');
 
    const updates = useMemo<ProjectUpdate[]>(
-      () => [...(postedUpdates[project.id] ?? []), ...detail.updates],
-      [postedUpdates, project.id, detail.updates]
+      () =>
+         project
+            ? [...(postedUpdates[project.id] ?? []), ...detail.updates]
+            : [],
+      [postedUpdates, project, detail.updates]
    );
 
    const updatesByMonth = useMemo(() => {
@@ -91,6 +94,10 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
       }
       return [...groups.entries()];
    }, [updates]);
+
+   if (!project) {
+      return <div className="p-6 text-sm text-muted-foreground">Loading project…</div>;
+   }
 
    const completedPercent =
       issues.length > 0
@@ -158,8 +165,10 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
                   <textarea
                      value={text}
                      onChange={(event) => setText(event.target.value)}
-                     placeholder={mode === 'update' ? 'Write a project update…' : 'Leave a comment…'}
-                     className="mt-3 w-full min-h-24 resize-y bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                     placeholder={
+                        mode === 'update' ? 'Write a project update…' : 'Leave a comment…'
+                     }
+                     className="mt-3 w-full min-h-24 resize-y bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/40"
                   />
 
                   {mode === 'update' && (
@@ -167,7 +176,8 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
                         <div className="flex gap-6">
                            <span className="w-20">Priority</span>
                            <span>
-                              No priority → <span className="text-foreground">{project.priority.name}</span>
+                              No priority →{' '}
+                              <span className="text-foreground">{project.priority.name}</span>
                            </span>
                         </div>
                         <div className="flex gap-6">
@@ -202,7 +212,11 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
                         Write with Agent
                      </Button>
                      <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="size-7 text-muted-foreground">
+                        <Button
+                           variant="ghost"
+                           size="icon"
+                           className="size-7 text-muted-foreground"
+                        >
                            <Paperclip className="size-4" />
                         </Button>
                         <Button size="xs" onClick={handlePost} disabled={text.trim() === ''}>

@@ -5,7 +5,6 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
    CommandSeparator,
@@ -124,7 +123,6 @@ export function Filter() {
                      </Button>
                      <span className="ml-2 font-medium">Health</span>
                   </div>
-                  <CommandInput placeholder="Search health..." />
                   <CommandList>
                      <CommandEmpty>No health found.</CommandEmpty>
                      <CommandGroup>
@@ -161,7 +159,6 @@ export function Filter() {
                      </Button>
                      <span className="ml-2 font-medium">Priority</span>
                   </div>
-                  <CommandInput placeholder="Search priorities..." />
                   <CommandList>
                      <CommandEmpty>No priorities found.</CommandEmpty>
                      <CommandGroup>

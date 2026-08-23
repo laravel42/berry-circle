@@ -4,7 +4,6 @@ import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
@@ -29,9 +28,11 @@ import type {
   Column,
   ColumnDataType,
   DataTableFilterActions,
+  FilterModel,
   FilterStrategy,
   FiltersState,
 } from '../core/types'
+import { DEFAULT_OPERATORS } from '../core/operators'
 import { isAnyOf } from '../lib/array'
 import { getColumn } from '../lib/helpers'
 import { type Locale, t } from '../lib/i18n'
@@ -43,9 +44,21 @@ interface FilterSelectorProps<TData> {
   actions: DataTableFilterActions
   strategy: FilterStrategy
   locale?: Locale
+  iconOnly?: boolean
 }
 
 export const FilterSelector = memo(__FilterSelector) as typeof __FilterSelector
+
+function createDraftFilter<TData, TType extends ColumnDataType>(
+  column: Column<TData, TType>,
+): FilterModel<TType> {
+  return {
+    columnId: column.id,
+    type: column.type,
+    operator: DEFAULT_OPERATORS[column.type].multiple,
+    values: [],
+  } as unknown as FilterModel<TType>
+}
 
 function __FilterSelector<TData>({
   filters,
@@ -53,11 +66,10 @@ function __FilterSelector<TData>({
   actions,
   strategy,
   locale = 'en',
+  iconOnly = false,
 }: FilterSelectorProps<TData>) {
   const [open, setOpen] = useState(false)
-  const [value, setValue] = useState('')
   const [property, setProperty] = useState<string | undefined>(undefined)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const column = property ? getColumn(columns, property) : undefined
   const filter = property
@@ -65,69 +77,8 @@ function __FilterSelector<TData>({
     : undefined
 
   const hasFilters = filters.length > 0
-
-  useEffect(() => {
-    if (property && inputRef) {
-      inputRef.current?.focus()
-      setValue('')
-    }
-  }, [property])
-
-  useEffect(() => {
-    if (!open) setTimeout(() => setValue(''), 150)
-  }, [open])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: need filters to be updated
-  const content = useMemo(
-    () =>
-      property && column ? (
-        <FilterValueController
-          filter={filter!}
-          column={column as Column<TData, ColumnDataType>}
-          actions={actions}
-          strategy={strategy}
-          locale={locale}
-        />
-      ) : (
-        <Command
-          loop
-          filter={(value, search, keywords) => {
-            const extendValue = `${value} ${keywords?.join(' ')}`
-            return extendValue.toLowerCase().includes(search.toLowerCase())
-              ? 1
-              : 0
-          }}
-        >
-          <CommandInput
-            value={value}
-            onValueChange={setValue}
-            ref={inputRef}
-            placeholder={t('search', locale)}
-          />
-          <CommandEmpty>{t('noresults', locale)}</CommandEmpty>
-          <CommandList className="max-h-fit">
-            <CommandGroup>
-              {columns.map((column) => (
-                <FilterableColumn
-                  key={column.id}
-                  column={column}
-                  setProperty={setProperty}
-                />
-              ))}
-              <QuickSearchFilters
-                search={value}
-                filters={filters}
-                columns={columns}
-                actions={actions}
-                strategy={strategy}
-                locale={locale}
-              />
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      ),
-    [property, column, filter, filters, columns, actions, value],
-  )
+  const activeFilter =
+    property && column ? (filter ?? createDraftFilter(column)) : undefined
 
   return (
     <Popover
@@ -140,18 +91,50 @@ function __FilterSelector<TData>({
       <PopoverTrigger asChild>
         <Button
           variant="outline"
-          className={cn('h-7', hasFilters && 'w-fit !px-2')}
+          className={cn(
+            'h-7 border-border/40 bg-board-column-body shadow-none hover:bg-board-column-body hover:text-foreground',
+            hasFilters && 'w-fit !px-2',
+            iconOnly && 'px-2',
+          )}
+          aria-label={t('filter', locale)}
         >
           <FilterIcon className="size-4" />
-          {!hasFilters && <span>{t('filter', locale)}</span>}
+          {!hasFilters && !iconOnly && <span>{t('filter', locale)}</span>}
         </Button>
       </PopoverTrigger>
       <PopoverContent
-        align="start"
+        align="end"
         side="bottom"
         className="w-fit p-0 origin-(--radix-popover-content-transform-origin)"
       >
-        {content}
+        <div className="flex max-h-[min(24rem,var(--radix-popover-content-available-height))]">
+          {property && column && activeFilter ? (
+            <div className="min-w-[11rem] max-w-[16rem] overflow-y-auto border-r border-border">
+              <FilterValueController
+                filter={activeFilter}
+                column={column as Column<TData, ColumnDataType>}
+                actions={actions}
+                strategy={strategy}
+                locale={locale}
+              />
+            </div>
+          ) : null}
+          <Command loop className="min-w-[8.5rem]">
+            <CommandEmpty>{t('noresults', locale)}</CommandEmpty>
+            <CommandList className="max-h-fit">
+              <CommandGroup>
+                {columns.map((column) => (
+                  <FilterableColumn
+                    key={column.id}
+                    column={column}
+                    isActive={property === column.id}
+                    setProperty={setProperty}
+                  />
+                ))}
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </div>
       </PopoverContent>
     </Popover>
   )
@@ -159,9 +142,11 @@ function __FilterSelector<TData>({
 
 export function FilterableColumn<TData, TType extends ColumnDataType, TVal>({
   column,
+  isActive = false,
   setProperty,
 }: {
   column: Column<TData, TType, TVal>
+  isActive?: boolean
   setProperty: (value: string) => void
 }) {
   const itemRef = useRef<HTMLDivElement>(null)
@@ -173,12 +158,16 @@ export function FilterableColumn<TData, TType extends ColumnDataType, TVal>({
     column.prefetchFacetedMinMaxValues()
   }, [column])
 
+  const openNested = useCallback(() => {
+    prefetch()
+    setProperty(column.id)
+  }, [column.id, prefetch, setProperty])
+
   useEffect(() => {
     const target = itemRef.current
 
     if (!target) return
 
-    // Set up MutationObserver
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === 'attributes') {
@@ -188,13 +177,11 @@ export function FilterableColumn<TData, TType extends ColumnDataType, TVal>({
       }
     })
 
-    // Set up observer
     observer.observe(target, {
       attributes: true,
       attributeFilter: ['data-selected'],
     })
 
-    // Cleanup on unmount
     return () => observer.disconnect()
   }, [prefetch])
 
@@ -204,15 +191,21 @@ export function FilterableColumn<TData, TType extends ColumnDataType, TVal>({
       value={column.id}
       keywords={[column.displayName]}
       onSelect={() => setProperty(column.id)}
-      className="group"
-      onMouseEnter={prefetch}
+      className={cn('group', isActive && 'bg-accent')}
+      onMouseEnter={openNested}
+      onFocus={openNested}
     >
       <div className="flex w-full items-center justify-between">
         <div className="inline-flex items-center gap-1.5">
           {<column.icon strokeWidth={2.25} className="size-4" />}
           <span>{column.displayName}</span>
         </div>
-        <ArrowRightIcon className="size-4 opacity-0 group-aria-selected:opacity-100" />
+        <ArrowRightIcon
+          className={cn(
+            'size-4 opacity-0 group-aria-selected:opacity-100',
+            isActive && 'opacity-100',
+          )}
+        />
       </div>
     </CommandItem>
   )

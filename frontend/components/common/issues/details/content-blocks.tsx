@@ -13,7 +13,7 @@ import { WORKSPACE_SLUG } from '@/lib/config';
  * Lightweight inline formatting: `code` spans and **bold** runs.
  */
 export function InlineText({ text }: { text: string }) {
-   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g);
+   const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|~~[^~]+~~|\*[^*]+\*|\[[^\]]+\]\([^)]+\))/g);
 
    return (
       <>
@@ -33,6 +33,36 @@ export function InlineText({ text }: { text: string }) {
                   <strong key={index} className="font-semibold">
                      {part.slice(2, -2)}
                   </strong>
+               );
+            }
+            if (part.startsWith('~~') && part.endsWith('~~')) {
+               return (
+                  <span key={index} className="line-through">
+                     {part.slice(2, -2)}
+                  </span>
+               );
+            }
+            if (part.startsWith('*') && part.endsWith('*')) {
+               return (
+                  <em key={index} className="italic">
+                     {part.slice(1, -1)}
+                  </em>
+               );
+            }
+            if (part.startsWith('[') && part.includes('](') && part.endsWith(')')) {
+               const splitIndex = part.indexOf('](');
+               const label = part.slice(1, splitIndex);
+               const href = part.slice(splitIndex + 2, -1);
+               return (
+                  <a
+                     key={index}
+                     href={href}
+                     className="text-primary underline underline-offset-2"
+                     target="_blank"
+                     rel="noreferrer"
+                  >
+                     {label}
+                  </a>
                );
             }
             return <Fragment key={index}>{part}</Fragment>;
@@ -115,7 +145,7 @@ function IssueRef({ identifier, note }: { identifier: string; note?: string }) {
  */
 export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
    return (
-      <div className="text-[15px] leading-7">
+      <div className="text-sm leading-6">
          {blocks.map((block, index) => {
             switch (block.type) {
                case 'heading':
@@ -171,11 +201,13 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                                  className={cn(
                                     'mt-1 size-4 rounded border flex items-center justify-center shrink-0',
                                     item.checked
-                                       ? 'bg-indigo-500 border-indigo-500'
+                                       ? 'border-primary bg-primary'
                                        : 'border-muted-foreground/40'
                                  )}
                               >
-                                 {item.checked && <Check className="size-3 text-white" />}
+                                 {item.checked && (
+                                    <Check className="size-3 text-primary-foreground" />
+                                 )}
                               </span>
                               <span
                                  className={cn(
@@ -192,7 +224,7 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                   return (
                      <pre
                         key={index}
-                        className="my-4 rounded-lg border border-border/60 bg-accent/40 p-4 overflow-x-auto text-[13px] leading-6 font-mono"
+                        className="my-4 overflow-x-auto rounded-sm border border-border/60 bg-accent/40 p-4 font-mono text-sm leading-6"
                      >
                         <code>{block.code}</code>
                      </pre>
@@ -214,7 +246,7 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                   return (
                      <blockquote
                         key={index}
-                        className="my-4 border-l-2 border-indigo-400/60 pl-4 text-muted-foreground italic"
+                        className="my-5 border-l border-status-info/60 pl-4 font-display text-lg italic leading-relaxed text-muted-foreground"
                      >
                         <InlineText text={block.text} />
                         {block.author && (

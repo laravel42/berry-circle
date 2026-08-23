@@ -9,10 +9,11 @@ import {
    CommandSeparator,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Team } from '@/data/teams';
+import { useTeamsFilterStore } from '@/store/team-filter-store';
+import { useTeamsStore } from '@/store/teams-store';
 import { useMemo, useState } from 'react';
 import { ArrowUpDown, CheckIcon, ChevronRight, ListFilter, Shield } from 'lucide-react';
-import { Team, teams } from '@/data/teams';
-import { useTeamsFilterStore } from '@/store/team-filter-store';
 
 type FilterType = 'membership' | 'sort' | 'identifiers';
 
@@ -21,10 +22,11 @@ const Membership: Array<'Joined' | 'Not-Joined'> = ['Joined', 'Not-Joined'];
 export function Filter() {
    const [open, setOpen] = useState(false);
    const [active, setActive] = useState<FilterType | null>(null);
+   const allTeams = useTeamsStore((state) => state.teams);
 
-   const Identifiers: Team['id'][] = useMemo(() => {
-      return teams.map((team) => team.id);
-   }, [teams]);
+   const identifiers: Team['identifier'][] = useMemo(() => {
+      return allTeams.map((team) => team.identifier);
+   }, [allTeams]);
 
    const { filters, sort, toggleFilter, clearFilters, getActiveFiltersCount, setSort } =
       useTeamsFilterStore();
@@ -53,7 +55,7 @@ export function Filter() {
                         >
                            <span className="flex items-center gap-2">
                               <Shield className="size-4 text-muted-foreground" />
-                              Members
+                              Membership
                            </span>
                            <div className="flex items-center">
                               {filters.membership.length > 0 && (
@@ -118,7 +120,7 @@ export function Filter() {
                      >
                         <ChevronRight className="size-4 rotate-180" />
                      </Button>
-                     <span className="ml-2 font-medium">Status</span>
+                     <span className="ml-2 font-medium">Membership</span>
                   </div>
                   <CommandList>
                      <CommandGroup>
@@ -147,11 +149,11 @@ export function Filter() {
                      >
                         <ChevronRight className="size-4 rotate-180" />
                      </Button>
-                     <span className="ml-2 font-medium">Status</span>
+                     <span className="ml-2 font-medium">Identifiers</span>
                   </div>
                   <CommandList>
                      <CommandGroup>
-                        {Identifiers.map((id) => (
+                        {identifiers.map((id) => (
                            <CommandItem
                               key={id}
                               value={id}

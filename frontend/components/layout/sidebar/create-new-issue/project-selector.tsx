@@ -5,13 +5,13 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIssuesStore } from '@/store/issues-store';
-import { Project, projects } from '@/data/projects';
+import { useProjectsStore } from '@/store/projects-store';
+import { Project } from '@/data/projects';
 import { Box, CheckIcon, FolderIcon } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 
@@ -26,6 +26,7 @@ export function ProjectSelector({ project, onChange }: ProjectSelectorProps) {
    const [value, setValue] = useState<string | undefined>(project?.id);
 
    const { filterByProject } = useIssuesStore();
+   const projects = useProjectsStore((state) => state.projects);
 
    useEffect(() => {
       setValue(project?.id);
@@ -77,7 +78,6 @@ export function ProjectSelector({ project, onChange }: ProjectSelectorProps) {
                align="start"
             >
                <Command>
-                  <CommandInput placeholder="Set project..." />
                   <CommandList>
                      <CommandEmpty>No projects found.</CommandEmpty>
                      <CommandGroup>

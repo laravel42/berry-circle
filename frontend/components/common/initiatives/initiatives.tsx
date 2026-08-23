@@ -6,7 +6,6 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
@@ -93,7 +92,6 @@ function InitiativesFilter() {
          </PopoverTrigger>
          <PopoverContent align="end" className="w-60 p-0">
             <Command>
-               <CommandInput placeholder={active ? 'Filter...' : 'Add filter...'} />
                <CommandList>
                   <CommandEmpty>No results.</CommandEmpty>
                   {!active && (

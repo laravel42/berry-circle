@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { PlusIcon } from 'lucide-react';
+import { useParams, usePathname } from 'next/navigation';
 
 import {
    SidebarGroup,
@@ -10,37 +11,45 @@ import {
    SidebarMenuButton,
    SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { teams } from '@/data/teams';
-import { Button } from '@/components/ui/button';
-import { useParams } from 'next/navigation';
+import { useTeamsStore } from '@/store/teams-store';
+import { isNavItemActive } from '@/lib/nav-active';
 
 export function NavTeamsSettings() {
    const { orgId } = useParams<{ orgId: string }>();
-   const joinedTeams = teams.filter((t) => t.joined);
+   const pathname = usePathname();
+   const teams = useTeamsStore((state) => state.teams);
+   const joinedTeams = teams.filter((crew) => crew.joined);
+   if (joinedTeams.length === 0) return null;
+
    return (
-      <SidebarGroup>
-         <SidebarGroupLabel>Your teams</SidebarGroupLabel>
+      <SidebarGroup className="group-data-[collapsible=icon]:hidden">
+         <SidebarGroupLabel>your crews</SidebarGroupLabel>
          <SidebarMenu>
-            {joinedTeams.map((team) => (
-               <SidebarMenuItem key={team.id}>
-                  <SidebarMenuButton asChild>
-                     <Link href={`/${orgId}/settings/teams/${team.id}`}>
-                        <div className="inline-flex size-6 bg-muted/50 items-center justify-center rounded shrink-0">
-                           <div className="text-sm">{team.icon}</div>
-                        </div>
-                        <span>{team.name}</span>
-                     </Link>
-                  </SidebarMenuButton>
-               </SidebarMenuItem>
-            ))}
+            {joinedTeams.map((team) => {
+               const href = `/${orgId}/settings/teams/${team.id}`;
+               return (
+                  <SidebarMenuItem key={team.id}>
+                     <SidebarMenuButton asChild isActive={isNavItemActive(pathname, href)}>
+                        <Link href={href}>
+                           <div className="inline-flex size-6 shrink-0 items-center justify-center rounded bg-muted/50">
+                              <div className="text-sm">{team.icon}</div>
+                           </div>
+                           <span>{team.name}</span>
+                        </Link>
+                     </SidebarMenuButton>
+                  </SidebarMenuItem>
+               );
+            })}
             <SidebarMenuItem>
-               <SidebarMenuButton asChild>
-                  <Button variant="ghost" className="w-full justify-start gap-2 px-2" asChild>
-                     <Link href={`/${orgId}/settings/teams/new`}>
-                        <PlusIcon className="size-4" />
-                        <span>Join or create a team</span>
-                     </Link>
-                  </Button>
+               <SidebarMenuButton
+                  asChild
+                  size="sm"
+                  isActive={isNavItemActive(pathname, `/${orgId}/settings/teams/new`)}
+               >
+                  <Link href={`/${orgId}/settings/teams/new`}>
+                     <PlusIcon />
+                     <span>join or create a team</span>
+                  </Link>
                </SidebarMenuButton>
             </SidebarMenuItem>
          </SidebarMenu>

@@ -23,7 +23,7 @@ const ORDERINGS: { value: TeamsOrdering; label: string }[] = [
    { value: 'projects', label: 'Projects' },
 ];
 
-/** Linear-style Display popover for the Teams page. */
+/** Display popover for the Crews page. */
 export function TeamsDisplayOptions() {
    const { ordering, displayProperties, setOrdering, toggleDisplayProperty } =
       useTeamsDisplayStore();

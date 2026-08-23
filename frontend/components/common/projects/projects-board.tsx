@@ -1,115 +1,149 @@
 'use client';
 
-import { CapacityRing } from '@/components/common/cycles/capacity-ring';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Project } from '@/data/projects';
-import { useProjectsDisplayStore } from '@/store/projects-display-store';
-import { format, parseISO } from 'date-fns';
-import { Calendar } from 'lucide-react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { ProjectGroup } from './projects';
+import { BerryMark } from '@/components/brand/berry-mark';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import type { Project } from '@/data/projects';
+import { useProjectsFilterStore } from '@/store/projects-filter-store';
+import { useCreateProjectStore } from '@/store/create-project-store';
+import { ChevronDown, X } from 'lucide-react';
+import { useState } from 'react';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
+import { GroupProjects, ProjectGroupDescriptor } from './group-projects';
+import { ProjectDragLayer } from './project-grid';
 
-function ProjectCard({ project }: { project: Project }) {
-   const { orgId } = useParams<{ orgId: string }>();
-   const { displayProperties } = useProjectsDisplayStore();
+export interface ProjectBoardEntry {
+   group: ProjectGroupDescriptor;
+   projects: Project[];
+   total: number;
+}
+
+interface ProjectsBoardProps {
+   entries: ProjectBoardEntry[];
+   totalCount: number;
+   filteredCount: number;
+   showEmptyGroups: boolean;
+}
+
+function EmptyBoard() {
+   const { openModal } = useCreateProjectStore();
 
    return (
-      <div className="rounded-md border bg-container p-3 hover:bg-accent/30 transition-colors">
-         <div className="flex items-start gap-2">
-            <span className="inline-flex size-6 bg-muted/50 items-center justify-center rounded shrink-0">
-               <project.icon className="size-4" />
-            </span>
-            <Link
-               href={`/${orgId}/project/${project.id}/overview`}
-               className="text-sm font-medium leading-snug hover:underline underline-offset-2 min-w-0"
-            >
-               {project.name}
-            </Link>
-         </div>
-
-         {displayProperties.health && (
-            <div className="mt-2.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-               <span
-                  className="size-2 rounded-full shrink-0"
-                  style={{ backgroundColor: project.health.color }}
-               />
-               {project.health.name}
-               {project.healthUpdatedAgoDays !== undefined && (
-                  <span>· {project.healthUpdatedAgoDays}d</span>
-               )}
-            </div>
-         )}
-
-         {displayProperties.labels && project.labels.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-               {project.labels.map((label) => (
-                  <span
-                     key={label.id}
-                     className="inline-flex items-center gap-1 text-[11px] border rounded-full px-1.5 py-px"
-                  >
-                     <span
-                        className="size-1.5 rounded-full"
-                        style={{ backgroundColor: label.color }}
-                     />
-                     {label.name}
-                  </span>
-               ))}
-            </div>
-         )}
-
-         <div className="mt-2.5 flex items-center gap-2 text-xs text-muted-foreground">
-            {displayProperties.status && (
-               <span className="inline-flex items-center gap-1">
-                  <CapacityRing value={project.percentComplete} color="#6771c5" />
-                  {project.percentComplete}%
-               </span>
-            )}
-            {displayProperties.priority && (
-               <project.priority.icon className="size-3.5 shrink-0" />
-            )}
-            {displayProperties.targetDate && project.targetDate && (
-               <span className="inline-flex items-center gap-1">
-                  <Calendar className="size-3" />
-                  {format(parseISO(project.targetDate), 'MMM d')}
-               </span>
-            )}
-            {displayProperties.lead && (
-               <Avatar className="size-4 ml-auto shrink-0">
-                  <AvatarImage src={project.lead.avatarUrl} alt={project.lead.name} />
-                  <AvatarFallback>{project.lead.name[0]}</AvatarFallback>
-               </Avatar>
-            )}
+      <div className="flex min-h-64 w-full items-center justify-center px-6 py-12">
+         <div className="flex max-w-sm flex-col items-center text-center">
+            <BerryMark size="lg" tone="neutral" state="hollow" label="Empty project board" />
+            <h2 className="mt-5 font-display text-2xl tracking-[-0.025em]">No projects yet.</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+               Create the first project, then track it across statuses on the board.
+            </p>
+            <Button className="mt-6 h-10 px-5" onClick={() => openModal()}>
+               create project
+            </Button>
          </div>
       </div>
    );
 }
 
-/** Projects "Board" view: one column per group (team by default). */
-export default function ProjectsBoard({ groups }: { groups: ProjectGroup[] }) {
+function HiddenByFiltersFooter({ hiddenCount }: { hiddenCount: number }) {
+   const { clearFilters } = useProjectsFilterStore();
+
    return (
-      <div className="w-full h-full overflow-x-auto">
-         <div className="flex h-full gap-3 px-4 py-3 min-w-max">
-            {groups.map((group) => (
-               <div key={group.id} className="w-[320px] shrink-0 h-full flex flex-col">
-                  <div className="flex items-center gap-2 px-1 pb-2 text-sm font-medium shrink-0">
-                     {group.icon && <span>{group.icon}</span>}
-                     {group.name}
-                     <span className="text-xs text-muted-foreground">{group.projects.length}</span>
-                  </div>
-                  <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 pb-4">
-                     {group.projects.map((project) => (
-                        <ProjectCard key={project.id} project={project} />
-                     ))}
-                     {group.projects.length === 0 && (
-                        <div className="text-xs text-muted-foreground border border-dashed rounded-md p-4 text-center">
-                           No projects
-                        </div>
-                     )}
-                  </div>
-               </div>
-            ))}
-         </div>
+      <div className="flex items-center justify-center gap-3 py-4 text-xs text-muted-foreground">
+         <span>
+            <span className="font-medium text-foreground">
+               {hiddenCount} {hiddenCount === 1 ? 'project' : 'projects'}
+            </span>{' '}
+            hidden by filters
+         </span>
+         <button
+            type="button"
+            onClick={clearFilters}
+            className="flex items-center gap-1 hover:text-foreground transition-colors"
+         >
+            Clear filters
+            <X className="size-3" />
+         </button>
       </div>
+   );
+}
+
+function HiddenColumns({ entries }: { entries: ProjectBoardEntry[] }) {
+   const [open, setOpen] = useState(true);
+
+   return (
+      <div className="w-[278px] shrink-0 pt-1">
+         <button
+            type="button"
+            onClick={() => setOpen((value) => !value)}
+            className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+         >
+            <ChevronDown className={cn('size-3.5 transition-transform', !open && '-rotate-90')} />
+            Hidden columns
+         </button>
+         {open && (
+            <div className="flex flex-col gap-1.5 mt-1">
+               {entries.map((entry) => (
+                  <div
+                     key={entry.group.id}
+                     className="flex items-center justify-between gap-2 rounded-lg border bg-container px-3 h-9"
+                  >
+                     <div className="flex items-center gap-2 min-w-0">
+                        {entry.group.icon}
+                        <span className="text-sm truncate">{entry.group.name}</span>
+                     </div>
+                     <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {entry.total > 0 ? `0 / ${entry.total}` : '0'}
+                     </span>
+                  </div>
+               ))}
+            </div>
+         )}
+      </div>
+   );
+}
+
+/** Projects board — same column/card UX as the issues Kanban. */
+export default function ProjectsBoard({
+   entries,
+   totalCount,
+   filteredCount,
+   showEmptyGroups,
+}: ProjectsBoardProps) {
+   const { hasActiveFilters } = useProjectsFilterStore();
+   const activeFilters = hasActiveFilters();
+   const hiddenCount = Math.max(0, totalCount - filteredCount);
+   const showFooter = activeFilters && hiddenCount > 0;
+
+   const boardEntries = activeFilters
+      ? entries.filter((entry) => entry.projects.length > 0)
+      : entries.filter((entry) => showEmptyGroups || entry.projects.length > 0);
+   const hiddenEntries = activeFilters ? entries.filter((entry) => entry.projects.length === 0) : [];
+
+   return (
+      <DndProvider backend={HTML5Backend}>
+         <ProjectDragLayer />
+         <div className="h-full flex flex-col">
+            <div className="flex-1 min-h-0 overflow-x-auto">
+               <div className="flex h-full min-w-max gap-3 px-4 py-3">
+                  {boardEntries.map((entry) => (
+                     <GroupProjects
+                        key={entry.group.id}
+                        group={entry.group}
+                        projects={entry.projects}
+                        count={entry.projects.length}
+                     />
+                  ))}
+                  {hiddenEntries.length > 0 && <HiddenColumns entries={hiddenEntries} />}
+                  {boardEntries.length === 0 && hiddenEntries.length === 0 && <EmptyBoard />}
+               </div>
+            </div>
+            {showFooter && (
+               <div className="shrink-0 border-t bg-container">
+                  <HiddenByFiltersFooter hiddenCount={hiddenCount} />
+               </div>
+            )}
+         </div>
+      </DndProvider>
    );
 }
