@@ -55,6 +55,23 @@ type Config struct {
 	RealtimeStreamMaxLen  int64
 	RealtimeStreamTTL     time.Duration
 	RealtimeReadBlock     time.Duration
+
+	// Temporal drives durable run orchestration and continuous task intake
+	// (ADR-0005). Disabled selects the in-process dispatcher, which is a
+	// supported configuration.
+	TemporalEnabled     bool
+	TemporalRequired    bool
+	TemporalHostPort    string
+	TemporalNamespace   string
+	TemporalTaskQueue   string
+	IntakeEnabled       bool
+	IntakeInterval      time.Duration
+	IntakeBatchSize     int
+	IntakeMaxConcurrent int
+	// IntakeActorID attributes automated runs to a real Berry user, because
+	// runs.requested_by is a foreign key to users(id) and an audit trail that
+	// cannot name who started a run is not an audit trail.
+	IntakeActorID string
 }
 
 // Load reads and validates an environment map. Errors identify fields without
@@ -238,6 +255,66 @@ func Load(env map[string]string) (Config, error) {
 		problems = append(problems, "REALTIME_READ_BLOCK")
 	}
 
+	cfg.TemporalEnabled = boolean(env, "TEMPORAL_ENABLED", false, &problems)
+	cfg.TemporalRequired = boolean(
+		env,
+		"TEMPORAL_REQUIRED",
+		cfg.TemporalEnabled,
+		&problems,
+	)
+	if cfg.TemporalRequired && !cfg.TemporalEnabled {
+		problems = append(
+			problems,
+			"TEMPORAL_REQUIRED (requires TEMPORAL_ENABLED)",
+		)
+	}
+	cfg.TemporalHostPort = strings.TrimSpace(
+		value(env, "TEMPORAL_HOSTPORT", "temporal:7233"),
+	)
+	cfg.TemporalNamespace = strings.TrimSpace(
+		value(env, "TEMPORAL_NAMESPACE", "berry"),
+	)
+	cfg.TemporalTaskQueue = strings.TrimSpace(
+		value(env, "TEMPORAL_TASK_QUEUE", "berry-runs"),
+	)
+	if cfg.TemporalEnabled {
+		if _, _, err := net.SplitHostPort(cfg.TemporalHostPort); err != nil {
+			problems = append(problems, "TEMPORAL_HOSTPORT")
+		}
+		if !safeIdentifier(cfg.TemporalNamespace, 255) {
+			problems = append(problems, "TEMPORAL_NAMESPACE")
+		}
+		if !safeIdentifier(cfg.TemporalTaskQueue, 255) {
+			problems = append(problems, "TEMPORAL_TASK_QUEUE")
+		}
+	}
+
+	// Continuous intake pulls todo issues to available agents. It cannot run
+	// without Temporal: the claim must be durable or work is lost on restart.
+	cfg.IntakeEnabled = boolean(env, "INTAKE_ENABLED", false, &problems)
+	if cfg.IntakeEnabled && !cfg.TemporalEnabled {
+		problems = append(problems, "INTAKE_ENABLED (requires TEMPORAL_ENABLED)")
+	}
+	cfg.IntakeInterval = duration(env, "INTAKE_INTERVAL", 10*time.Second, &problems)
+	if cfg.IntakeInterval < time.Second || cfg.IntakeInterval > time.Hour {
+		problems = append(problems, "INTAKE_INTERVAL")
+	}
+	cfg.IntakeBatchSize = positiveInt(env, "INTAKE_BATCH_SIZE", 10, &problems)
+	if cfg.IntakeBatchSize > 500 {
+		problems = append(problems, "INTAKE_BATCH_SIZE")
+	}
+	// The ceiling on agent runs Berry will hold open at once. Every admitted
+	// run costs provider tokens, so this is a spend control, not just a
+	// throughput knob.
+	cfg.IntakeMaxConcurrent = positiveInt(env, "INTAKE_MAX_CONCURRENT", 8, &problems)
+	if cfg.IntakeMaxConcurrent > 1000 {
+		problems = append(problems, "INTAKE_MAX_CONCURRENT")
+	}
+	cfg.IntakeActorID = strings.TrimSpace(env["INTAKE_ACTOR_ID"])
+	if cfg.IntakeEnabled && !isUUID(cfg.IntakeActorID) {
+		problems = append(problems, "INTAKE_ACTOR_ID")
+	}
+
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf(
 			"invalid environment configuration: %s",
@@ -262,6 +339,9 @@ func FromEnv() (Config, error) {
 // SafeSummary returns only non-secret booleans and process metadata.
 func (cfg Config) SafeSummary() map[string]any {
 	return map[string]any{
+		"temporalEnabled":        cfg.TemporalEnabled,
+		"temporalRequired":       cfg.TemporalRequired,
+		"intakeEnabled":          cfg.IntakeEnabled,
 		"environment":            cfg.Environment,
 		"service":                cfg.ServiceName,
 		"databaseConfigured":     cfg.DatabaseURL != "",
@@ -448,4 +528,27 @@ func unique(values []string) []string {
 		result = append(result, item)
 	}
 	return result
+}
+
+// isUUID reports whether a value is a canonical 36-character UUID. Kept local
+// so the config package keeps its dependency-free boundary.
+func isUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for index, character := range value {
+		if index == 8 || index == 13 || index == 18 || index == 23 {
+			if character != '-' {
+				return false
+			}
+			continue
+		}
+		isHex := (character >= '0' && character <= '9') ||
+			(character >= 'a' && character <= 'f') ||
+			(character >= 'A' && character <= 'F')
+		if !isHex {
+			return false
+		}
+	}
+	return true
 }

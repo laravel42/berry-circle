@@ -17,3 +17,6 @@ dist/
 
 # runtime volumes
 /server/data/
+
+# compiled Go binaries built into the module root
+/server/worker

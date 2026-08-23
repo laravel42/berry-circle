@@ -72,6 +72,13 @@ services:
       REALTIME_STREAM_MAXLEN: "${REALTIME_STREAM_MAXLEN:-10000}"
       REALTIME_STREAM_TTL: "${REALTIME_STREAM_TTL:-15m}"
       REALTIME_READ_BLOCK: "${REALTIME_READ_BLOCK:-5s}"
+      # Durable run orchestration (ADR-0005). Disabled selects the in-process
+      # dispatcher, which is a supported configuration.
+      TEMPORAL_ENABLED: "${TEMPORAL_ENABLED:-false}"
+      TEMPORAL_REQUIRED: "${TEMPORAL_REQUIRED:-false}"
+      TEMPORAL_HOSTPORT: "${TEMPORAL_HOSTPORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-berry}"
+      TEMPORAL_TASK_QUEUE: "${TEMPORAL_TASK_QUEUE:-berry-runs}"
     ports:
       - "127.0.0.1:${BERRY_API_PORT:-4000}:4000"
     volumes:
@@ -139,6 +146,105 @@ services:
       timeout: 5s
       start_period: 40s
       retries: 5
+    restart: unless-stopped
+
+  # Durable orchestration workers: continuous task intake and run dispatch.
+  # Separate from berry-api on purpose — workers hold long-lived agent streams,
+  # so an API deploy must not kill live agent work. Scale with --scale
+  # berry-worker=N; the intake loop stays a singleton via its fixed workflow ID.
+  berry-worker:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: berry-api:local
+    entrypoint: ["/usr/local/bin/berry-worker"]
+    profiles: ["temporal"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      openfang:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_NAME: "${SERVICE_NAME:-berry-server}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      DATABASE_URL: "${BERRY_DATABASE_URL:-postgres://berry:berry@postgres:5432/berry?sslmode=disable}"
+      VALKEY_ENABLED: "${VALKEY_ENABLED:-true}"
+      VALKEY_REQUIRED: "${VALKEY_REQUIRED:-true}"
+      VALKEY_URL: "${BERRY_VALKEY_URL:-redis://valkey:6379/0}"
+      OPENFANG_BASE_URL: "http://openfang:4200"
+      # Server-side only: never mirror this value into a NEXT_PUBLIC_* variable.
+      OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
+      TEMPORAL_ENABLED: "true"
+      TEMPORAL_REQUIRED: "true"
+      TEMPORAL_HOSTPORT: "${TEMPORAL_HOSTPORT:-temporal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-berry}"
+      TEMPORAL_TASK_QUEUE: "${TEMPORAL_TASK_QUEUE:-berry-runs}"
+      # Continuous intake of todo issues by available agents.
+      INTAKE_ENABLED: "${INTAKE_ENABLED:-false}"
+      INTAKE_INTERVAL: "${INTAKE_INTERVAL:-10s}"
+      INTAKE_BATCH_SIZE: "${INTAKE_BATCH_SIZE:-10}"
+      # Concurrent agent runs Berry will hold open. This is a provider-spend
+      # ceiling, not just a throughput knob.
+      INTAKE_MAX_CONCURRENT: "${INTAKE_MAX_CONCURRENT:-8}"
+      # A users.id. Automated runs are attributed to this identity because
+      # runs.requested_by is a foreign key and the audit trail must name someone.
+      INTAKE_ACTOR_ID: "${INTAKE_ACTOR_ID:-}"
+      SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-15s}"
+      REALTIME_RELAY_REQUIRED: "${REALTIME_RELAY_REQUIRED:-true}"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # Temporal reuses the existing Postgres instance with its own databases, so
+  # self-hosting gains one service rather than a whole new datastore.
+  temporal:
+    image: temporalio/auto-setup:1.29.0
+    profiles: ["temporal"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_SEEDS: postgres
+      POSTGRES_USER: "${POSTGRES_USER:-berry}"
+      POSTGRES_PWD: "${POSTGRES_PASSWORD:-berry}"
+      DBNAME: "${TEMPORAL_DBNAME:-temporal}"
+      VISIBILITY_DBNAME: "${TEMPORAL_VISIBILITY_DBNAME:-temporal_visibility}"
+      DEFAULT_NAMESPACE: "${TEMPORAL_NAMESPACE:-berry}"
+      DEFAULT_NAMESPACE_RETENTION: "${TEMPORAL_RETENTION:-72h}"
+    ports:
+      # Loopback-only: the frontend never talks to Temporal.
+      - "127.0.0.1:${TEMPORAL_PORT:-7233}:7233"
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+      interval: 15s
+      timeout: 5s
+      start_period: 45s
+      retries: 8
+    restart: unless-stopped
+
+  # Operator UI. Off by default: it exposes run payloads and is not part of the
+  # product surface. Enable with --profile temporal-ui when debugging.
+  temporal-ui:
+    image: temporalio/ui:2.42.0
+    profiles: ["temporal-ui"]
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    ports:
+      - "127.0.0.1:${TEMPORAL_UI_PORT:-8233}:8080"
     restart: unless-stopped
 
   postgres:

@@ -242,6 +242,24 @@ func (service *Service) Close(ctx context.Context) error {
 	}
 }
 
+// Execute runs one admitted run to a terminal ledger state, synchronously,
+// under a caller-supplied context.
+//
+// This is the seam the Temporal dispatch activity calls. It shares every line
+// of projection logic with the in-process worker pool, so the two dispatchers
+// cannot drift in how they interpret an upstream stream.
+//
+// It returns no error: every failure path inside already commits a terminal
+// or reconcilable ledger state, and the ledger — not the caller — is
+// authoritative. A caller that retried on error would re-POST the dispatch,
+// which the pinned OpenFang contract forbids.
+func (service *Service) Execute(ctx context.Context, runID uuid.UUID) {
+	if service == nil || ctx == nil || runID == uuid.Nil {
+		return
+	}
+	service.execute(ctx, runID)
+}
+
 func (service *Service) worker() {
 	defer service.wg.Done()
 	for {
@@ -249,14 +267,14 @@ func (service *Service) worker() {
 		case <-service.ctx.Done():
 			return
 		case runID := <-service.jobs:
-			service.execute(runID)
+			service.execute(service.ctx, runID)
 		}
 	}
 }
 
-func (service *Service) execute(runID uuid.UUID) {
+func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 	dispatch, err := service.store.ClaimDispatch(
-		service.ctx,
+		ctx,
 		runID,
 		service.clock().UTC(),
 	)
@@ -266,7 +284,7 @@ func (service *Service) execute(runID uuid.UUID) {
 	message := buildMessage(dispatch)
 	senderID := "berry-run:" + runID.String()
 	senderName := "Berry Gateway"
-	dispatchContext := service.ctx
+	dispatchContext := ctx
 	if dispatch.TraceParent != "" {
 		dispatchContext = otel.GetTextMapPropagator().Extract(
 			dispatchContext,
@@ -290,7 +308,7 @@ func (service *Service) execute(runID uuid.UUID) {
 	defer stream.Close()
 
 	_, started, err := service.store.MarkRunning(
-		service.ctx,
+		ctx,
 		runID,
 		service.newID(),
 		stream.RequestID(),
@@ -318,7 +336,7 @@ func (service *Service) execute(runID uuid.UUID) {
 			appendSummary(&summary, event.Content)
 			for _, chunk := range splitUTF8(event.Content, publicChunkBytes) {
 				persisted, appendErr := service.store.AppendOutput(
-					service.ctx,
+					ctx,
 					runID,
 					service.newID(),
 					"progress",
@@ -336,7 +354,7 @@ func (service *Service) execute(runID uuid.UUID) {
 			callID := fmt.Sprintf("tool_%06d", toolCounter)
 			openTools[event.Tool] = append(openTools[event.Tool], callID)
 			persisted, appendErr := service.store.AppendToolStarted(
-				service.ctx,
+				ctx,
 				runID,
 				service.newID(),
 				callID,
@@ -355,7 +373,7 @@ func (service *Service) execute(runID uuid.UUID) {
 				callID = fmt.Sprintf("tool_%06d", toolCounter)
 			}
 			persisted, appendErr := service.store.AppendToolCompleted(
-				service.ctx,
+				ctx,
 				runID,
 				service.newID(),
 				callID,
@@ -369,7 +387,7 @@ func (service *Service) execute(runID uuid.UUID) {
 			service.publish(persisted)
 		case openfang.EventPhase:
 			_ = service.store.RecordProviderEvent(
-				service.ctx,
+				ctx,
 				runID,
 				service.newID(),
 				"phase",
@@ -378,7 +396,7 @@ func (service *Service) execute(runID uuid.UUID) {
 			)
 		case openfang.EventUnknown:
 			_ = service.store.RecordProviderEvent(
-				service.ctx,
+				ctx,
 				runID,
 				service.newID(),
 				"unknown",
@@ -397,7 +415,7 @@ func (service *Service) execute(runID uuid.UUID) {
 				TotalTokens:  event.Usage.InputTokens + event.Usage.OutputTokens,
 			}
 			_, persisted, completeErr := service.store.CompleteSuccess(
-				service.ctx,
+				ctx,
 				runs.SuccessParams{
 					RunID:            runID,
 					UsageEventID:     service.newID(),
