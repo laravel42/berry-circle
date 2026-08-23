@@ -190,6 +190,23 @@ func run() int {
 		return 1
 	}
 
+	// Make every workspace's built-in orchestrator executable before the first
+	// intake tick, so a fresh deployment can run an issue with no agent setup.
+	// Never fatal: an unprovisioned orchestrator is skipped by intake, whereas
+	// refusing to start would take down dispatch for working agents too.
+	if err := orchestration.EnsureOrchestrators(
+		ctx,
+		pool,
+		upstream,
+		orchestration.OrchestratorSpec{
+			Provider: cfg.OrchestratorProvider,
+			Model:    cfg.OrchestratorModel,
+		},
+		logger,
+	); err != nil {
+		logger.Warn("orchestrator bootstrap incomplete", "error", err)
+	}
+
 	temporalClient, err := client.Dial(client.Options{
 		HostPort:  cfg.TemporalHostPort,
 		Namespace: cfg.TemporalNamespace,

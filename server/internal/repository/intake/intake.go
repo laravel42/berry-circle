@@ -44,6 +44,10 @@ type Candidate struct {
 	AgentID     uuid.UUID
 	IssueNumber int32
 	IssueTitle  string
+	// ViaOrchestrator marks a candidate the built-in orchestrator picked up
+	// because its workspace has defined no other agent. Recorded so operators
+	// can tell fallback dispatch from a deliberate assignment.
+	ViaOrchestrator bool
 }
 
 // ActiveRuns counts runs that have not reached a terminal state. The intake
@@ -71,10 +75,15 @@ func (repository *Repository) ActiveRuns(ctx context.Context) (int, error) {
 //     further along is either running, awaiting human review, or closed;
 //   - it has no active run. `issues.active_run_id` is the durable one-writer
 //     guard, so this is what keeps intake from starting a second editor;
-//   - it is assigned to an agent. Intake honours an existing assignment and
-//     never invents one — choosing *which* agent should do unassigned work is
-//     a product decision, not a scheduler decision;
-//   - that agent is `available` and not archived.
+//   - it is assigned to an agent whose status is `available`, or its
+//     workspace has defined no agent of its own and the built-in orchestrator
+//     takes it as fallback.
+//
+// Intake never invents an assignment when a workspace has real agents to
+// choose from: picking which of several agents should do unassigned work is a
+// product decision, not a scheduler decision. The orchestrator fallback is
+// narrower than that — it applies only when there is nothing to choose between,
+// so a fresh deployment can execute an issue with no setup.
 //
 // Ordering is oldest-first by creation so the backlog drains fairly and a
 // single starved issue cannot be overtaken indefinitely.
@@ -94,20 +103,51 @@ func (repository *Repository) Candidates(
 	}
 	rows, err := repository.Pool.Query(
 		ctx,
-		`SELECT issue.id, board.workspace_id, issue.board_id,
-		        agent.id, issue.number, issue.title
-		   FROM issues AS issue
-		   JOIN boards AS board ON board.id = issue.board_id
-		   JOIN agents AS agent ON agent.id = issue.assignee_id
-		  WHERE issue.status = 'todo'
-		    AND issue.active_run_id IS NULL
-		    AND issue.assignee_type = 'agent'
+		`WITH ready AS (
+		    SELECT issue.id, issue.board_id, issue.number, issue.title,
+		           issue.assignee_type::text AS assignee_type,
+		           issue.assignee_id,
+		           board.workspace_id,
+		           issue.created_at
+		      FROM issues AS issue
+		      JOIN boards AS board ON board.id = issue.board_id
+		     WHERE issue.status = 'todo'
+		       AND issue.active_run_id IS NULL
+		     ORDER BY issue.created_at ASC, issue.id ASC
+		     FOR UPDATE OF issue SKIP LOCKED
+		     LIMIT $1
+		 ),
+		 -- A workspace "has its own agents" when it has any usable agent that
+		 -- is not the built-in orchestrator. While that is true the fallback
+		 -- stays off, so adding one real agent immediately stops the
+		 -- orchestrator from claiming unassigned work.
+		 owned AS (
+		    SELECT DISTINCT workspace_id
+		      FROM agents
+		     WHERE NOT protected
+		       AND archived_at IS NULL
+		       AND workspace_id IS NOT NULL
+		 )
+		 SELECT ready.id, ready.workspace_id, ready.board_id,
+		        agent.id, ready.number, ready.title, agent.protected
+		   FROM ready
+		   JOIN agents AS agent
+		     ON agent.archived_at IS NULL
 		    AND agent.status = 'available'
-		    AND agent.archived_at IS NULL
-		    AND (agent.board_id IS NULL OR agent.board_id = issue.board_id)
-		  ORDER BY issue.created_at ASC, issue.id ASC
-		  FOR UPDATE OF issue SKIP LOCKED
-		  LIMIT $1`,
+		    AND (agent.board_id IS NULL OR agent.board_id = ready.board_id)
+		    AND (
+		          (
+		            ready.assignee_type = 'agent'
+		            AND agent.id = ready.assignee_id
+		          )
+		       OR (
+		            ready.assignee_id IS NULL
+		            AND agent.protected
+		            AND agent.workspace_id = ready.workspace_id
+		            AND ready.workspace_id NOT IN (SELECT workspace_id FROM owned)
+		          )
+		        )
+		  ORDER BY ready.created_at ASC, ready.id ASC`,
 		limit,
 	)
 	if err != nil {
@@ -125,6 +165,7 @@ func (repository *Repository) Candidates(
 			&candidate.AgentID,
 			&candidate.IssueNumber,
 			&candidate.IssueTitle,
+			&candidate.ViaOrchestrator,
 		); err != nil {
 			return nil, errors.New("scan intake candidate")
 		}

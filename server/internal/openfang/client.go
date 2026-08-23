@@ -421,3 +421,49 @@ func safeRuntimeError(operation string, err error) error {
 	}
 	return fmt.Errorf("%s: %w", operation, err)
 }
+
+// SpawnAgent registers a new agent with the runtime from a TOML manifest.
+//
+// This is an UNSAFE create: the pinned contract documents no idempotency key,
+// so a repeated call produces a second agent. It is attempted exactly once and
+// callers must confirm absence before invoking it. Berry uses it only to
+// provision the built-in orchestrator, guarded by a durable check that the
+// workspace's recorded upstream agent is genuinely missing.
+func (client *Client) SpawnAgent(
+	ctx context.Context,
+	manifestTOML string,
+) (SpawnResponse, error) {
+	manifest := strings.TrimSpace(manifestTOML)
+	if manifest == "" {
+		return SpawnResponse{}, errors.New("runtime agent manifest is required")
+	}
+	if len(manifest) > maxManifestBytes {
+		return SpawnResponse{}, errors.New("runtime agent manifest is too large")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, client.requestTimeout)
+	defer cancel()
+	request, err := client.NewJSONRequest(
+		callCtx,
+		http.MethodPost,
+		"/api/agents",
+		map[string]string{"manifest_toml": manifest},
+	)
+	if err != nil {
+		return SpawnResponse{}, err
+	}
+	response, err := client.Do(callCtx, request, RetryUnsafe)
+	if err != nil {
+		return SpawnResponse{}, err
+	}
+	defer response.Body.Close()
+	var result SpawnResponse
+	if err := decodeBoundedJSON(
+		response.Body,
+		client.maxJSONBytes,
+		&result,
+	); err != nil || result.AgentID == uuid.Nil {
+		return SpawnResponse{}, badResponse(response.Header.Get("X-Request-Id"))
+	}
+	result.RequestID = response.Header.Get("X-Request-Id")
+	return result, nil
+}

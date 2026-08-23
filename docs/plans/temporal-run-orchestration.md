@@ -253,6 +253,54 @@ protect the invariant:
 Belt and braces is warranted here: the failure mode is silent code corruption
 across two agents, which is expensive to detect and worse to debug.
 
+### The built-in orchestrator
+
+Product requirement, 2026-08-23: every deployment carries a default
+orchestrator agent that cannot be deleted, and which takes intake work when no
+other agents are defined.
+
+Implemented as one protected agent per workspace (migration 009). Not a single
+global agent: `agents.workspace_id` is nullable, but `runs.Admit` filters on
+it, so a workspace-less agent could never be admitted.
+
+**Protection lives in the database, not a handler.** A handler check is
+advisory — another writer, a migration, or a psql session bypasses it. The
+invariant is "this row always exists", so it is a constraint plus two triggers:
+
+| Guard | Mechanism |
+|---|---|
+| Cannot be deleted | `BEFORE DELETE` trigger raising `restrict_violation` |
+| Cannot be archived | `CHECK (NOT protected OR archived_at IS NULL)` |
+| Cannot be unprotected | `BEFORE UPDATE` trigger — otherwise deletion is just two statements |
+| Cannot move workspace | same `BEFORE UPDATE` trigger |
+| Exactly one per workspace | partial unique index on `(workspace_id) WHERE protected` |
+
+New workspaces get one via an `AFTER INSERT` trigger; existing ones are
+backfilled.
+
+**Fallback is narrow on purpose.** The orchestrator claims an unassigned issue
+only when its workspace has no non-protected, non-archived agent. Adding one
+real agent turns the fallback off immediately. Intake still never invents an
+assignment when there is a genuine choice to make — picking between several
+agents is a product decision, not a scheduler decision.
+
+**The row is not the agent.** OpenFang has its own store, so migration 009 can
+only assert that Berry *intends* the agent to exist. The row is seeded
+`unknown` and `EnsureOrchestrators` reconciles it at worker startup: probe the
+recorded upstream id, spawn only on a definitive 404, record the new id
+immediately. Status becomes `available` only after OpenFang confirms it — an
+unprovisioned orchestrator is skipped by intake rather than dispatched into a
+guaranteed failure.
+
+Provisioning needs `ORCHESTRATOR_PROVIDER` and `ORCHESTRATOR_MODEL`. Berry does
+not choose an LLM on an operator's behalf, so with them unset the orchestrator
+stays offline and intake simply does not select it.
+
+Note the asymmetry in the spawn path: `POST /api/agents` is an unsafe create
+with no idempotency key. A crash between spawn and record leaks one upstream
+agent, which is recoverable. Skipping the probe would duplicate on every boot,
+which is not. Hence probe-first, and only a 404 authorises a spawn.
+
 ### Still needed: the run group
 
 Groups are still required — they hold plan-level state that belongs to no

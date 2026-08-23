@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -183,3 +185,20 @@ func validateChatCompletionRequest(input ChatCompletionRequest) error {
 }
 
 var _ Compatibility = (*Client)(nil)
+
+// maxManifestBytes mirrors the pinned upstream limit for POST /api/agents.
+const maxManifestBytes = 1 << 20
+
+// SpawnResponse is the 201 body of POST /api/agents.
+type SpawnResponse struct {
+	AgentID   uuid.UUID `json:"agent_id"`
+	Name      string    `json:"name"`
+	RequestID string    `json:"-"`
+}
+
+// Provisioner is the narrow seam the orchestrator bootstrap depends on. Kept
+// separate from Runtime so run dispatch cannot accidentally create agents.
+type Provisioner interface {
+	GetAgent(context.Context, uuid.UUID) (AgentDetail, error)
+	SpawnAgent(context.Context, string) (SpawnResponse, error)
+}

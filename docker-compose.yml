@@ -192,6 +192,10 @@ services:
       # A users.id. Automated runs are attributed to this identity because
       # runs.requested_by is a foreign key and the audit trail must name someone.
       INTAKE_ACTOR_ID: "${INTAKE_ACTOR_ID:-}"
+      # The built-in orchestrator needs a model to exist in OpenFang. Unset
+      # leaves it offline and skipped by intake rather than failing runs.
+      ORCHESTRATOR_PROVIDER: "${ORCHESTRATOR_PROVIDER:-}"
+      ORCHESTRATOR_MODEL: "${ORCHESTRATOR_MODEL:-}"
       SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-15s}"
       REALTIME_RELAY_REQUIRED: "${REALTIME_RELAY_REQUIRED:-true}"
     read_only: true

@@ -15,8 +15,8 @@ func TestListOrdersUniqueMigrationsAndComputesChecksums(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(all) != 8 {
-		t.Fatalf("List() returned %d migrations, want 8", len(all))
+	if len(all) != 10 {
+		t.Fatalf("List() returned %d migrations, want 10", len(all))
 	}
 	for index, migration := range all {
 		if migration.Version != index {

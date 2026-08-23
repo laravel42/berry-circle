@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+// SystemActorID is the user row seeded by migration 009 that automated runs
+// are attributed to. runs.requested_by is a foreign key to users(id), so
+// intake needs a real identity; this is it. It is not a login and no session
+// is ever issued for it.
+const SystemActorID = "00000000-0000-4000-8000-000000000001"
+
 // Config contains validated process configuration. Secret-bearing fields must
 // never be logged or returned from an HTTP handler.
 type Config struct {
@@ -72,6 +78,11 @@ type Config struct {
 	// runs.requested_by is a foreign key to users(id) and an audit trail that
 	// cannot name who started a run is not an audit trail.
 	IntakeActorID string
+	// The built-in orchestrator runs on whatever model the deployment chose.
+	// Berry does not pick an LLM for an operator, so provisioning is skipped
+	// when these are unset and the orchestrator stays unavailable.
+	OrchestratorProvider string
+	OrchestratorModel    string
 }
 
 // Load reads and validates an environment map. Errors identify fields without
@@ -310,10 +321,16 @@ func Load(env map[string]string) (Config, error) {
 	if cfg.IntakeMaxConcurrent > 1000 {
 		problems = append(problems, "INTAKE_MAX_CONCURRENT")
 	}
-	cfg.IntakeActorID = strings.TrimSpace(env["INTAKE_ACTOR_ID"])
+	// Defaults to the system actor seeded by migration 009, so intake works on
+	// a fresh deployment without the operator inventing an identity.
+	cfg.IntakeActorID = strings.TrimSpace(
+		value(env, "INTAKE_ACTOR_ID", SystemActorID),
+	)
 	if cfg.IntakeEnabled && !isUUID(cfg.IntakeActorID) {
 		problems = append(problems, "INTAKE_ACTOR_ID")
 	}
+	cfg.OrchestratorProvider = strings.TrimSpace(env["ORCHESTRATOR_PROVIDER"])
+	cfg.OrchestratorModel = strings.TrimSpace(env["ORCHESTRATOR_MODEL"])
 
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf(
