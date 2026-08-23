@@ -529,6 +529,14 @@ Returns agents ordered by `(name ASC, id ASC)`. Supports `first`, `after`, and o
 
 ### Runs
 
+#### `GET /api/v1/boards/{boardId}/runs`
+
+Returns runs for one board ordered by `(createdAt DESC, id DESC)`. Supports `first`, `after`, optional `status=RunStatus`, and optional `agentId=Uuid`.
+
+- `200`: connection of `Run`
+- `400`: malformed filter or `INVALID_CURSOR`
+- `404`: board `NOT_FOUND`
+
 #### `GET /api/v1/issues/{issueId}/runs`
 
 Returns runs ordered by `(createdAt DESC, id DESC)`. Supports `first`, `after`, and optional `status=RunStatus`.

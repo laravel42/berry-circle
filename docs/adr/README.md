@@ -20,9 +20,11 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 
 | ADR | Decision | Status | Date |
 |---|---|---|---|
-| [0001](0001-bun-hono-gateway.md) | Use Bun and Hono for the gateway | Accepted | 2026-08-22 |
+| [0001](0001-bun-hono-gateway.md) | Use Bun and Hono for the gateway | Superseded by [0004](0004-go-product-server.md) | 2026-08-22 |
 | [0002](0002-valkey-for-ephemeral-state.md) | Use Valkey for cache and ephemeral coordination state | Accepted | 2026-08-22 |
 | [0003](0003-pin-openfang-by-commit.md) | Pin and validate the OpenFang integration by commit | Accepted | 2026-08-22 |
+| [0004](0004-go-product-server.md) | Adopt a Go product server | Accepted | 2026-08-22 |
+| [0005](0005-temporal-run-orchestration.md) | Adopt Temporal for run orchestration | Proposed | 2026-08-23 |
 
 ## Adding a record
 

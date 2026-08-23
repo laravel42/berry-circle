@@ -1,6 +1,6 @@
 # Berry — Coding Playbook
 
-*Release 1 · M0 Foundation · BERR-13*
+*Expanded web direction · migration conventions*
 
 The conventions every Berry contributor — human or agent — codes against.
 Everything here is grounded in what is already in the repository; where a
@@ -8,31 +8,56 @@ convention is aspirational (a stack is installed but not yet exercised) it is
 labelled as such. When code and this document disagree, fix the one that is
 wrong and keep them in sync.
 
-## Repository shape: one repo, two workspaces, two toolchains
+## Repository shape: one repo, three workspaces, three toolchains
 
-Berry is a single Git repository holding two independently-tooled workspaces.
-They do **not** share a formatter, lint config, or TypeScript target, and that
-split is intentional — the frontend stays close to its upstream Circle template,
-the gateway follows a clean Bun-native setup. Know which workspace you are in
-before you write code.
+Berry is a single Git repository with three independently tooled workspaces.
+They do **not** share a formatter, lint config, language target, or generated
+code workflow. The frontend stays close to its upstream Circle template, the
+gateway keeps its Bun-native setup while it serves as the compatibility oracle,
+and the Go server becomes the product server after cutover. Know which workspace
+you are in before you write code.
 
-| | `apps/gateway/` | `frontend/` |
-| --- | --- | --- |
-| What it is | Bun + Hono BFF adapting OpenFang into the Linear-shaped API | Next.js 15 App Router UI, vendored from Circle (MIT) |
-| Runtime | Bun | Bun (tooling) / Node-compatible Next runtime |
-| Language target | `ESNext`, strict | `ES2017`, strict |
-| Path alias | `~/*` → `src/*` | `@/*` → repo root |
-| Format + lint | **Biome** (`biome.json`) | **Prettier + ESLint** (`.prettierrc`, `eslint.config.mjs`) |
-| Tests | `bun:test` | none yet (see [Testing](#testing)) |
-| Package name | `@berry/gateway` | `berry-frontend` |
+| | `server/` | `apps/gateway/` | `frontend/` |
+| --- | --- | --- | --- |
+| What it is | Go product server selected by [ADR-0004](adr/0004-go-product-server.md); scaffold pending | Bun + Hono compatibility oracle during migration | Next.js 15 App Router UI, vendored from Circle (MIT) |
+| Runtime | Go (version lands with scaffold) | Bun | Bun (tooling) / Node-compatible Next runtime |
+| Language target | Go module, not created yet | `ESNext`, strict | `ES2017`, strict |
+| Imports | Standard Go package paths | `~/*` → `src/*` | `@/*` → repo root |
+| Format + lint | `gofmt`; exact static-analysis gate lands with scaffold | **Biome** (`biome.json`) | **Prettier + ESLint** (`.prettierrc`, `eslint.config.mjs`) |
+| Tests | `go test ./...` after scaffold | `bun:test` | none yet (see [Testing](#testing)) |
+| Package/module | Defined by scaffold | `@berry/gateway` | `berry-frontend` |
 
-Because the two workspaces use different formatters with different settings,
+Because the workspaces use different formatters with different settings,
 **never run one workspace's formatter over the other.** Style rules below are
 stated per workspace.
 
+## Go server style
+
+These conventions are binding for the future `server/` scaffold; there are no
+runnable server commands or generated files yet.
+
+- Keep `server/` an independent Go module. The scaffold, not this document,
+  defines its module path and pinned Go version.
+- Format Go with `gofmt`. Pass `context.Context` through request, database, and
+  upstream boundaries; do not replace cancellation with background contexts.
+- Route with Chi. Keep HTTP parsing/serialization in handlers, product rules in
+  services, and pgx/sqlc persistence behind explicit store/query boundaries.
+- Treat sqlc output as generated: edit SQL queries or schema inputs and
+  regenerate with the command introduced by the scaffold; never hand-edit
+  generated Go.
+- Wrap errors with operation context while preserving values needed for
+  `errors.Is`/`errors.As`. Map them once at the HTTP boundary into Berry's
+  stable error envelope; never return raw database or OpenFang errors.
+- Use explicit transactions for multi-row invariants and pass the selected
+  transaction/query handle through the call. PostgreSQL remains authoritative;
+  Valkey loss must not change durable product facts.
+- Reused Multica material must cite the pinned source path and satisfy
+  [the provenance audit](provenance/multica-server-reuse.md). Do not port daemon,
+  launcher, provider, sandbox, or filesystem-execution code.
+
 ## TypeScript style
 
-- **`strict` is on in both workspaces. Keep it on.** Do not weaken
+- **`strict` is on in both TypeScript workspaces. Keep it on.** Do not weaken
   `tsconfig.json` to make a type error go away; fix the type.
 - **No `any`.** The gateway's Biome config runs the `recommended` rule set;
   the frontend runs `next/typescript`. Prefer precise types, `unknown` at
@@ -63,8 +88,22 @@ stated per workspace.
 
 ### Formatting & linting
 
-Run the workspace's own tools; both target a 100-column line width but agree on
-nothing else.
+Run each workspace's own tools. The TypeScript workspaces target a 100-column
+line width but otherwise keep their existing, different formatter settings;
+Go uses `gofmt`.
+
+**Server** — scaffold pending:
+
+```sh
+# These native gates become runnable when server/go.mod lands.
+cd server
+go vet ./...
+go test ./...
+```
+
+The scaffold must add the exact repository commands for checking `gofmt` and
+verifying sqlc generation. Until then, do not invent wrappers or claim those
+gates were run.
 
 **Gateway** — Biome:
 
@@ -186,6 +225,13 @@ surface a friendly message and let the thrown error carry the detail for logging
 
 ## Testing
 
+**Server — gates land with the scaffold.** Go changes will run `go test ./...`;
+database-backed tests must isolate their data and make external requirements
+explicit. Handler tests exercise the real Chi router, shared compatibility
+fixtures cover the Bun and Go implementations during migration, and OpenFang
+tests use the pinned adapter contract rather than a provider implementation.
+Do not claim server coverage before `server/` and its harness exist.
+
 **Gateway — `bun:test`, and test the real thing.**
 
 ```sh
@@ -231,8 +277,9 @@ type(scope): imperative summary (BERR-NN)
 
 - **Types in use:** `feat`, `fix`, `docs`, `test`. Add others from the
   Conventional Commits set (`chore`, `refactor`, `build`, `ci`) as needed.
-- **Scope** is the workspace or area, e.g. `feat(gateway): …`. Docs-only commits
-  are typically scope-less: `docs: add product brief (BERR-9)`.
+- **Scope** is the workspace or area, e.g. `feat(server): …`,
+  `feat(gateway): …`, or `feat(frontend): …`. Docs-only commits are typically
+  scope-less: `docs: add product brief (BERR-9)`.
 - **Reference the issue** as `(BERR-NN)` in the subject. Merge commits append the
   PR number, e.g. `feat(gateway): Postgres schema + migrations (BERR-21) (#1)`.
 - **Imperative mood, ~72-char subject.** Explain the *why* in the body when the
@@ -271,13 +318,16 @@ as legacy.
   findings …`).
 - **Clean review means you merge and close out.** On a clean review the
   implementing agent merges the PR and moves the issue straight to **done** —
-  the clean review *is* the completion signal, so skip `in_review`. The
-  Release 1 human release gate is waived for this cycle.
+  the clean repository review *is* the contribution completion signal. This
+  does not waive Berry's product rule that agent-delivered work requires human
+  acceptance before release.
 
 ### Definition of done
 
 Before requesting review, confirm the workspace's gates are green:
 
+- **Server:** once its scaffold lands, the documented `gofmt` check, static
+  analysis, sqlc verification when inputs change, and `go test ./...` pass.
 - **Gateway:** `bun run typecheck` **and** `bun run lint` **and** `bun test` pass.
 - **Frontend:** `bun run lint` **and** `bun run build` succeed; the changed view
   was exercised manually.

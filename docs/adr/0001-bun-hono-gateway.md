@@ -1,10 +1,11 @@
 # ADR-0001: Use Bun and Hono for the gateway
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0004](0004-go-product-server.md)
 - **Date:** 2026-08-22
 - **Deciders:** Berry architecture team
 - **Related:** [Product brief](../product-brief.md),
-  [OpenFang integration specification](../integrations/berry-openfang.md)
+  [OpenFang integration specification](../integrations/berry-openfang.md),
+  [ADR-0004](0004-go-product-server.md)
 
 ## Context
 

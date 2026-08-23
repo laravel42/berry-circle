@@ -6,3 +6,5 @@
 - 2026-08-22 — Observability: one `request.completed` log line; W3C `traceparent` via ALS; `tracedFetch` for upstream; Prometheus on `GET /metrics` (`apps/gateway/src/observability/`).
 - 2026-08-22 — Env parsed in `src/config.ts`. `DATABASE_URL` is required for migrate but not yet in that Zod schema. Tests skip without it.
 - 2026-08-22 — Reviewed, fixed, commented, and squash-merged gateway PRs #21 → #18 → #19 → #20 → #23 onto `main` (`64b925f`). Follow-ups: `requireAuth` on issues/comments/SSE, fold `api/dto` into `~/schemas`, `Idempotency-Key`.
+- 2026-08-22 — Boards CRUD committed on `feat/berr-11-boards-crud` (`ea70977`): `GET/POST /api/v1/boards` and `GET/PATCH /api/v1/boards/{boardId}`. Still uses `requireActor`; no Idempotency-Key.
+- 2026-08-22 — Session auth on issues/comments/SSE committed on `fix/berr-24-session-on-product-routes` (`8c55ac6`). `requireActor` removed. Boards branch still on the header seam — rebase boards onto auth (or the reverse) and swap board mutations. Overlap: `tests/testkit.ts`.
