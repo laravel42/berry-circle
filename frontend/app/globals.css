@@ -45,6 +45,24 @@
    --brand-verdant: #4f9f7a;
    --brand-azure: #5a92c9;
 
+   /* --- Application shell (Berry Prototype.dc.html) -------------------------
+      The shell is dark in both themes. It is chrome, not content: the tab
+      strip and rail frame the workspace the way a browser frames a page, and
+      inverting them with the content theme would make the frame compete with
+      what sits inside it. Values come from the prototype verbatim so the
+      implementation and the design file cannot drift apart silently. */
+   --shell-rail: #16161a;
+   --shell-canvas: #111113;
+   --shell-surface: #1a1a1d;
+   --shell-hover: #17171a;
+   --shell-line: #26262b;
+   --shell-line-strong: #3a3a40;
+   --shell-text: #f0edea;
+   --shell-text-muted: #a8a6ac;
+   --shell-text-dim: #6b6a70;
+   --shell-text-faint: #4a4a50;
+   --shell-accent: var(--brand-berry);
+
    --background: #f4f2ec;
    --foreground: var(--brand-void);
    --container: #fdfcf8;
@@ -352,4 +370,14 @@ input[type='search'] {
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
    }
+}
+
+/* The tab strip scrolls horizontally without advertising a scrollbar, matching
+   the prototype. `scrollbar-width` covers Firefox; the pseudo-element covers
+   WebKit. */
+.tabstrip {
+   scrollbar-width: none;
+}
+.tabstrip::-webkit-scrollbar {
+   display: none;
 }
