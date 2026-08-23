@@ -253,6 +253,55 @@ protect the invariant:
 Belt and braces is warranted here: the failure mode is silent code corruption
 across two agents, which is expensive to detect and worse to debug.
 
+### The real product loop
+
+Clarified by the product owner, 2026-08-23. Users do not create tasks:
+
+```
+User briefs the orchestrator (chat, or video/voice call)
+  -> orchestrator drafts a plan: project -> milestones -> tasks, each assigned
+  -> USER APPROVES                      <- human gate 1
+  -> agents execute autonomously
+  -> task blocked                       <- human gate 2
+  -> task in review                     <- human gate 3
+```
+
+Three human touchpoints, and only three. Everything between them is
+autonomous, which raises the cost of any mistake: an unapproved plan that
+starts executing spends real money and edits real code before anyone looks.
+
+**Nothing runs before approval, enforced in the database.** Drafted tasks are
+written in `backlog`, the one status intake never selects, and migration 010
+adds a trigger that refuses to move a planned issue into `todo` while its plan
+is unapproved. The integration suite proves it by trying to do exactly that in
+raw SQL and asserting the failure. "Someone forgot the approval check" is not a
+reachable state.
+
+**A plan is written whole or not at all.** A half-written plan — a project with
+three of its seven tasks — would be shown to a user as the orchestrator's
+complete proposal, and they would approve something nobody intended. Drafting
+is one transaction.
+
+Approval is likewise one transaction: plan, project, and every task move
+together, plan status first because the safety trigger reads it. Only tasks
+still in `backlog` advance, so anything a human already cancelled or blocked
+keeps the state they chose — approval grants permission to start, it does not
+overwrite decisions. Approving twice is a no-op rather than an error.
+
+Schema added: `milestones` and `issue_milestone_links` (mirroring the existing
+project link pattern), `plans`, and `plan_issues`. One live plan per project,
+by partial unique index.
+
+**Assignment now happens at planning time.** The orchestrator chooses the agent
+as it writes each task, so the user approves who does what as well as what gets
+done. The routing rules are unchanged; they simply run earlier. Intake's
+routing stays as the safety net for anything that reaches `todo` unassigned.
+
+Still missing, and the next real work: the briefing surface itself. Chat is the
+tractable half; video/voice needs transcription and a realtime transport, and
+is a subsystem rather than a feature. Nothing generates a draft from a
+conversation yet — `CreateDraft` is the seam it will call.
+
 ### The built-in orchestrator
 
 Product requirement, 2026-08-23: every deployment carries a default
