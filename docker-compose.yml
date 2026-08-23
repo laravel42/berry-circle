@@ -1,5 +1,6 @@
-# Berry local stack — the execution substrate + backing services Berry builds against.
+# Berry local stack — product API, execution substrate, and backing services.
 #
+#   berry-api  Go product/control-plane API (localhost:4000)
 #   openfang   OpenFang agent kernel + REST/WS/SSE + OpenAI-compatible API (localhost:4200)
 #   postgres   Berry-owned durable product state (issues, runs, comments, ...) — ADR-0002
 #   valkey     Berry shared cache + ephemeral coordination state — ADR-0002
@@ -15,6 +16,81 @@
 name: berry-stack
 
 services:
+  berry-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    image: berry-api:local
+    # The image defaults to the API binary. Compose deliberately runs the
+    # forward-only migrator first so readiness never races schema setup.
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - "/usr/local/bin/berry-migrate && /usr/local/bin/berry-seed && exec /usr/local/bin/berry-api"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+      openfang:
+        condition: service_healthy
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_NAME: "${SERVICE_NAME:-berry-server}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      API_ADDR: "0.0.0.0:4000"
+      DATABASE_URL: "${BERRY_DATABASE_URL:-postgres://berry:berry@postgres:5432/berry?sslmode=disable}"
+      VALKEY_ENABLED: "${VALKEY_ENABLED:-true}"
+      VALKEY_REQUIRED: "${VALKEY_REQUIRED:-true}"
+      VALKEY_URL: "${BERRY_VALKEY_URL:-redis://valkey:6379/0}"
+      CACHE_FAIL_OPEN: "${CACHE_FAIL_OPEN:-true}"
+      RATE_LIMIT_FAIL_OPEN: "${RATE_LIMIT_FAIL_OPEN:-false}"
+      OPENFANG_BASE_URL: "http://openfang:4200"
+      # Server-side only: never mirror this value into a NEXT_PUBLIC_* variable.
+      OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
+      METRICS_ENABLED: "${METRICS_ENABLED:-true}"
+      TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-local}"
+      STORAGE_LOCAL_ROOT: "/data/uploads"
+      STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-}"
+      S3_USE_PATH_STYLE: "${S3_USE_PATH_STYLE:-}"
+      # Standard AWS credentials are server-side only. Empty values use the
+      # SDK's workload/instance credential chain when S3 is enabled.
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      SESSION_TTL: "${SESSION_TTL:-720h}"
+      AUTH_ALLOW_PASSWORDLESS_LOGIN: "${AUTH_ALLOW_PASSWORDLESS_LOGIN:-true}"
+      SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-15s}"
+      REALTIME_BUFFER: "${REALTIME_BUFFER:-64}"
+      # Blank node id generates a unique process id. Required relay mode makes
+      # /ready fail when cross-node invalidation cannot reach Valkey.
+      REALTIME_NODE_ID: "${REALTIME_NODE_ID:-}"
+      REALTIME_RELAY_REQUIRED: "${REALTIME_RELAY_REQUIRED:-true}"
+      REALTIME_STREAM_MAXLEN: "${REALTIME_STREAM_MAXLEN:-10000}"
+      REALTIME_STREAM_TTL: "${REALTIME_STREAM_TTL:-15m}"
+      REALTIME_READ_BLOCK: "${REALTIME_READ_BLOCK:-5s}"
+    ports:
+      - "127.0.0.1:${BERRY_API_PORT:-4000}:4000"
+    volumes:
+      - berry-uploads:/data/uploads
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:4000/ready"]
+      interval: 10s
+      timeout: 3s
+      start_period: 20s
+      retries: 6
+    restart: unless-stopped
+
   openfang:
     # Build from the exact pinned upstream commit (BuildKit git context). No mutable
     # branch or image tag is trusted. GHCR image is not public yet; build from source.
@@ -27,13 +103,13 @@ services:
         CODEGEN_UNITS: "${OPENFANG_BUILD_CODEGEN_UNITS:-16}"
     image: "berry-openfang:${OPENFANG_COMMIT_SHORT:-acf2587e}"
     ports:
-      - "${OPENFANG_PORT:-4200}:4200"
+      - "127.0.0.1:${OPENFANG_PORT:-4200}:4200"
     environment:
       # Required in Docker: OpenFang binds loopback-only by default, which is unreachable
       # through a published port. See docs/adr/0003 and OpenFang docs/configuration.md.
       OPENFANG_LISTEN: "0.0.0.0:4200"
-      # Strongly recommended once bound to a non-loopback address. Empty => fail-closed:
-      # authenticated routes reject non-loopback requests (health stays public).
+      # Required for container-to-container API calls. Empty keeps authenticated
+      # non-loopback requests fail-closed (health stays public).
       OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
       OPENFANG_HOME: "/data"
       RUST_LOG: "${OPENFANG_LOG:-info}"
@@ -66,8 +142,8 @@ services:
     restart: unless-stopped
 
   postgres:
-    # Berry's durable system of record. Defaults match apps/gateway/.env.example
-    # (DATABASE_URL=postgres://berry:berry@localhost:5432/berry).
+    # Berry's durable system of record. Keep PostgreSQL 16 on this existing
+    # named volume; a future 17 upgrade must migrate into a separate volume.
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: "${POSTGRES_USER:-berry}"
@@ -75,7 +151,7 @@ services:
       POSTGRES_DB: "${POSTGRES_DB:-berry}"
     ports:
       # Loopback-only: default creds are weak dev creds, so never expose Postgres
-      # beyond the local host. The gateway reaches it via localhost.
+      # beyond the local host. Host-run tools reach it via localhost.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - berry-postgres:/var/lib/postgresql/data
@@ -96,7 +172,7 @@ services:
     command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
     ports:
       # Loopback-only: Valkey runs without auth here, so never expose it beyond
-      # the local host. The gateway reaches it via localhost.
+      # the local host. Host-run tools reach it via localhost.
       - "127.0.0.1:${VALKEY_PORT:-6379}:6379"
     volumes:
       - berry-valkey:/data
@@ -112,3 +188,4 @@ volumes:
   openfang-data:
   berry-postgres:
   berry-valkey:
+  berry-uploads:

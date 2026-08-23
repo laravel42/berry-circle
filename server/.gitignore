@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+
+/api
+/migrate
+/bin/
+/coverage/
+/data/
+*.test
+*.out
