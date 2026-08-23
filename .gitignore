@@ -5,3 +5,15 @@ dist/
 .env
 .env.*
 !.env.example
+
+# agent scratch workspaces (large, machine-local)
+.tmp-agents/
+.tmp-pr/
+.impeccable/
+
+# compiled Go binaries built into the module root
+/server/api
+/server/seed
+
+# runtime volumes
+/server/data/
