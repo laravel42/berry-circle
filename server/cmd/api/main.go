@@ -25,6 +25,7 @@ import (
 	authhandlers "github.com/laravel42/berry-circle/server/internal/handlers/auth"
 	"github.com/laravel42/berry-circle/server/internal/handlers/boards"
 	cataloghandlers "github.com/laravel42/berry-circle/server/internal/handlers/catalog"
+	channelhandlers "github.com/laravel42/berry-circle/server/internal/handlers/channels"
 	"github.com/laravel42/berry-circle/server/internal/handlers/comments"
 	eventhandlers "github.com/laravel42/berry-circle/server/internal/handlers/events"
 	identityhandlers "github.com/laravel42/berry-circle/server/internal/handlers/identity"
@@ -44,6 +45,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/platform"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	collabrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
+	conversationrepo "github.com/laravel42/berry-circle/server/internal/repository/conversations"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 	projectrepo "github.com/laravel42/berry-circle/server/internal/repository/projects"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
@@ -700,6 +702,35 @@ func run() int {
 			attachmentMount,
 			catalogMount,
 			projectMount,
+		}
+		// The inbound channel webhook is mounted only when Infobip is
+		// configured. An unconfigured deployment must not expose a public
+		// endpoint that creates messages attributed to users.
+		if cfg.InfobipEnabled {
+			conversationStore, err := conversationrepo.New(dbPool)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("conversation repository setup failed", "error", err)
+				return 1
+			}
+			channelMount, err := channelhandlers.NewMount(channelhandlers.Options{
+				Store:  conversationStore,
+				Secret: cfg.InfobipWebhookSecret,
+				Clock:  time.Now,
+				Logger: logger,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("channel webhook setup failed", "error", err)
+				return 1
+			}
+			productMounts = append(productMounts, channelMount)
 		}
 		productMounts = append(productMounts, identityMounts...)
 		productMounts = append(productMounts, p2Mounts...)
