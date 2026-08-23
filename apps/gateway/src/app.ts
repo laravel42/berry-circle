@@ -7,6 +7,7 @@ import { ApiError, codeForStatus } from "~/http/errors";
 import { logger } from "~/logger";
 import { observability } from "~/observability";
 import { auth } from "~/routes/auth";
+import { makeBoardRoutes } from "~/routes/boards";
 import { makeCommentRoutes } from "~/routes/comments";
 import { health } from "~/routes/health";
 import { makeIssueRoutes } from "~/routes/issues";
@@ -39,6 +40,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.route("/", health);
   app.route("/", metrics);
   app.route("/api/v1/auth", auth);
+  app.route("/api/v1", makeBoardRoutes(deps));
   app.route("/api/v1", makeIssueRoutes(deps));
   app.route("/api/v1", makeCommentRoutes(deps));
   app.route(

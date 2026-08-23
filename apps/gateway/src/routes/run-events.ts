@@ -18,6 +18,8 @@ import type { Context } from "hono";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { z } from "zod";
+import { requireAuth } from "~/auth/middleware";
+import type { AuthEnv } from "~/auth/types";
 import type { RunEventStream } from "~/runs/event-store";
 import { runEventStore } from "~/runs/event-store";
 import {
@@ -36,7 +38,7 @@ export interface RunEventsRouteOptions {
 
 // `requestId()` runs on the parent app and populates this variable; declaring it
 // lets `c.get("requestId")` typecheck through the mounted sub-app.
-type RunEventsEnv = { Variables: { requestId?: string } };
+type RunEventsEnv = AuthEnv & { Variables: { requestId?: string } };
 
 // Cursors are opaque to clients (we never parse them), but we still bound the
 // input we accept as a lookup key.
@@ -65,7 +67,7 @@ export function runEventsRoutes(options: RunEventsRouteOptions = {}) {
   const store = options.store ?? runEventStore;
   const heartbeatMs = options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
 
-  return new Hono<RunEventsEnv>().get("/api/v1/runs/:runId/events", (c) => {
+  return new Hono<RunEventsEnv>().get("/api/v1/runs/:runId/events", requireAuth, (c) => {
     const runId = c.req.param("runId");
 
     // A reconnecting client resumes with `Last-Event-ID`; an initial reader may

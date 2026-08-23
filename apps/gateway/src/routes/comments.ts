@@ -1,12 +1,6 @@
 import { type SQL, and, asc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import {
-  type Actor,
-  type ActorType,
-  requiredRef,
-  resolveRefRequired,
-  resolveRefs,
-} from "~/api/actors";
+import { type ActorType, requiredRef, resolveRefRequired, resolveRefs } from "~/api/actors";
 import {
   type CommentResource,
   createCommentSchema,
@@ -14,9 +8,11 @@ import {
   updateCommentSchema,
 } from "~/api/dto";
 import { findIssueByRef } from "~/api/lookups";
+import { getAuthUser, requireAuth } from "~/auth/middleware";
+import type { AuthEnv, AuthUser } from "~/auth/types";
 import type { BerryDb } from "~/db/client";
 import { comments } from "~/db/schema";
-import { requireActor, requireDb } from "~/http/context";
+import { requireDb } from "~/http/context";
 import { forbidden, notFound, validationFailed } from "~/http/errors";
 import {
   buildConnection,
@@ -30,12 +26,12 @@ import { type RouteDeps, readJsonBody } from "~/routes/support";
 
 const COMMENTS_SORT = "createdAt:asc,id:asc";
 
-export function makeCommentRoutes(deps: RouteDeps): Hono {
-  const router = new Hono();
+export function makeCommentRoutes(deps: RouteDeps): Hono<AuthEnv> {
+  const router = new Hono<AuthEnv>();
 
   // GET /issues/{issueId}/comments — cursor-paginated, (createdAt, id) ASC.
   // Replies are ordinary nodes carrying parentId; the server never nests them.
-  router.get("/issues/:issueId/comments", async (c) => {
+  router.get("/issues/:issueId/comments", requireAuth, async (c) => {
     const db = requireDb(deps.db);
     const issue = await findIssueByRef(db, c.req.param("issueId"));
     if (!issue) throw notFound("Issue not found.");
@@ -76,9 +72,9 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
   });
 
   // POST /issues/{issueId}/comments — author is always the authenticated actor.
-  router.post("/issues/:issueId/comments", async (c) => {
+  router.post("/issues/:issueId/comments", requireAuth, async (c) => {
     const db = requireDb(deps.db);
-    const actor = await requireActor(c, db);
+    const user = getAuthUser(c);
     const issue = await findIssueByRef(db, c.req.param("issueId"));
     if (!issue) throw notFound("Issue not found.");
     const input = parseBody(createCommentSchema, await readJsonBody(c));
@@ -113,8 +109,8 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
         .insert(comments)
         .values({
           issueId: issue.issue.id,
-          authorType: actor.type,
-          authorId: actor.id,
+          authorType: "user",
+          authorId: user.id,
           body: input.body,
           parentId: input.parentId ?? null,
         })
@@ -131,7 +127,7 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
   });
 
   // GET /comments/{commentId}
-  router.get("/comments/:commentId", async (c) => {
+  router.get("/comments/:commentId", requireAuth, async (c) => {
     const db = requireDb(deps.db);
     const comment = await findComment(db, c.req.param("commentId"));
     if (!comment) throw notFound("Comment not found.");
@@ -144,12 +140,12 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
   });
 
   // PATCH /comments/{commentId} — author (or admin) edits the body only.
-  router.patch("/comments/:commentId", async (c) => {
+  router.patch("/comments/:commentId", requireAuth, async (c) => {
     const db = requireDb(deps.db);
-    const actor = await requireActor(c, db);
+    const user = getAuthUser(c);
     const existing = await findComment(db, c.req.param("commentId"));
     if (!existing) throw notFound("Comment not found.");
-    if (!canModify(actor, existing.authorType, existing.authorId)) {
+    if (!canModify(user, existing.authorType, existing.authorId)) {
       throw forbidden("Only the author or an administrator may edit this comment.");
     }
     const input = parseBody(updateCommentSchema, await readJsonBody(c));
@@ -168,12 +164,12 @@ export function makeCommentRoutes(deps: RouteDeps): Hono {
   });
 
   // DELETE /comments/{commentId} — cascades to replies via the parent FK.
-  router.delete("/comments/:commentId", async (c) => {
+  router.delete("/comments/:commentId", requireAuth, async (c) => {
     const db = requireDb(deps.db);
-    const actor = await requireActor(c, db);
+    const user = getAuthUser(c);
     const existing = await findComment(db, c.req.param("commentId"));
     if (!existing) throw notFound("Comment not found.");
-    if (!canModify(actor, existing.authorType, existing.authorId)) {
+    if (!canModify(user, existing.authorType, existing.authorId)) {
       throw forbidden("Only the author or an administrator may delete this comment.");
     }
 
@@ -189,6 +185,6 @@ async function findComment(db: BerryDb, id: string) {
   return comment ?? null;
 }
 
-function canModify(actor: Actor, authorType: ActorType, authorId: string): boolean {
-  return actor.isAdmin || (actor.type === authorType && actor.id === authorId);
+function canModify(user: AuthUser, authorType: ActorType, authorId: string): boolean {
+  return user.role === "admin" || (authorType === "user" && user.id === authorId);
 }

@@ -17,6 +17,7 @@ export const issueStatusSchema = z.enum([
   "inProgress",
   "inReview",
   "done",
+  "blocked",
   "cancelled",
 ]);
 export type IssueStatus = z.infer<typeof issueStatusSchema>;

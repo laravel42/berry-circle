@@ -11,6 +11,7 @@ export const ISSUE_STATUSES = [
   "inProgress",
   "inReview",
   "done",
+  "blocked",
   "cancelled",
 ] as const;
 export type ApiIssueStatus = (typeof ISSUE_STATUSES)[number];
@@ -18,7 +19,14 @@ export type ApiIssueStatus = (typeof ISSUE_STATUSES)[number];
 export const ISSUE_PRIORITIES = ["none", "urgent", "high", "medium", "low"] as const;
 export type ApiIssuePriority = (typeof ISSUE_PRIORITIES)[number];
 
-type DbIssueStatus = "backlog" | "todo" | "in_progress" | "in_review" | "done" | "cancelled";
+type DbIssueStatus =
+  | "backlog"
+  | "todo"
+  | "in_progress"
+  | "in_review"
+  | "done"
+  | "blocked"
+  | "cancelled";
 
 const STATUS_API_TO_DB: Record<ApiIssueStatus, DbIssueStatus> = {
   backlog: "backlog",
@@ -26,6 +34,7 @@ const STATUS_API_TO_DB: Record<ApiIssueStatus, DbIssueStatus> = {
   inProgress: "in_progress",
   inReview: "in_review",
   done: "done",
+  blocked: "blocked",
   cancelled: "cancelled",
 };
 
@@ -35,6 +44,7 @@ const STATUS_DB_TO_API: Record<DbIssueStatus, ApiIssueStatus> = {
   in_progress: "inProgress",
   in_review: "inReview",
   done: "done",
+  blocked: "blocked",
   cancelled: "cancelled",
 };
 

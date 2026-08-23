@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createApp } from "~/app";
 import { issues } from "~/db/schema";
 import {
   DATABASE_URL,
@@ -9,6 +10,26 @@ import {
   readJson,
   tamperCursorKey,
 } from "./testkit";
+
+describe("issue routes (unauthenticated)", () => {
+  test("GET /api/v1/issues without a token is 401 UNAUTHENTICATED", async () => {
+    const app = createApp();
+    const res = await app.request(`/api/v1/issues?boardId=${crypto.randomUUID()}`);
+    expect(res.status).toBe(401);
+    expect((await readJson<ErrorEnvelope>(res)).error.code).toBe("UNAUTHENTICATED");
+  });
+
+  test("POST /api/v1/issues without a token is 401 UNAUTHENTICATED", async () => {
+    const app = createApp();
+    const res = await app.request("/api/v1/issues", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ boardId: crypto.randomUUID(), title: "x" }),
+    });
+    expect(res.status).toBe(401);
+    expect((await readJson<ErrorEnvelope>(res)).error.code).toBe("UNAUTHENTICATED");
+  });
+});
 
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
@@ -24,9 +45,9 @@ describeIfDb("issue routes", () => {
 
   test("POST creates an issue, allocates a number, and returns the full resource", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser("Andrea");
+    const { user, headers } = await ctx.seedSession("Andrea");
 
-    const res = await post(ctx.userHeaders(user.id), { boardId: board.id, title: "First issue" });
+    const res = await post(headers, { boardId: board.id, title: "First issue" });
     expect(res.status).toBe(201);
     const body = await readJson<IssueResource>(res);
     expect(body.number).toBe(1);
@@ -39,7 +60,7 @@ describeIfDb("issue routes", () => {
     expect(res.headers.get("Location")).toBe(`/api/v1/issues/${body.id}`);
 
     // Second issue on the same board gets the next number, no collision.
-    const second = await createIssue(ctx.userHeaders(user.id), {
+    const second = await createIssue(headers, {
       boardId: board.id,
       title: "Second issue",
     });
@@ -48,10 +69,10 @@ describeIfDb("issue routes", () => {
 
   test("POST records an assignee and reflects status/priority", async () => {
     const board = await ctx.seedBoard();
-    const author = await ctx.seedUser("Author");
+    const { headers } = await ctx.seedSession("Author");
     const assignee = await ctx.seedUser("Assignee");
 
-    const body = await createIssue(ctx.userHeaders(author.id), {
+    const body = await createIssue(headers, {
       boardId: board.id,
       title: "Assigned",
       assignee: { type: "user", id: assignee.id },
@@ -68,12 +89,10 @@ describeIfDb("issue routes", () => {
     });
   });
 
-  test("POST requires an authenticated actor", async () => {
+  test("an invalid bearer token is 401 UNAUTHENTICATED", async () => {
     const board = await ctx.seedBoard();
-    const res = await ctx.app.request("/api/v1/issues", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ boardId: board.id, title: "x" }),
+    const res = await ctx.app.request(`/api/v1/issues?boardId=${board.id}`, {
+      headers: { authorization: "Bearer not-a-session" },
     });
     expect(res.status).toBe(401);
     expect((await readJson<ErrorEnvelope>(res)).error.code).toBe("UNAUTHENTICATED");
@@ -81,8 +100,8 @@ describeIfDb("issue routes", () => {
 
   test("POST returns 422 with field details for an invalid body", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
-    const res = await post(ctx.userHeaders(user.id), { boardId: board.id, title: "" });
+    const { headers } = await ctx.seedSession();
+    const res = await post(headers, { boardId: board.id, title: "" });
     expect(res.status).toBe(422);
     const body = await readJson<ErrorEnvelope>(res);
     expect(body.error.code).toBe("VALIDATION_FAILED");
@@ -91,16 +110,16 @@ describeIfDb("issue routes", () => {
   });
 
   test("POST returns 404 for a missing board and a missing assignee", async () => {
-    const user = await ctx.seedUser();
+    const { headers } = await ctx.seedSession();
     const board = await ctx.seedBoard();
 
-    const missingBoard = await post(ctx.userHeaders(user.id), {
+    const missingBoard = await post(headers, {
       boardId: crypto.randomUUID(),
       title: "x",
     });
     expect(missingBoard.status).toBe(404);
 
-    const missingAssignee = await post(ctx.userHeaders(user.id), {
+    const missingAssignee = await post(headers, {
       boardId: board.id,
       title: "x",
       assignee: { type: "user", id: crypto.randomUUID() },
@@ -110,41 +129,42 @@ describeIfDb("issue routes", () => {
 
   test("GET resolves an issue by UUID and by case-insensitive identifier", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
-    const created = await createIssue(ctx.userHeaders(user.id), {
+    const { headers } = await ctx.seedSession();
+    const created = await createIssue(headers, {
       boardId: board.id,
       title: "Findable",
     });
 
-    const byUuid = await ctx.app.request(`/api/v1/issues/${created.id}`);
+    const byUuid = await ctx.app.request(`/api/v1/issues/${created.id}`, { headers });
     expect(byUuid.status).toBe(200);
     expect((await readJson<IssueResource>(byUuid)).id).toBe(created.id);
 
     const byLowerIdentifier = await ctx.app.request(
       `/api/v1/issues/${created.identifier.toLowerCase()}`,
+      { headers },
     );
     expect(byLowerIdentifier.status).toBe(200);
     expect((await readJson<IssueResource>(byLowerIdentifier)).id).toBe(created.id);
 
-    const missing = await ctx.app.request(`/api/v1/issues/${crypto.randomUUID()}`);
+    const missing = await ctx.app.request(`/api/v1/issues/${crypto.randomUUID()}`, { headers });
     expect(missing.status).toBe(404);
   });
 
   test("GET lists issues with status filtering and stable cursor pagination", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
+    const { headers } = await ctx.seedSession();
     for (const title of ["A", "B", "C"]) {
-      await createIssue(ctx.userHeaders(user.id), { boardId: board.id, title, status: "todo" });
+      await createIssue(headers, { boardId: board.id, title, status: "todo" });
     }
     // A different-status issue that the filter must exclude.
-    await createIssue(ctx.userHeaders(user.id), {
+    await createIssue(headers, {
       boardId: board.id,
       title: "D",
       status: "backlog",
     });
 
     const page1 = await readJson<IssueConnection>(
-      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&status=todo&first=2`),
+      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&status=todo&first=2`, { headers }),
     );
     expect(page1.nodes).toHaveLength(2);
     expect(page1.pageInfo.hasNextPage).toBe(true);
@@ -152,6 +172,7 @@ describeIfDb("issue routes", () => {
     const page2 = await readJson<IssueConnection>(
       await ctx.app.request(
         `/api/v1/issues?boardId=${board.id}&status=todo&first=2&after=${encodeURIComponent(page1.pageInfo.endCursor ?? "")}`,
+        { headers },
       ),
     );
     expect(page2.nodes).toHaveLength(1);
@@ -166,31 +187,36 @@ describeIfDb("issue routes", () => {
 
   test("GET list rejects a malformed cursor and a missing board", async () => {
     const board = await ctx.seedBoard();
+    const { headers } = await ctx.seedSession();
     const badCursor = await ctx.app.request(
       `/api/v1/issues?boardId=${board.id}&after=not-a-cursor`,
+      { headers },
     );
     expect(badCursor.status).toBe(400);
     expect((await readJson<ErrorEnvelope>(badCursor)).error.code).toBe("INVALID_CURSOR");
 
-    const missingBoard = await ctx.app.request(`/api/v1/issues?boardId=${crypto.randomUUID()}`);
+    const missingBoard = await ctx.app.request(`/api/v1/issues?boardId=${crypto.randomUUID()}`, {
+      headers,
+    });
     expect(missingBoard.status).toBe(404);
   });
 
   test("GET list rejects a cursor minted for a different filter scope", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
-    await createIssue(ctx.userHeaders(user.id), {
+    const { headers } = await ctx.seedSession();
+    await createIssue(headers, {
       boardId: board.id,
       title: "Scoped",
       status: "todo",
     });
     const todoPage = await readJson<IssueConnection>(
-      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&status=todo&first=1`),
+      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&status=todo&first=1`, { headers }),
     );
 
     // Same endpoint, different filter set → the cursor must not be honored.
     const crossScope = await ctx.app.request(
       `/api/v1/issues?boardId=${board.id}&status=backlog&first=1&after=${encodeURIComponent(todoPage.pageInfo.endCursor ?? "")}`,
+      { headers },
     );
     expect(crossScope.status).toBe(400);
     expect((await readJson<ErrorEnvelope>(crossScope)).error.code).toBe("INVALID_CURSOR");
@@ -198,16 +224,17 @@ describeIfDb("issue routes", () => {
 
   test("GET list rejects a correctly-scoped cursor with malformed SQL keys", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
-    await createIssue(ctx.userHeaders(user.id), { boardId: board.id, title: "One" });
-    await createIssue(ctx.userHeaders(user.id), { boardId: board.id, title: "Two" });
+    const { headers } = await ctx.seedSession();
+    await createIssue(headers, { boardId: board.id, title: "One" });
+    await createIssue(headers, { boardId: board.id, title: "Two" });
     const page = await readJson<IssueConnection>(
-      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&first=1`),
+      await ctx.app.request(`/api/v1/issues?boardId=${board.id}&first=1`, { headers }),
     );
     const malformed = tamperCursorKey(page.pageInfo.endCursor ?? "", ["not-a-date", "not-a-uuid"]);
 
     const response = await ctx.app.request(
       `/api/v1/issues?boardId=${board.id}&first=1&after=${encodeURIComponent(malformed)}`,
+      { headers },
     );
     expect(response.status).toBe(400);
     expect((await readJson<ErrorEnvelope>(response)).error.code).toBe("INVALID_CURSOR");
@@ -215,15 +242,15 @@ describeIfDb("issue routes", () => {
 
   test("PATCH enforces the status workflow and applies valid changes", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
-    const issue = await createIssue(ctx.userHeaders(user.id), {
+    const { headers } = await ctx.seedSession();
+    const issue = await createIssue(headers, {
       boardId: board.id,
       title: "Movable",
     });
 
     const illegal = await ctx.app.request(`/api/v1/issues/${issue.id}`, {
       method: "PATCH",
-      headers: ctx.userHeaders(user.id),
+      headers,
       body: JSON.stringify({ status: "done" }),
     });
     expect(illegal.status).toBe(409);
@@ -233,7 +260,7 @@ describeIfDb("issue routes", () => {
 
     const legal = await ctx.app.request(`/api/v1/issues/${issue.id}`, {
       method: "PATCH",
-      headers: ctx.userHeaders(user.id),
+      headers,
       body: JSON.stringify({ status: "todo", title: "Renamed" }),
     });
     expect(legal.status).toBe(200);
@@ -244,6 +271,7 @@ describeIfDb("issue routes", () => {
 
   test("cursor pagination is exhaustive when many issues share a timestamp", async () => {
     const board = await ctx.seedBoard();
+    const { headers } = await ctx.seedSession();
     // Insert directly with one identical updatedAt across all rows, forcing the
     // id tiebreak — the case that a millisecond-truncated cursor would corrupt.
     const stamp = new Date("2026-08-22T06:30:00.000Z");
@@ -268,7 +296,9 @@ describeIfDb("issue routes", () => {
     let after: string | null = null;
     for (let guard = 0; guard < 10; guard += 1) {
       const url = `/api/v1/issues?boardId=${board.id}&first=2${after ? `&after=${encodeURIComponent(after)}` : ""}`;
-      const page: IssueConnection = await readJson<IssueConnection>(await ctx.app.request(url));
+      const page: IssueConnection = await readJson<IssueConnection>(
+        await ctx.app.request(url, { headers }),
+      );
       collected.push(...page.nodes.map((n) => n.id));
       if (!page.pageInfo.hasNextPage) break;
       after = page.pageInfo.endCursor;
@@ -279,9 +309,9 @@ describeIfDb("issue routes", () => {
 
   test("PATCH can assign and unassign an issue", async () => {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser();
+    const { headers } = await ctx.seedSession();
     const assignee = await ctx.seedUser("Pat");
-    const issue = await createIssue(ctx.userHeaders(user.id), {
+    const issue = await createIssue(headers, {
       boardId: board.id,
       title: "Assignable",
     });
@@ -289,7 +319,7 @@ describeIfDb("issue routes", () => {
     const assigned = await readJson<IssueResource>(
       await ctx.app.request(`/api/v1/issues/${issue.id}`, {
         method: "PATCH",
-        headers: ctx.userHeaders(user.id),
+        headers,
         body: JSON.stringify({ assignee: { type: "user", id: assignee.id } }),
       }),
     );
@@ -298,7 +328,7 @@ describeIfDb("issue routes", () => {
     const unassigned = await readJson<IssueResource>(
       await ctx.app.request(`/api/v1/issues/${issue.id}`, {
         method: "PATCH",
-        headers: ctx.userHeaders(user.id),
+        headers,
         body: JSON.stringify({ assignee: null }),
       }),
     );

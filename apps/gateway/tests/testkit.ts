@@ -3,12 +3,15 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { CommentResource, IssueResource } from "~/api/dto";
 import { createApp } from "~/app";
+import { generateSessionToken, hashToken } from "~/auth/tokens";
 import * as schema from "~/db/schema";
-import { boards, users } from "~/db/schema";
+import { type UserRole, boards, sessions, users } from "~/db/schema";
 import type { ErrorEnvelope } from "~/http/errors";
 import type { Connection } from "~/http/pagination";
+import type { Board } from "~/schemas/board";
 
-export type { CommentResource, IssueResource };
+export type { Board, CommentResource, IssueResource };
+export type BoardConnection = Connection<Board>;
 export type IssueConnection = Connection<IssueResource>;
 export type CommentConnection = Connection<CommentResource>;
 export type { ErrorEnvelope };
@@ -34,11 +37,25 @@ export function tamperCursorKey(cursor: string, key: unknown): string {
 /**
  * Shared harness for the route/integration tests. Each suite gets its own
  * connection and a `createApp` wired to it, plus seed helpers that track what
- * they create so `cleanup()` can drop it (issues/comments cascade from boards).
- * Requires a migrated Postgres via `DATABASE_URL`; suites skip otherwise, so
- * `bun test` stays green on a fresh checkout — mirroring the schema tests.
+ * they create so `cleanup()` can drop it (issues/comments cascade from boards;
+ * sessions cascade from users). Requires a migrated Postgres via `DATABASE_URL`;
+ * suites skip otherwise, so `bun test` stays green on a fresh checkout —
+ * mirroring the schema tests.
+ *
+ * Product routes authenticate via `requireAuth` → `resolveSession` → `getDb()`,
+ * which is a separate pool on the same `DATABASE_URL`. Sessions are inserted
+ * here (hash-only, no passwordless login) so route tests stay independent of
+ * `AUTH_ALLOW_PASSWORDLESS_LOGIN`.
  */
 export const DATABASE_URL = process.env.DATABASE_URL;
+
+/** `Authorization: Bearer` (+ JSON content type) for `app.request` helpers. */
+export function bearerHeaders(token: string): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    authorization: `Bearer ${token}`,
+  };
+}
 
 export function makeTestContext() {
   const client = postgres(DATABASE_URL ?? "", { max: 1 });
@@ -58,31 +75,32 @@ export function makeTestContext() {
       return board;
     },
 
-    async seedUser(name = "Tester") {
+    rememberBoard(id: string) {
+      boardIds.push(id);
+    },
+
+    async seedUser(name = "Tester", role: UserRole = "member") {
       const [user] = await db
         .insert(users)
-        .values({ email: `${crypto.randomUUID()}@berry.test`, name })
+        .values({ email: `${crypto.randomUUID()}@berry.test`, name, role })
         .returning();
       userIds.push(user.id);
       return user;
     },
 
-    userHeaders(userId: string, admin = false): Record<string, string> {
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        "X-Berry-Actor-Type": "user",
-        "X-Berry-Actor-Id": userId,
-      };
-      if (admin) headers["X-Berry-Actor-Admin"] = "true";
-      return headers;
-    },
-
-    agentHeaders(agentId: string): Record<string, string> {
-      return {
-        "content-type": "application/json",
-        "X-Berry-Actor-Type": "agent",
-        "X-Berry-Actor-Id": agentId,
-      };
+    /**
+     * Inserts a user and a hashed session row, returning the raw token so tests
+     * can send `Authorization: Bearer`. Does not go through passwordless login.
+     */
+    async seedSession(name = "Tester", role: UserRole = "member") {
+      const user = await this.seedUser(name, role);
+      const token = generateSessionToken();
+      await db.insert(sessions).values({
+        userId: user.id,
+        tokenHash: hashToken(token),
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+      return { user, token, headers: bearerHeaders(token) };
     },
 
     async cleanup() {
