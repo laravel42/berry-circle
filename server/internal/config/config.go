@@ -83,6 +83,16 @@ type Config struct {
 	// when these are unset and the orchestrator stays unavailable.
 	OrchestratorProvider string
 	OrchestratorModel    string
+
+	// Infobip carries conversations and calls to people away from their
+	// computer. Berry owns the conversation; this is transport only, so an
+	// unconfigured Infobip degrades to in-app messaging rather than failing.
+	InfobipEnabled       bool
+	InfobipBaseURL       string
+	InfobipAPIKey        string
+	InfobipWhatsAppFrom  string
+	InfobipSMSFrom       string
+	InfobipWebhookSecret string
 }
 
 // Load reads and validates an environment map. Errors identify fields without
@@ -331,6 +341,28 @@ func Load(env map[string]string) (Config, error) {
 	}
 	cfg.OrchestratorProvider = strings.TrimSpace(env["ORCHESTRATOR_PROVIDER"])
 	cfg.OrchestratorModel = strings.TrimSpace(env["ORCHESTRATOR_MODEL"])
+
+	cfg.InfobipEnabled = boolean(env, "INFOBIP_ENABLED", false, &problems)
+	cfg.InfobipBaseURL = strings.TrimSpace(env["INFOBIP_BASE_URL"])
+	cfg.InfobipAPIKey = strings.TrimSpace(env["INFOBIP_API_KEY"])
+	cfg.InfobipWhatsAppFrom = strings.TrimSpace(env["INFOBIP_WHATSAPP_FROM"])
+	cfg.InfobipSMSFrom = strings.TrimSpace(env["INFOBIP_SMS_FROM"])
+	cfg.InfobipWebhookSecret = strings.TrimSpace(env["INFOBIP_WEBHOOK_SECRET"])
+	if cfg.InfobipEnabled {
+		// The base URL is per-account, so there is no safe default to fall back
+		// on — a wrong host would send customer messages somewhere unintended.
+		if !safeHTTPURL(cfg.InfobipBaseURL) {
+			problems = append(problems, "INFOBIP_BASE_URL")
+		}
+		if cfg.InfobipAPIKey == "" {
+			problems = append(problems, "INFOBIP_API_KEY")
+		}
+		// Inbound webhooks create messages attributed to a user. Without a
+		// shared secret anyone who finds the URL can post as that person.
+		if cfg.InfobipWebhookSecret == "" {
+			problems = append(problems, "INFOBIP_WEBHOOK_SECRET")
+		}
+	}
 
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf(

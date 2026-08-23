@@ -79,6 +79,12 @@ services:
       TEMPORAL_HOSTPORT: "${TEMPORAL_HOSTPORT:-temporal:7233}"
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-berry}"
       TEMPORAL_TASK_QUEUE: "${TEMPORAL_TASK_QUEUE:-berry-runs}"
+      INFOBIP_ENABLED: "${INFOBIP_ENABLED:-false}"
+      INFOBIP_BASE_URL: "${INFOBIP_BASE_URL:-}"
+      INFOBIP_API_KEY: "${INFOBIP_API_KEY:-}"
+      INFOBIP_WHATSAPP_FROM: "${INFOBIP_WHATSAPP_FROM:-}"
+      INFOBIP_SMS_FROM: "${INFOBIP_SMS_FROM:-}"
+      INFOBIP_WEBHOOK_SECRET: "${INFOBIP_WEBHOOK_SECRET:-}"
     ports:
       - "127.0.0.1:${BERRY_API_PORT:-4000}:4000"
     volumes:
@@ -196,6 +202,13 @@ services:
       # leaves it offline and skipped by intake rather than failing runs.
       ORCHESTRATOR_PROVIDER: "${ORCHESTRATOR_PROVIDER:-}"
       ORCHESTRATOR_MODEL: "${ORCHESTRATOR_MODEL:-}"
+      # Infobip carries conversations and calls off-platform. Server-side only.
+      INFOBIP_ENABLED: "${INFOBIP_ENABLED:-false}"
+      INFOBIP_BASE_URL: "${INFOBIP_BASE_URL:-}"
+      INFOBIP_API_KEY: "${INFOBIP_API_KEY:-}"
+      INFOBIP_WHATSAPP_FROM: "${INFOBIP_WHATSAPP_FROM:-}"
+      INFOBIP_SMS_FROM: "${INFOBIP_SMS_FROM:-}"
+      INFOBIP_WEBHOOK_SECRET: "${INFOBIP_WEBHOOK_SECRET:-}"
       SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-15s}"
       REALTIME_RELAY_REQUIRED: "${REALTIME_RELAY_REQUIRED:-true}"
     read_only: true
