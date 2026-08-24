@@ -41,8 +41,10 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/handlers/subscribers"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
+	"github.com/laravel42/berry-circle/server/internal/modelcatalog"
 	"github.com/laravel42/berry-circle/server/internal/observability"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
+	"github.com/laravel42/berry-circle/server/internal/openrouter"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/platform"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
@@ -474,13 +476,21 @@ func run() int {
 			return 1
 		}
 		agentMount, err := agenthandlers.NewMount(agenthandlers.Options{
-			Pool:          dbPool,
-			Sessions:      authenticator,
-			Clock:         time.Now,
-			NewID:         uuid.New,
-			OpenFang:      upstream,
-			Configurer:    upstream,
-			Catalog:       upstream,
+			Pool:       dbPool,
+			Sessions:   authenticator,
+			Clock:      time.Now,
+			NewID:      uuid.New,
+			OpenFang:   upstream,
+			Configurer: upstream,
+			// The runtime's OpenRouter entries are compiled into its binary and
+			// go stale, so a model published since that build reads as
+			// unavailable and cannot be selected. Serve OpenRouter's live
+			// catalog for its own models and keep the runtime's for every other
+			// provider. Listing needs no credential.
+			Catalog: &modelcatalog.Merged{
+				Runtime:    upstream,
+				OpenRouter: openrouter.New("", nil),
+			},
 			Authorization: identityService,
 		})
 		if err != nil {
