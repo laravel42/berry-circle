@@ -31,7 +31,7 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
    useEffect(() => {
       if (status === 'booting') return;
       if (status === 'ready' && pathname === '/login') {
-         router.replace(`/${workspace?.slug || WORKSPACE_SLUG}/runs`);
+         router.replace(`/${workspace?.slug || WORKSPACE_SLUG}/inbox`);
       }
    }, [status, pathname, router, workspace?.slug]);
 

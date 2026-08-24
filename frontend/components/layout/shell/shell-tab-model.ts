@@ -3,9 +3,9 @@ import { SHELL_SECTIONS } from './shell-routes';
 /**
  * What a route looks like when shown in a tab.
  *
- * `Berry Prototype.dc.html` tabs hold routes with no rail entry (`inbox`) and
- * detail routes (`reviewsCreated` -> "reviews / created", `issue404` ->
- * "BERRY-404"), so a label cannot be looked up from the nav table alone.
+ * Tabs hold detail routes (`reviewsCreated` -> "reviews / created", `issue404`
+ * -> "BERRY-404") as well as rail destinations, so a label cannot be looked up
+ * from the nav table alone.
  */
 export interface RouteDescriptor {
    label: string;

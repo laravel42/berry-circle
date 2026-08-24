@@ -9,15 +9,7 @@
 import type { SidebarItemKey } from '@/store/sidebar-prefs-store';
 
 export type ShellRoute =
-   | 'issues'
-   | 'runs'
-   | 'reviews'
-   | 'chat'
-   | 'meetings'
-   | 'inbox'
-   | 'projects'
-   | 'teams'
-   | 'members';
+   'issues' | 'runs' | 'reviews' | 'chat' | 'meetings' | 'inbox' | 'projects' | 'members';
 
 export interface ShellRouteDef {
    /** Stable identifier, also the tab key. */
@@ -36,6 +28,12 @@ export interface ShellRouteDef {
 }
 
 const PRIMARY: ShellRouteDef[] = [
+   {
+      id: 'inbox',
+      label: 'inbox',
+      href: '/inbox',
+      icon: '<path d="M4 13l2.2-7.4A1 1 0 017.2 5h9.6a1 1 0 01.96.7L20 13" /><path d="M4 13h4.5l1.5 2.2h4l1.5-2.2H20v4a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
+   },
    {
       id: 'issues',
       label: 'issues',
@@ -94,7 +92,7 @@ export const SHELL_SECTIONS: { heading: string | null; routes: ShellRouteDef[] }
 ];
 
 const BY_ID = new Map<string, ShellRouteDef>(
-   [...PRIMARY, ...WORKSPACE].map((route) => [route.id, route]),
+   [...PRIMARY, ...WORKSPACE].map((route) => [route.id, route])
 );
 
 export function shellRoute(id: string): ShellRouteDef | undefined {

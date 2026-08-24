@@ -3,9 +3,23 @@
 import { InboxItem } from '@/data/inbox';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import { motion } from 'motion/react';
 import { renderStatusIcon } from '@/lib/status-utils';
 import { getNotificationIcon } from '@/lib/notification-utils';
+
+/**
+ * Inbox timestamps arrive as ISO strings from the API and were rendered raw.
+ * Falls back to the original string rather than throwing: a malformed date
+ * should cost this one label, not the whole inbox, which is the landing page.
+ */
+function relativeTime(value: string): string {
+   try {
+      return formatDistanceToNow(parseISO(value), { addSuffix: true });
+   } catch {
+      return value;
+   }
+}
 
 interface IssueLineProps {
    notification: InboxItem;
@@ -92,7 +106,7 @@ export default function IssueLine({
                      {notification.content}
                   </p>
                   <span className="text-xs text-muted-foreground shrink-0">
-                     {notification.timestamp}
+                     {relativeTime(notification.timestamp)}
                   </span>
                </div>
             </div>

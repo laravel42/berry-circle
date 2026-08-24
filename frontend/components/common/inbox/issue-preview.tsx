@@ -1,6 +1,7 @@
 'use client';
 
 import { ContentBlocks } from '@/components/common/issues/details/content-blocks';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import { IssuePropertiesPanel } from '@/components/common/issues/details/issue-properties-panel';
 import { LabelBadge } from '@/components/common/issues/label-badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -27,6 +28,15 @@ interface IssuePreviewProps {
  * notification (live status/assignee from the store, rich description
  * from issue-details) plus the notification context.
  */
+/** ISO from the API; falls back to the raw string rather than throwing. */
+function relativeTime(value: string): string {
+   try {
+      return formatDistanceToNow(parseISO(value), { addSuffix: true });
+   } catch {
+      return value;
+   }
+}
+
 export default function IssuePreview({ notification, onMarkAsRead }: IssuePreviewProps) {
    const { orgId } = useParams<{ orgId: string }>();
    const { getUnreadCount } = useNotificationsStore();
@@ -105,7 +115,9 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                      </div>
                      <div className="min-w-0 text-sm">
                         <span className="font-medium">{notification.user.name}</span>{' '}
-                        <span className="text-muted-foreground">· {notification.timestamp}</span>
+                        <span className="text-muted-foreground">
+                           · {relativeTime(notification.timestamp)}
+                        </span>
                         <p className="text-foreground/90 mt-0.5">{notification.content}</p>
                      </div>
                   </div>
