@@ -1,5 +1,4 @@
 import React from 'react';
-import { AppSidebar } from '@/components/layout/sidebar/app-sidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { CreateIssueModalProvider } from '@/components/common/issues/create-issue-modal-provider';
 import { IssuesHydrator } from '@/components/common/issues/issues-hydrator';
@@ -34,9 +33,11 @@ export default function MainLayout({ children, header }: MainLayoutProps) {
          <IssuesHydrator />
          <CreateIssueModalProvider />
          <CommandPalette />
-         <AppSidebar />
-         <div className="h-svh w-full overflow-hidden bg-background lg:p-2">
-            <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden border-y border-border bg-container lg:rounded-sm lg:border">
+         {/* No sidebar here: BerryShell owns the rail and the tab strip. The
+             provider stays because SidebarTrigger and the sidebar preference
+             stores are still used across headers and settings. */}
+         <div className="h-full w-full overflow-hidden bg-background">
+            <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden bg-container">
                {header}
                <div
                   className={cn(

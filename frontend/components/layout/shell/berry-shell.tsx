@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useShellStore } from '@/store/shell-store';
 import { activeShellRoute, type ShellRoute } from './shell-routes';
 import { describeTab, type ShellTab } from './shell-tab-model';
@@ -20,8 +20,10 @@ const HOME: ShellTab = { key: 'issues', label: 'issues', href: '/my-issues' };
  * anywhere, by any means, opens a tab for it, so a deep link, a browser back,
  * or a refresh all land on the right view whatever the stored tabs say.
  */
-export function BerryShell({ orgId, children }: { orgId: string; children: React.ReactNode }) {
+export function BerryShell({ children }: { children: React.ReactNode }) {
    const pathname = usePathname() ?? '';
+   const params = useParams<{ orgId?: string }>();
+   const orgId = params?.orgId ?? '';
    const router = useRouter();
    const { tabs, railOpen, openTab, closeTab, toggleRail } = useShellStore();
 
