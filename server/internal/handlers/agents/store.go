@@ -13,14 +13,16 @@ import (
 
 // Agent is Berry's durable product identity mapped to one upstream agent.
 type Agent struct {
-	ID                   uuid.UUID
-	BoardID              *uuid.UUID
-	OpenFangAgentID      uuid.UUID
-	Name                 string
-	Description          *string
-	AvatarURL            *string
-	Status               string
-	Capabilities         []string
+	ID              uuid.UUID
+	BoardID         *uuid.UUID
+	OpenFangAgentID uuid.UUID
+	Name            string
+	Description     *string
+	AvatarURL       *string
+	Status          string
+	Capabilities    []string
+	// Instructions is the system prompt applied to every task this agent runs.
+	Instructions         *string
 	ModelProvider        *string
 	ModelName            *string
 	ModelTier            *string
@@ -333,9 +335,9 @@ func (store PostgresStore) MarkOffline(
 
 const agentProjection = `
 	id, board_id, openfang_agent_id, name, description, avatar_url, status,
-	capabilities, model_provider, model_name, model_tier, auth_status,
-	upstream_state, upstream_last_active_at, last_synced_at, archived_at,
-	created_at, updated_at`
+	capabilities, instructions, model_provider, model_name, model_tier,
+	auth_status, upstream_state, upstream_last_active_at, last_synced_at,
+	archived_at, created_at, updated_at`
 
 type agentScanner interface {
 	Scan(...any) error
@@ -352,6 +354,7 @@ func scanAgent(row agentScanner) (Agent, error) {
 		&result.AvatarURL,
 		&result.Status,
 		&result.Capabilities,
+		&result.Instructions,
 		&result.ModelProvider,
 		&result.ModelName,
 		&result.ModelTier,

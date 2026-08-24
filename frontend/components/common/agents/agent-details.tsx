@@ -40,6 +40,8 @@ import { useRunsStore } from '@/store/runs-store';
 import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
+import { AgentInstructions } from '@/components/common/agents/agent-instructions';
+
 const DETAIL_TABS = ['overview', 'work', 'capabilities', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
@@ -506,21 +508,30 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                      </div>
                   )}
                </TabsContent>
-               <TabsContent value="capabilities" className="mt-0 px-8 py-6">
-                  {agent.capabilities.length > 0 ? (
-                     <div className="flex flex-wrap gap-2">
-                        {agent.capabilities.map((capability) => (
-                           <span
-                              key={capability}
-                              className="rounded-md border border-border/70 px-2 py-1 text-[11px] text-muted-foreground"
-                           >
-                              {capability}
-                           </span>
-                        ))}
-                     </div>
-                  ) : (
-                     <PlaceholderTab title="Capabilities" />
-                  )}
+               <TabsContent value="capabilities" className="mt-0 flex flex-col gap-6 px-8 py-6">
+                  <AgentInstructions
+                     agentId={agent.id}
+                     instructions={agent.instructions ?? ''}
+                  />
+                  <section className="flex flex-col gap-2">
+                     <h3 className="text-sm font-medium text-foreground">Capabilities</h3>
+                     {agent.capabilities.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                           {agent.capabilities.map((capability) => (
+                              <span
+                                 key={capability}
+                                 className="rounded-md border border-border/70 px-2 py-1 text-[11px] text-muted-foreground"
+                              >
+                                 {capability}
+                              </span>
+                           ))}
+                        </div>
+                     ) : (
+                        <p className="text-[11px] text-muted-foreground">
+                           The runtime reports no capabilities for this agent.
+                        </p>
+                     )}
+                  </section>
                </TabsContent>
                <TabsContent value="settings" className="mt-0 px-8 py-6">
                   <div className="flex flex-col gap-3">

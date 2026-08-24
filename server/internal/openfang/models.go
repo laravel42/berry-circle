@@ -202,3 +202,14 @@ type Provisioner interface {
 	GetAgent(context.Context, uuid.UUID) (AgentDetail, error)
 	SpawnAgent(context.Context, string) (SpawnResponse, error)
 }
+
+// maxSystemPromptBytes bounds an authored prompt well below the manifest limit.
+const maxSystemPromptBytes = 20000
+
+// PatchAgentRequest is the subset of upstream agent configuration Berry
+// authors. A nil field is omitted from the request rather than sent empty, so
+// an unset field is left untouched instead of cleared.
+type PatchAgentRequest struct {
+	SystemPrompt *string
+	Description  *string
+}

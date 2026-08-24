@@ -11,6 +11,8 @@ const agentSchema = z.object({
    avatarUrl: z.string().nullable(),
    status: z.string(),
    capabilities: z.array(z.string()),
+   /** System prompt applied to every task this agent runs. Markdown. */
+   instructions: z.string().nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -64,6 +66,32 @@ export async function loadWorkspaceAgents(): Promise<Agent[]> {
 
 export async function getWorkspaceAgent(agentId: string): Promise<Agent> {
    const json: unknown = await apiFetch(`/api/v1/agents/${encodeURIComponent(agentId)}`);
+   const parsed = agentSchema.safeParse(json);
+   if (!parsed.success) {
+      throw new Error('Agent response was not recognized');
+   }
+   return parsed.data;
+}
+
+/**
+ * Write the agent's system prompt.
+ *
+ * The server pushes this to OpenFang before storing it, so a resolved promise
+ * means the runtime accepted the prompt — not merely that Berry recorded it.
+ * An empty string clears the instructions.
+ */
+export async function updateAgentInstructions(
+   agentId: string,
+   instructions: string
+): Promise<Agent> {
+   const json: unknown = await apiFetch(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/instructions`,
+      {
+         method: 'PUT',
+         headers: { 'content-type': 'application/json' },
+         body: JSON.stringify({ instructions }),
+      }
+   );
    const parsed = agentSchema.safeParse(json);
    if (!parsed.success) {
       throw new Error('Agent response was not recognized');

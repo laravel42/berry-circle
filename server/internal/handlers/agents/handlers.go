@@ -33,6 +33,10 @@ type Options struct {
 	Clock         func() time.Time
 	NewID         func() uuid.UUID
 	OpenFang      openfang.Runtime
+	// Configurer writes agent configuration upstream. Optional: without it the
+	// instructions route is not mounted, so a deployment cannot expose an
+	// editor that silently fails to reach the runtime.
+	Configurer Configurer
 }
 
 // Authorizer is the narrow workspace/agent boundary consumed by agent routes.
@@ -79,6 +83,9 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Use(auth.RequireSession(options.Sessions))
 	router.Get("/", listHandler(store, options))
 	router.Get("/{agentId}", getHandler(store, options))
+	if options.Configurer != nil {
+		router.Put("/{agentId}/instructions", instructionsHandler(store, options))
+	}
 	return httpapi.Mount{Prefix: "/api/v1/agents", Handler: router}, nil
 }
 
@@ -89,6 +96,7 @@ type resource struct {
 	AvatarURL    *string   `json:"avatarUrl"`
 	Status       string    `json:"status"`
 	Capabilities []string  `json:"capabilities"`
+	Instructions *string   `json:"instructions"`
 	CreatedAt    string    `json:"createdAt"`
 	UpdatedAt    string    `json:"updatedAt"`
 }
@@ -466,6 +474,7 @@ func serialize(agent Agent) resource {
 		AvatarURL:    agent.AvatarURL,
 		Status:       agent.Status,
 		Capabilities: capabilities,
+		Instructions: agent.Instructions,
 		CreatedAt:    agent.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:    agent.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}

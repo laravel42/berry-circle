@@ -467,3 +467,53 @@ func (client *Client) SpawnAgent(
 	result.RequestID = response.Header.Get("X-Request-Id")
 	return result, nil
 }
+
+// PatchAgent updates mutable agent configuration upstream.
+//
+// Only the fields Berry authors are sent. The pinned contract's PATCH accepts a
+// subset of name, description, model, provider, and system_prompt; anything not
+// set here is left untouched rather than cleared, so Berry cannot flatten
+// configuration it does not own.
+//
+// This is an idempotent write — the same body applied twice leaves the same
+// state — so unlike agent creation or message dispatch it is safe to retry.
+func (client *Client) PatchAgent(
+	ctx context.Context,
+	agentID uuid.UUID,
+	request PatchAgentRequest,
+) error {
+	if agentID == uuid.Nil {
+		return errors.New("runtime agent ID is required")
+	}
+	body := map[string]string{}
+	if request.SystemPrompt != nil {
+		if len(*request.SystemPrompt) > maxSystemPromptBytes {
+			return errors.New("runtime agent system prompt is too large")
+		}
+		body["system_prompt"] = *request.SystemPrompt
+	}
+	if request.Description != nil {
+		body["description"] = *request.Description
+	}
+	if len(body) == 0 {
+		return nil
+	}
+
+	callCtx, cancel := context.WithTimeout(ctx, client.requestTimeout)
+	defer cancel()
+	httpRequest, err := client.NewJSONRequest(
+		callCtx,
+		http.MethodPatch,
+		"/api/agents/"+agentID.String(),
+		body,
+	)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(callCtx, httpRequest, RetryIdempotentWrite)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	return nil
+}

@@ -413,6 +413,7 @@ func run() int {
 			Clock:         time.Now,
 			NewID:         uuid.New,
 			OpenFang:      upstream,
+			Configurer:    upstream,
 			Authorization: identityService,
 		})
 		if err != nil {
