@@ -43,6 +43,7 @@ type Cursor struct {
 
 // SummaryUpdate is a validated runtime summary ready for persistence.
 type SummaryUpdate struct {
+	Description          *string
 	ID                   uuid.UUID
 	WorkspaceID          uuid.UUID
 	OpenFangAgentID      uuid.UUID
@@ -116,10 +117,10 @@ func (store PostgresStore) SyncSummaries(
 				id, workspace_id, board_id, openfang_agent_id, name, avatar_url, status,
 				model_provider, model_name, model_tier, auth_status,
 				upstream_state, upstream_last_active_at, last_synced_at,
-				created_at, updated_at
+				created_at, updated_at, description
 			 ) VALUES (
 				$1, $2, NULL, $3, $4, $5, $6,
-				$7, $8, $9, $10, $11, $12, $13, $14, $13
+				$7, $8, $9, $10, $11, $12, $13, $14, $13, $15
 			 )
 			 ON CONFLICT (openfang_agent_id) DO UPDATE SET
 				-- A protected agent is authored by Berry, so its name and
@@ -128,6 +129,12 @@ func (store PostgresStore) SyncSummaries(
 				-- would overwrite the one users see.
 				name = CASE
 					WHEN agents.protected THEN agents.name ELSE EXCLUDED.name END,
+				-- Same carve-out, and additionally never clears an existing
+				-- description with a null: a runtime that stops reporting one
+				-- should not erase what the workspace already has.
+				description = CASE
+					WHEN agents.protected THEN agents.description
+					ELSE COALESCE(EXCLUDED.description, agents.description) END,
 				avatar_url = EXCLUDED.avatar_url,
 				status = EXCLUDED.status,
 				model_provider = EXCLUDED.model_provider,
@@ -154,6 +161,7 @@ func (store PostgresStore) SyncSummaries(
 			update.UpstreamLastActiveAt,
 			now,
 			update.CreatedAt,
+			update.Description,
 		); err != nil {
 			return errors.New("upsert runtime agent projection")
 		}

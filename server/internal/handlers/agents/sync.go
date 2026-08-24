@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -15,8 +17,13 @@ import (
 
 // Lister is the narrow upstream seam sync needs. Kept separate from
 // openfang.Runtime so a caller that only reconciles agents cannot dispatch.
+//
+// GetAgent is here because the list payload carries no description: the field
+// exists only on the detail response, so a projection built from the list alone
+// can never populate it.
 type Lister interface {
 	ListAgents(context.Context) ([]openfang.AgentSummary, error)
+	GetAgent(context.Context, uuid.UUID) (openfang.AgentDetail, error)
 }
 
 // SyncWorkspace reconciles one workspace's agents against the runtime.
@@ -59,6 +66,15 @@ func SyncWorkspace(
 		if err != nil {
 			// One malformed agent must not stop the rest from appearing.
 			continue
+		}
+		// Hydrate the description from the detail payload. Best effort per
+		// agent: an unreachable detail should cost that agent its description,
+		// not cost every other agent its whole projection.
+		if detail, err := runtime.GetAgent(ctx, summary.ID); err == nil {
+			if text := strings.TrimSpace(detail.Description); text != "" &&
+				utf8.RuneCountInString(text) <= maxDescription {
+				update.Description = &text
+			}
 		}
 		updates = append(updates, update)
 	}
