@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { Plus, X } from 'lucide-react';
 import type { ShellTab } from '@/store/shell-store';
 import { BerryMark } from './shell-icon';
 
@@ -44,7 +45,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
                   key={tab.id}
                   ref={on ? activeRef : undefined}
                   className={[
-                     'group flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-2.5 pl-3 transition-colors',
+                     'group flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-1.5 pl-3 transition-colors',
                      on
                         ? 'bg-[var(--shell-canvas)] text-[var(--shell-text)]'
                         : 'bg-[var(--shell-rail)] text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
@@ -73,7 +74,9 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
                      onClick={() => onClose(tab.id)}
                      aria-label={`Close ${tab.label}`}
                      className={[
-                        'cursor-pointer px-[3px] text-[var(--shell-text-dim)] transition-colors hover:text-[var(--shell-text)]',
+                        'flex size-[18px] flex-none cursor-pointer items-center justify-center rounded-[3px]',
+                        'text-[var(--shell-text-dim)] transition-colors',
+                        'hover:bg-[var(--shell-line)] hover:text-[var(--shell-text)]',
                         // Keep the close affordance quiet until the tab is
                         // hovered or active, so a full strip does not read as a
                         // row of dismiss buttons. Focus reveals it for keyboard
@@ -81,7 +84,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
                         on ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
                      ].join(' ')}
                   >
-                     &times;
+                     <X size={14} strokeWidth={1.8} aria-hidden="true" />
                   </button>
                </div>
             );
@@ -90,9 +93,9 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
             type="button"
             onClick={onNew}
             aria-label="New tab"
-            className="flex h-[33px] w-[30px] flex-none cursor-pointer items-center justify-center text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
+            className="flex h-[33px] w-[34px] flex-none cursor-pointer items-center justify-center text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
          >
-            +
+            <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
          </button>
       </div>
    );
