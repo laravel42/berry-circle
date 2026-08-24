@@ -50,7 +50,9 @@ import (
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 	projectrepo "github.com/laravel42/berry-circle/server/internal/repository/projects"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
+	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
 	"github.com/laravel42/berry-circle/server/internal/storage"
+	temporalclient "go.temporal.io/sdk/client"
 )
 
 func main() {
@@ -377,7 +379,45 @@ func run() int {
 			return 1
 		}
 
+		// Route admitted runs through Temporal when it is configured, so a run
+		// survives the process that accepted it. Nil keeps the in-process pool,
+		// which remains a supported configuration.
+		var runDispatcher runadmission.Dispatcher
+		if cfg.TemporalEnabled {
+			temporalClient, dialErr := temporalclient.Dial(temporalclient.Options{
+				HostPort:  cfg.TemporalHostPort,
+				Namespace: cfg.TemporalNamespace,
+			})
+			if dialErr != nil {
+				if cfg.TemporalRequired {
+					closeRunRoutes(runRoutes, logger)
+					_ = realtimeManager.Close()
+					closeValkey(valkeyClient)
+					closeDatabase(dbPool)
+					logger.Error("required Temporal connection failed", "error", dialErr)
+					return 1
+				}
+				logger.Warn("optional Temporal unavailable; using in-process dispatch", "error", dialErr)
+			} else {
+				defer temporalClient.Close()
+				dispatcher, dispatchErr := orchestration.NewTemporalDispatcher(
+					temporalClient, cfg.TemporalTaskQueue,
+				)
+				if dispatchErr != nil {
+					logger.Error("temporal dispatcher setup failed", "error", dispatchErr)
+					return 1
+				}
+				runDispatcher = dispatcher
+				logger.Info(
+					"run dispatch routed through Temporal",
+					"namespace", cfg.TemporalNamespace,
+					"taskQueue", cfg.TemporalTaskQueue,
+				)
+			}
+		}
+
 		runRoutes, err = runhandlers.New(runhandlers.Options{
+			Dispatcher:       runDispatcher,
 			Pool:             dbPool,
 			Sessions:         authenticator,
 			Clock:            time.Now,

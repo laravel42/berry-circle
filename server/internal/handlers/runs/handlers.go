@@ -90,12 +90,14 @@ type Options struct {
 	IdempotencyStore httpapi.IdempotencyStore
 	OpenFang         openfang.Runtime
 	Broadcaster      realtime.Broadcaster
-	WorkerContext    context.Context
-	Workers          int
-	QueueSize        int
-	Retention        time.Duration
-	Heartbeat        time.Duration
-	PollInterval     time.Duration
+	// Dispatcher routes admitted runs. Nil keeps the in-process worker pool.
+	Dispatcher    runadmission.Dispatcher
+	WorkerContext context.Context
+	Workers       int
+	QueueSize     int
+	Retention     time.Duration
+	Heartbeat     time.Duration
+	PollInterval  time.Duration
 }
 
 // Handlers shares one worker service between direct and nested route trees.
@@ -177,6 +179,7 @@ func New(options Options) (*Handlers, error) {
 			Broadcaster:   options.Broadcaster,
 			Clock:         options.Clock,
 			NewID:         options.NewID,
+			Dispatcher:    options.Dispatcher,
 			WorkerContext: options.WorkerContext,
 			Workers:       options.Workers,
 			QueueSize:     options.QueueSize,

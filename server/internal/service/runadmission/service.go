@@ -44,13 +44,26 @@ type Store interface {
 	MarkCancellationUnconfirmed(context.Context, uuid.UUID, time.Time) error
 }
 
+// Dispatcher hands an admitted run to whatever will execute it.
+//
+// Two implementations exist and they differ in durability, which is the whole
+// point of the seam: the in-process pool loses queued work when the process
+// stops, while the durable one survives it. Both drive the same projection
+// code, so they cannot interpret an upstream stream differently.
+type Dispatcher interface {
+	Dispatch(ctx context.Context, runID uuid.UUID) error
+}
+
 // Options owns worker lifecycle and every external dependency explicitly.
 type Options struct {
-	Store         Store
-	OpenFang      openfang.Runtime
-	Broadcaster   realtime.Broadcaster
-	Clock         func() time.Time
-	NewID         func() uuid.UUID
+	Store       Store
+	OpenFang    openfang.Runtime
+	Broadcaster realtime.Broadcaster
+	Clock       func() time.Time
+	NewID       func() uuid.UUID
+	// Dispatcher routes admitted runs. Nil selects the in-process worker pool,
+	// which is the supported configuration when Temporal is disabled.
+	Dispatcher    Dispatcher
 	WorkerContext context.Context
 	Workers       int
 	QueueSize     int
@@ -65,6 +78,7 @@ type Service struct {
 	newID       func() uuid.UUID
 	ctx         context.Context
 	cancel      context.CancelFunc
+	dispatcher  Dispatcher
 	jobs        chan uuid.UUID
 	wg          sync.WaitGroup
 	done        chan struct{}
@@ -111,6 +125,7 @@ func New(options Options) (*Service, error) {
 		broadcaster: options.Broadcaster,
 		clock:       options.Clock,
 		newID:       options.NewID,
+		dispatcher:  options.Dispatcher,
 		ctx:         ctx,
 		cancel:      cancel,
 		jobs:        make(chan uuid.UUID, options.QueueSize),
@@ -137,6 +152,12 @@ func (service *Service) Admit(
 
 // Queue transfers a durably admitted run to the bounded process-owned workers.
 func (service *Service) Queue(runID uuid.UUID) error {
+	if service.dispatcher != nil {
+		// The run is already durably admitted, so a dispatch failure leaves it
+		// queued rather than losing it. Reconciliation is what recovers it; the
+		// caller only needs to know the handoff did not happen.
+		return service.dispatcher.Dispatch(service.ctx, runID)
+	}
 	select {
 	case service.jobs <- runID:
 		return nil

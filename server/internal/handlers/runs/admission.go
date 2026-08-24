@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -201,10 +202,14 @@ func (handlers *Handlers) createIssueRun(
 		stored,
 		handlers.clock().UTC(),
 	)
-	// Attempt replay persistence before queueing. If it is unavailable after
-	// admission, acceptance still succeeds: 503 would falsely claim no run was
-	// created, while the durable active-run guard still prevents redispatch.
-	_ = handlers.service.Queue(run.ID)
+	// Acceptance still succeeds if the handoff fails: 503 would falsely claim
+	// no run was created, and the durable active-run guard prevents redispatch.
+	// The run stays queued for reconciliation, so the failure is logged rather
+	// than discarded — silently dropping it is how a run goes missing with no
+	// trace of why.
+	if err := handlers.service.Queue(run.ID); err != nil {
+		logDispatchFailure(run.ID, err)
+	}
 	writeStored(response, stored)
 }
 
@@ -374,4 +379,17 @@ func writeStored(response http.ResponseWriter, stored httpapi.StoredResponse) {
 	}
 	response.WriteHeader(stored.Status)
 	_, _ = response.Write(stored.Body)
+}
+
+// logDispatchFailure records a run that was admitted but not handed off.
+//
+// The run is durable and sits in `queued`, so this is recoverable — but only if
+// somebody knows it happened. Reconciliation is what picks it up; this is the
+// breadcrumb explaining why it needed to.
+func logDispatchFailure(runID uuid.UUID, err error) {
+	slog.Default().Error(
+		"run admitted but dispatch handoff failed; awaiting reconciliation",
+		"runId", runID,
+		"error", err,
+	)
 }
