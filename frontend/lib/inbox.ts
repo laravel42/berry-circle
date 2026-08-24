@@ -14,6 +14,7 @@ const inboxSchema = z.object({
    severity: z.string(),
    issueId: z.string().nullable(),
    issueStatus: z.string().nullable(),
+   issueIdentifier: z.string().nullable().optional(),
    actorType: z.string().nullable(),
    actorId: z.string().nullable(),
    title: z.string(),
@@ -59,7 +60,10 @@ export async function loadWorkspaceInbox(workspaceId: string, actor: User): Prom
             : fallbackStatus;
          return {
             id: item.id,
-            identifier: item.issueId ? item.issueId.slice(0, 8).toUpperCase() : '',
+            // The server derives this from the issue's board slug and number.
+            // The old fallback sliced the issue UUID, so every row read
+            // "11111111"; an empty label is better than a wrong one.
+            identifier: item.issueIdentifier ?? '',
             title: item.title,
             description: item.body ?? '',
             status,
@@ -120,9 +124,7 @@ export async function loadInboxUnreadCount(workspaceId: string): Promise<number>
    if (!workspaceId) return 0;
    try {
       const params = new URLSearchParams({ workspaceId });
-      const json: unknown = await apiFetch(
-         `/api/v1/inbox/unread-count?${params.toString()}`
-      );
+      const json: unknown = await apiFetch(`/api/v1/inbox/unread-count?${params.toString()}`);
       const parsed = z.object({ count: z.number() }).safeParse(json);
       return parsed.success ? parsed.data.count : 0;
    } catch {

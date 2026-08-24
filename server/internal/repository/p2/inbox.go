@@ -14,7 +14,9 @@ import (
 const inboxProjection = `
 	inbox.id, inbox.workspace_id, inbox.recipient_id, inbox.source_event_id,
 	inbox.event_type, inbox.category, inbox.severity, inbox.issue_id,
-	issue.status::text, inbox.actor_type, inbox.actor_id, inbox.title, inbox.body,
+	issue.status::text,
+	upper(board.slug) || '-' || issue.number::text AS issue_identifier,
+	inbox.actor_type, inbox.actor_id, inbox.title, inbox.body,
 	inbox.details, inbox.read_at, inbox.archived_at, inbox.created_at`
 
 func (repository *Repository) ListInbox(
@@ -38,6 +40,7 @@ func (repository *Repository) ListInbox(
 		`SELECT `+inboxProjection+`
 		   FROM inbox_items AS inbox
 		   LEFT JOIN issues AS issue ON issue.id = inbox.issue_id
+		   LEFT JOIN boards AS board ON board.id = issue.board_id
 		  WHERE inbox.workspace_id = $1
 		    AND inbox.recipient_id = $2
 		    AND (
@@ -126,6 +129,7 @@ func (repository *Repository) UpdateInboxItem(
 		`SELECT `+inboxProjection+`
 		   FROM inbox_items AS inbox
 		   LEFT JOIN issues AS issue ON issue.id = inbox.issue_id
+		   LEFT JOIN boards AS board ON board.id = issue.board_id
 		  WHERE inbox.id = $1 AND inbox.workspace_id = $2
 		    AND inbox.recipient_id = $3`,
 		itemID,
@@ -208,6 +212,7 @@ func scanInboxItem(row scanner) (InboxItem, error) {
 		&item.Severity,
 		&item.IssueID,
 		&item.IssueStatus,
+		&item.IssueIdentifier,
 		&item.ActorType,
 		&item.ActorID,
 		&item.Title,

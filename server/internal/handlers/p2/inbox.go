@@ -14,24 +14,28 @@ import (
 )
 
 type inboxResource struct {
-	ID          uuid.UUID       `json:"id"`
-	WorkspaceID uuid.UUID       `json:"workspaceId"`
-	RecipientID uuid.UUID       `json:"recipientId"`
-	EventType   string          `json:"eventType"`
-	Category    string          `json:"category"`
-	Severity    string          `json:"severity"`
-	IssueID     *uuid.UUID      `json:"issueId"`
-	IssueStatus *string         `json:"issueStatus"`
-	ActorType   *string         `json:"actorType"`
-	ActorID     *uuid.UUID      `json:"actorId"`
-	Title       string          `json:"title"`
-	Body        *string         `json:"body"`
-	Details     json.RawMessage `json:"details"`
-	Read        bool            `json:"read"`
-	Archived    bool            `json:"archived"`
-	ReadAt      *string         `json:"readAt"`
-	ArchivedAt  *string         `json:"archivedAt"`
-	CreatedAt   string          `json:"createdAt"`
+	ID          uuid.UUID  `json:"id"`
+	WorkspaceID uuid.UUID  `json:"workspaceId"`
+	RecipientID uuid.UUID  `json:"recipientId"`
+	EventType   string     `json:"eventType"`
+	Category    string     `json:"category"`
+	Severity    string     `json:"severity"`
+	IssueID     *uuid.UUID `json:"issueId"`
+	IssueStatus *string    `json:"issueStatus"`
+	// Human identifier for the issue this notification is about, so a client
+	// can label the row without joining the issue list — which it cannot do
+	// for an issue outside the page it has loaded.
+	IssueIdentifier *string         `json:"issueIdentifier"`
+	ActorType       *string         `json:"actorType"`
+	ActorID         *uuid.UUID      `json:"actorId"`
+	Title           string          `json:"title"`
+	Body            *string         `json:"body"`
+	Details         json.RawMessage `json:"details"`
+	Read            bool            `json:"read"`
+	Archived        bool            `json:"archived"`
+	ReadAt          *string         `json:"readAt"`
+	ArchivedAt      *string         `json:"archivedAt"`
+	CreatedAt       string          `json:"createdAt"`
 }
 
 type inboxConnection struct {
@@ -64,16 +68,17 @@ func serializeInboxItem(item p2repo.InboxItem) inboxResource {
 			value := databaseStatusToAPI(*item.IssueStatus)
 			return &value
 		}(),
-		ActorType:  item.ActorType,
-		ActorID:    item.ActorID,
-		Title:      item.Title,
-		Body:       item.Body,
-		Details:    item.Details,
-		Read:       item.ReadAt != nil,
-		Archived:   item.ArchivedAt != nil,
-		ReadAt:     readAt,
-		ArchivedAt: archivedAt,
-		CreatedAt:  item.CreatedAt.UTC().Format(time.RFC3339Nano),
+		IssueIdentifier: item.IssueIdentifier,
+		ActorType:       item.ActorType,
+		ActorID:         item.ActorID,
+		Title:           item.Title,
+		Body:            item.Body,
+		Details:         item.Details,
+		Read:            item.ReadAt != nil,
+		Archived:        item.ArchivedAt != nil,
+		ReadAt:          readAt,
+		ArchivedAt:      archivedAt,
+		CreatedAt:       item.CreatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

@@ -89,14 +89,18 @@ type InboxItem struct {
 	Severity      string
 	IssueID       *uuid.UUID
 	IssueStatus   *string
-	ActorType     *string
-	ActorID       *uuid.UUID
-	Title         string
-	Body          *string
-	Details       json.RawMessage
-	ReadAt        *time.Time
-	ArchivedAt    *time.Time
-	CreatedAt     time.Time
+	// Human identifier ("PLATFORM-3"), derived from the issue's board slug and
+	// number at read time. Not stored: deriving it repairs rows already
+	// projected, which a write-time column would leave showing a raw id.
+	IssueIdentifier *string
+	ActorType       *string
+	ActorID         *uuid.UUID
+	Title           string
+	Body            *string
+	Details         json.RawMessage
+	ReadAt          *time.Time
+	ArchivedAt      *time.Time
+	CreatedAt       time.Time
 }
 
 type InboxCursor struct {
