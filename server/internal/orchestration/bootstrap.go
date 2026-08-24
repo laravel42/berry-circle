@@ -148,7 +148,12 @@ func ensureOne(
 		return fmt.Errorf("probe orchestrator agent: %w", err)
 	}
 
-	spawned, err := provisioner.SpawnAgent(ctx, orchestratorManifest(agent.Name, spec))
+	// OpenFang enforces unique agent names across its single flat list, so the
+	// upstream name is scoped to the workspace. Berry's own row keeps its plain
+	// name — see the protected-agent carve-out in SyncSummaries, which stops
+	// this suffix leaking back into the product.
+	upstreamName := fmt.Sprintf("%s %s", agent.Name, agent.WorkspaceID.String()[:8])
+	spawned, err := provisioner.SpawnAgent(ctx, orchestratorManifest(upstreamName, spec))
 	if err != nil {
 		return fmt.Errorf("spawn orchestrator agent: %w", err)
 	}

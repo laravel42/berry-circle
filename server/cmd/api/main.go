@@ -42,6 +42,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	"github.com/laravel42/berry-circle/server/internal/observability"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
+	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/platform"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	collabrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
@@ -237,6 +238,30 @@ func run() int {
 		closeDatabase(dbPool)
 		logger.Error("runtime transport setup failed", "error", err)
 		return 1
+	}
+
+	// Make every workspace's built-in orchestrator executable. This runs in the
+	// API rather than the worker because the API always runs, while the worker
+	// is optional and Temporal-gated — an orchestrator that only provisions
+	// when Temporal is enabled is unreachable for most deployments. It also
+	// keeps provisioning single-writer: two processes doing this concurrently
+	// would both probe, both see 404, and both spawn, orphaning an agent.
+	//
+	// Ordered before the agent seed so the orchestrator already exists upstream
+	// when reconciliation runs, rather than being marked offline and corrected.
+	if dbPool != nil {
+		if err := orchestration.EnsureOrchestrators(
+			ctx,
+			dbPool,
+			upstream,
+			orchestration.OrchestratorSpec{
+				Provider: cfg.OrchestratorProvider,
+				Model:    cfg.OrchestratorModel,
+			},
+			logger,
+		); err != nil {
+			logger.Warn("orchestrator bootstrap incomplete", "error", err)
+		}
 	}
 
 	// Seed each workspace's agents from the runtime at boot. Without this the

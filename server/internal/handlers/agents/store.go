@@ -122,7 +122,12 @@ func (store PostgresStore) SyncSummaries(
 				$7, $8, $9, $10, $11, $12, $13, $14, $13
 			 )
 			 ON CONFLICT (openfang_agent_id) DO UPDATE SET
-				name = EXCLUDED.name,
+				-- A protected agent is authored by Berry, so its name and
+				-- description are product content rather than a projection.
+				-- Without this carve-out the workspace-scoped upstream name
+				-- would overwrite the one users see.
+				name = CASE
+					WHEN agents.protected THEN agents.name ELSE EXCLUDED.name END,
 				avatar_url = EXCLUDED.avatar_url,
 				status = EXCLUDED.status,
 				model_provider = EXCLUDED.model_provider,

@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/laravel42/berry-circle/server/internal/auth"
-	repository "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	repository "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 )
 
 func TestResolvePublishesCommittedEventsAndReturnsRevision(t *testing.T) {

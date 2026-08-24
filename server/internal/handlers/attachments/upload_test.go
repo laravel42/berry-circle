@@ -389,9 +389,9 @@ func (backend *uploadBackendFake) Delete(context.Context, string) error {
 }
 
 type uploadIdempotencyFake struct {
-	claimID    uuid.UUID
+	claimID     uuid.UUID
 	fingerprint [sha256.Size]byte
-	response   *httpapi.StoredResponse
+	response    *httpapi.StoredResponse
 }
 
 func (store *uploadIdempotencyFake) Begin(

@@ -10,10 +10,10 @@ var (
 )
 
 const (
-	UserEmail      = "prototype@berry.test"
-	UserName       = "Prototype User"
-	WorkspaceName  = "Berry"
-	WorkspaceSlug  = "berry"
-	BoardName      = "Platform"
-	BoardSlug      = "platform"
+	UserEmail     = "prototype@berry.test"
+	UserName      = "Prototype User"
+	WorkspaceName = "Berry"
+	WorkspaceSlug = "berry"
+	BoardName     = "Platform"
+	BoardSlug     = "platform"
 )
