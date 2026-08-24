@@ -11,10 +11,12 @@ how releases are cut.
 
 No version has been tagged yet — Berry is pre-release. The first tagged release is cut at
 milestone **M6 (Release 1)**; until then all shipped work accumulates here. This first
-entry covers everything merged to `main` as of 2026-08-22, spanning the foundation
-docs/knowledge base (**M0**), the OpenFang integration proof (**M1**), and the gateway
-service core (**M2**). See the [M2 milestone run report](docs/milestones/m2-gateway.md)
-for the integrated test state and known issues.
+entry covers everything merged to `main` as of 2026-08-24, spanning the foundation
+docs/knowledge base (**M0**), the OpenFang integration proof (**M1**), the gateway
+service core (**M2**), and the Go product server, Temporal run orchestration, and Berry
+shell that followed (**M3**). See the
+[M2 milestone run report](docs/milestones/m2-gateway.md) for the integrated test state
+and known issues.
 
 ### Added
 
@@ -103,12 +105,77 @@ for the integrated test state and known issues.
   to this in-memory event-store seam is deferred to the agent execution loop — BERR-26
   ([#20]).
 
+- Go product server at `server/` (module
+  `github.com/laravel42/berry-circle/server`) serving `/api/v1`, owning the Postgres
+  schema and forward-only migrations, with CI gates for gofmt, vet, race tests,
+  migration checksums, and sqlc artifact integrity — [d73862d].
+- Temporal-backed run orchestration: continuous intake of `todo` issues and dispatch
+  routed through Temporal so a crashed worker resumes rather than dropping work —
+  ADR-0005 — [34c77d8], [7c95a14].
+- Built-in orchestrator agent that takes intake when no other agent matches, routes each
+  issue to the best-matching agent by capability, and authors plans behind a human
+  approval gate — [8477049], [08250c0], [05c926b].
+- Conversations, channel reachability, and the Infobip adapter, with an inbound channel
+  webhook attributing replies to the originating conversation — [bc4312e], [4c62deb].
+- Chat with workspace agents, end to end from the UI to the OpenFang runtime —
+  [c06fc9c].
+- Per-agent model selection: `GET /api/v1/agents/models` exposes the runtime catalog and
+  `PUT /api/v1/agents/{id}/config` sets an agent's provider and model — [0200e4c].
+- Workspace agents seeded from the OpenFang runtime at startup, including description,
+  capabilities, and system prompt — [8c59882], [6af31ce], [43bcb86].
+- Berry application shell from the design prototype: rail, tab navigator holding any
+  route (not just nav destinations), and drawers capped at 1024px — [8ede6ed],
+  [30d53b5], [515659d], [9c4c04c].
+- Frontend wired to the Berry API with agent and run surfaces, replacing the empty
+  `data/*` modules — [6e434ad].
+- Gateway boards route with actor/enum alignment and run-event updates — [28a4da6].
+- OpenFang and Temporal run as part of the default `docker compose` stack, with a
+  Temporal UI at `127.0.0.1:8233` — [cd83fc8].
+
+### Changed
+
+- Issue, project, and agent descriptions are plain-text fields again. A rich editor
+  round-tripped markdown through parse/serialize, and because the round trip is not
+  byte-stable — bullet markers normalise, blank lines are inserted, and `web_search`
+  escapes to `web\_search` — the commit guard compared unequal on every blur and rewrote
+  content nobody edited, including agent system prompts — [9836625], [a1fc891],
+  [b268d45], [fcdd40f].
+- Inbox is the workspace landing route, replacing runs. The root, workspace index,
+  post-login redirect, session gate, and both back-to-app links all move with it —
+  [439512b].
+
+### Removed
+
+- The Crew/team module: 17 routes, 15 components, and its stores. Crew created a board
+  and attached a lead and members client-side to a store with no persistence, so the
+  leader the create dialog required was discarded on refresh, and `project.teamId` was
+  the workspace id aliased — every "by team" breakdown grouped everything into one
+  bucket. Boards remain the issue container; routing agents to work is the
+  orchestrator's job — [035c8f8].
+
 ### Fixed
 
 - Migration upgrade-path test suite (`apps/gateway/src/db/migrate.upgrade.test.ts`) now
   loads and skips cleanly on a fresh checkout without `DATABASE_URL`. The admin connection
   URL is deferred to call time so `describe.skip` no longer constructs `new URL("")` at
   test registration — BERR-50 ([#11]).
+
+- Issue description, sub-issues, and the activity feed render when an issue is opened
+  from the list. Opening from the list is a soft navigation, so the intercepting drawer
+  route mounts and an `inDrawer` gate rendered the whole main column as `null` — the
+  body appeared only on a hard page load — [ff46ba4].
+- Inbox rows show the issue identifier (`PLATFORM-3`) instead of `11111111`. The payload
+  carried only `issueId`, so the client sliced the UUID; the server now derives board
+  slug and issue number on read, which also repairs rows already projected — [1157479].
+- `PATCH` is admitted under the idempotent-write retry class, unblocking agent config
+  updates — [391380a].
+- Orchestrators are provisioned from the API and scoped per workspace, so a second
+  workspace no longer collides on the upstream agent name — [6c4a9f4].
+- `berry-worker` no longer inherits the API's HTTP healthcheck, which it cannot serve —
+  [df755c7].
+- Compose stack starts unattended: the Temporal healthcheck addresses the service rather
+  than loopback, empty environment values no longer defeat defaults, and the Temporal UI
+  image tag is pinned to a version that exists — [412d3fd].
 
 ### Security
 
@@ -117,8 +184,45 @@ for the integrated test state and known issues.
   host-run gateway) but never from the LAN. The README documents that `OPENFANG_API_KEY`
   must be set before exposing the host on an untrusted network — BERR-15 ([#13]).
 
+- Chat reads and writes require thread participation. `Append` performed no workspace or
+  participant check, so a member of one workspace could inject messages into another's
+  thread, and reads were not participant-scoped — [37e86cd].
+
 [Unreleased]: https://github.com/laravel42/berry-circle/commits/main
 [cd882f4]: https://github.com/laravel42/berry-circle/commit/cd882f4
+[0200e4c]: https://github.com/laravel42/berry-circle/commit/0200e4c
+[035c8f8]: https://github.com/laravel42/berry-circle/commit/035c8f8
+[05c926b]: https://github.com/laravel42/berry-circle/commit/05c926b
+[08250c0]: https://github.com/laravel42/berry-circle/commit/08250c0
+[1157479]: https://github.com/laravel42/berry-circle/commit/1157479
+[28a4da6]: https://github.com/laravel42/berry-circle/commit/28a4da6
+[30d53b5]: https://github.com/laravel42/berry-circle/commit/30d53b5
+[34c77d8]: https://github.com/laravel42/berry-circle/commit/34c77d8
+[37e86cd]: https://github.com/laravel42/berry-circle/commit/37e86cd
+[391380a]: https://github.com/laravel42/berry-circle/commit/391380a
+[412d3fd]: https://github.com/laravel42/berry-circle/commit/412d3fd
+[439512b]: https://github.com/laravel42/berry-circle/commit/439512b
+[43bcb86]: https://github.com/laravel42/berry-circle/commit/43bcb86
+[4c62deb]: https://github.com/laravel42/berry-circle/commit/4c62deb
+[515659d]: https://github.com/laravel42/berry-circle/commit/515659d
+[6af31ce]: https://github.com/laravel42/berry-circle/commit/6af31ce
+[6c4a9f4]: https://github.com/laravel42/berry-circle/commit/6c4a9f4
+[6e434ad]: https://github.com/laravel42/berry-circle/commit/6e434ad
+[7c95a14]: https://github.com/laravel42/berry-circle/commit/7c95a14
+[8477049]: https://github.com/laravel42/berry-circle/commit/8477049
+[8c59882]: https://github.com/laravel42/berry-circle/commit/8c59882
+[8ede6ed]: https://github.com/laravel42/berry-circle/commit/8ede6ed
+[9836625]: https://github.com/laravel42/berry-circle/commit/9836625
+[9c4c04c]: https://github.com/laravel42/berry-circle/commit/9c4c04c
+[a1fc891]: https://github.com/laravel42/berry-circle/commit/a1fc891
+[b268d45]: https://github.com/laravel42/berry-circle/commit/b268d45
+[bc4312e]: https://github.com/laravel42/berry-circle/commit/bc4312e
+[c06fc9c]: https://github.com/laravel42/berry-circle/commit/c06fc9c
+[cd83fc8]: https://github.com/laravel42/berry-circle/commit/cd83fc8
+[d73862d]: https://github.com/laravel42/berry-circle/commit/d73862d
+[df755c7]: https://github.com/laravel42/berry-circle/commit/df755c7
+[fcdd40f]: https://github.com/laravel42/berry-circle/commit/fcdd40f
+[ff46ba4]: https://github.com/laravel42/berry-circle/commit/ff46ba4
 [#1]: https://github.com/laravel42/berry-circle/pull/1
 [#2]: https://github.com/laravel42/berry-circle/pull/2
 [#4]: https://github.com/laravel42/berry-circle/pull/4

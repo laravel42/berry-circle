@@ -81,20 +81,33 @@ Also in the repo: `docs/`, `docker-compose.yml` (OpenFang + Postgres + Valkey),
 
 ## Current implementation (do not invent the missing layer)
 
-**Gateway exists:** `/health`, `/metrics`, central `{ error: { code, message } }`
-envelope, Pino + OTel, Drizzle schema + migrations. **Not built yet:**
-`/api/v1` product routes, OpenFang adapter module, Valkey, run persistence,
-auth/session HTTP. It remains the compatibility oracle until Go cutover.
+**Go server exists** at `server/`, module
+`github.com/laravel42/berry-circle/server`, Go 1.26.6. It serves `/api/v1`,
+owns the Postgres schema and forward-only migrations, and holds the OpenFang
+adapter (`internal/openfang`), run admission and Temporal orchestration
+(`internal/orchestration`, `internal/service/runadmission`), inbox projection
+(`internal/{repository,handlers,service}/p2`), auth/session, chat, and the
+agent gateway. Architecture: [`ADR-0004`](docs/adr/0004-go-product-server.md);
+orchestration: [`ADR-0005`](docs/adr/0005-temporal-run-orchestration.md).
 
-**Go server does not exist yet:** `server/` and its exact commands land with
-the scaffold. Do not invent a module path, generated-code command, or CI gate
-before that change. Its target architecture is
-[`ADR-0004`](docs/adr/0004-go-product-server.md).
+**Bun gateway** at `apps/gateway/` remains the compatibility oracle and is
+still gated in CI. It is not the product server; do not add product routes
+there.
 
-**Frontend exists:** Circle shell, empty `data/*` modules, Zustand stores,
-`lib/api.ts` (`apiUrl` / `apiFetch`) and `lib/config.ts`. **Not built yet:**
-board/issue/run wiring (BERR-29/30). Do not reintroduce demo/mock datasets.
-`NEXT_PUBLIC_BERRY_API_URL` empty means the app boots with no data.
+**Frontend exists** and is wired to the Go API: boards, issues, runs, agents,
+chat and inbox all read live data through `lib/api.ts` (`apiUrl` / `apiFetch`).
+Do not reintroduce demo/mock datasets. `NEXT_PUBLIC_BERRY_API_URL` empty means
+the app boots with no data.
+
+**Removed, do not re-add:** the Crew/team module. Crew was a board with a
+client-side roster that never persisted; boards are the issue container and
+routing is the orchestrator's job. `teamIds` on User and `teamId` on
+Project/Cycle/View survive as unread vestiges pending a type cleanup.
+
+**Descriptions are plain-text fields.** A rich editor round-tripped markdown
+through parse/serialize, which rewrote untouched content — bullet markers,
+blank lines, and `web_search` escaped to `web\_search` — including agent
+system prompts. `DescriptionTextarea` saves the exact bytes it was given.
 
 Schema notes that can bite you:
 
@@ -121,12 +134,14 @@ legacy feature that is classified as replaced or excluded.
 # Local substrate (from repo root)
 cp .env.example .env && docker compose up -d --build
 
-# Go server
-# Not runnable until the server scaffold lands server/go.mod and its documented
-# generation/formatting gates. Intended native gates landing with that scaffold:
+# Go server — these are the gates CI runs
 cd server
+gofmt -l .                       # must print nothing
 go vet ./...
-go test ./...
+go test -race ./...
+python3 ../scripts/check-sqlc-artifacts.py --require-tracked
+go test ./pkg/db/...             # checked-in db artifacts match queries
+go build ./cmd/api ./cmd/migrate
 
 # Gateway
 cd apps/gateway
@@ -140,8 +155,10 @@ cd frontend
 bun run lint && bun run build
 ```
 
-The Go commands above are future gates, not a claim that `server/` exists
-today. The scaffold must also define its `gofmt` and sqlc generation checks.
+`bun run build` in `frontend/` and `next dev` share `.next/`, so a build while
+the dev server runs corrupts its manifests. Use `bun run build:check`, which
+writes to `.next-verify` instead.
+
 DB-backed gateway tests must self-skip when `DATABASE_URL` is unset so a fresh
 `bun test` stays green. Endpoint tests drive `createApp()` with
 `app.request(...)`.

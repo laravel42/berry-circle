@@ -175,11 +175,11 @@ and CVA variants, not through feature-local forks.
 | Projects | 20 | Keep list/board/timeline and detail composition; make Berry progress/review states distinctive |
 | Settings | 18 | Keep form/layout patterns; replace inherited categories with Berry capabilities |
 | Data-table filters | 12 TSX modules plus filter core | Keep behavior and generic composition |
-| Teams | 9 | Keep member/project primitives; adapt terminology to Berry team and role model |
+| Teams | 9 | **Removed.** Ported as "Crew", then dropped: it created a board and held its roster client-side with no persistence. Boards are the issue container; the orchestrator routes work to agents |
 | Reviews | 7 | Keep diff mechanics; redesign around Berry's review gates and agent/human provenance |
-| Cycles | 5 | Keep chart/list foundations only if cycles remain in scope |
+| Cycles | 5 | Mostly removed with the team routes that hosted them; the cycle glyph and capacity ring remain in issue and project views |
 | Initiatives | 5 | Defer until the Berry roadmap model is confirmed |
-| Inbox | 4 | Keep notification mechanics; reframe as Berry activity/attention queue |
+| Inbox | 4 | Kept and now the workspace landing route, fed by the server's notification projection |
 | Members | 4 | Keep identity/profile basics; add agent identity as a peer actor type |
 | My issues | 2 | Keep query/view composition; use Berry naming |
 | Views | 2 | Keep saved-view mechanics |

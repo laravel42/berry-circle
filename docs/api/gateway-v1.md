@@ -8,7 +8,13 @@ This document is the normative HTTP and Server-Sent Events (SSE) contract for th
 
 The contract uses conventional resource-oriented JSON, opaque cursor pagination, and stable error envelopes. These are interoperability conventions, not a copy of another product's schema. Unless this document explicitly says otherwise, clients MUST ignore unknown response fields and unknown SSE event types.
 
-Current implementation note: the PostgreSQL schema already contains boards, issues, assignment history, and comments. Run persistence and the routes below remain implementation work. Where the database and this contract differ, this contract is the target public interface; storage names are not API field names.
+Current implementation note: the Go product server at `server/` implements this contract, including run persistence. Where the database and this contract differ, this contract is the target public interface; storage names are not API field names.
+
+Shipped but not yet specified here — treat the implementation as authoritative until these sections are written:
+
+- **Inbox** — `GET /api/v1/inbox`, `GET /api/v1/inbox/unread-count`, `POST /api/v1/inbox/{itemId}/{action}` (`read`, `unread`, `archive`, `unarchive`), `POST /api/v1/inbox/bulk`. Items carry `issueIdentifier` (board slug and issue number, for example `PLATFORM-3`), derived on read and `null` when the item references no issue.
+- **Agent models** — `GET /api/v1/agents/models` returns the runtime model catalog; `PUT /api/v1/agents/{agentId}/config` sets an agent's provider, model, description, and instructions. A provider/model pair is rejected unless the runtime catalog reports it available.
+- **Conversations** — `GET /api/v1/conversations`, `POST /api/v1/conversations/agents/{agentId}`, and `GET`/`POST /api/v1/conversations/{conversationId}/messages`. All require the caller to be a participant in the thread.
 
 ## Protocol conventions
 
