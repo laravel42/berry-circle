@@ -1,16 +1,13 @@
-import { shellRoute, SHELL_SECTIONS } from './shell-routes';
+import { SHELL_SECTIONS } from './shell-routes';
 
 /**
- * A tab is any route the user has visited, not only a nav destination.
+ * What a route looks like when shown in a tab.
  *
- * `Berry Prototype.dc.html` makes this explicit: its tab list holds `inbox`,
- * which has no rail entry, alongside `reviewsCreated` ("reviews / created") and
- * `issue404` ("BERRY-404"). Modelling tabs as a closed set of nav ids cannot
- * represent any of those, so a tab carries its own label and href instead.
+ * `Berry Prototype.dc.html` tabs hold routes with no rail entry (`inbox`) and
+ * detail routes (`reviewsCreated` -> "reviews / created", `issue404` ->
+ * "BERRY-404"), so a label cannot be looked up from the nav table alone.
  */
-export interface ShellTab {
-   /** Stable identity, derived from the workspace-relative path. */
-   key: string;
+export interface RouteDescriptor {
    label: string;
    href: string;
 }
@@ -51,7 +48,7 @@ function workspaceRelative(pathname: string, orgId: string): string | null {
  * rail's help control, and tabbing it would leave a tab pointing at a surface
  * the user thinks they closed.
  */
-export function describeTab(pathname: string, orgId: string): ShellTab | null {
+export function describeRoute(pathname: string, orgId: string): RouteDescriptor | null {
    const relative = workspaceRelative(pathname, orgId);
    if (!relative || relative === '/') return null;
    if (relative.startsWith('/settings')) return null;
@@ -60,7 +57,7 @@ export function describeTab(pathname: string, orgId: string): ShellTab | null {
    const nav = SHELL_SECTIONS.flatMap((section) => section.routes).find(
       (route) => route.href === relative,
    );
-   if (nav) return { key: nav.id, label: nav.label, href: relative };
+   if (nav) return { label: nav.label, href: relative };
 
    const segments = relative.split('/').filter(Boolean);
    if (segments.length === 0) return null;
@@ -68,7 +65,7 @@ export function describeTab(pathname: string, orgId: string): ShellTab | null {
    const [section, ...rest] = segments;
    const sectionLabel = SECTION_LABELS[section] ?? section;
    if (rest.length === 0) {
-      return { key: relative, label: sectionLabel, href: relative };
+      return { label: sectionLabel, href: relative };
    }
 
    // An issue key identifies itself; anything else reads as "section / detail".
@@ -77,13 +74,5 @@ export function describeTab(pathname: string, orgId: string): ShellTab | null {
       ? detail.toUpperCase()
       : `${sectionLabel} / ${detail}`;
 
-   return { key: relative, label, href: relative };
-}
-
-/** The rail route a tab belongs to, for highlighting while a detail is open. */
-export function tabSection(tab: ShellTab): string | null {
-   const nav = shellRoute(tab.key);
-   if (nav) return nav.id;
-   const section = tab.href.split('/').filter(Boolean)[0];
-   return section ? (SECTION_LABELS[section] ?? section) : null;
+   return { label, href: relative };
 }

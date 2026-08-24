@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import type { ShellTab } from './shell-tab-model';
+import type { ShellTab } from '@/store/shell-store';
 import { BerryMark } from './shell-icon';
 
 interface ShellTabsProps {
    tabs: ShellTab[];
-   activeKey: string | null;
+   activeTabId: string | null;
    onActivate: (tab: ShellTab) => void;
-   onClose: (key: string) => void;
+   onClose: (id: string) => void;
    onNew: () => void;
 }
 
@@ -20,7 +20,7 @@ interface ShellTabsProps {
  * button and not a wrapping anchor: nesting an interactive element inside a
  * link is invalid and breaks activation for both.
  */
-export function ShellTabs({ tabs, activeKey, onActivate, onClose, onNew }: ShellTabsProps) {
+export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: ShellTabsProps) {
    const stripRef = useRef<HTMLDivElement>(null);
    const activeRef = useRef<HTMLDivElement>(null);
 
@@ -28,7 +28,7 @@ export function ShellTabs({ tabs, activeKey, onActivate, onClose, onNew }: Shell
    // be selected but invisible.
    useEffect(() => {
       activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-   }, [activeKey]);
+   }, [activeTabId]);
 
    return (
       <div
@@ -38,10 +38,10 @@ export function ShellTabs({ tabs, activeKey, onActivate, onClose, onNew }: Shell
          className="tabstrip flex h-[34px] flex-none items-stretch overflow-x-auto bg-[var(--shell-rail)]"
       >
          {tabs.map((tab) => {
-            const on = tab.key === activeKey;
+            const on = tab.id === activeTabId;
             return (
                <div
-                  key={tab.key}
+                  key={tab.id}
                   ref={on ? activeRef : undefined}
                   className={[
                      'group flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-2.5 pl-3 text-[11px] transition-colors',
@@ -59,7 +59,7 @@ export function ShellTabs({ tabs, activeKey, onActivate, onClose, onNew }: Shell
                         // Middle-click closes, as in a browser.
                         if (event.button === 1) {
                            event.preventDefault();
-                           onClose(tab.key);
+                           onClose(tab.id);
                         }
                      }}
                      title={tab.label}
@@ -70,7 +70,7 @@ export function ShellTabs({ tabs, activeKey, onActivate, onClose, onNew }: Shell
                   </button>
                   <button
                      type="button"
-                     onClick={() => onClose(tab.key)}
+                     onClick={() => onClose(tab.id)}
                      aria-label={`Close ${tab.label}`}
                      className={[
                         'cursor-pointer px-[3px] text-[var(--shell-text-dim)] transition-colors hover:text-[var(--shell-text)]',

@@ -2,80 +2,93 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useShellStore } from '@/store/shell-store';
+import { INDEX_TAB, useShellStore, type ShellTab } from '@/store/shell-store';
 import { activeShellRoute, type ShellRoute } from './shell-routes';
-import { describeTab, type ShellTab } from './shell-tab-model';
+import { describeRoute } from './shell-tab-model';
 import { ShellRail } from './shell-rail';
 import { ShellTabs } from './shell-tabs';
-
-/** Where the strip lands when the last tab is closed, per the prototype. */
-const HOME: ShellTab = { key: 'issues', label: 'issues', href: '/my-issues' };
 
 /**
  * The application shell from `Berry Prototype.dc.html`: a collapsible rail, a
  * browser-style tab strip, and the workspace canvas.
  *
- * The URL is the source of truth for what is displayed; tabs are chrome layered
- * on top. Tabs therefore follow navigation rather than driving it — arriving
- * anywhere, by any means, opens a tab for it, so a deep link, a browser back,
- * or a refresh all land on the right view whatever the stored tabs say.
+ * The active tab shows the current URL. Everything follows from that:
+ * navigating anywhere — a rail item, a link in the page, browser back, a deep
+ * link — changes what the active tab displays rather than opening a new one,
+ * which is why a rail click replaces the current view. Opening an additional
+ * tab is the one action that is explicit, via "+".
  */
 export function BerryShell({ children }: { children: React.ReactNode }) {
    const pathname = usePathname() ?? '';
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId ?? '';
    const router = useRouter();
-   const { tabs, railOpen, openTab, closeTab, toggleRail } = useShellStore();
 
-   // describeTab is pure, so memoising gives the effect below a stable
+   const { tabs, activeTabId, railOpen, showInActiveTab, openTab, activateTab, closeTab, toggleRail } =
+      useShellStore();
+
+   // describeRoute is pure, so memoising gives the effect below a stable
    // dependency instead of a fresh object every render.
-   const current = useMemo(() => describeTab(pathname, orgId), [pathname, orgId]);
-   const activeKey = current?.key ?? null;
+   const current = useMemo(() => describeRoute(pathname, orgId), [pathname, orgId]);
    const activeRoute: ShellRoute | null = activeShellRoute(pathname);
 
-   // Navigation opens tabs, never the reverse. Depending on the derived key and
-   // label rather than the object keeps this from firing every render.
+   // The URL is the source of truth; the active tab follows it.
    useEffect(() => {
-      if (current) openTab(current);
-   }, [current, openTab]);
+      if (current) showInActiveTab(current.href, current.label);
+   }, [current, showInActiveTab]);
 
-   const navigate = useCallback(
-      (tab: ShellTab) => router.push(`/${orgId}${tab.href}`),
-      [orgId, router],
+   const push = useCallback((href: string) => router.push(`/${orgId}${href}`), [orgId, router]);
+
+   const handleActivate = useCallback(
+      (tab: ShellTab) => {
+         activateTab(tab.id);
+         push(tab.href);
+      },
+      [activateTab, push],
    );
 
    const handleClose = useCallback(
-      (key: string) => {
-         const next = closeTab(key, activeKey);
-         // Closing the active tab moves left; emptying the strip returns home.
-         if (next) navigate(next);
-         else if (key === activeKey) navigate(HOME);
+      (id: string) => {
+         const next = closeTab(id);
+         if (next) push(next.href);
       },
-      [activeKey, closeTab, navigate],
+      [closeTab, push],
    );
 
-   // Browser-style shortcuts. Ctrl is used rather than Cmd so the bindings do
-   // not collide with Safari and Chrome's own tab shortcuts on macOS.
+   // "+" opens an additional tab on the index route, even when a tab is
+   // already showing it — the same as a browser opening a second homepage.
+   const handleNew = useCallback(() => {
+      openTab(INDEX_TAB.href, INDEX_TAB.label);
+      push(INDEX_TAB.href);
+   }, [openTab, push]);
+
+   // Browser-style shortcuts. Ctrl rather than Cmd, so the bindings do not
+   // collide with Safari and Chrome's own tab shortcuts on macOS.
    useEffect(() => {
       const onKey = (event: KeyboardEvent) => {
          if (!event.ctrlKey || event.metaKey || event.altKey) return;
-         const index = tabs.findIndex((tab) => tab.key === activeKey);
+         const index = tabs.findIndex((tab) => tab.id === activeTabId);
 
-         if (event.key === 'w' && activeKey) {
+         if (event.key === 't') {
             event.preventDefault();
-            handleClose(activeKey);
+            handleNew();
+            return;
+         }
+         if (event.key === 'w' && activeTabId) {
+            event.preventDefault();
+            handleClose(activeTabId);
             return;
          }
          if (event.key === 'Tab' && tabs.length > 1) {
             event.preventDefault();
             const step = event.shiftKey ? -1 : 1;
             const from = index === -1 ? 0 : index;
-            navigate(tabs[(from + step + tabs.length) % tabs.length]);
+            handleActivate(tabs[(from + step + tabs.length) % tabs.length]);
          }
       };
       window.addEventListener('keydown', onKey);
       return () => window.removeEventListener('keydown', onKey);
-   }, [tabs, activeKey, handleClose, navigate]);
+   }, [tabs, activeTabId, handleNew, handleClose, handleActivate]);
 
    return (
       <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono text-[10px] font-light text-[var(--shell-text)]">
@@ -97,10 +110,10 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
          <div className="relative flex min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
             <ShellTabs
                tabs={tabs}
-               activeKey={activeKey}
-               onActivate={navigate}
+               activeTabId={activeTabId}
+               onActivate={handleActivate}
                onClose={handleClose}
-               onNew={() => navigate(HOME)}
+               onNew={handleNew}
             />
             <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">{children}</main>
          </div>
