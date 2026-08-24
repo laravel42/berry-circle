@@ -71,6 +71,9 @@ type AgentDetail struct {
 	Model        AgentModel
 	Capabilities AgentCapabilities
 	Description  string
+	// SystemPrompt is the instruction set applied to every task this agent
+	// runs. Present only on the detail response, never on the list.
+	SystemPrompt string
 	Tags         []string
 	Identity     AgentIdentity
 }
@@ -143,6 +146,7 @@ type agentDetailWire struct {
 	Model        AgentModel        `json:"model"`
 	Capabilities AgentCapabilities `json:"capabilities"`
 	Description  string            `json:"description"`
+	SystemPrompt string            `json:"system_prompt"`
 	Tags         []string          `json:"tags"`
 	Identity     AgentIdentity     `json:"identity"`
 }
@@ -225,6 +229,7 @@ func (client *Client) GetAgent(ctx context.Context, agentID uuid.UUID) (AgentDet
 		Model:        wire.Model,
 		Capabilities: wire.Capabilities,
 		Description:  wire.Description,
+		SystemPrompt: wire.SystemPrompt,
 		Tags:         wire.Tags,
 		Identity:     wire.Identity,
 	}, nil

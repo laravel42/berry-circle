@@ -67,14 +67,20 @@ func SyncWorkspace(
 			// One malformed agent must not stop the rest from appearing.
 			continue
 		}
-		// Hydrate the description from the detail payload. Best effort per
-		// agent: an unreachable detail should cost that agent its description,
+		// Description, capabilities, and the system prompt exist only on the
+		// detail response, so each agent costs one extra call. Best effort per
+		// agent: an unreachable detail should cost that agent its extra fields,
 		// not cost every other agent its whole projection.
 		if detail, err := runtime.GetAgent(ctx, summary.ID); err == nil {
 			if text := strings.TrimSpace(detail.Description); text != "" &&
 				utf8.RuneCountInString(text) <= maxDescription {
 				update.Description = &text
 			}
+			if prompt := strings.TrimSpace(detail.SystemPrompt); prompt != "" &&
+				utf8.RuneCountInString(prompt) <= maxInstructions {
+				update.Instructions = &prompt
+			}
+			update.Capabilities = projectCapabilities(detail.Capabilities)
 		}
 		updates = append(updates, update)
 	}
@@ -166,4 +172,13 @@ func SyncAllWorkspaces(
 			)
 		}
 	}
+}
+
+// projectCapabilities flattens the runtime's capability groups into the flat
+// list Berry stores, matching how the detail path already does it so a seeded
+// agent and a freshly-viewed one cannot disagree about what it can do.
+func projectCapabilities(capabilities openfang.AgentCapabilities) []string {
+	flat := append([]string(nil), capabilities.Tools...)
+	flat = append(flat, capabilities.Network...)
+	return sortedCapabilities(flat)
 }

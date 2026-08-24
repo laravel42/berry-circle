@@ -44,6 +44,8 @@ type Cursor struct {
 // SummaryUpdate is a validated runtime summary ready for persistence.
 type SummaryUpdate struct {
 	Description          *string
+	Instructions         *string
+	Capabilities         []string
 	ID                   uuid.UUID
 	WorkspaceID          uuid.UUID
 	OpenFangAgentID      uuid.UUID
@@ -117,10 +119,11 @@ func (store PostgresStore) SyncSummaries(
 				id, workspace_id, board_id, openfang_agent_id, name, avatar_url, status,
 				model_provider, model_name, model_tier, auth_status,
 				upstream_state, upstream_last_active_at, last_synced_at,
-				created_at, updated_at, description
+				created_at, updated_at, description, capabilities, instructions
 			 ) VALUES (
 				$1, $2, NULL, $3, $4, $5, $6,
-				$7, $8, $9, $10, $11, $12, $13, $14, $13, $15
+				$7, $8, $9, $10, $11, $12, $13, $14, $13, $15,
+				COALESCE($16::text[], ARRAY[]::text[]), $17
 			 )
 			 ON CONFLICT (openfang_agent_id) DO UPDATE SET
 				-- A protected agent is authored by Berry, so its name and
@@ -135,6 +138,17 @@ func (store PostgresStore) SyncSummaries(
 				description = CASE
 					WHEN agents.protected THEN agents.description
 					ELSE COALESCE(EXCLUDED.description, agents.description) END,
+				-- Capabilities come from the runtime, which owns what an agent
+				-- can do. An empty array means "reported none", so it is only
+				-- accepted when non-empty — a detail call that failed must not
+				-- read as a capability-less agent.
+				capabilities = CASE
+					WHEN agents.protected THEN agents.capabilities
+					WHEN cardinality(EXCLUDED.capabilities) > 0 THEN EXCLUDED.capabilities
+					ELSE agents.capabilities END,
+				-- Instructions are authored in Berry and pushed upstream, so a
+				-- local value is never overwritten by the projection of itself.
+				instructions = COALESCE(agents.instructions, EXCLUDED.instructions),
 				avatar_url = EXCLUDED.avatar_url,
 				status = EXCLUDED.status,
 				model_provider = EXCLUDED.model_provider,
@@ -162,6 +176,8 @@ func (store PostgresStore) SyncSummaries(
 			now,
 			update.CreatedAt,
 			update.Description,
+			update.Capabilities,
+			update.Instructions,
 		); err != nil {
 			return errors.New("upsert runtime agent projection")
 		}
