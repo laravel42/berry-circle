@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"sort"
+	"strings"
 
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
@@ -40,9 +41,10 @@ func modelsHandler(catalog openfang.Catalog, options Options) http.HandlerFunc {
 			if !model.Available || model.ID == "" {
 				continue
 			}
+			id := normalizeModelID(model.Provider, model.ID)
 			nodes = append(nodes, modelResource{
-				ID:             model.ID,
-				DisplayName:    firstNonEmpty(model.DisplayName, model.ID),
+				ID:             id,
+				DisplayName:    firstNonEmpty(model.DisplayName, id),
 				Provider:       model.Provider,
 				Tier:           model.Tier,
 				ContextWindow:  model.ContextWindow,
@@ -79,12 +81,40 @@ func resolveModel(
 	if err != nil {
 		return openfang.CatalogModel{}, false
 	}
+	// Both sides are normalised: the catalog because the runtime prefixes some
+	// ids with their provider, and the request because a client written against
+	// the un-normalised catalog sends that prefixed form back.
+	wanted := normalizeModelID(provider, model)
 	for _, candidate := range models {
-		if candidate.ID == model && candidate.Provider == provider && candidate.Available {
+		if !candidate.Available || candidate.Provider != provider {
+			continue
+		}
+		if normalizeModelID(candidate.Provider, candidate.ID) == wanted {
 			return candidate, true
 		}
 	}
 	return openfang.CatalogModel{}, false
+}
+
+// normalizeModelID strips a provider prefix the runtime redundantly repeats
+// inside a model id.
+//
+// The catalog is inconsistent about it: an OpenRouter entry reports provider
+// "openrouter" with id "openrouter/anthropic/claude-sonnet-4", while an
+// Anthropic entry reports provider "anthropic" with id "claude-sonnet-4-6".
+// The provider already travels in its own field, so a client keying a model as
+// provider + "/" + id doubles the prefix for the first and not the second — and
+// the pair an agent actually stores ("openrouter", "anthropic/claude-sonnet-4")
+// then matches neither, which is why a configured model read as unavailable.
+//
+// Normalising here rather than in the client keeps one form on the wire: this
+// is the adapter boundary whose job is reconciling upstream shapes, and every
+// consumer would otherwise have to know the quirk.
+func normalizeModelID(provider, id string) string {
+	if provider == "" || id == "" {
+		return id
+	}
+	return strings.TrimPrefix(id, provider+"/")
 }
 
 func firstNonEmpty(values ...string) string {
