@@ -10,11 +10,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
 import { AssigneeUser } from '../assignee-user';
-import {
-   ActivityCommentComposer,
-   ActivityFeedList,
-   useIssueActivity,
-} from './activity-feed';
+import { ActivityCommentComposer, ActivityFeedList, useIssueActivity } from './activity-feed';
 import { IssueDescriptionEditor } from './issue-description-editor';
 import { IssuePropertiesPanel } from './issue-properties-panel';
 import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
@@ -70,9 +66,7 @@ export default function IssueDetails() {
       <div
          className={cn(
             'h-full min-h-0 w-full overflow-hidden bg-container',
-            inDrawer
-               ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,4fr)_minmax(0,1fr)]'
-               : 'flex'
+            inDrawer ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,4fr)_minmax(0,1fr)]' : 'flex'
          )}
       >
          {/* Main column */}
@@ -83,82 +77,76 @@ export default function IssueDetails() {
                      {issue.title}
                   </h1>
 
-                  {!inDrawer ? (
-                     <>
-                        <IssueDescriptionEditor
-                           issueId={issue.id}
-                           description={issue.description}
-                        />
+                  <>
+                     <IssueDescriptionEditor issueId={issue.id} description={issue.description} />
 
-                        <div className="mt-3 flex items-center gap-1 text-muted-foreground">
-                           <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-8"
-                              aria-label="Add reaction"
-                           >
-                              <SmilePlus className="size-4" />
-                           </Button>
-                           <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-8"
-                              aria-label="Attach file"
-                           >
-                              <Paperclip className="size-4" />
-                           </Button>
-                        </div>
+                     <div className="mt-3 flex items-center gap-1 text-muted-foreground">
+                        <Button
+                           variant="ghost"
+                           size="icon"
+                           className="size-8"
+                           aria-label="Add reaction"
+                        >
+                           <SmilePlus className="size-4" />
+                        </Button>
+                        <Button
+                           variant="ghost"
+                           size="icon"
+                           className="size-8"
+                           aria-label="Attach file"
+                        >
+                           <Paperclip className="size-4" />
+                        </Button>
+                     </div>
 
-                        <div className="mt-4">
-                           {subIssues.length > 0 ? (
-                              <>
-                                 <h2 className="mb-1 text-sm font-medium">
-                                    sub-issues{' '}
-                                    <span className="text-muted-foreground">
-                                       {
-                                          subIssues.filter(
-                                             (subIssue) =>
-                                                subIssue.status.category === 'completed'
-                                          ).length
-                                       }
-                                       /{subIssues.length}
-                                    </span>
-                                 </h2>
-                                 <div className="flex flex-col border-t border-border/50">
-                                    {subIssues.map((subIssue) => (
-                                       <Link
-                                          key={subIssue.id}
-                                          href={`/${orgId ?? WORKSPACE_SLUG}/issue/${subIssue.identifier}`}
-                                          className="flex items-center gap-2.5 h-10 px-1 border-b border-border/50 hover:bg-sidebar/50 text-sm min-w-0"
-                                       >
-                                          <subIssue.status.icon />
-                                          <span className="text-muted-foreground shrink-0 text-xs font-medium">
-                                             {subIssue.identifier}
-                                          </span>
-                                          <span className="truncate font-medium">
-                                             {subIssue.title}
-                                          </span>
-                                          <span className="ml-auto shrink-0">
-                                             <AssigneeUser
-                                                user={subIssue.assignee}
-                                                issueId={subIssue.id}
-                                             />
-                                          </span>
-                                       </Link>
-                                    ))}
-                                 </div>
-                              </>
-                           ) : (
-                              <button className="flex items-center gap-1.5 rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
-                                 <Plus className="size-4" />
-                                 add sub-issues
-                              </button>
-                           )}
-                        </div>
+                     <div className="mt-4">
+                        {subIssues.length > 0 ? (
+                           <>
+                              <h2 className="mb-1 text-sm font-medium">
+                                 sub-issues{' '}
+                                 <span className="text-muted-foreground">
+                                    {
+                                       subIssues.filter(
+                                          (subIssue) => subIssue.status.category === 'completed'
+                                       ).length
+                                    }
+                                    /{subIssues.length}
+                                 </span>
+                              </h2>
+                              <div className="flex flex-col border-t border-border/50">
+                                 {subIssues.map((subIssue) => (
+                                    <Link
+                                       key={subIssue.id}
+                                       href={`/${orgId ?? WORKSPACE_SLUG}/issue/${subIssue.identifier}`}
+                                       className="flex items-center gap-2.5 h-10 px-1 border-b border-border/50 hover:bg-sidebar/50 text-sm min-w-0"
+                                    >
+                                       <subIssue.status.icon />
+                                       <span className="text-muted-foreground shrink-0 text-xs font-medium">
+                                          {subIssue.identifier}
+                                       </span>
+                                       <span className="truncate font-medium">
+                                          {subIssue.title}
+                                       </span>
+                                       <span className="ml-auto shrink-0">
+                                          <AssigneeUser
+                                             user={subIssue.assignee}
+                                             issueId={subIssue.id}
+                                          />
+                                       </span>
+                                    </Link>
+                                 ))}
+                              </div>
+                           </>
+                        ) : (
+                           <button className="flex items-center gap-1.5 rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
+                              <Plus className="size-4" />
+                              add sub-issues
+                           </button>
+                        )}
+                     </div>
 
-                        <ActivityFeedList items={activityFeed.items} />
-                     </>
-                  ) : null}
+                     <ActivityFeedList items={activityFeed.items} />
+                  </>
                </div>
             </div>
 
