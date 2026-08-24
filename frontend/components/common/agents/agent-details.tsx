@@ -43,7 +43,7 @@ import { toast } from 'sonner';
 import { AgentConfigField } from '@/components/common/agents/agent-config-field';
 import { AgentModelPicker } from '@/components/common/agents/agent-model-picker';
 
-const DETAIL_TABS = ['overview', 'work', 'capabilities', 'settings'] as const;
+const DETAIL_TABS = ['overview', 'work', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 function MetaPill({
@@ -501,36 +501,6 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                      </div>
                   )}
                </TabsContent>
-               {/* Capabilities is what the runtime reports an agent can do —
-                   read-only, because Berry does not grant tools. Settings is
-                   what an operator configures. Putting the editors here would
-                   mean the Settings tab described neither. */}
-               <TabsContent value="capabilities" className="mt-0 px-8 py-6">
-                  <section className="flex flex-col gap-2">
-                     <div className="flex items-baseline gap-2">
-                        <h3 className="text-sm font-medium text-foreground">Capabilities</h3>
-                        <p className="text-[11px] text-muted-foreground">
-                           Tools and network access granted by the runtime.
-                        </p>
-                     </div>
-                     {agent.capabilities.length > 0 ? (
-                        <div className="flex flex-wrap gap-2">
-                           {agent.capabilities.map((capability) => (
-                              <span
-                                 key={capability}
-                                 className="rounded-md border border-border/70 px-2 py-1 text-[11px] text-muted-foreground"
-                              >
-                                 {capability}
-                              </span>
-                           ))}
-                        </div>
-                     ) : (
-                        <p className="text-[11px] text-muted-foreground">
-                           The runtime reports no capabilities for this agent.
-                        </p>
-                     )}
-                  </section>
-               </TabsContent>
                <TabsContent value="settings" className="mt-0 flex flex-col gap-6 px-8 py-6">
                   <AgentModelPicker
                      agentId={agent.id}
@@ -555,6 +525,30 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                      placeholder="Describe how this agent should approach every task…"
                      failureNote="The runtime was not updated, so the agent still uses its previous instructions."
                   />
+                  <section className="flex flex-col gap-2 border-t border-border/70 pt-4">
+                     <div className="flex items-baseline gap-2">
+                        <h3 className="text-sm font-medium text-foreground">Capabilities</h3>
+                        <p className="text-[11px] text-muted-foreground">
+                           Tools and network access granted by the runtime.
+                        </p>
+                     </div>
+                     {agent.capabilities.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                           {agent.capabilities.map((capability) => (
+                              <span
+                                 key={capability}
+                                 className="rounded-md border border-border/70 px-2 py-1 text-[11px] text-muted-foreground"
+                              >
+                                 {capability}
+                              </span>
+                           ))}
+                        </div>
+                     ) : (
+                        <p className="text-[11px] text-muted-foreground">
+                           The runtime reports no capabilities for this agent.
+                        </p>
+                     )}
+                  </section>
                   <div className="flex flex-col gap-2 border-t border-border/70 pt-4">
                      <p className="text-[11px] text-muted-foreground">
                         Membership, crews, and workspace-wide defaults live in workspace settings.
