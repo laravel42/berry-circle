@@ -7,6 +7,8 @@
  * next time a label changes.
  */
 
+import type { SidebarItemKey } from '@/store/sidebar-prefs-store';
+
 export type ShellRoute =
    | 'issues'
    | 'runs'
@@ -16,8 +18,7 @@ export type ShellRoute =
    | 'inbox'
    | 'projects'
    | 'teams'
-   | 'members'
-   | 'more';
+   | 'members';
 
 export interface ShellRouteDef {
    /** Stable identifier, also the tab key. */
@@ -28,6 +29,11 @@ export interface ShellRouteDef {
    icon: string;
    /** Route this navigates to, relative to the workspace. */
    href: string;
+   /**
+    * Key in the sidebar preference store, when the user can pin or hide this
+    * item. Workspace routes are pinnable; primary routes are not.
+    */
+   prefsKey?: SidebarItemKey;
 }
 
 const PRIMARY: ShellRouteDef[] = [
@@ -68,27 +74,27 @@ const WORKSPACE: ShellRouteDef[] = [
       id: 'projects',
       label: 'projects',
       href: '/projects',
+      prefsKey: 'projects',
       icon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />',
    },
    {
       id: 'teams',
       label: 'crews',
       href: '/teams',
+      prefsKey: 'teams',
       icon: '<rect x="4" y="5" width="16" height="14" rx="2" /><circle cx="12" cy="11" r="2.4" /><path d="M8 17c1-2 6-2 8 0" />',
    },
    {
       id: 'members',
       label: 'agents',
       href: '/agents',
+      prefsKey: 'agents',
       icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" /><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9z" />',
    },
-   {
-      id: 'more',
-      label: 'more',
-      href: '/settings/preferences',
-      icon: '<circle cx="6" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="18" cy="12" r="1.4" />',
-   },
 ];
+
+export const MORE_ICON =
+   '<circle cx="6" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="18" cy="12" r="1.4" />';
 
 export const SHELL_SECTIONS: { heading: string | null; routes: ShellRouteDef[] }[] = [
    { heading: null, routes: PRIMARY },
@@ -112,7 +118,6 @@ export function shellRoute(id: string): ShellRouteDef | undefined {
 export function activeShellRoute(pathname: string): ShellRoute | null {
    let match: ShellRouteDef | null = null;
    for (const route of BY_ID.values()) {
-      if (route.href === '/settings/preferences') continue;
       if (pathname.includes(route.href) && (!match || route.href.length > match.href.length)) {
          match = route;
       }
