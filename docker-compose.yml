@@ -219,6 +219,16 @@ services:
       INFOBIP_WEBHOOK_SECRET: "${INFOBIP_WEBHOOK_SECRET:-}"
       SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-15s}"
       REALTIME_RELAY_REQUIRED: "${REALTIME_RELAY_REQUIRED:-true}"
+    # The image is shared with berry-api, whose Dockerfile HEALTHCHECK probes
+    # http://127.0.0.1:4000/health. This process serves no HTTP, so that check
+    # can only ever fail and reports a healthy worker as unhealthy. Disabled
+    # rather than replaced with something that always passes: a check that
+    # cannot fail looks like verification without being any.
+    #
+    # A meaningful probe would confirm the worker is polling its task queue,
+    # which needs the worker to expose an endpoint of its own.
+    healthcheck:
+      disable: true
     read_only: true
     tmpfs:
       - /tmp
