@@ -239,6 +239,15 @@ func run() int {
 		return 1
 	}
 
+	// Seed each workspace's agents from the runtime at boot. Without this the
+	// list is empty until somebody opens the agents page, which leaves intake
+	// with nothing to route to and the built-in orchestrator taking every task
+	// by fallback. Best effort: an unreachable runtime is a normal boot
+	// condition and the next agents request reconciles anyway.
+	if dbPool != nil {
+		agenthandlers.SyncAllWorkspaces(ctx, dbPool, upstream, time.Now, uuid.New, logger)
+	}
+
 	optionalCache := cache.FailOpen{
 		Backend: valkeyClient,
 		Enabled: cfg.CacheFailOpen,

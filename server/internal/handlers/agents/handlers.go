@@ -129,28 +129,17 @@ func listHandler(store Store, options Options) http.HandlerFunc {
 		); !writeAgentAuthorization(response, request, err, true) {
 			return
 		}
-		summaries, err := options.OpenFang.ListAgents(request.Context())
-		if err != nil {
-			writeDependencyError(response, request, err)
-			return
-		}
-		now := options.Clock().UTC()
-		updates := make([]SummaryUpdate, 0, len(summaries))
-		for _, summary := range summaries {
-			update, err := projectSummary(summary, workspaceID, options.NewID(), now)
-			if err != nil {
-				writeDependencyBadResponse(response, request)
-				return
-			}
-			updates = append(updates, update)
-		}
-		if err := store.SyncSummaries(
+		// Same reconciliation the startup seed runs, so a listing and a boot
+		// cannot project the runtime differently.
+		if _, err := SyncWorkspace(
 			request.Context(),
+			store,
+			options.OpenFang,
 			workspaceID,
-			updates,
-			now,
+			options.Clock,
+			options.NewID,
 		); err != nil {
-			writeInternal(response, request)
+			writeDependencyError(response, request, err)
 			return
 		}
 
