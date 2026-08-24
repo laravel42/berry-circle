@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Plate, PlateContent, usePlateEditor } from 'platejs/react';
-import { BaseBasicBlocksPlugin, BaseBasicMarksPlugin } from '@platejs/basic-nodes';
-import { BaseListPlugin } from '@platejs/list';
+import { BasicBlocksPlugin, BasicMarksPlugin } from '@platejs/basic-nodes/react';
+import { ListPlugin } from '@platejs/list/react';
 import { MarkdownPlugin } from '@platejs/markdown';
 
 import { cn } from '@/lib/utils';
@@ -52,11 +52,16 @@ export function RichDescriptionEditor({
    readOnly = false,
    'aria-label': ariaLabel,
 }: RichDescriptionEditorProps) {
-   // BaseListPlugin is not optional: without it the markdown round trip drops
-   // list content entirely rather than degrading it, so a description with
-   // bullets would save as empty.
+   // The React plugin variants, not the Base* ones. Base* are headless and
+   // exist for serialising outside React; in an editor they register no node
+   // renderers, so blocks and marks have nothing to draw with and the surface
+   // comes up inert.
+   //
+   // ListPlugin is not optional either: without it the markdown round trip
+   // drops list content entirely rather than degrading it, so a description
+   // with bullets would save as empty.
    const plugins = useMemo(
-      () => [BaseBasicBlocksPlugin, BaseBasicMarksPlugin, BaseListPlugin, MarkdownPlugin],
+      () => [BasicBlocksPlugin, BasicMarksPlugin, ListPlugin, MarkdownPlugin],
       []
    );
 
@@ -70,6 +75,20 @@ export function RichDescriptionEditor({
    // What the caller last persisted, so blur can tell a real edit from a
    // focus-and-leave and skip a pointless write.
    const committedRef = useRef(value);
+
+   // usePlateEditor reads `value` once, at mount. Anything that changes it
+   // afterwards — switching to another agent in the same drawer, or a refetch
+   // after save — would otherwise leave the previous document on screen.
+   //
+   // Only applied while unfocused: replacing blocks under an active cursor
+   // would discard what is being typed.
+   useEffect(() => {
+      if (value === committedRef.current) return;
+      if (editor.api.isFocused()) return;
+      committedRef.current = value;
+      const api = editor.getApi(MarkdownPlugin).markdown;
+      editor.tf.setValue(api.deserialize(value));
+   }, [editor, value]);
 
    const commit = useCallback(() => {
       if (readOnly || !onCommit) return;
