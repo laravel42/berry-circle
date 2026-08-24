@@ -38,7 +38,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
          <div className="px-3.5 pt-4 pb-3.5">
             <Link
                href={`/${orgId}/runs`}
-               className="flex w-fit items-center gap-1.5 rounded border border-[var(--shell-line)] px-2 py-1 text-[var(--shell-text-muted)] transition-colors hover:border-[var(--shell-line-strong)] hover:text-[var(--shell-text)]"
+               className="flex w-fit items-center gap-1.5 rounded-[5px] bg-[var(--shell-line)] px-2 py-1 text-[var(--shell-text-muted)] transition-colors hover:bg-[var(--shell-line-strong)] hover:text-[var(--shell-text)]"
             >
                <ChevronLeft className="size-4" />
                Back to app
@@ -98,7 +98,10 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
                   <li>
                      <Link
                         href={`/${orgId}/settings/teams/new`}
-                        className={link('', isNavItemActive(pathname, `/${orgId}/settings/teams/new`))}
+                        className={link(
+                           '',
+                           isNavItemActive(pathname, `/${orgId}/settings/teams/new`)
+                        )}
                      >
                         <PlusIcon className="size-[15px] flex-none" />
                         join or create a team

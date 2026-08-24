@@ -41,3 +41,18 @@ export function BerryMark({ size = 17, muted = false }: { size?: number; muted?:
       </svg>
    );
 }
+
+/**
+ * Shared style for icon buttons in the shell.
+ *
+ * Mirrors the app's `secondary` button — a filled light surface with no border
+ * — rather than the outlined treatment the prototype used, so an icon control
+ * in the rail reads the same as one in a page header. Exported as a class
+ * string rather than a component because these are variously buttons and
+ * links, and wrapping both would cost more than it saves.
+ */
+export const shellIconButton = [
+   'flex flex-none cursor-pointer items-center justify-center rounded-[5px]',
+   'bg-[var(--shell-line)] text-[var(--shell-text-muted)] transition-colors',
+   'hover:bg-[var(--shell-line-strong)] hover:text-[var(--shell-text)]',
+].join(' ');

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { Plus, X } from 'lucide-react';
+import { shellIconButton } from './shell-icon';
 import type { ShellTab } from '@/store/shell-store';
 import { BerryMark } from './shell-icon';
 
@@ -74,9 +75,11 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
                      onClick={() => onClose(tab.id)}
                      aria-label={`Close ${tab.label}`}
                      className={[
+                        // Unfilled until hovered: a filled square on every tab
+                        // would read as a row of dismiss buttons.
                         'flex size-[18px] flex-none cursor-pointer items-center justify-center rounded-[3px]',
                         'text-[var(--shell-text-dim)] transition-colors',
-                        'hover:bg-[var(--shell-line)] hover:text-[var(--shell-text)]',
+                        'hover:bg-[var(--shell-line-strong)] hover:text-[var(--shell-text)]',
                         // Keep the close affordance quiet until the tab is
                         // hovered or active, so a full strip does not read as a
                         // row of dismiss buttons. Focus reveals it for keyboard
@@ -93,7 +96,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
             type="button"
             onClick={onNew}
             aria-label="New tab"
-            className="flex h-[33px] w-[34px] flex-none cursor-pointer items-center justify-center text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
+            className={`my-[3.5px] mx-1 size-[26px] ${shellIconButton}`}
          >
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />
          </button>

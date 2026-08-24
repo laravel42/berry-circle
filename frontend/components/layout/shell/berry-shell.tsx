@@ -7,6 +7,7 @@ import { activeShellRoute, type ShellRoute } from './shell-routes';
 import { describeRoute } from './shell-tab-model';
 import { ShellRail } from './shell-rail';
 import { ShellTabs } from './shell-tabs';
+import { shellIconButton } from './shell-icon';
 
 /**
  * The application shell from `Berry Prototype.dc.html`: a collapsible rail, a
@@ -24,8 +25,16 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    const orgId = params?.orgId ?? '';
    const router = useRouter();
 
-   const { tabs, activeTabId, railOpen, showInActiveTab, openTab, activateTab, closeTab, toggleRail } =
-      useShellStore();
+   const {
+      tabs,
+      activeTabId,
+      railOpen,
+      showInActiveTab,
+      openTab,
+      activateTab,
+      closeTab,
+      toggleRail,
+   } = useShellStore();
 
    // describeRoute is pure, so memoising gives the effect below a stable
    // dependency instead of a fresh object every render.
@@ -47,7 +56,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
          activateTab(tab.id);
          push(tab.href);
       },
-      [activateTab, push],
+      [activateTab, push]
    );
 
    const handleClose = useCallback(
@@ -55,7 +64,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
          const next = closeTab(id);
          if (next) push(next.href);
       },
-      [closeTab, push],
+      [closeTab, push]
    );
 
    // "+" opens an additional tab on the index route, even when a tab is
@@ -96,17 +105,32 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    return (
       <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono text-sm font-light text-[var(--shell-text)]">
          {railOpen ? (
-            <ShellRail orgId={orgId} active={activeRoute} onToggle={toggleRail} settingsMode={settingsMode} />
+            <ShellRail
+               orgId={orgId}
+               active={activeRoute}
+               onToggle={toggleRail}
+               settingsMode={settingsMode}
+            />
          ) : (
             <button
                type="button"
                onClick={toggleRail}
                aria-label="Expand sidebar"
-               className="flex w-9 flex-none items-start justify-center bg-[var(--shell-rail)] pt-4 text-[var(--shell-text-dim)] transition-colors hover:text-[var(--shell-text)]"
+               className="flex w-9 flex-none items-start justify-center bg-[var(--shell-rail)] pt-4"
             >
-               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-                  <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />
-               </svg>
+               <span className={`size-[26px] ${shellIconButton}`}>
+                  {/* Mirrors the collapse control at the foot of the rail. */}
+                  <svg
+                     width="13"
+                     height="13"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth={1.7}
+                  >
+                     <path d="M10 6l5 6-5 6" />
+                  </svg>
+               </span>
             </button>
          )}
 
@@ -118,7 +142,9 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
                onClose={handleClose}
                onNew={handleNew}
             />
-            <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">{children}</main>
+            <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">
+               {children}
+            </main>
          </div>
       </div>
    );
