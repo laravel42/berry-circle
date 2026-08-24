@@ -31,8 +31,12 @@ const maxMessage = 8000
 
 // Store is the durable seam. Implemented by *conversations.Repository.
 type Store interface {
-	List(context.Context, uuid.UUID, int) ([]convrepo.Summary, error)
+	List(context.Context, uuid.UUID, uuid.UUID, int) ([]convrepo.Summary, error)
 	Messages(context.Context, uuid.UUID, uuid.UUID, int) ([]convrepo.Message, error)
+	// AssertParticipant is the authorization boundary for a thread. Workspace
+	// scope alone is not enough: a direct thread is private to the people in
+	// it, and a colleague has no more claim on it than a stranger.
+	AssertParticipant(context.Context, uuid.UUID, uuid.UUID, uuid.UUID) error
 	EnsureAgentThread(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) (uuid.UUID, error)
 	Append(context.Context, uuid.UUID, string, *uuid.UUID, string, time.Time) (uuid.UUID, error)
 	AgentFor(context.Context, uuid.UUID, uuid.UUID) (uuid.UUID, uuid.UUID, error)
@@ -102,7 +106,8 @@ func listHandler(options Options) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		found, err := options.Store.List(request.Context(), workspaceID, 100)
+		user := auth.MustUser(request.Context())
+		found, err := options.Store.List(request.Context(), workspaceID, user.ID, 100)
 		if err != nil {
 			writeInternal(response, request)
 			return
@@ -169,6 +174,16 @@ func messagesHandler(options Options) http.HandlerFunc {
 				"NOT_FOUND", "Conversation not found.", nil)
 			return
 		}
+		user := auth.MustUser(request.Context())
+		if err := options.Store.AssertParticipant(
+			request.Context(), workspaceID, conversationID, user.ID,
+		); err != nil {
+			// Not found rather than forbidden: probing ids should reveal
+			// nothing about which conversations exist.
+			httpapi.WriteError(response, request, http.StatusNotFound,
+				"NOT_FOUND", "Conversation not found.", nil)
+			return
+		}
 		found, err := options.Store.Messages(request.Context(), workspaceID, conversationID, 200)
 		if err != nil {
 			writeInternal(response, request)
@@ -216,6 +231,16 @@ func sendHandler(options Options) http.HandlerFunc {
 		}
 
 		user := auth.MustUser(request.Context())
+		// Checked before any mutation: Append is keyed only by conversation id,
+		// so without this a caller could inject a turn into any thread in any
+		// workspace by guessing a UUID.
+		if err := options.Store.AssertParticipant(
+			request.Context(), workspaceID, conversationID, user.ID,
+		); err != nil {
+			httpapi.WriteError(response, request, http.StatusNotFound,
+				"NOT_FOUND", "Conversation not found.", nil)
+			return
+		}
 		userID := user.ID
 		now := options.Clock().UTC()
 		if _, err := options.Store.Append(

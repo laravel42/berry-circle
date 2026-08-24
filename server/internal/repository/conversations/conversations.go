@@ -37,6 +37,7 @@ var (
 	ErrUnknownSender = errors.New("no verified user owns this address")
 	ErrDuplicate     = errors.New("message already recorded")
 	ErrAgentNotFound = errors.New("agent not found in this workspace")
+	ErrNotFound      = errors.New("conversation not found")
 )
 
 // Sender is the Berry identity behind an inbound address.
@@ -285,10 +286,11 @@ type Message struct {
 // not by its topic — an unnamed direct thread is identified by its agent.
 func (repository *Repository) List(
 	ctx context.Context,
-	workspaceID uuid.UUID,
+	workspaceID, userID uuid.UUID,
 	limit int,
 ) ([]Summary, error) {
-	if repository == nil || repository.Pool == nil || workspaceID == uuid.Nil {
+	if repository == nil || repository.Pool == nil ||
+		workspaceID == uuid.Nil || userID == uuid.Nil {
 		return nil, errors.New("conversation list scope is invalid")
 	}
 	if limit < 1 || limit > 200 {
@@ -307,10 +309,15 @@ func (repository *Repository) List(
 		    AND participant.participant_type = 'agent'
 		    AND participant.left_at IS NULL
 		   LEFT JOIN agents AS agent ON agent.id = participant.participant_id
+		   JOIN conversation_participants AS viewer
+		     ON viewer.conversation_id = conversation.id
+		    AND viewer.participant_type = 'user'
+		    AND viewer.participant_id = $2
+		    AND viewer.left_at IS NULL
 		  WHERE conversation.workspace_id = $1 AND conversation.status = 'open'
 		  ORDER BY conversation.updated_at DESC, conversation.id
-		  LIMIT $2`,
-		workspaceID, limit,
+		  LIMIT $3`,
+		workspaceID, userID, limit,
 	)
 	if err != nil {
 		return nil, errors.New("list conversations")
@@ -537,4 +544,42 @@ func (repository *Repository) AgentFor(
 		return uuid.Nil, uuid.Nil, errors.New("resolve thread agent")
 	}
 	return agentID, upstreamID, nil
+}
+
+// AssertParticipant fails unless the user is an active participant of a thread
+// in their own workspace.
+//
+// Membership is the authorization boundary for a conversation, not workspace
+// scope alone: a direct thread between one person and an agent is private to
+// that person, and a colleague in the same workspace has no more claim on it
+// than a stranger. Returns ErrNotFound rather than a distinct forbidden error
+// so probing for thread ids reveals nothing about which ones exist.
+func (repository *Repository) AssertParticipant(
+	ctx context.Context,
+	workspaceID, conversationID, userID uuid.UUID,
+) error {
+	if repository == nil || repository.Pool == nil ||
+		workspaceID == uuid.Nil || conversationID == uuid.Nil || userID == uuid.Nil {
+		return ErrNotFound
+	}
+	var exists bool
+	err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT true
+		   FROM conversations AS conversation
+		   JOIN conversation_participants AS participant
+		     ON participant.conversation_id = conversation.id
+		    AND participant.participant_type = 'user'
+		    AND participant.participant_id = $3
+		    AND participant.left_at IS NULL
+		  WHERE conversation.id = $2 AND conversation.workspace_id = $1`,
+		workspaceID, conversationID, userID,
+	).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return errors.New("verify conversation participant")
+	}
+	return nil
 }
