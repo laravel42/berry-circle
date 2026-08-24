@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { LayoutList } from 'lucide-react';
+import { RiEditLine } from '@remixicon/react';
 import {
    DropdownMenu,
    DropdownMenuContent,
@@ -11,6 +12,7 @@ import {
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CustomizeSidebarDialog } from '@/components/layout/sidebar/customize-sidebar-dialog';
+import { useCreateIssueStore } from '@/store/create-issue-store';
 import {
    isSidebarItemVisible,
    resolveOrder,
@@ -43,6 +45,11 @@ interface ShellRailProps {
  */
 export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailProps) {
    const { visibility, order } = useSidebarPrefsStore();
+   // Opens the globally mounted CreateNewIssue dialog. The rail holds a trigger
+   // only — the dialog stays mounted by CreateIssueModalProvider so the command
+   // palette and the board group headers keep working from anywhere, including
+   // settings, where the rail shows no trigger at all.
+   const openCreateIssue = useCreateIssueStore((state) => state.openModal);
    const [customizeOpen, setCustomizeOpen] = useState(false);
 
    // The preference store is persisted, so its first client value differs from
@@ -88,35 +95,49 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
              chevrons-up-down glyph reads as a switcher everywhere else in the
              product, and settings and log out have no other home. Collapse
              moves to its own control at the foot of the rail. */}
-         <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-               <button
-                  type="button"
-                  aria-label="Workspace menu"
-                  className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 pt-4 pb-3.5 text-left transition-colors hover:bg-[var(--shell-hover)] data-[state=open]:bg-[var(--shell-hover)]"
-               >
-                  <BerryMark />
-                  <span className="font-display text-[15px] tracking-[-0.01em] text-[var(--shell-text)]">
-                     Berry<span className="text-[var(--shell-accent)]">.</span>
-                  </span>
-                  <svg
-                     width="13"
-                     height="13"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth={1.7}
-                     className="ml-auto text-[var(--shell-text-dim)]"
-                     aria-hidden="true"
+         <div className="flex items-center gap-1 pr-2.5">
+            <DropdownMenu>
+               <DropdownMenuTrigger asChild>
+                  <button
+                     type="button"
+                     aria-label="Workspace menu"
+                     className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-3.5 pt-4 pb-3.5 text-left transition-colors hover:bg-[var(--shell-hover)] data-[state=open]:bg-[var(--shell-hover)]"
                   >
-                     <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />
-                  </svg>
-               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="min-w-60 rounded-lg" side="bottom" align="start" sideOffset={4}>
-               <WorkspaceMenuItems orgId={orgId} />
-            </DropdownMenuContent>
-         </DropdownMenu>
+                     <BerryMark />
+                     <span className="font-display text-[15px] tracking-[-0.01em] text-[var(--shell-text)]">
+                        Berry<span className="text-[var(--shell-accent)]">.</span>
+                     </span>
+                     <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.7}
+                        className="ml-auto text-[var(--shell-text-dim)]"
+                        aria-hidden="true"
+                     >
+                        <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />
+                     </svg>
+                  </button>
+               </DropdownMenuTrigger>
+               <DropdownMenuContent className="min-w-60 rounded-lg" side="bottom" align="start">
+                  <WorkspaceMenuItems orgId={orgId} />
+               </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Sibling of the trigger, not a child: a button inside a button is
+                invalid and breaks activation for both. */}
+            <button
+               type="button"
+               onClick={() => openCreateIssue()}
+               aria-label="Create issue"
+               title="Create issue"
+               className="mt-[3px] flex size-7 flex-none cursor-pointer items-center justify-center rounded-[5px] border border-[var(--shell-line)] text-[var(--shell-text-muted)] transition-colors hover:border-[var(--shell-line-strong)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
+            >
+               <RiEditLine className="size-4" />
+            </button>
+         </div>
 
          {SHELL_SECTIONS.map((section) => {
             const { shown, hidden } = partition(section.routes);
