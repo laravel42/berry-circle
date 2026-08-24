@@ -1,10 +1,9 @@
 /**
  * Shell route table, ported from `Berry Prototype.dc.html`.
  *
- * The prototype distinguishes a route's identifier from its label — `teams`
- * renders as "crews" and `members` as "agents" — so both are kept here rather
- * than derived. Deriving one from the other would quietly rename a route the
- * next time a label changes.
+ * The prototype distinguishes a route's identifier from its label — `members`
+ * renders as "agents" — so both are kept here rather than derived. Deriving one
+ * from the other would quietly rename a route the next time a label changes.
  */
 
 import type { SidebarItemKey } from '@/store/sidebar-prefs-store';
@@ -76,13 +75,6 @@ const WORKSPACE: ShellRouteDef[] = [
       href: '/projects',
       prefsKey: 'projects',
       icon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />',
-   },
-   {
-      id: 'teams',
-      label: 'crews',
-      href: '/teams',
-      prefsKey: 'teams',
-      icon: '<rect x="4" y="5" width="16" height="14" rx="2" /><circle cx="12" cy="11" r="2.4" /><path d="M8 17c1-2 6-2 8 0" />',
    },
    {
       id: 'members',

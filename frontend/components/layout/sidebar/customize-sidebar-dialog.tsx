@@ -21,7 +21,6 @@ import {
    Box,
    Check,
    ChevronDown,
-   ContactRound,
    FolderKanban,
    GitPullRequestArrow,
    GripVertical,
@@ -48,7 +47,6 @@ export const PERSONAL_ITEMS: ItemConfig[] = [
 
 export const WORKSPACE_ITEMS: ItemConfig[] = [
    { key: 'projects', label: 'projects', icon: Box },
-   { key: 'teams', label: 'crews', icon: ContactRound },
    { key: 'agents', label: 'agents', icon: Sparkles },
 ];
 

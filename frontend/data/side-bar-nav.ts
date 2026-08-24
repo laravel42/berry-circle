@@ -49,23 +49,6 @@ export const inboxItems = [
    },
 ];
 
-export const workspaceItems = [
-   {
-      name: 'Crews',
-      url: `/${ORG}/teams`,
-      icon: ContactRound,
-   },
-   {
-      name: 'Projects',
-      url: `/${ORG}/projects`,
-      icon: Box,
-   },
-   {
-      name: 'Agents',
-      url: `/${ORG}/agents`,
-      icon: Sparkles,
-   },
-];
 
 export const accountItems = [
    {

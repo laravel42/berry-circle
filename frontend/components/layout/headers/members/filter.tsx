@@ -164,23 +164,6 @@ export function Filter() {
                            {sort === 'joined-desc' && <CheckIcon size={16} />}
                         </CommandItem>
                      </CommandGroup>
-                     <CommandSeparator />
-                     <CommandGroup heading="Teams">
-                        <CommandItem
-                           onSelect={() => setSort('teams-asc')}
-                           className="flex items-center justify-between"
-                        >
-                           Lowest to Highest
-                           {sort === 'teams-asc' && <CheckIcon size={16} />}
-                        </CommandItem>
-                        <CommandItem
-                           onSelect={() => setSort('teams-desc')}
-                           className="flex items-center justify-between"
-                        >
-                           Highest to Lowest
-                           {sort === 'teams-desc' && <CheckIcon size={16} />}
-                        </CommandItem>
-                     </CommandGroup>
                   </CommandList>
                </Command>
             ) : null}

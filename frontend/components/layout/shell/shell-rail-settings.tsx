@@ -2,18 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ChevronLeft, PlusIcon } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 
 import { settingsNav } from '@/components/layout/sidebar/nav-settings';
 import { isNavItemActive } from '@/lib/nav-active';
-import { useTeamsStore } from '@/store/teams-store';
 
 /**
  * Settings mode for the rail.
  *
  * `AppSidebar` swapped its whole contents on settings routes — back-to-app plus
- * the settings groups and your crews — and the shell rail had no equivalent, so
- * settings lost its navigation entirely.
+ * the settings groups — and the shell rail had no equivalent, so settings lost
+ * its navigation entirely.
  *
  * The route data comes from `settingsNav`, which NavSettings already exports,
  * so the two cannot list different settings pages. Only the presentation is
@@ -23,7 +22,6 @@ import { useTeamsStore } from '@/store/teams-store';
  */
 export function ShellRailSettings({ orgId }: { orgId: string }) {
    const pathname = usePathname() ?? '';
-   const joinedCrews = useTeamsStore((state) => state.teams).filter((crew) => crew.joined);
 
    const link = (href: string, active: boolean) =>
       [
@@ -71,45 +69,6 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
             </div>
          ))}
 
-         {joinedCrews.length > 0 ? (
-            <div>
-               <div className="px-[18px] pt-[18px] pb-[7px] text-xs uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
-                  your crews
-               </div>
-               <ul className="flex flex-col gap-px px-2">
-                  {joinedCrews.map((crew) => {
-                     const href = `/${orgId}/settings/teams/${crew.id}`;
-                     const active = isNavItemActive(pathname, href);
-                     return (
-                        <li key={crew.id}>
-                           <Link
-                              href={href}
-                              aria-current={active ? 'page' : undefined}
-                              className={link(href, active)}
-                           >
-                              <span className="inline-flex size-5 flex-none items-center justify-center rounded bg-[var(--shell-line)]">
-                                 {crew.icon}
-                              </span>
-                              {crew.name}
-                           </Link>
-                        </li>
-                     );
-                  })}
-                  <li>
-                     <Link
-                        href={`/${orgId}/settings/teams/new`}
-                        className={link(
-                           '',
-                           isNavItemActive(pathname, `/${orgId}/settings/teams/new`)
-                        )}
-                     >
-                        <PlusIcon className="size-[15px] flex-none" />
-                        join or create a team
-                     </Link>
-                  </li>
-               </ul>
-            </div>
-         ) : null}
       </>
    );
 }

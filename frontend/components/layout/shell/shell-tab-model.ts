@@ -16,8 +16,6 @@ export interface RouteDescriptor {
 const SECTION_LABELS: Record<string, string> = {
    'my-issues': 'issues',
    issue: 'issues',
-   teams: 'crews',
-   team: 'crews',
    agents: 'agents',
    members: 'agents',
    agent: 'agents',
@@ -53,7 +51,7 @@ export function describeRoute(pathname: string, orgId: string): RouteDescriptor 
    if (!relative || relative === '/') return null;
    if (relative.startsWith('/settings')) return null;
 
-   // A rail destination keeps its rail label, so "crews" reads the same in both.
+   // A rail destination keeps its rail label, so both surfaces read the same.
    const nav = SHELL_SECTIONS.flatMap((section) => section.routes).find(
       (route) => route.href === relative,
    );

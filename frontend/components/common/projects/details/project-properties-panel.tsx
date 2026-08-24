@@ -7,7 +7,6 @@ import { Issue } from '@/data/issues';
 import { getCycleById } from '@/data/cycles';
 import { ProjectDetail } from '@/data/project-details';
 import { Project } from '@/data/projects';
-import { useTeamsStore } from '@/store/teams-store';
 import { PanelFilterTarget, usePanelFilter } from '@/components/common/issues/use-panel-filter';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
@@ -111,11 +110,8 @@ function PropertyRow({ label, children }: { label: string; children: React.React
  * progress breakdowns and a compact activity feed.
  */
 export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPropertiesPanelProps) {
-   const teams = useTeamsStore((state) => state.teams);
    const panelFilter = usePanelFilter();
    const completed = issues.filter(isCompleted).length;
-
-   const team = teams.find((candidate) => candidate.id === project.teamId);
 
    const started = issues.filter((issue) => issue.status.category === 'started').length;
 
@@ -246,11 +242,6 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
                   <span className="inline-flex items-center gap-1">
                      <Calendar className="size-3.5 text-muted-foreground" />
                      {project.targetDate ? formatDay(project.targetDate) : 'Target'}
-                  </span>
-               </PropertyRow>
-               <PropertyRow label="Teams">
-                  <span className="inline-flex items-center gap-1.5">
-                     {team?.icon} {team?.name ?? project.teamId}
                   </span>
                </PropertyRow>
                <PropertyRow label="Slack">

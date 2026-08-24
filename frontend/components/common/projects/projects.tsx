@@ -3,13 +3,11 @@
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Project } from '@/data/projects';
-import { useTeamsStore } from '@/store/teams-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import { useProjectsFilterStore } from '@/store/projects-filter-store';
 import { useProjectsDisplayStore } from '@/store/projects-display-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
-import { useSessionStore } from '@/store/session-store';
 import { BarChart3, Box } from 'lucide-react';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useMemo } from 'react';
@@ -84,11 +82,8 @@ function sortProjects(list: Project[], sort: string, ordering: string): Project[
    return list.slice().sort(compare);
 }
 
-function applyTabScope(list: Project[], teamId: string | undefined, tab: string, closedProjects: string): Project[] {
+function applyTabScope(list: Project[], tab: string, closedProjects: string): Project[] {
    let scoped = list.slice();
-   if (teamId) {
-      scoped = scoped.filter((project) => project.teamId === teamId);
-   }
    if (tab === 'active') {
       scoped = scoped.filter((project) => ACTIVE_CATEGORIES.has(project.status.category));
    }
@@ -121,19 +116,14 @@ function percentCompleteForProject(
    return Math.round((done / linked.length) * 100);
 }
 
-/**
- * Projects page. With a `teamId` the whole page (tabs, filters, display
- * options, views, insights) is scoped to that team's projects.
- */
-export default function Projects({ teamId }: { teamId?: string }) {
+/** Projects page: tabs, filters, display options, views and insights. */
+export default function Projects() {
    const { filters, sort } = useProjectsFilterStore();
    const { viewTypes, grouping, ordering, closedProjects, showEmptyGroups } =
       useProjectsDisplayStore();
    const { openPanel, togglePanel } = useRightPanelStore();
    const allProjects = useProjectsStore((state) => state.projects);
    const issues = useIssuesStore((state) => state.issues);
-   const teams = useTeamsStore((state) => state.teams);
-   const workspace = useSessionStore((state) => state.workspace);
    const [tab, setTab] = useQueryState('tab', parseAsStringLiteral(TABS).withDefault('all'));
    const viewType = viewTypes[tab];
 
@@ -147,8 +137,8 @@ export default function Projects({ teamId }: { teamId?: string }) {
    );
 
    const scoped = useMemo(
-      () => applyTabScope(enriched, teamId, tab, closedProjects),
-      [enriched, teamId, tab, closedProjects]
+      () => applyTabScope(enriched, tab, closedProjects),
+      [enriched, tab, closedProjects]
    );
 
    const displayed = useMemo(
@@ -172,8 +162,7 @@ export default function Projects({ teamId }: { teamId?: string }) {
          ];
       }
 
-      if (grouping === 'status') {
-         return projectCreateStatusOptions.map((option) => ({
+      return projectCreateStatusOptions.map((option) => ({
             group: {
                id: option.status.id,
                name: option.label,
@@ -183,75 +172,22 @@ export default function Projects({ teamId }: { teamId?: string }) {
             },
             projects: displayed.filter((project) => project.status.id === option.status.id),
             total: scoped.filter((project) => project.status.id === option.status.id).length,
-         }));
-      }
-
-      const roster =
-         teams.length > 0
-            ? teams
-            : [
-                 {
-                    id: workspace?.id ?? 'workspace',
-                    name: workspace?.name ?? 'Workspace',
-                    icon: '🫐',
-                    joined: true,
-                    color: '#6771c5',
-                    members: [],
-                    projects: [],
-                 },
-              ];
-
-      return roster.map((team) => ({
-         group: {
-            id: team.id,
-            name: team.name,
-            color: team.color ?? '#6771c5',
-            icon: <span className="text-sm leading-none">{team.icon}</span>,
-         },
-         projects: displayed.filter((project) => project.teamId === team.id),
-         total: scoped.filter((project) => project.teamId === team.id).length,
       }));
-   }, [displayed, grouping, scoped, teams, workspace]);
+   }, [displayed, grouping, scoped]);
 
    const groups = useMemo<ProjectGroup[]>(() => {
       if (grouping === 'none') {
          return [{ id: 'all', name: 'All projects', projects: displayed }];
       }
 
-      if (grouping === 'status') {
-         return projectCreateStatusOptions
-            .map((option) => ({
-               id: option.status.id,
-               name: option.label,
-               projects: displayed.filter((project) => project.status.id === option.status.id),
-            }))
-            .filter((group) => showEmptyGroups || group.projects.length > 0);
-      }
-
-      const roster =
-         teams.length > 0
-            ? teams
-            : [
-                 {
-                    id: workspace?.id ?? 'workspace',
-                    name: workspace?.name ?? 'Workspace',
-                    icon: '🫐',
-                    joined: true,
-                    color: '#6771c5',
-                    members: [],
-                    projects: [],
-                 },
-              ];
-
-      return roster
-         .map((team) => ({
-            id: team.id,
-            name: team.name,
-            icon: team.icon,
-            projects: displayed.filter((project) => project.teamId === team.id),
+      return projectCreateStatusOptions
+         .map((option) => ({
+            id: option.status.id,
+            name: option.label,
+            projects: displayed.filter((project) => project.status.id === option.status.id),
          }))
          .filter((group) => showEmptyGroups || group.projects.length > 0);
-   }, [displayed, grouping, showEmptyGroups, workspace, teams]);
+   }, [displayed, grouping, showEmptyGroups]);
 
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">

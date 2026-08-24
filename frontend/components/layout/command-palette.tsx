@@ -15,7 +15,6 @@ import { useLabelsStore } from '@/store/labels-store';
 import { useMembersStore } from '@/store/members-store';
 import { priorities } from '@/data/priorities';
 import { status as allStatus } from '@/data/status';
-import { useTeamsStore } from '@/store/teams-store';
 import { currentUser } from '@/data/users';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { WORKSPACE_SLUG } from '@/lib/config';
@@ -31,7 +30,6 @@ import {
    ClipboardList,
    ClipboardType,
    Compass,
-   ContactRound,
    FileText,
    GitBranch,
    Inbox,
@@ -44,14 +42,13 @@ import {
    Type,
    UserRoundMinus,
    UserRoundPlus,
-   Users,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 type PaletteRoute =
-   'root' | 'assign' | 'status' | 'priority' | 'labels' | 'project' | 'cycle' | 'team' | 'due-date';
+   'root' | 'assign' | 'status' | 'priority' | 'labels' | 'project' | 'cycle' | 'due-date';
 
 /** Small keyboard hint chips on the right of a command row. */
 function Keys({ keys }: { keys: string[] }) {
@@ -72,7 +69,6 @@ function Keys({ keys }: { keys: string[] }) {
 /** ⌘K command palette — Linear-style, aware of the issue in context. */
 export function CommandPalette() {
    const [open, setOpen] = useState(false);
-   const teams = useTeamsStore((state) => state.teams);
    const [route, setRoute] = useState<PaletteRoute>('root');
    const [query, setQuery] = useState('');
    /** When true, the issue context chip was dismissed with ⌫. */
@@ -315,16 +311,6 @@ export function CommandPalette() {
                            </CommandItem>
                            <CommandItem
                               onSelect={() => {
-                                 setRoute('team');
-                                 setQuery('');
-                              }}
-                           >
-                              <Users className="text-muted-foreground" />
-                              Move to a different crew…
-                              <Keys keys={['⌘', '⇧', 'M']} />
-                           </CommandItem>
-                           <CommandItem
-                              onSelect={() => {
                                  setRoute('due-date');
                                  setQuery('');
                               }}
@@ -436,9 +422,6 @@ export function CommandPalette() {
                            </CommandItem>
                            <CommandItem onSelect={() => go('/views')}>
                               <Layers className="text-muted-foreground" /> Views
-                           </CommandItem>
-                           <CommandItem onSelect={() => go('/teams')}>
-                              <ContactRound className="text-muted-foreground" /> Crews
                            </CommandItem>
                            <CommandItem onSelect={() => go('/agents')}>
                               <Sparkles className="text-muted-foreground" /> Agents
@@ -610,25 +593,6 @@ export function CommandPalette() {
                               {issue.cycleId === cycle.id && <Check className="ml-auto size-4" />}
                            </CommandItem>
                         ))}
-                     </CommandGroup>
-                  )}
-
-                  {route === 'team' && issue && (
-                     <CommandGroup heading="Move to a different crew…">
-                        {teams
-                           .filter((team) => team.joined)
-                           .map((team) => (
-                              <CommandItem
-                                 key={team.id}
-                                 onSelect={() => {
-                                    toast.success(`Moved to ${team.name}`);
-                                    close();
-                                 }}
-                              >
-                                 <span className="text-sm">{team.icon}</span>
-                                 {team.name}
-                              </CommandItem>
-                           ))}
                      </CommandGroup>
                   )}
 

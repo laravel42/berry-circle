@@ -1,6 +1,6 @@
 'use client';
 
-import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
+import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
 import { Button } from '@/components/ui/button';
 import { getCycleById } from '@/data/cycles';
 import { IssueDetail } from '@/data/issue-details';

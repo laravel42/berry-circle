@@ -5,7 +5,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useProject } from '@/hooks/use-project';
 import { getProjectDetail } from '@/data/project-details';
 import { useIssuesStore } from '@/store/issues-store';
-import { useTeamsStore } from '@/store/teams-store';
 import { format, parseISO } from 'date-fns';
 import { ArrowRight, ChevronDown, FileText, PenLine, Plus } from 'lucide-react';
 import Link from 'next/link';
@@ -22,7 +21,6 @@ const formatDay = (iso?: string) => (iso ? format(parseISO(iso), 'MMM do') : 'â€
 
 /** Project "Overview" tab: description column + properties side panel. */
 export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
-   const teams = useTeamsStore((state) => state.teams);
    const project = useProject(projectId);
    const detail = getProjectDetail(projectId);
    const { issues: allIssues } = useIssuesStore();
@@ -32,7 +30,6 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
    );
 
    const { orgId } = useParams<{ orgId: string }>();
-   const team = teams.find((candidate) => candidate.id === project?.teamId);
    const scrollRef = useRef<HTMLDivElement>(null);
    const outlineItems = useMemo(() => getOutlineItems(detail.description), [detail.description]);
 
@@ -81,11 +78,6 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                               <ArrowRight className="size-3" />
                               {formatDay(project.targetDate)}
                            </span>
-                           {team && (
-                              <span className="inline-flex items-center gap-1.5">
-                                 {team.icon} {team.name}
-                              </span>
-                           )}
                         </div>
                      </div>
 

@@ -18,7 +18,7 @@ import { useSearchStore } from '@/store/search-store';
 import { BarChart3, PanelRight, SearchIcon } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { DisplayOptions } from '../display-options';
-import Notifications from '../issues/notifications';
+import Notifications from '../notifications';
 
 function HeaderNav() {
    const { isSearchOpen, toggleSearch, closeSearch, setSearchQuery, searchQuery } =

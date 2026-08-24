@@ -13,7 +13,6 @@ import {
 import { cn } from '@/lib/utils';
 import { View } from '@/data/views';
 import { useViewsStore } from '@/store/views-store';
-import { useTeamsStore } from '@/store/teams-store';
 import { useViewsDisplayStore, ViewsOrdering } from '@/store/views-display-store';
 import { ArrowDown, Plus, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
@@ -138,30 +137,23 @@ function ViewRow({ view, orgId }: { view: View; orgId: string }) {
    );
 }
 
-/**
- * "Views" page: saved issue / project views. With a `teamId`, only that
- * team's views are listed (team sidebar "Views" entry); otherwise the whole
- * workspace is shown.
- */
-export default function Views({ teamId }: { teamId?: string }) {
-   const teams = useTeamsStore((state) => state.teams);
+/** "Views" page: the workspace's saved issue / project views. */
+export default function Views() {
    const { orgId } = useParams<{ orgId: string }>();
    const [tab, setTab] = useQueryState('tab', parseAsStringLiteral(TABS).withDefault('issues'));
    const { ordering } = useViewsDisplayStore();
    const savedViews = useViewsStore((state) => state.views);
-   const team = teamId ? teams.find((entry) => entry.id === teamId) : undefined;
 
    const list = useMemo(() => {
-      let source = savedViews.filter((view) =>
+      const source = savedViews.filter((view) =>
          tab === 'issues' ? view.type === 'issue' : view.type === 'project'
       );
-      if (teamId) source = source.filter((view) => view.teamId === teamId);
       return [...source].sort((a, b) => {
          if (ordering === 'created') return b.createdAt.localeCompare(a.createdAt);
          if (ordering === 'updated') return b.updatedAt.localeCompare(a.updatedAt);
          return a.name.localeCompare(b.name);
       });
-   }, [tab, ordering, teamId, savedViews]);
+   }, [tab, ordering, savedViews]);
 
    return (
       <div className="w-full h-full overflow-y-auto">
@@ -192,19 +184,11 @@ export default function Views({ teamId }: { teamId?: string }) {
 
          <div className="flex items-center justify-between px-6 py-2 bg-sidebar/60 border-b border-border/50">
             <span className="flex items-center gap-2 text-sm">
-               {team ? (
-                  <span className="inline-flex size-5 items-center justify-center rounded bg-muted/50 text-xs">
-                     {team.icon}
-                  </span>
-               ) : (
-                  <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground text-[10px] font-semibold">
-                     LN
-                  </span>
-               )}
-               <span className="font-medium">{team ? team.name : 'Berry'}</span>
-               <span className="text-muted-foreground text-xs">
-                  · {team ? 'Team' : 'Workspace'}
+               <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground text-[10px] font-semibold">
+                  LN
                </span>
+               <span className="font-medium">Berry</span>
+               <span className="text-muted-foreground text-xs">· Workspace</span>
             </span>
             <Button size="xs" variant="ghost">
                <Plus className="size-3.5" />

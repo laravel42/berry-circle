@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, ContactRound, LayoutList, LucideIcon, MoreHorizontal, Sparkles } from 'lucide-react';
+import { Box, LayoutList, LucideIcon, MoreHorizontal, Sparkles } from 'lucide-react';
 
 import {
    DropdownMenu,
@@ -38,7 +38,6 @@ interface WorkspaceNavItem {
 
 const WORKSPACE_NAV: WorkspaceNavItem[] = [
    { key: 'projects', name: 'projects', icon: Box, url: '/projects' },
-   { key: 'teams', name: 'crews', icon: ContactRound, url: '/teams' },
    { key: 'agents', name: 'agents', icon: Sparkles, url: '/agents' },
 ];
 

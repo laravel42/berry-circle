@@ -4,7 +4,7 @@ import { create } from 'zustand';
  * Right side panel shown on issues / cycle / project pages.
  * - 'insights': analytics panel (issue count by status, segmented by priority)
  * - 'cycle-details': current cycle summary (progress chart + breakdowns)
- * - 'breakdown': Labels/Priority/Projects/Teams counters (My issues)
+ * - 'breakdown': Labels/Priority/Projects counters (My issues)
  * - 'hidden': used by pages whose default panel is visible (project pages)
  *   to collapse the side panel entirely
  */

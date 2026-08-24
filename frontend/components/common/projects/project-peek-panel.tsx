@@ -87,7 +87,6 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
 
    if (!project) return null;
 
-   const team = workspace && project?.teamId === workspace.id ? workspace : null;
    const started = issues.filter((issue) => issue.status.category === 'started').length;
    const completed = issues.filter((issue) => issue.status.category === 'completed').length;
 
@@ -181,7 +180,7 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
                </PropertyRow>
                <PropertyRow label="Teams">
                   <span className="inline-flex items-center gap-1.5">
-                     🫐 {team?.name ?? workspace?.name ?? 'Workspace'}
+                     🫐 {workspace?.name ?? 'Workspace'}
                   </span>
                </PropertyRow>
                <PropertyRow label="Slack">

@@ -551,7 +551,7 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                   </section>
                   <div className="flex flex-col gap-2 border-t border-border/70 pt-4">
                      <p className="text-[11px] text-muted-foreground">
-                        Membership, crews, and workspace-wide defaults live in workspace settings.
+                        Membership and workspace-wide defaults live in workspace settings.
                      </p>
                      <Button size="xs" variant="secondary" className="w-fit text-[11px]" asChild>
                         <Link href={`/${orgId}/settings/ai`}>Open workspace agent settings</Link>

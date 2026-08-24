@@ -2,7 +2,6 @@
 
 import { currentUser } from '@/data/users';
 import { BerryApiError } from '@/lib/api';
-import { loadWorkspaceCrews } from '@/lib/crews';
 import { loadWorkspaceAgents } from '@/lib/agents';
 import { loadWorkspaceLabels } from '@/lib/labels';
 import { loadWorkspaceInbox, loadInboxUnreadCount } from '@/lib/inbox';
@@ -19,7 +18,6 @@ import { useNotificationsStore } from '@/store/notifications-store';
 import { useProjectsStore } from '@/store/projects-store';
 import { useRunsStore } from '@/store/runs-store';
 import { useSessionStore } from '@/store/session-store';
-import { useTeamsStore } from '@/store/teams-store';
 import { useViewsStore } from '@/store/views-store';
 import { useEffect } from 'react';
 
@@ -40,7 +38,6 @@ export function useHydrateWorkspaceData(): void {
    const hydrateMembers = useMembersStore((state) => state.hydrateMembers);
    const hydrateLabels = useLabelsStore((state) => state.hydrateLabels);
    const hydrateViews = useViewsStore((state) => state.hydrateViews);
-   const hydrateTeams = useTeamsStore((state) => state.hydrateTeams);
 
    useEffect(() => {
       if (status !== 'ready' || !boardId) return;
@@ -99,15 +96,6 @@ export function useHydrateWorkspaceData(): void {
       void loadWorkspaceViews(workspaceId, lead).then((views) => {
          if (!cancelled) hydrateViews(views);
       });
-      void Promise.all([
-         loadWorkspaceMembers(workspaceId),
-         loadWorkspaceProjects(workspaceId, lead),
-      ]).then(([members, projects]) => {
-         if (cancelled) return;
-         void loadWorkspaceCrews(members, projects).then((crews) => {
-            if (!cancelled) hydrateTeams(crews);
-         });
-      });
       return () => {
          cancelled = true;
       };
@@ -122,6 +110,5 @@ export function useHydrateWorkspaceData(): void {
       hydrateMembers,
       hydrateLabels,
       hydrateViews,
-      hydrateTeams,
    ]);
 }

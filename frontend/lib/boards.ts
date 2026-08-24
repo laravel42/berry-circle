@@ -30,7 +30,7 @@ export function slugFromBoardName(name: string): string {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 12);
-   const slug = normalized || 'crew';
+   const slug = normalized || 'board';
    if (slug.length === 1) return `${slug}x`;
    return slug;
 }
@@ -74,7 +74,7 @@ export async function createBoard(body: CreateBoardBody): Promise<BoardSummary> 
    });
    const parsed = boardSchema.safeParse(json);
    if (!parsed.success) {
-      throw new Error('Create crew response was not recognized');
+      throw new Error('Create board response was not recognized');
    }
    return parsed.data;
 }
