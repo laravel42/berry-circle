@@ -1,7 +1,19 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { CheckIcon, ChevronsUpDown } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
+import {
+   Command,
+   CommandEmpty,
+   CommandGroup,
+   CommandInput,
+   CommandItem,
+   CommandList,
+} from '@/components/ui/command';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
 import { listAgentModels, updateAgentConfig, type AgentModel } from '@/lib/agents';
 
 interface AgentModelPickerProps {
@@ -24,6 +36,26 @@ function compact(tokens: number): string {
    return String(tokens);
 }
 
+function keyOf(item: AgentModel): string {
+   return `${item.provider}/${item.id}`;
+}
+
+/**
+ * Every whitespace-separated term must appear in the entry.
+ *
+ * cmdk's default scorer is fuzzy enough to rank an unrelated model above
+ * nothing — typing gibberish returned "Amazon: Nova Premier" rather than an
+ * empty list. A model is picked by recalling part of its vendor or name, so
+ * substring-per-term is both predictable and enough: "claude sonnet" and
+ * "openrouter deepseek" both narrow the way a reader expects.
+ */
+function matches(value: string, search: string): number {
+   const haystack = value.toLowerCase();
+   const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
+   if (terms.length === 0) return 1;
+   return terms.every((term) => haystack.includes(term)) ? 1 : 0;
+}
+
 /**
  * Chooses the LLM an agent runs on.
  *
@@ -32,11 +64,16 @@ function compact(tokens: number): string {
  * The current pairing is shown even when it is not in the list, because a
  * runtime can serve a model it no longer offers for selection and hiding that
  * would make the agent look unconfigured.
+ *
+ * Searchable rather than a plain select: the catalog is the live provider list,
+ * several hundred models deep, and scrolling that to find one by name is not a
+ * choice anybody can make.
  */
 export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerProps) {
    const [models, setModels] = useState<AgentModel[]>([]);
    const [state, setState] = useState<SaveState>('idle');
    const [message, setMessage] = useState<string | null>(null);
+   const [open, setOpen] = useState(false);
    const [current, setCurrent] = useState(() => (provider && model ? `${provider}/${model}` : ''));
 
    useEffect(() => {
@@ -73,12 +110,13 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
       return [...byProvider.entries()];
    }, [models]);
 
-   const known = models.some((item) => `${item.provider}/${item.id}` === current);
-   const selected = models.find((item) => `${item.provider}/${item.id}` === current);
+   const selected = models.find((item) => keyOf(item) === current);
 
    const change = async (value: string) => {
       const divider = value.indexOf('/');
       if (divider < 1) return;
+      setOpen(false);
+      if (value === current) return;
       const previous = current;
       setCurrent(value);
       setState('saving');
@@ -105,34 +143,79 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
             <p className="text-[11px] text-muted-foreground">
                The LLM this agent runs every task on.
             </p>
-            <span className="ml-auto text-[11px] text-muted-foreground" role="status" aria-live="polite">
+            <span
+               className="ml-auto text-[11px] text-muted-foreground"
+               role="status"
+               aria-live="polite"
+            >
                {state === 'saving' ? 'Switching…' : null}
                {state === 'saved' ? 'Saved' : null}
             </span>
          </div>
 
-         <select
-            value={current}
-            onChange={(event) => void change(event.target.value)}
-            disabled={state === 'saving' || models.length === 0}
-            aria-label="Model"
-            className="w-full rounded-md border border-border/70 bg-transparent px-3 py-2 text-sm text-foreground disabled:opacity-50"
-         >
-            {current && !known ? (
-               <option value={current}>{current} (not offered by this runtime)</option>
-            ) : null}
-            {!current ? <option value="">Select a model…</option> : null}
-            {groups.map(([groupProvider, items]) => (
-               <optgroup key={groupProvider} label={groupProvider}>
-                  {items.map((item) => (
-                     <option key={`${item.provider}/${item.id}`} value={`${item.provider}/${item.id}`}>
-                        {item.displayName} — {money(item.inputCostPerM)}/{money(item.outputCostPerM)} per M ·{' '}
-                        {compact(item.contextWindow)} ctx
-                     </option>
-                  ))}
-               </optgroup>
-            ))}
-         </select>
+         <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+               <Button
+                  variant="outline"
+                  role="combobox"
+                  aria-expanded={open}
+                  aria-label="Model"
+                  disabled={state === 'saving' || models.length === 0}
+                  className="w-full justify-between border-border/70 bg-transparent px-3 py-2 text-sm font-normal"
+               >
+                  <span className="truncate">
+                     {selected
+                        ? `${selected.displayName} — ${money(selected.inputCostPerM)}/${money(selected.outputCostPerM)} per M · ${compact(selected.contextWindow)} ctx`
+                        : current || 'Select a model…'}
+                  </span>
+                  <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+               </Button>
+            </PopoverTrigger>
+            <PopoverContent
+               className="w-[--radix-popover-trigger-width] border-input p-0"
+               align="start"
+            >
+               {/* cmdk filters on each item's `value`, so provider and id both
+                   have to be in it: "sonnet" and "anthropic" should each find
+                   the same model. */}
+               <Command filter={matches}>
+                  <CommandInput placeholder="Search models…" />
+                  <CommandList className="max-h-72">
+                     <CommandEmpty>No model matches.</CommandEmpty>
+                     {groups.map(([groupProvider, items]) => (
+                        <CommandGroup key={groupProvider} heading={groupProvider}>
+                           {items.map((item) => {
+                              const key = keyOf(item);
+                              return (
+                                 <CommandItem
+                                    key={key}
+                                    value={`${key} ${item.displayName}`}
+                                    onSelect={() => void change(key)}
+                                    className="flex items-start gap-2"
+                                 >
+                                    <CheckIcon
+                                       className={cn(
+                                          'mt-0.5 size-3.5 shrink-0',
+                                          key === current ? 'opacity-100' : 'opacity-0'
+                                       )}
+                                    />
+                                    <span className="flex min-w-0 flex-col">
+                                       <span className="truncate text-xs">{item.displayName}</span>
+                                       <span className="text-[11px] text-muted-foreground">
+                                          {money(item.inputCostPerM)}/{money(item.outputCostPerM)}{' '}
+                                          per M · {compact(item.contextWindow)} ctx
+                                          {item.supportsTools ? ' · tools' : ''}
+                                       </span>
+                                    </span>
+                                 </CommandItem>
+                              );
+                           })}
+                        </CommandGroup>
+                     ))}
+                  </CommandList>
+               </Command>
+            </PopoverContent>
+         </Popover>
 
          {selected ? (
             <p className="text-[11px] text-muted-foreground">
