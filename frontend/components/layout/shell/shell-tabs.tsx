@@ -44,7 +44,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
                   key={tab.id}
                   ref={on ? activeRef : undefined}
                   className={[
-                     'group flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-2.5 pl-3 text-[11px] transition-colors',
+                     'group flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-2.5 pl-3 transition-colors',
                      on
                         ? 'bg-[var(--shell-canvas)] text-[var(--shell-text)]'
                         : 'bg-[var(--shell-rail)] text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
@@ -90,7 +90,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
             type="button"
             onClick={onNew}
             aria-label="New tab"
-            className="flex h-[33px] w-[30px] flex-none cursor-pointer items-center justify-center text-[11px] text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
+            className="flex h-[33px] w-[30px] flex-none cursor-pointer items-center justify-center text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
          >
             +
          </button>

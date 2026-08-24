@@ -28,7 +28,7 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
    return (
       <nav
          aria-label="Workspace"
-         className="flex w-[218px] flex-none flex-col bg-[var(--shell-rail)] text-[11px]"
+         className="flex w-[218px] flex-none flex-col bg-[var(--shell-rail)]"
       >
          {/* The brand opens the workspace menu, as it does throughout the app.
              The prototype wired this row to collapse the rail, but a
@@ -68,7 +68,7 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
          {SHELL_SECTIONS.map((section) => (
             <div key={section.heading ?? 'primary'}>
                {section.heading ? (
-                  <div className="px-[18px] pt-[18px] pb-[7px] text-[11px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+                  <div className="px-[18px] pt-[18px] pb-[7px] text-xs uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
                      {section.heading}
                   </div>
                ) : null}
