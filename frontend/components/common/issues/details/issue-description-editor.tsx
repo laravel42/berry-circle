@@ -1,7 +1,7 @@
 'use client';
 
 import { useIssuesStore } from '@/store/issues-store';
-import { RichDescriptionEditor } from '@/components/common/editor/rich-description-editor';
+import { DescriptionTextarea } from '@/components/common/editor/description-textarea';
 
 interface IssueDescriptionEditorProps {
    issueId: string;
@@ -11,16 +11,16 @@ interface IssueDescriptionEditorProps {
 /**
  * Issue description editor.
  *
- * Plate owns the document and hands back markdown when editing settles, so the
- * debounce this previously carried is gone: there is nothing to debounce when
- * the write happens once, on commit, rather than on every keystroke.
+ * The field hands back its text when editing settles, so the debounce this
+ * previously carried is gone: there is nothing to debounce when the write
+ * happens once, on commit, rather than on every keystroke.
  */
 export function IssueDescriptionEditor({ issueId, description }: IssueDescriptionEditorProps) {
    const updateIssueDescription = useIssuesStore((state) => state.updateIssueDescription);
 
    return (
       <div className="mt-3">
-         <RichDescriptionEditor
+         <DescriptionTextarea
             value={description}
             onCommit={(markdown) => {
                if (markdown.trim() === description.trim()) return;

@@ -1,7 +1,7 @@
 'use client';
 
 import { BerryMark } from '@/components/brand/berry-mark';
-import { RichDescriptionEditor } from '@/components/common/editor/rich-description-editor';
+import { DescriptionTextarea } from '@/components/common/editor/description-textarea';
 import { ProjectDateSelector } from '@/components/common/projects/create-project/date-selector';
 import { ProjectLeadSelector } from '@/components/common/projects/create-project/lead-selector';
 import { ProjectPrioritySelector } from '@/components/common/projects/create-project/priority-selector';
@@ -207,7 +207,7 @@ export function CreateProjectDialog() {
                      Description
                   </label>
                   <div className="mt-5 min-h-40 flex-1">
-                     <RichDescriptionEditor
+                     <DescriptionTextarea
                         value={form.description}
                         onChange={(description) => setForm({ ...form, description })}
                         placeholder="Write a description or collect the work…"

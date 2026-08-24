@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 
-import { RichDescriptionEditor } from '@/components/common/editor/rich-description-editor';
+import { DescriptionTextarea } from '@/components/common/editor/description-textarea';
 import { updateAgentConfig } from '@/lib/agents';
 
 type ConfigField = 'instructions' | 'description';
@@ -21,16 +21,16 @@ interface AgentConfigFieldProps {
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 /**
- * One editable agent configuration field, backed by the shared rich editor.
+ * One editable agent configuration field, backed by the shared description
+ * textarea.
  *
  * Instructions and description differ only in copy and which key they send, so
  * they share a component: two near-identical editors would drift in save
  * behaviour, and save behaviour is the part that matters when a write reaches
  * the runtime.
  *
- * Plate owns the document, so there is no local draft state — the editor hands
- * back markdown when editing settles and this only decides whether it is worth
- * persisting.
+ * The field owns its draft, so there is none here — it hands back its text when
+ * editing settles and this only decides whether that text is worth persisting.
  */
 export function AgentConfigField({
    agentId,
@@ -80,7 +80,7 @@ export function AgentConfigField({
          </div>
 
          <div className="rounded-md border border-border/70 px-3 py-2">
-            <RichDescriptionEditor
+            <DescriptionTextarea
                value={value}
                onCommit={persist}
                placeholder={placeholder}
