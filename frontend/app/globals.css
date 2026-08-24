@@ -63,6 +63,13 @@
    --shell-text-faint: #4a4a50;
    --shell-accent: var(--brand-berry);
 
+   /* Detail drawers never exceed this, regardless of viewport. Past roughly
+      this width a drawer stops reading as a panel over the workspace and
+      starts reading as a page that replaced it, which loses the sense of the
+      list still being there behind it. Single source of truth: drawers read
+      this token rather than each passing their own number. */
+   --drawer-max-width: 1024px;
+
    --background: #f4f2ec;
    --foreground: var(--brand-void);
    --container: #fdfcf8;

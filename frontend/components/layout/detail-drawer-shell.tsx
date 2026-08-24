@@ -12,10 +12,26 @@ interface DetailDrawerShellProps {
    children: ReactNode;
    open?: boolean;
    onClose?: () => void;
+   /**
+    * Override the global drawer ceiling, in pixels. Rarely needed — the
+    * default comes from `--drawer-max-width` so every drawer stays consistent
+    * without each call site repeating a number.
+    */
    maxWidth?: number;
 }
 
-/** Wide right drawer for intercepted detail routes; dismiss via overlay, Esc, or router.back(). */
+/** Offset of the workspace sidebar; a drawer never covers it. */
+const SIDEBAR_OFFSET = '244px';
+
+/**
+ * Wide right drawer for intercepted detail routes; dismiss via overlay, Esc,
+ * or router.back().
+ *
+ * Width is capped globally by `--drawer-max-width` and additionally clamped to
+ * the space left beside the sidebar, so the drawer never covers navigation on
+ * a narrow viewport. The cap is a token rather than a prop default so changing
+ * it is one edit rather than an audit of every call site.
+ */
 export default function DetailDrawerShell({
    header,
    children,
@@ -48,14 +64,14 @@ export default function DetailDrawerShell({
             side="right"
             hideClose
             className={cn(
-               'flex h-full inset-y-0 right-0 flex-col gap-0 border-l bg-container p-0 sm:max-w-none',
-               maxWidth ? 'left-auto max-w-none' : 'left-0 w-auto max-w-none md:left-[244px]'
+               'flex h-full inset-y-0 right-0 left-auto flex-col gap-0 border-l bg-container p-0',
+               'max-w-none sm:max-w-none'
             )}
-            style={
-               maxWidth
-                  ? { width: `min(${maxWidth}px, calc(100vw - 244px))` }
-                  : undefined
-            }
+            style={{
+               width: `min(${
+                  maxWidth ? `${maxWidth}px` : 'var(--drawer-max-width)'
+               }, calc(100vw - ${SIDEBAR_OFFSET}))`,
+            }}
          >
             <DetailDrawerProvider onClose={dismiss}>
                {header}

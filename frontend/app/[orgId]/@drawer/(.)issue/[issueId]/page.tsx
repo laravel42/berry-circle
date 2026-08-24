@@ -6,7 +6,7 @@ import Header from '@/components/layout/headers/issue/header';
 
 export default function IssueDrawerPage() {
    return (
-      <DetailDrawerShell header={<Header />} maxWidth={1024}>
+      <DetailDrawerShell header={<Header />}>
          <IssueDetails />
       </DetailDrawerShell>
    );

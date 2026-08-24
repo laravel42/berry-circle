@@ -122,6 +122,22 @@ components are revised:
   80/96 px.
 - Mobile/navigation behavior changes below 1024 px.
 
+### Overlay and drawer sizing
+
+Detail drawers are capped at **1024 px**, globally, via the `--drawer-max-width`
+token in `frontend/app/globals.css`. Past roughly that width a drawer stops
+reading as a panel over the workspace and starts reading as a page that
+replaced it, which loses the sense of the list still sitting behind it.
+
+The cap is a token, not a prop default, so changing it is one edit rather than
+an audit of every call site. `DetailDrawerShell` accepts a `maxWidth` override
+in pixels for the rare case that needs one; a call site passing the same value
+as the token is redundant and should be removed rather than kept "for clarity",
+because a second copy of the number is a second thing to change.
+
+Drawer width is additionally clamped to the space beside the sidebar, so a
+drawer never covers navigation on a narrow viewport.
+
 ### Shape, elevation, and motion
 
 The root radius is 10 px. Derived semantic radii are 6 px (`sm`), 8 px (`md`), 10 px
