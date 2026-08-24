@@ -2,24 +2,14 @@
 
 import { ChevronsUpDown } from 'lucide-react';
 
-import { BerryMark, BerryWordmark } from '@/components/brand/berry-mark';
+import { BerryWordmark } from '@/components/brand/berry-mark';
 import {
    DropdownMenu,
    DropdownMenuContent,
-   DropdownMenuGroup,
-   DropdownMenuItem,
-   DropdownMenuLabel,
-   DropdownMenuPortal,
-   DropdownMenuSeparator,
-   DropdownMenuShortcut,
-   DropdownMenuSub,
-   DropdownMenuSubContent,
-   DropdownMenuSubTrigger,
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { WorkspaceMenuItems } from '@/components/layout/shell/workspace-menu';
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
-import { WORKSPACE_NAME, WORKSPACE_SLUG } from '@/lib/config';
-import Link from 'next/link';
 
 export function OrgSwitcher() {
    return (
@@ -43,35 +33,7 @@ export function OrgSwitcher() {
                   align="end"
                   sideOffset={4}
                >
-                  <DropdownMenuGroup>
-                     <DropdownMenuItem asChild>
-                        <Link href={`/${WORKSPACE_SLUG}/settings`}>
-                           settings
-                           <DropdownMenuShortcut>G then S</DropdownMenuShortcut>
-                        </Link>
-                     </DropdownMenuItem>
-                  </DropdownMenuGroup>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuSub>
-                     <DropdownMenuSubTrigger>switch workspace</DropdownMenuSubTrigger>
-                     <DropdownMenuPortal>
-                        <DropdownMenuSubContent>
-                           <DropdownMenuLabel>{WORKSPACE_NAME}</DropdownMenuLabel>
-                           <DropdownMenuSeparator />
-                           <DropdownMenuItem>
-                              <BerryMark size="sm" />
-                              {WORKSPACE_NAME}
-                           </DropdownMenuItem>
-                           <DropdownMenuSeparator />
-                           <DropdownMenuItem>create or join workspace</DropdownMenuItem>
-                           <DropdownMenuItem>add an account</DropdownMenuItem>
-                        </DropdownMenuSubContent>
-                     </DropdownMenuPortal>
-                  </DropdownMenuSub>
-                  <DropdownMenuItem>
-                     log out
-                     <DropdownMenuShortcut>⌥⇧Q</DropdownMenuShortcut>
-                  </DropdownMenuItem>
+                  <WorkspaceMenuItems />
                </DropdownMenuContent>
             </DropdownMenu>
          </SidebarMenuItem>

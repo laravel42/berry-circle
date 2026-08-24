@@ -1,8 +1,14 @@
 'use client';
 
 import Link from 'next/link';
+import {
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { SHELL_SECTIONS, type ShellRoute } from './shell-routes';
 import { ShellIcon, BerryMark } from './shell-icon';
+import { WorkspaceMenuItems } from './workspace-menu';
 
 interface ShellRailProps {
    orgId: string;
@@ -24,22 +30,40 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
          aria-label="Workspace"
          className="flex w-[218px] flex-none flex-col bg-[var(--shell-rail)] text-[11px]"
       >
-         <div className="flex items-center gap-2.5 px-3.5 pt-4 pb-3.5">
-            <BerryMark />
-            <span className="font-display text-[15px] tracking-[-0.01em] text-[var(--shell-text)]">
-               Berry<span className="text-[var(--shell-accent)]">.</span>
-            </span>
-            <button
-               type="button"
-               onClick={onToggle}
-               aria-label="Collapse sidebar"
-               className="ml-auto flex cursor-pointer text-[var(--shell-text-dim)] transition-opacity hover:opacity-60"
-            >
-               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
-                  <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />
-               </svg>
-            </button>
-         </div>
+         {/* The brand opens the workspace menu, as it does throughout the app.
+             The prototype wired this row to collapse the rail, but a
+             chevrons-up-down glyph reads as a switcher everywhere else in the
+             product, and settings and log out have no other home. Collapse
+             moves to its own control at the foot of the rail. */}
+         <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+               <button
+                  type="button"
+                  aria-label="Workspace menu"
+                  className="flex w-full cursor-pointer items-center gap-2.5 px-3.5 pt-4 pb-3.5 text-left transition-colors hover:bg-[var(--shell-hover)] data-[state=open]:bg-[var(--shell-hover)]"
+               >
+                  <BerryMark />
+                  <span className="font-display text-[15px] tracking-[-0.01em] text-[var(--shell-text)]">
+                     Berry<span className="text-[var(--shell-accent)]">.</span>
+                  </span>
+                  <svg
+                     width="13"
+                     height="13"
+                     viewBox="0 0 24 24"
+                     fill="none"
+                     stroke="currentColor"
+                     strokeWidth={1.7}
+                     className="ml-auto text-[var(--shell-text-dim)]"
+                     aria-hidden="true"
+                  >
+                     <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />
+                  </svg>
+               </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="min-w-60 rounded-lg" side="bottom" align="start" sideOffset={4}>
+               <WorkspaceMenuItems orgId={orgId} />
+            </DropdownMenuContent>
+         </DropdownMenu>
 
          {SHELL_SECTIONS.map((section) => (
             <div key={section.heading ?? 'primary'}>
@@ -73,7 +97,7 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
             </div>
          ))}
 
-         <div className="mt-auto p-3.5">
+         <div className="mt-auto flex items-center gap-1.5 p-3.5">
             <Link
                href={`/${orgId}/settings/preferences`}
                aria-label="Help and settings"
@@ -81,6 +105,17 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
             >
                ?
             </Link>
+            <button
+               type="button"
+               onClick={onToggle}
+               aria-label="Collapse sidebar"
+               title="Collapse sidebar"
+               className="flex size-[26px] items-center justify-center rounded-[5px] border border-[var(--shell-line)] text-[var(--shell-text-dim)] transition-colors hover:border-[var(--shell-line-strong)] hover:text-[var(--shell-text)]"
+            >
+               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7}>
+                  <path d="M14 6l-5 6 5 6" />
+               </svg>
+            </button>
          </div>
       </nav>
    );
