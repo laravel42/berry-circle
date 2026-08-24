@@ -212,6 +212,11 @@ const maxSystemPromptBytes = 20000
 type PatchAgentRequest struct {
 	SystemPrompt *string
 	Description  *string
+	// Provider and Model move together: a model id is only meaningful against
+	// the provider that serves it, so setting one without the other would
+	// produce a pairing the runtime cannot resolve.
+	Provider *string
+	Model    *string
 }
 
 // AgentReply is one completed agent turn from POST /api/agents/{id}/message.
@@ -222,4 +227,28 @@ type AgentReply struct {
 	Iterations   int     `json:"iterations"`
 	CostUSD      float64 `json:"cost_usd"`
 	RequestID    string  `json:"-"`
+}
+
+// CatalogModel is one selectable LLM from GET /api/models.
+//
+// Cost and context are carried through because choosing a model is a spend
+// decision as much as a capability one: the difference between tiers is two
+// orders of magnitude per million tokens.
+type CatalogModel struct {
+	ID              string  `json:"id"`
+	DisplayName     string  `json:"display_name"`
+	Provider        string  `json:"provider"`
+	Tier            string  `json:"tier"`
+	ContextWindow   int64   `json:"context_window"`
+	MaxOutputTokens int64   `json:"max_output_tokens"`
+	InputCostPerM   float64 `json:"input_cost_per_m"`
+	OutputCostPerM  float64 `json:"output_cost_per_m"`
+	SupportsTools   bool    `json:"supports_tools"`
+	SupportsVision  bool    `json:"supports_vision"`
+	Available       bool    `json:"available"`
+}
+
+// Catalog is the narrow seam for reading selectable models.
+type Catalog interface {
+	ListModelCatalog(context.Context) ([]CatalogModel, error)
 }

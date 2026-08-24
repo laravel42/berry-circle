@@ -37,6 +37,10 @@ type Options struct {
 	// instructions route is not mounted, so a deployment cannot expose an
 	// editor that silently fails to reach the runtime.
 	Configurer Configurer
+	// Catalog lists selectable models. Optional: without it the models route is
+	// not mounted and model changes are refused, so a deployment cannot offer a
+	// picker it has no catalog to validate against.
+	Catalog openfang.Catalog
 }
 
 // Authorizer is the narrow workspace/agent boundary consumed by agent routes.
@@ -83,8 +87,9 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Use(auth.RequireSession(options.Sessions))
 	router.Get("/", listHandler(store, options))
 	router.Get("/{agentId}", getHandler(store, options))
-	if options.Configurer != nil {
+	if options.Configurer != nil && options.Catalog != nil {
 		router.Put("/{agentId}/config", configHandler(store, options))
+		router.Get("/models", modelsHandler(options.Catalog, options))
 	}
 	return httpapi.Mount{Prefix: "/api/v1/agents", Handler: router}, nil
 }
@@ -97,8 +102,11 @@ type resource struct {
 	Status       string    `json:"status"`
 	Capabilities []string  `json:"capabilities"`
 	Instructions *string   `json:"instructions"`
-	CreatedAt    string    `json:"createdAt"`
-	UpdatedAt    string    `json:"updatedAt"`
+	// The model an agent runs on. Projected from the runtime, which owns it.
+	ModelProvider *string `json:"modelProvider"`
+	ModelName     *string `json:"modelName"`
+	CreatedAt     string  `json:"createdAt"`
+	UpdatedAt     string  `json:"updatedAt"`
 }
 
 type connection struct {
@@ -468,15 +476,17 @@ func serialize(agent Agent) resource {
 		capabilities = []string{}
 	}
 	return resource{
-		ID:           agent.ID,
-		Name:         agent.Name,
-		Description:  agent.Description,
-		AvatarURL:    agent.AvatarURL,
-		Status:       agent.Status,
-		Capabilities: capabilities,
-		Instructions: agent.Instructions,
-		CreatedAt:    agent.CreatedAt.UTC().Format(time.RFC3339Nano),
-		UpdatedAt:    agent.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		ID:            agent.ID,
+		Name:          agent.Name,
+		Description:   agent.Description,
+		AvatarURL:     agent.AvatarURL,
+		Status:        agent.Status,
+		Capabilities:  capabilities,
+		Instructions:  agent.Instructions,
+		ModelProvider: agent.ModelProvider,
+		ModelName:     agent.ModelName,
+		CreatedAt:     agent.CreatedAt.UTC().Format(time.RFC3339Nano),
+		UpdatedAt:     agent.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
 

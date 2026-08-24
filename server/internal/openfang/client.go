@@ -500,6 +500,10 @@ func (client *Client) PatchAgent(
 	if request.Description != nil {
 		body["description"] = *request.Description
 	}
+	if request.Provider != nil && request.Model != nil {
+		body["provider"] = *request.Provider
+		body["model"] = *request.Model
+	}
 	if len(body) == 0 {
 		return nil
 	}
@@ -576,4 +580,19 @@ func (client *Client) SendAgentMessage(
 	}
 	reply.RequestID = response.Header.Get("X-Request-Id")
 	return reply, nil
+}
+
+// ListModelCatalog returns the runtime's selectable models.
+//
+// Distinct from ListModels, which serves the OpenAI-compatible surface and
+// reports agents as models. This is the provider catalog an operator picks
+// from when choosing what an agent runs on.
+func (client *Client) ListModelCatalog(ctx context.Context) ([]CatalogModel, error) {
+	var payload struct {
+		Models []CatalogModel `json:"models"`
+	}
+	if _, err := client.readJSON(ctx, "/api/models", &payload); err != nil {
+		return nil, err
+	}
+	return payload.Models, nil
 }

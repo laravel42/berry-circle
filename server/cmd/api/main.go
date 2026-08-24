@@ -480,6 +480,7 @@ func run() int {
 			NewID:         uuid.New,
 			OpenFang:      upstream,
 			Configurer:    upstream,
+			Catalog:       upstream,
 			Authorization: identityService,
 		})
 		if err != nil {

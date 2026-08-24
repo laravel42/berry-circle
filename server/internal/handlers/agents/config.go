@@ -37,6 +37,11 @@ const maxDescription = 5000
 type configRequest struct {
 	Instructions *string `json:"instructions"`
 	Description  *string `json:"description"`
+	// Provider and Model are set together. A model id only means something
+	// against the provider serving it, so accepting one alone would store a
+	// pairing the runtime cannot resolve.
+	Provider *string `json:"provider"`
+	Model    *string `json:"model"`
 }
 
 // ConfigStore is the durable seam for authored agent configuration.
@@ -142,6 +147,15 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 			return &trimmed, true
 		}
 
+		if (body.Provider == nil) != (body.Model == nil) {
+			httpapi.WriteError(
+				response, request, http.StatusBadRequest,
+				"MODEL_PAIR_REQUIRED",
+				"Provider and model must be set together.", nil,
+			)
+			return
+		}
+
 		instructions, ok := normalise(body.Instructions, maxInstructions, "INSTRUCTIONS_TOO_LONG")
 		if !ok {
 			return
@@ -150,7 +164,24 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		if instructions == nil && description == nil {
+		var provider, model *string
+		if body.Provider != nil && body.Model != nil {
+			// Refused at selection rather than discovered on the agent's next
+			// task, which is the only other place a bad pair would surface.
+			if _, ok := resolveModel(
+				request.Context(), options.Catalog, *body.Provider, *body.Model,
+			); !ok {
+				httpapi.WriteError(
+					response, request, http.StatusBadRequest,
+					"MODEL_UNAVAILABLE",
+					"That model is not available on this runtime.", nil,
+				)
+				return
+			}
+			provider, model = body.Provider, body.Model
+		}
+
+		if instructions == nil && description == nil && model == nil {
 			httpapi.WriteError(
 				response, request, http.StatusBadRequest,
 				"NO_FIELDS", "No configuration fields were provided.", nil,
@@ -177,6 +208,8 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 			openfang.PatchAgentRequest{
 				SystemPrompt: instructions,
 				Description:  description,
+				Provider:     provider,
+				Model:        model,
 			},
 		); err != nil {
 			writeDependencyError(response, request, err)
@@ -202,6 +235,8 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 			return
 		}
 
+		// The model is projected from the runtime rather than written locally,
+		// so a successful patch is read back rather than assumed.
 		refreshed, err := store.Get(request.Context(), agentID, scope.WorkspaceID)
 		if err != nil {
 			writeInternal(response, request)

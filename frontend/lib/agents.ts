@@ -13,6 +13,8 @@ const agentSchema = z.object({
    capabilities: z.array(z.string()),
    /** System prompt applied to every task this agent runs. Markdown. */
    instructions: z.string().nullish(),
+   modelProvider: z.string().nullish(),
+   modelName: z.string().nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -80,9 +82,42 @@ export async function getWorkspaceAgent(agentId: string): Promise<Agent> {
  * means the runtime accepted the change — not merely that Berry recorded it.
  * An omitted field is left unchanged; an empty string clears it.
  */
+const modelSchema = z.object({
+   id: z.string(),
+   displayName: z.string(),
+   provider: z.string(),
+   tier: z.string(),
+   contextWindow: z.number(),
+   inputCostPerM: z.number(),
+   outputCostPerM: z.number(),
+   supportsTools: z.boolean(),
+   supportsVision: z.boolean(),
+});
+
+export type AgentModel = z.infer<typeof modelSchema>;
+
+/**
+ * Models this runtime can actually serve.
+ *
+ * The server filters to available ones, so anything listed here has a
+ * configured provider behind it — a model that would fail on the agent's next
+ * task is never offered.
+ */
+export async function listAgentModels(): Promise<AgentModel[]> {
+   const json: unknown = await apiFetch('/api/v1/agents/models');
+   const parsed = z.object({ nodes: z.array(modelSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Model list was not recognized');
+   return parsed.data.nodes;
+}
+
 export async function updateAgentConfig(
    agentId: string,
-   config: { instructions?: string; description?: string }
+   config: {
+      instructions?: string;
+      description?: string;
+      provider?: string;
+      model?: string;
+   }
 ): Promise<Agent> {
    const json: unknown = await apiFetch(
       `/api/v1/agents/${encodeURIComponent(agentId)}/config`,

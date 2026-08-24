@@ -41,6 +41,7 @@ import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
 import { AgentConfigField } from '@/components/common/agents/agent-config-field';
+import { AgentModelPicker } from '@/components/common/agents/agent-model-picker';
 
 const DETAIL_TABS = ['overview', 'work', 'capabilities', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
@@ -509,6 +510,11 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                   )}
                </TabsContent>
                <TabsContent value="capabilities" className="mt-0 flex flex-col gap-6 px-8 py-6">
+                  <AgentModelPicker
+                     agentId={agent.id}
+                     provider={agent.modelProvider ?? null}
+                     model={agent.modelName ?? null}
+                  />
                   <AgentConfigField
                      agentId={agent.id}
                      field="description"
