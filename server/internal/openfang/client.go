@@ -522,3 +522,58 @@ func (client *Client) PatchAgent(
 	defer response.Body.Close()
 	return nil
 }
+
+// SendAgentMessage runs one agent turn and waits for the whole answer.
+//
+// The streaming sibling exists for issue runs, where tool activity must stay
+// visible as it happens. Chat wants the finished reply, so this uses the
+// blocking endpoint and avoids projecting a stream nobody watches.
+//
+// UNSAFE: this executes the agent and spends provider tokens. Classified
+// RetryUnsafe and attempted exactly once — a retry after an ambiguous response
+// bills twice and can repeat tool side effects.
+func (client *Client) SendAgentMessage(
+	ctx context.Context,
+	agentID uuid.UUID,
+	request MessageRequest,
+) (AgentReply, error) {
+	if agentID == uuid.Nil {
+		return AgentReply{}, errors.New("runtime agent ID is required")
+	}
+	if strings.TrimSpace(request.Message) == "" {
+		return AgentReply{}, errors.New("runtime agent message is required")
+	}
+	// Chat turns are bounded well above a stream: the caller is waiting on a
+	// single HTTP response, not consuming events as they arrive.
+	callCtx, cancel := context.WithTimeout(ctx, client.streamTimeout)
+	defer cancel()
+
+	body := map[string]any{"message": request.Message}
+	if request.SenderID != nil {
+		body["sender_id"] = *request.SenderID
+	}
+	if request.SenderName != nil {
+		body["sender_name"] = *request.SenderName
+	}
+	httpRequest, err := client.NewJSONRequest(
+		callCtx,
+		http.MethodPost,
+		"/api/agents/"+agentID.String()+"/message",
+		body,
+	)
+	if err != nil {
+		return AgentReply{}, err
+	}
+	response, err := client.Do(callCtx, httpRequest, RetryUnsafe)
+	if err != nil {
+		return AgentReply{}, err
+	}
+	defer response.Body.Close()
+
+	var reply AgentReply
+	if err := decodeBoundedJSON(response.Body, client.maxJSONBytes, &reply); err != nil {
+		return AgentReply{}, badResponse(response.Header.Get("X-Request-Id"))
+	}
+	reply.RequestID = response.Header.Get("X-Request-Id")
+	return reply, nil
+}

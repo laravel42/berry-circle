@@ -213,3 +213,13 @@ type PatchAgentRequest struct {
 	SystemPrompt *string
 	Description  *string
 }
+
+// AgentReply is one completed agent turn from POST /api/agents/{id}/message.
+type AgentReply struct {
+	Response     string  `json:"response"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	Iterations   int     `json:"iterations"`
+	CostUSD      float64 `json:"cost_usd"`
+	RequestID    string  `json:"-"`
+}

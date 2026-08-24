@@ -388,3 +388,15 @@ input[type='search'] {
 .tabstrip::-webkit-scrollbar {
    display: none;
 }
+
+/* Pending-reply pulse, from the prototype's `berrypulse`. Honoured only when
+   the viewer has not asked for reduced motion. */
+@keyframes berrypulse {
+   0%,
+   100% {
+      opacity: 1;
+   }
+   50% {
+      opacity: 0.45;
+   }
+}

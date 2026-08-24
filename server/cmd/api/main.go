@@ -27,6 +27,7 @@ import (
 	cataloghandlers "github.com/laravel42/berry-circle/server/internal/handlers/catalog"
 	channelhandlers "github.com/laravel42/berry-circle/server/internal/handlers/channels"
 	"github.com/laravel42/berry-circle/server/internal/handlers/comments"
+	conversationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/conversations"
 	eventhandlers "github.com/laravel42/berry-circle/server/internal/handlers/events"
 	identityhandlers "github.com/laravel42/berry-circle/server/internal/handlers/identity"
 	"github.com/laravel42/berry-circle/server/internal/handlers/issues"
@@ -807,6 +808,31 @@ func run() int {
 			}
 			productMounts = append(productMounts, channelMount)
 		}
+		conversationStore, err := conversationrepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("conversation repository setup failed", "error", err)
+			return 1
+		}
+		chatMount, err := conversationhandlers.NewMount(conversationhandlers.Options{
+			Store:     conversationStore,
+			Responder: upstream,
+			Sessions:  authenticator,
+			Clock:     time.Now,
+			Logger:    logger,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("conversation route setup failed", "error", err)
+			return 1
+		}
+		productMounts = append(productMounts, chatMount)
 		productMounts = append(productMounts, identityMounts...)
 		productMounts = append(productMounts, p2Mounts...)
 		for _, mount := range productMounts {
