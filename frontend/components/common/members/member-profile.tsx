@@ -11,7 +11,6 @@ import { Issue, issueCreatorIndex } from '@/data/issues';
 import { labels } from '@/data/labels';
 import { priorities } from '@/data/priorities';
 import { projects } from '@/data/projects';
-import { teams } from '@/data/teams';
 import { statusUserColors, User, users } from '@/data/users';
 import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
@@ -96,8 +95,8 @@ function useClientTimes(member: User) {
 
 /**
  * Member profile (Linear-style): assigned / created issues grouped by
- * status, with a right panel showing identity, teams, projects and
- * per-label / priority / project / team breakdowns.
+ * status, with a right panel showing identity, projects and per-label /
+ * priority / project breakdowns.
  */
 export default function MemberProfile({ member }: { member: User }) {
    const { issues } = useIssuesStore();
@@ -128,10 +127,6 @@ export default function MemberProfile({ member }: { member: User }) {
       [scopedIssues, filters]
    );
 
-   const memberTeams = useMemo(
-      () => teams.filter((team) => member.teamIds.includes(team.id)),
-      [member.teamIds]
-   );
 
    const memberProjects = useMemo(() => {
       const led = projects.filter((project) => project.lead.id === member.id);
@@ -192,17 +187,6 @@ export default function MemberProfile({ member }: { member: User }) {
          }))
          .sort((a, b) => b.count - a.count);
    }, [displayedIssues]);
-
-   const teamRows = useMemo<BreakdownRow[]>(
-      () =>
-         memberTeams.map((team) => ({
-            key: team.id,
-            label: team.name,
-            leading: <span className="text-sm shrink-0">{team.icon}</span>,
-            count: displayedIssues.length,
-         })),
-      [memberTeams, displayedIssues.length]
-   );
 
    if (isSearching) {
       return (
@@ -276,19 +260,6 @@ export default function MemberProfile({ member }: { member: User }) {
                   <span>{member.role}</span>
                </div>
                <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0 pt-0.5">Teams</span>
-                  <div className="flex flex-wrap justify-end gap-1.5">
-                     {memberTeams.map((team) => (
-                        <span
-                           key={team.id}
-                           className="inline-flex items-center gap-1 text-xs bg-accent rounded-md px-1.5 py-0.5"
-                        >
-                           {team.icon} {team.name}
-                        </span>
-                     ))}
-                  </div>
-               </div>
-               <div className="flex items-start justify-between gap-4">
                   <span className="text-muted-foreground shrink-0 pt-0.5">Projects</span>
                   <div className="flex flex-col items-end gap-1 min-w-0">
                      {memberProjects.slice(0, 4).map((project) => (
@@ -318,9 +289,6 @@ export default function MemberProfile({ member }: { member: User }) {
                      <TabsTrigger value="projects" className="text-xs px-2.5 rounded-full">
                         Projects
                      </TabsTrigger>
-                     <TabsTrigger value="teams" className="text-xs px-2.5 rounded-full">
-                        Teams
-                     </TabsTrigger>
                   </TabsList>
                   <TabsContent value="labels">
                      <BreakdownList rows={labelRows} />
@@ -330,9 +298,6 @@ export default function MemberProfile({ member }: { member: User }) {
                   </TabsContent>
                   <TabsContent value="projects">
                      <BreakdownList rows={projectRows} />
-                  </TabsContent>
-                  <TabsContent value="teams">
-                     <BreakdownList rows={teamRows} />
                   </TabsContent>
                </Tabs>
             </div>

@@ -1,8 +1,10 @@
+'use client';
+
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTrigger } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Heart } from 'lucide-react';
+import { MarkdownTextarea } from '@/components/common/editor/markdown-textarea';
+import { BerryMark } from '@/components/brand/berry-mark';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { RiEditLine } from '@remixicon/react';
@@ -12,6 +14,7 @@ import { priorities } from '@/data/priorities';
 import { status } from '@/data/status';
 import { useIssuesStore } from '@/store/issues-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';
+import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { StatusSelector } from './status-selector';
@@ -19,14 +22,18 @@ import { PrioritySelector } from './priority-selector';
 import { AssigneeSelector } from './assignee-selector';
 import { ProjectSelector } from './project-selector';
 import { LabelSelector } from './label-selector';
-import { ranks } from '@/data/issues';
+import { rankFromSortOrder } from '@/lib/issues';
 import { ISSUE_IDENTIFIER_PREFIX, WORKSPACE_NAME } from '@/lib/config';
+import { BerryApiError } from '@/lib/api';
+import { createBoardIssue } from '@/lib/issues';
 import { DialogTitle } from '@radix-ui/react-dialog';
 
 export function CreateNewIssue() {
    const [createMore, setCreateMore] = useState<boolean>(false);
    const { isOpen, defaultStatus, openModal, closeModal } = useCreateIssueStore();
    const { addIssue, getAllIssues } = useIssuesStore();
+   const boardId = useSessionStore((state) => state.boardId);
+   const [pending, setPending] = useState(false);
 
    const generateUniqueIdentifier = useCallback(() => {
       const identifiers = getAllIssues().map((issue) => issue.identifier);
@@ -43,6 +50,7 @@ export function CreateNewIssue() {
 
    const createDefaultData = useCallback(() => {
       const identifier = generateUniqueIdentifier();
+      const sortOrder = (getAllIssues().length + 1) * 1000;
       return {
          id: uuidv4(),
          identifier: `${ISSUE_IDENTIFIER_PREFIX}-${identifier}`,
@@ -56,9 +64,10 @@ export function CreateNewIssue() {
          cycleId: '',
          project: undefined,
          subissues: [],
-         rank: ranks[ranks.length - 1],
+         sortOrder,
+         rank: rankFromSortOrder(sortOrder),
       };
-   }, [defaultStatus, generateUniqueIdentifier]);
+   }, [defaultStatus, generateUniqueIdentifier, getAllIssues]);
 
    const [addIssueForm, setAddIssueForm] = useState<Issue>(createDefaultData());
 
@@ -66,23 +75,58 @@ export function CreateNewIssue() {
       setAddIssueForm(createDefaultData());
    }, [createDefaultData]);
 
-   const createIssue = () => {
+   const createIssue = async () => {
       if (!addIssueForm.title) {
          toast.error('Title is required');
          return;
       }
-      toast.success('Issue created');
-      addIssue(addIssueForm);
-      if (!createMore) {
-         closeModal();
+      if (!boardId) {
+         toast.error('Board is not ready');
+         return;
       }
-      setAddIssueForm(createDefaultData());
+      setPending(true);
+      try {
+         const created = await createBoardIssue({
+            boardId,
+            title: addIssueForm.title,
+            description: addIssueForm.description || undefined,
+            statusId: addIssueForm.status.id,
+            priorityId: addIssueForm.priority.id,
+            assignee:
+               addIssueForm.assignee == null
+                  ? undefined
+                  : {
+                       type: addIssueForm.assignee.role === 'Application' ? 'agent' : 'user',
+                       id: addIssueForm.assignee.id,
+                    },
+         });
+         addIssue({
+            ...created,
+            assignee: addIssueForm.assignee,
+            labels: addIssueForm.labels,
+            project: addIssueForm.project,
+         });
+         toast.success('Issue created');
+         if (!createMore) {
+            closeModal();
+         }
+         setAddIssueForm(createDefaultData());
+      } catch (error) {
+         toast.error(error instanceof BerryApiError ? error.message : 'Could not create issue');
+      } finally {
+         setPending(false);
+      }
    };
 
    return (
       <Dialog open={isOpen} onOpenChange={(value) => (value ? openModal() : closeModal())}>
          <DialogTrigger asChild>
-            <Button className="size-8 shrink-0" variant="secondary" size="icon">
+            <Button
+               className="size-8 shrink-0"
+               variant="secondary"
+               size="icon"
+               aria-label="Create issue"
+            >
                <RiEditLine />
             </Button>
          </DialogTrigger>
@@ -91,7 +135,7 @@ export function CreateNewIssue() {
                <DialogTitle>
                   <div className="flex items-center px-4 pt-4 gap-2">
                      <Button size="sm" variant="outline" className="gap-1.5">
-                        <Heart className="size-4 text-orange-500 fill-orange-500" />
+                        <BerryMark size="sm" />
                         <span className="font-medium">{WORKSPACE_NAME}</span>
                      </Button>
                   </div>
@@ -100,22 +144,20 @@ export function CreateNewIssue() {
 
             <div className="px-4 pb-0 space-y-3 w-full">
                <Input
-                  className="border-none w-full shadow-none outline-none text-2xl font-medium px-0 h-auto focus-visible:ring-0 overflow-hidden text-ellipsis whitespace-normal break-words"
+                  className="h-auto border-none bg-transparent px-0 text-2xl font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:font-normal placeholder:leading-4"
                   placeholder="Issue title"
                   value={addIssueForm.title}
                   onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}
                />
 
-               <Textarea
-                  className="border-none w-full shadow-none outline-none resize-none px-0 min-h-16 focus-visible:ring-0 break-words whitespace-normal overflow-wrap"
+               <MarkdownTextarea
+                  className="min-h-16 resize-none border-none bg-transparent px-0 text-[12px] text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:leading-4"
                   placeholder="Add description..."
                   value={addIssueForm.description}
-                  onChange={(e) =>
-                     setAddIssueForm({ ...addIssueForm, description: e.target.value })
-                  }
+                  onChange={(description) => setAddIssueForm({ ...addIssueForm, description })}
                />
 
-               <div className="w-full flex items-center justify-start gap-1.5 flex-wrap">
+               <div className="w-full flex items-center justify-start gap-1.5 flex-wrap [&_[data-slot=popover-trigger]]:text-[12px]">
                   <StatusSelector
                      status={addIssueForm.status}
                      onChange={(newStatus) =>
@@ -156,16 +198,19 @@ export function CreateNewIssue() {
                         checked={createMore}
                         onCheckedChange={setCreateMore}
                      />
-                     <Label htmlFor="create-more">Create more</Label>
+                     <Label htmlFor="create-more" className="text-[12px]">
+                        Create more
+                     </Label>
                   </div>
                </div>
                <Button
                   size="sm"
+                  disabled={pending}
                   onClick={() => {
-                     createIssue();
+                     void createIssue();
                   }}
                >
-                  Create issue
+                  {pending ? 'Creating…' : 'Create issue'}
                </Button>
             </div>
          </DialogContent>

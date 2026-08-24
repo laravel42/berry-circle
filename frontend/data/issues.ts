@@ -20,13 +20,16 @@ export interface Issue {
    project?: Project;
    subissues?: string[];
    rank: string;
+   /** Board column order from API (`sortOrder`). */
+   sortOrder: number;
    dueDate?: string;
+   activeRunId?: string | null;
 }
 
 /**
  * Issue seeds from the Circle template lived here. They were removed when
  * the demo data layer was stripped — the board boots empty and fills up
- * from the gateway.
+ * from the gateway (`lib/issues.ts`) when the API URL and board id are set.
  */
 const seeds: unknown[] = [];
 

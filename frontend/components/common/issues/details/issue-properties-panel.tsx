@@ -1,11 +1,20 @@
 'use client';
 
-import { CyclePlayIcon } from '@/components/common/cycles/cycle-line';
+import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
 import { Button } from '@/components/ui/button';
 import { getCycleById } from '@/data/cycles';
 import { IssueDetail } from '@/data/issue-details';
 import { Issue } from '@/data/issues';
+import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
+import { BerryApiError } from '@/lib/api';
+import { pickRunnableAgent } from '@/lib/agents';
+import { WORKSPACE_SLUG } from '@/lib/config';
+import { createIssueRun } from '@/lib/runs';
+import { useAgentsStore } from '@/store/agents-store';
 import { Ban, GitPullRequestArrow, Plus } from 'lucide-react';
+import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { AssigneeUser } from '../assignee-user';
 import { LabelBadge } from '../label-badge';
 import { PrioritySelector } from '../priority-selector';
@@ -20,7 +29,7 @@ interface IssuePropertiesPanelProps {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
    return (
       <div>
-         <h3 className="text-xs font-medium text-muted-foreground mb-2">{title}</h3>
+         <h3 className="mb-2 text-xs text-subtle-foreground">{title.toLowerCase()}</h3>
          {children}
       </div>
    );
@@ -32,6 +41,32 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  */
 export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProps) {
    const cycle = issue.cycleId ? getCycleById(issue.cycleId) : undefined;
+   const inDrawer = useInDetailDrawer();
+   const { orgId } = useParams<{ orgId: string }>();
+   const router = useRouter();
+   const agents = useAgentsStore((state) => state.agents);
+   const [starting, setStarting] = useState(false);
+
+   const startRun = async () => {
+      const agent = pickRunnableAgent(agents);
+      if (!agent) {
+         toast.error('No agent is available');
+         return;
+      }
+      setStarting(true);
+      try {
+         const run = await createIssueRun(issue.id, {
+            agentId: agent.id,
+            instructions: issue.description || undefined,
+         });
+         toast.success(`Run started with ${agent.name}`);
+         router.push(`/${orgId ?? WORKSPACE_SLUG}/runs?run=${run.id}`);
+      } catch (error) {
+         toast.error(error instanceof BerryApiError ? error.message : 'Could not start a run');
+      } finally {
+         setStarting(false);
+      }
+   };
 
    return (
       <div className="flex flex-col gap-7">
@@ -39,16 +74,27 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
             <div className="flex flex-col gap-1.5">
                <div className="flex items-center gap-1.5 -ml-1.5">
                   <StatusSelector status={issue.status} issueId={issue.id} />
-                  <span className="text-sm">{issue.status.name}</span>
+                  <span className="text-xs">{issue.status.name}</span>
                </div>
                <div className="flex items-center gap-1.5 -ml-1.5">
                   <PrioritySelector priority={issue.priority} issueId={issue.id} />
-                  <span className="text-sm">{issue.priority.name}</span>
+                  <span className="text-xs">{issue.priority.name}</span>
                </div>
                <div className="flex items-center gap-2 mt-0.5">
-                  <AssigneeUser user={issue.assignee} />
-                  <span className="text-sm">{issue.assignee ? issue.assignee.name : 'Assign'}</span>
+                  <AssigneeUser user={issue.assignee} issueId={issue.id} />
+                  <span className="text-xs">{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                </div>
+               {agents.length > 0 ? (
+                  <Button
+                     className="mt-2 w-fit"
+                     size="sm"
+                     variant="secondary"
+                     disabled={starting}
+                     onClick={() => void startRun()}
+                  >
+                     {starting ? 'starting…' : 'ask agent'}
+                  </Button>
+               ) : null}
                {cycle && (
                   <div className="flex items-center gap-2 mt-0.5">
                      <CyclePlayIcon className="size-4" />
@@ -58,14 +104,21 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
             </div>
          </Section>
 
-         <Section title="Labels">
-            <div className="flex items-center flex-wrap gap-1.5">
-               <LabelBadge label={issue.labels} />
-               <Button variant="ghost" size="icon" className="size-6 rounded-full border">
-                  <Plus className="size-3.5" />
-               </Button>
-            </div>
-         </Section>
+         {!inDrawer ? (
+            <Section title="Labels">
+               <div className="flex items-center flex-wrap gap-1.5">
+                  <LabelBadge label={issue.labels} />
+                  <Button
+                     variant="ghost"
+                     size="icon"
+                     className="size-6 rounded-sm border"
+                     aria-label="Add label"
+                  >
+                     <Plus className="size-3.5" />
+                  </Button>
+               </div>
+            </Section>
+         ) : null}
 
          {issue.project && (
             <Section title="Project">
@@ -75,7 +128,7 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                </div>
                {detail.milestone && (
                   <div className="flex items-center gap-2 text-sm mt-1.5 pl-6 text-muted-foreground">
-                     <span className="size-2 rotate-45 border border-amber-400 shrink-0" />
+                     <span className="size-2 shrink-0 rotate-45 border border-status-warning" />
                      <span className="truncate">{detail.milestone}</span>
                   </div>
                )}
@@ -87,7 +140,7 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                <div className="flex flex-col">
                   {detail.blockedByIds.map((identifier) => (
                      <div key={identifier} className="flex items-center gap-1.5 min-w-0">
-                        <Ban className="size-3.5 text-red-500 shrink-0" />
+                        <Ban className="size-3.5 shrink-0 text-status-warning" />
                         <IssueRefRow identifier={identifier} />
                      </div>
                   ))}
@@ -113,7 +166,7 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                         <GitPullRequestArrow
                            className={
                               'size-3.5 shrink-0 ' +
-                              (pr.status === 'merged' ? 'text-purple-400' : 'text-green-500')
+                              (pr.status === 'merged' ? 'text-review-approved' : 'text-status-info')
                            }
                         />
                         <span className="text-muted-foreground shrink-0">{pr.id}</span>

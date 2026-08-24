@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { createApp } from "~/app";
 import {
   type CommentConnection,
   type CommentResource,
@@ -10,24 +11,44 @@ import {
   tamperCursorKey,
 } from "./testkit";
 
+describe("comment routes (unauthenticated)", () => {
+  test("GET comments without a token is 401 UNAUTHENTICATED", async () => {
+    const app = createApp();
+    const res = await app.request(`/api/v1/issues/${crypto.randomUUID()}/comments`);
+    expect(res.status).toBe(401);
+    expect((await readJson<ErrorEnvelope>(res)).error.code).toBe("UNAUTHENTICATED");
+  });
+
+  test("POST comments without a token is 401 UNAUTHENTICATED", async () => {
+    const app = createApp();
+    const res = await app.request(`/api/v1/issues/${crypto.randomUUID()}/comments`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ body: "anon" }),
+    });
+    expect(res.status).toBe(401);
+    expect((await readJson<ErrorEnvelope>(res)).error.code).toBe("UNAUTHENTICATED");
+  });
+});
+
 const describeIfDb = DATABASE_URL ? describe : describe.skip;
 
 describeIfDb("comment routes", () => {
   const ctx = makeTestContext();
   afterAll(() => ctx.cleanup());
 
-  /** Seeds a board + user and creates an issue, returning what the tests need. */
+  /** Seeds a board + session and creates an issue, returning what the tests need. */
   async function seedIssue() {
     const board = await ctx.seedBoard();
-    const user = await ctx.seedUser("Author");
+    const { user, headers } = await ctx.seedSession("Author");
     const issue = await readJson<IssueResource>(
       await ctx.app.request("/api/v1/issues", {
         method: "POST",
-        headers: ctx.userHeaders(user.id),
+        headers,
         body: JSON.stringify({ boardId: board.id, title: "Discussable" }),
       }),
     );
-    return { board, user, issue };
+    return { board, user, issue, headers };
   }
 
   const postComment = (issueId: string, headers: Record<string, string>, body: unknown) =>
@@ -40,9 +61,9 @@ describeIfDb("comment routes", () => {
   const createComment = async (issueId: string, headers: Record<string, string>, body: unknown) =>
     readJson<CommentResource>(await postComment(issueId, headers, body));
 
-  test("POST creates a comment authored by the acting user", async () => {
-    const { user, issue } = await seedIssue();
-    const res = await postComment(issue.id, ctx.userHeaders(user.id), { body: "First!" });
+  test("POST creates a comment authored by the logged-in user", async () => {
+    const { user, issue, headers } = await seedIssue();
+    const res = await postComment(issue.id, headers, { body: "First!" });
 
     expect(res.status).toBe(201);
     const body = await readJson<CommentResource>(res);
@@ -52,36 +73,17 @@ describeIfDb("comment routes", () => {
     expect(res.headers.get("Location")).toBe(`/api/v1/comments/${body.id}`);
   });
 
-  test("an agent actor can author a comment", async () => {
-    const { issue } = await seedIssue();
-    const agentId = crypto.randomUUID();
-    const body = await createComment(issue.id, ctx.agentHeaders(agentId), {
-      body: "From an agent",
-    });
-    expect(body.author).toEqual({ type: "agent", id: agentId, name: "Agent", avatarUrl: null });
-  });
-
-  test("POST requires an authenticated actor", async () => {
-    const { issue } = await seedIssue();
-    const res = await ctx.app.request(`/api/v1/issues/${issue.id}/comments`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ body: "anon" }),
-    });
-    expect(res.status).toBe(401);
-  });
-
   test("POST on a nonexistent issue returns 404", async () => {
-    const user = await ctx.seedUser();
-    const res = await postComment(crypto.randomUUID(), ctx.userHeaders(user.id), { body: "x" });
+    const { headers } = await ctx.seedSession();
+    const res = await postComment(crypto.randomUUID(), headers, { body: "x" });
     expect(res.status).toBe(404);
   });
 
   test("replies are one level deep and must share the parent's issue", async () => {
-    const { user, issue } = await seedIssue();
-    const root = await createComment(issue.id, ctx.userHeaders(user.id), { body: "root" });
+    const { issue, headers } = await seedIssue();
+    const root = await createComment(issue.id, headers, { body: "root" });
 
-    const reply = await postComment(issue.id, ctx.userHeaders(user.id), {
+    const reply = await postComment(issue.id, headers, {
       body: "reply",
       parentId: root.id,
     });
@@ -90,7 +92,7 @@ describeIfDb("comment routes", () => {
     expect(replyBody.parentId).toBe(root.id);
 
     // A reply to a reply is rejected (one-level threading).
-    const nested = await postComment(issue.id, ctx.userHeaders(user.id), {
+    const nested = await postComment(issue.id, headers, {
       body: "nested",
       parentId: replyBody.id,
     });
@@ -102,7 +104,7 @@ describeIfDb("comment routes", () => {
 
     // A parent that belongs to another issue is not found.
     const other = await seedIssue();
-    const crossIssue = await postComment(other.issue.id, ctx.userHeaders(other.user.id), {
+    const crossIssue = await postComment(other.issue.id, other.headers, {
       body: "cross",
       parentId: root.id,
     });
@@ -110,13 +112,13 @@ describeIfDb("comment routes", () => {
   });
 
   test("GET lists comments oldest-first with cursor pagination", async () => {
-    const { user, issue } = await seedIssue();
+    const { issue, headers } = await seedIssue();
     for (const body of ["one", "two", "three"]) {
-      await createComment(issue.id, ctx.userHeaders(user.id), { body });
+      await createComment(issue.id, headers, { body });
     }
 
     const page1 = await readJson<CommentConnection>(
-      await ctx.app.request(`/api/v1/issues/${issue.id}/comments?first=2`),
+      await ctx.app.request(`/api/v1/issues/${issue.id}/comments?first=2`, { headers }),
     );
     expect(page1.nodes).toHaveLength(2);
     expect(page1.pageInfo.hasNextPage).toBe(true);
@@ -124,6 +126,7 @@ describeIfDb("comment routes", () => {
     const page2 = await readJson<CommentConnection>(
       await ctx.app.request(
         `/api/v1/issues/${issue.id}/comments?first=2&after=${encodeURIComponent(page1.pageInfo.endCursor ?? "")}`,
+        { headers },
       ),
     );
     expect(page2.nodes).toHaveLength(1);
@@ -139,48 +142,50 @@ describeIfDb("comment routes", () => {
   });
 
   test("GET list rejects a correctly-scoped cursor with malformed SQL keys", async () => {
-    const { user, issue } = await seedIssue();
-    await createComment(issue.id, ctx.userHeaders(user.id), { body: "one" });
-    await createComment(issue.id, ctx.userHeaders(user.id), { body: "two" });
+    const { issue, headers } = await seedIssue();
+    await createComment(issue.id, headers, { body: "one" });
+    await createComment(issue.id, headers, { body: "two" });
     const page = await readJson<CommentConnection>(
-      await ctx.app.request(`/api/v1/issues/${issue.id}/comments?first=1`),
+      await ctx.app.request(`/api/v1/issues/${issue.id}/comments?first=1`, { headers }),
     );
     const malformed = tamperCursorKey(page.pageInfo.endCursor ?? "", ["not-a-date", "not-a-uuid"]);
 
     const response = await ctx.app.request(
       `/api/v1/issues/${issue.id}/comments?first=1&after=${encodeURIComponent(malformed)}`,
+      { headers },
     );
     expect(response.status).toBe(400);
     expect((await readJson<ErrorEnvelope>(response)).error.code).toBe("INVALID_CURSOR");
   });
 
   test("GET a comment by id, or 404 when absent", async () => {
-    const { user, issue } = await seedIssue();
-    const created = await createComment(issue.id, ctx.userHeaders(user.id), { body: "fetch me" });
+    const { issue, headers } = await seedIssue();
+    const created = await createComment(issue.id, headers, { body: "fetch me" });
 
-    const found = await ctx.app.request(`/api/v1/comments/${created.id}`);
+    const found = await ctx.app.request(`/api/v1/comments/${created.id}`, { headers });
     expect(found.status).toBe(200);
     expect((await readJson<CommentResource>(found)).body).toBe("fetch me");
 
-    const missing = await ctx.app.request(`/api/v1/comments/${crypto.randomUUID()}`);
+    const missing = await ctx.app.request(`/api/v1/comments/${crypto.randomUUID()}`, { headers });
     expect(missing.status).toBe(404);
   });
 
   test("PATCH is limited to the author, with an admin override", async () => {
-    const { user, issue } = await seedIssue();
-    const other = await ctx.seedUser("Intruder");
-    const comment = await createComment(issue.id, ctx.userHeaders(user.id), { body: "original" });
+    const { issue, headers } = await seedIssue();
+    const other = await ctx.seedSession("Intruder");
+    const admin = await ctx.seedSession("Admin", "admin");
+    const comment = await createComment(issue.id, headers, { body: "original" });
 
     const forbidden = await ctx.app.request(`/api/v1/comments/${comment.id}`, {
       method: "PATCH",
-      headers: ctx.userHeaders(other.id),
+      headers: other.headers,
       body: JSON.stringify({ body: "hijacked" }),
     });
     expect(forbidden.status).toBe(403);
 
     const byAuthor = await ctx.app.request(`/api/v1/comments/${comment.id}`, {
       method: "PATCH",
-      headers: ctx.userHeaders(user.id),
+      headers,
       body: JSON.stringify({ body: "edited" }),
     });
     expect(byAuthor.status).toBe(200);
@@ -188,7 +193,7 @@ describeIfDb("comment routes", () => {
 
     const byAdmin = await ctx.app.request(`/api/v1/comments/${comment.id}`, {
       method: "PATCH",
-      headers: ctx.userHeaders(other.id, true),
+      headers: admin.headers,
       body: JSON.stringify({ body: "admin edit" }),
     });
     expect(byAdmin.status).toBe(200);
@@ -196,27 +201,27 @@ describeIfDb("comment routes", () => {
   });
 
   test("DELETE removes a root comment and cascades to its replies", async () => {
-    const { user, issue } = await seedIssue();
-    const root = await createComment(issue.id, ctx.userHeaders(user.id), { body: "root" });
-    const reply = await createComment(issue.id, ctx.userHeaders(user.id), {
+    const { issue, headers } = await seedIssue();
+    const root = await createComment(issue.id, headers, { body: "root" });
+    const reply = await createComment(issue.id, headers, {
       body: "reply",
       parentId: root.id,
     });
 
-    const nonAuthor = await ctx.seedUser("Nope");
+    const nonAuthor = await ctx.seedSession("Nope");
     const denied = await ctx.app.request(`/api/v1/comments/${root.id}`, {
       method: "DELETE",
-      headers: ctx.userHeaders(nonAuthor.id),
+      headers: nonAuthor.headers,
     });
     expect(denied.status).toBe(403);
 
     const deleted = await ctx.app.request(`/api/v1/comments/${root.id}`, {
       method: "DELETE",
-      headers: ctx.userHeaders(user.id),
+      headers,
     });
     expect(deleted.status).toBe(204);
 
-    expect((await ctx.app.request(`/api/v1/comments/${root.id}`)).status).toBe(404);
-    expect((await ctx.app.request(`/api/v1/comments/${reply.id}`)).status).toBe(404);
+    expect((await ctx.app.request(`/api/v1/comments/${root.id}`, { headers })).status).toBe(404);
+    expect((await ctx.app.request(`/api/v1/comments/${reply.id}`, { headers })).status).toBe(404);
   });
 });

@@ -23,37 +23,32 @@ its MIT license in `frontend/LICENSE.md` and in the application sidebar.
 
 ### Color
 
-The base theme uses semantic CSS custom properties exposed to Tailwind through
-`@theme inline`. Components should consume the semantic name in the first column.
+The Brand Manual is the palette authority. `frontend/app/globals.css` exposes these values
+through semantic CSS custom properties and Tailwind's `@theme inline`; feature components
+consume semantic state names rather than raw colors.
 
-| Semantic token | Light | Dark | Intended use |
-| --- | --- | --- | --- |
-| `background` | `oklch(0.975 0.001 286.375)` | `oklch(0.141 0.005 285.823)` | App canvas |
-| `foreground` | `oklch(0.141 0.005 285.823)` | `oklch(0.985 0 0)` | Primary text/icons |
-| `container` | `#fff` | `#101011` | Main framed workspace |
-| `card` | `oklch(1 0 0)` | `oklch(0.141 0.005 285.823)` | Cards and raised surfaces |
-| `card-foreground` | `oklch(0.141 0.005 285.823)` | `oklch(0.985 0 0)` | Card content |
-| `popover` | `oklch(1 0 0)` | `oklch(0.141 0.005 285.823)` | Menus, select lists, tooltips |
-| `popover-foreground` | `oklch(0.141 0.005 285.823)` | `oklch(0.985 0 0)` | Popover content |
-| `primary` | `oklch(0.21 0.006 285.885)` | `oklch(0.985 0 0)` | Primary action/emphasis |
-| `primary-foreground` | `oklch(0.985 0 0)` | `oklch(0.21 0.006 285.885)` | Content on primary |
-| `secondary` | `oklch(0.967 0.001 286.375)` | `oklch(0.274 0.006 286.033)` | Secondary controls |
-| `secondary-foreground` | `oklch(0.21 0.006 285.885)` | `oklch(0.985 0 0)` | Content on secondary |
-| `muted` | `oklch(0.967 0.001 286.375)` | `oklch(0.274 0.006 286.033)` | Subtle backgrounds |
-| `muted-foreground` | `oklch(0.552 0.016 285.938)` | `oklch(0.705 0.015 286.067)` | Supporting text/icons |
-| `accent` | `oklch(0.967 0.001 286.375)` | `oklch(0.274 0.006 286.033)` | Hover/selected surface |
-| `accent-foreground` | `oklch(0.21 0.006 285.885)` | `oklch(0.985 0 0)` | Content on accent |
-| `destructive` | `oklch(0.577 0.245 27.325)` | `oklch(0.396 0.141 25.723)` | Destructive/error action |
-| `destructive-foreground` | `oklch(0.577 0.245 27.325)` | `oklch(0.637 0.237 25.331)` | Destructive supporting content |
-| `border`, `input` | `oklch(0.92 0.004 286.32)` | `oklch(0.274 0.006 286.033)` | Dividers and control borders |
-| `ring` | `oklch(0.871 0.006 286.286)` | `oklch(0.442 0.017 285.786)` | Keyboard focus |
+| Brand token | Value | Intended use |
+| --- | --- | --- |
+| `void` | `#111113` | Dark app canvas and gutters |
+| `base` | `#1A1A1D` | Primary dark workspace surface |
+| `ember` | `#1C1811` | Human-held or review-waiting surface |
+| `thicket` | `#151917` | Completed/merged surface |
+| `deep` | `#121820` | Agent output and active run surface |
+| `ripe` | `oklch(70% 0.13 85)` | One bright empty-state or primary editorial surface |
+| `chalk` | `#F8F8F4` | Dark-theme primary text |
+| `ash` | `#A8A6A6` | Dark-theme supporting body text |
+| `slate` | `#6A6767` | Metadata on light surfaces only. Dark captions use `ash` so they stay above 4.5:1. |
+| `hairline` | `#26262B` | Rules and borders; never body text |
+| `berry` | `#C74A5E` | Brand mark, wordmark stop, and one primary action per view |
+| `amber` | `#D9A441` | Human input, blocked, awaiting review |
+| `verdant` | `#4F9F7A` | Done, accepted, merged |
+| `azure` | `#5A92C9` | Agent activity in progress |
 
-Sidebar equivalents exist for surface, foreground, primary, accent, border, and ring. Five
-chart colors are defined separately for light and dark modes. Three selectable theme
-overrides also exist: `pure-light`, `magic-blue`, and `classic-dark`.
+Berry Dark is the default product theme. Berry Light is an accessible print-like inversion;
+System selects between those two. The inherited `pure-light`, `magic-blue`, `classic-dark`,
+and custom theme variants are not Berry themes.
 
-Before feature expansion, add semantic aliases for product state rather than repeating
-palette utilities such as `indigo-500`, `emerald-500`, or `orange-500`:
+Semantic state aliases keep color meaning stable across both themes:
 
 | Proposed alias | Meaning |
 | --- | --- |
@@ -66,27 +61,34 @@ palette utilities such as `indigo-500`, `emerald-500`, or `orange-500`:
 | `actor-agent` | Agent-authored activity/avatar accent |
 | `review-pending`, `review-approved`, `review-changes` | Review-gate states |
 
-Actual alias values require a Berry brand palette and WCAG contrast validation. The aliases
-are the contract; do not treat the current indigo/violet accents as approved brand colors.
+Berry is never an error color. Destructive/error actions use the separate `status-danger`
+token. Status marks retain one bracket silhouette; the berry dot, label, and optional
+non-color cue communicate the state.
 
 ### Typography
 
 | Role | Current implementation | Guidance |
 | --- | --- | --- |
-| UI sans | Geist Sans, system fallback through Next.js | Reusable; retain unless brand direction changes |
-| Code/data | Geist Mono | Reusable for identifiers, code, logs, hashes, and durations |
+| Interface | Geist Mono 300, 13/20 | Default for controls, body, metadata, identifiers, logs, and durations |
+| Display | DM Serif Display | Wordmark, page display titles, and quoted agent handoff only |
 | Micro label | 8–11 px, usually medium | Restrict to nonessential badges; never primary content |
-| Caption | `text-xs` = 12/16 px | Metadata, timestamps, compact navigation |
-| Body compact | `text-sm` = 14/20 px | Default dense UI body and controls |
-| Body | `text-base` = 16/24 px | Forms and reading surfaces; mobile inputs already force 16 px |
-| Heading small | `text-lg` = 18/28 px, semibold | Dialog/card title |
-| Heading medium | `text-xl`–`text-2xl` = 20–24 px | Page/section title |
-| Display | `text-3xl` = 30/36 px | Rare overview/empty-state emphasis |
+| Caption | `text-xs` = 11/16 px | Metadata, timestamps, compact labels |
+| Body compact | `text-sm` = 13/20 px | Default dense UI body and controls |
+| Body | `text-base` = 14/22 px | Forms and reading surfaces; mobile inputs already force 16 px |
+| Heading small | `text-lg` = 16/24 px, semibold | Dialog/card title |
+| Heading medium | `text-xl`–`text-2xl` = 18–20 px | Page/section title |
+| Display | `text-3xl` = 24/28 px | Rare overview/empty-state emphasis |
+| Sidebar menu | `text-sm` = 15/26 px, `text-xs` = 12/16 px | Already compacted; do not inherit the workspace scale |
 
-Weights currently used are 400, 500, and 600. The dominant hierarchy is 12/14 px with
-medium weight. Prefer that defined scale over new arbitrary values; migrate recurring 10 px
-and 11 px labels into named `type-micro` and `type-overline` styles if they survive
-accessibility review.
+Form controls inherit `color` and `-webkit-text-fill-color` from `--foreground` in
+`globals.css`. Do not rely on the user-agent fill. Placeholders fade
+`--foreground` (about 40% opacity), not low-opacity `--muted-foreground`, so they
+stay visible on void.
+
+Geist Mono defaults to weight 300. Hierarchy comes from size, tone, and spacing rather than many weights.
+DM Serif Display never appears in buttons, controls, tables, or dense queue rows. Prefer the
+defined scale over new arbitrary values; migrate recurring 10 px and 11 px labels into named
+`type-micro` and `type-overline` styles if they survive accessibility review.
 
 ### Spacing and sizing
 
@@ -119,6 +121,22 @@ components are revised:
 - Header accounting: 40 px compact/mobile and 56 px desktop, with two-header totals of
   80/96 px.
 - Mobile/navigation behavior changes below 1024 px.
+
+### Overlay and drawer sizing
+
+Detail drawers are capped at **1024 px**, globally, via the `--drawer-max-width`
+token in `frontend/app/globals.css`. Past roughly that width a drawer stops
+reading as a panel over the workspace and starts reading as a page that
+replaced it, which loses the sense of the list still sitting behind it.
+
+The cap is a token, not a prop default, so changing it is one edit rather than
+an audit of every call site. `DetailDrawerShell` accepts a `maxWidth` override
+in pixels for the rare case that needs one; a call site passing the same value
+as the token is redundant and should be removed rather than kept "for clarity",
+because a second copy of the number is a second thing to change.
+
+Drawer width is additionally clamped to the space beside the sidebar, so a
+drawer never covers navigation on a narrow viewport.
 
 ### Shape, elevation, and motion
 
@@ -233,8 +251,8 @@ Baseline requirements:
 
 ## Adoption checklist
 
-1. Treat this inventory as the baseline and approve a distinct Berry brand palette before
-   assigning values to the proposed state/actor aliases.
+1. Treat the Brand Manual palette and the semantic state/actor aliases as the baseline for
+   all revised surfaces.
 2. Centralize layout dimensions, motion durations, and repeated micro typography in tokens.
 3. Replace hard-coded palette utilities in feature components with semantic status tokens.
 4. Build a primitive/state showcase for light, dark, high-density desktop, and mobile.

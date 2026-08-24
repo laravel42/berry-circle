@@ -6,8 +6,10 @@ import { createIssueSchema, serializeIssue, updateIssueSchema } from "~/api/dto"
 import { ISSUE_PRIORITIES, ISSUE_STATUSES, statusToApi, statusToDb } from "~/api/enums";
 import { findIssueByRef } from "~/api/lookups";
 import { assertTransition, canCreateWithStatus } from "~/api/workflow";
+import { getAuthUser, requireAuth } from "~/auth/middleware";
+import type { AuthEnv } from "~/auth/types";
 import { assignments, boards, issues, users } from "~/db/schema";
-import { requireActor, requireDb } from "~/http/context";
+import { requireDb } from "~/http/context";
 import { invalidStateTransition, notFound } from "~/http/errors";
 import {
   buildConnection,
@@ -60,11 +62,11 @@ const issueListQuerySchema = pageArgsSchema
     path: ["assigneeType"],
   });
 
-export function makeIssueRoutes(deps: RouteDeps): Hono {
-  const router = new Hono();
+export function makeIssueRoutes(deps: RouteDeps): Hono<AuthEnv> {
+  const router = new Hono<AuthEnv>();
 
   // GET /issues — filtered, cursor-paginated list ordered by (updatedAt, id) DESC.
-  router.get("/issues", async (c) => {
+  router.get("/issues", requireAuth, async (c) => {
     const db = requireDb(deps.db);
     const q = parseQuery(issueListQuerySchema, c.req.query());
 
@@ -143,9 +145,9 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
   });
 
   // POST /issues — create; server-allocates the board-scoped number.
-  router.post("/issues", async (c) => {
+  router.post("/issues", requireAuth, async (c) => {
     const db = requireDb(deps.db);
-    const actor = await requireActor(c, db);
+    const user = getAuthUser(c);
     const input = parseBody(createIssueSchema, await readJsonBody(c));
     // Create is not a free-form status write: `done` / `inReview` would skip
     // the review gate. Treat omitted status as backlog (schema default).
@@ -190,7 +192,7 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
           dueDate: input.dueDate ? new Date(input.dueDate) : null,
           assigneeType: input.assignee ? input.assignee.type : null,
           assigneeId: input.assignee ? input.assignee.id : null,
-          createdBy: actor.type === "user" ? actor.id : null,
+          createdBy: user.id,
         })
         .returning();
 
@@ -199,7 +201,7 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
           issueId: issue.id,
           assigneeType: input.assignee.type,
           assigneeId: input.assignee.id,
-          assignedBy: actor.type === "user" ? actor.id : null,
+          assignedBy: user.id,
         });
       }
       return { issue, boardSlug: board.slug };
@@ -214,7 +216,7 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
   });
 
   // GET /issues/{issueId} — by UUID or human identifier.
-  router.get("/issues/:issueId", async (c) => {
+  router.get("/issues/:issueId", requireAuth, async (c) => {
     const db = requireDb(deps.db);
     const found = await findIssueByRef(db, c.req.param("issueId"));
     if (!found) throw notFound("Issue not found.");
@@ -227,9 +229,9 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
   });
 
   // PATCH /issues/{issueId} — partial update; enforces the status workflow.
-  router.patch("/issues/:issueId", async (c) => {
+  router.patch("/issues/:issueId", requireAuth, async (c) => {
     const db = requireDb(deps.db);
-    const actor = await requireActor(c, db);
+    const user = getAuthUser(c);
     const found = await findIssueByRef(db, c.req.param("issueId"));
     if (!found) throw notFound("Issue not found.");
     const input = parseBody(updateIssueSchema, await readJsonBody(c));
@@ -279,7 +281,7 @@ export function makeIssueRoutes(deps: RouteDeps): Hono {
           issueId: row.id,
           assigneeType: input.assignee.type,
           assigneeId: input.assignee.id,
-          assignedBy: actor.type === "user" ? actor.id : null,
+          assignedBy: user.id,
         });
       }
       return row;

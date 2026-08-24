@@ -1,0 +1,80 @@
+package openfang
+
+import (
+	"context"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestListModelsReturnsNormalizedEntries(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.URL.Path != "/v1/models" || request.Method != http.MethodGet {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{
+			"object":"list",
+			"data":[
+				{"id":"agent-1","object":"model","owned_by":"openfang"},
+				{"id":"gpt-test","object":"model","owned_by":"openai"}
+			]
+		}`)
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "", server.Client(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	models, err := client.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if len(models) != 2 || models[0].ID != "agent-1" || models[0].OwnedBy != "openfang" {
+		t.Fatalf("models = %#v", models)
+	}
+}
+
+func TestCreateChatCompletionReturnsAssistantContent(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.URL.Path != "/v1/chat/completions" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request %s %s", request.Method, request.URL.Path)
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{
+			"object":"chat.completion",
+			"choices":[{"message":{"role":"assistant","content":"berry"}}],
+			"usage":{"prompt_tokens":3,"completion_tokens":1}
+		}`)
+	}))
+	defer server.Close()
+
+	client, err := New(server.URL, "", server.Client(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := client.CreateChatCompletion(context.Background(), ChatCompletionRequest{
+		Model: "agent-1",
+		Messages: []ChatMessage{{
+			Role:    "user",
+			Content: "Reply with berry.",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CreateChatCompletion() error = %v", err)
+	}
+	if result.Content != "berry" || result.Usage.InputTokens != 3 || result.Usage.OutputTokens != 1 {
+		t.Fatalf("result = %#v", result)
+	}
+}

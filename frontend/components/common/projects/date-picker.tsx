@@ -16,6 +16,10 @@ export function DatePicker({ date, onDateChange }: DatePickerProps) {
    const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(date);
    const [open, setOpen] = React.useState<boolean>(false);
 
+   React.useEffect(() => {
+      setSelectedDate(date);
+   }, [date]);
+
    const handleDateSelect = (date: Date | undefined) => {
       setSelectedDate(date);
       if (onDateChange) {

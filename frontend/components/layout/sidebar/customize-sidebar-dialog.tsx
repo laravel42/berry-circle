@@ -17,19 +17,16 @@ import {
    useSidebarPrefsStore,
 } from '@/store/sidebar-prefs-store';
 import {
-   Bot,
+   Activity,
    Box,
    Check,
    ChevronDown,
-   Compass,
-   ContactRound,
    FolderKanban,
    GitPullRequestArrow,
    GripVertical,
    Inbox,
-   Layers,
    LucideIcon,
-   UserRound,
+   Sparkles,
 } from 'lucide-react';
 import { useRef, useState } from 'react';
 
@@ -42,18 +39,15 @@ interface ItemConfig {
 }
 
 export const PERSONAL_ITEMS: ItemConfig[] = [
-   { key: 'inbox', label: 'Inbox', icon: Inbox, badged: true },
-   { key: 'reviews', label: 'Reviews', icon: GitPullRequestArrow, badged: true },
-   { key: 'my-issues', label: 'My issues', icon: FolderKanban },
-   { key: 'agent', label: 'Agent', icon: Bot },
+   { key: 'my-issues', label: 'issues', icon: FolderKanban },
+   { key: 'agent', label: 'runs', icon: Activity },
+   { key: 'reviews', label: 'reviews', icon: GitPullRequestArrow, badged: true },
+   { key: 'inbox', label: 'inbox', icon: Inbox, badged: true },
 ];
 
 export const WORKSPACE_ITEMS: ItemConfig[] = [
-   { key: 'initiatives', label: 'Initiatives', icon: Compass },
-   { key: 'projects', label: 'Projects', icon: Box },
-   { key: 'views', label: 'Views', icon: Layers },
-   { key: 'teams', label: 'Teams', icon: ContactRound },
-   { key: 'members', label: 'Members', icon: UserRound },
+   { key: 'projects', label: 'projects', icon: Box },
+   { key: 'agents', label: 'agents', icon: Sparkles },
 ];
 
 const VISIBILITY_LABELS: Record<SidebarVisibility, string> = {

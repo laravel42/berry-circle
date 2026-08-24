@@ -5,14 +5,16 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { status as allStatus, Status } from '@/data/status';
+import { Status } from '@/data/status';
 import { CheckIcon } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
+import { projectCreateStatusOptions } from './create-project/project-status-options';
+
+const projectStatuses = projectCreateStatusOptions.map((option) => option.status);
 
 interface StatusWithPercentProps {
    status: Status;
@@ -28,6 +30,10 @@ export function StatusWithPercent({
    const id = useId();
    const [open, setOpen] = useState<boolean>(false);
    const [value, setValue] = useState<string>(status.id);
+
+   useEffect(() => {
+      setValue(status.id);
+   }, [status.id]);
 
    const handleStatusChange = (statusId: string) => {
       setValue(statusId);
@@ -50,7 +56,7 @@ export function StatusWithPercent({
                aria-expanded={open}
             >
                {(() => {
-                  const selectedItem = allStatus.find((item) => item.id === value);
+                  const selectedItem = projectStatuses.find((item) => item.id === value);
                   if (selectedItem) {
                      const Icon = selectedItem.icon;
                      return <Icon />;
@@ -62,11 +68,10 @@ export function StatusWithPercent({
          </PopoverTrigger>
          <PopoverContent className="border-input w-48 p-0" align="start">
             <Command>
-               <CommandInput placeholder="Set status..." />
                <CommandList>
                   <CommandEmpty>No status found.</CommandEmpty>
                   <CommandGroup>
-                     {allStatus.map((item) => {
+                     {projectStatuses.map((item) => {
                         const Icon = item.icon;
                         return (
                            <CommandItem

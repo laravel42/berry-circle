@@ -5,14 +5,13 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { priorities, Priority } from '@/data/priorities';
 import { CheckIcon } from 'lucide-react';
-import { useId, useState } from 'react';
+import { useEffect, useId, useState } from 'react';
 
 interface PrioritySelectorProps {
    priority: Priority;
@@ -23,6 +22,10 @@ export function PrioritySelector({ priority, onPriorityChange }: PrioritySelecto
    const id = useId();
    const [open, setOpen] = useState<boolean>(false);
    const [value, setValue] = useState<string>(priority.id);
+
+   useEffect(() => {
+      setValue(priority.id);
+   }, [priority.id]);
 
    const handlePriorityChange = (priorityId: string) => {
       setValue(priorityId);
@@ -57,7 +60,6 @@ export function PrioritySelector({ priority, onPriorityChange }: PrioritySelecto
             </PopoverTrigger>
             <PopoverContent className="border-input w-48 p-0" align="start">
                <Command>
-                  <CommandInput placeholder="Set priority..." />
                   <CommandList>
                      <CommandEmpty>No priority found.</CommandEmpty>
                      <CommandGroup>

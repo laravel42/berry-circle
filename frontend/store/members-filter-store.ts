@@ -6,18 +6,9 @@ export type MembersSort =
    | 'name-asc'
    | 'name-desc'
    | 'joined-asc' // oldest first
-   | 'joined-desc' // newest first
-   | 'teams-asc'
-   | 'teams-desc';
+   | 'joined-desc'; // newest first
 
-const SORTS: MembersSort[] = [
-   'name-asc',
-   'name-desc',
-   'joined-asc',
-   'joined-desc',
-   'teams-asc',
-   'teams-desc',
-];
+const SORTS: MembersSort[] = ['name-asc', 'name-desc', 'joined-asc', 'joined-desc'];
 
 export interface MembersFilterState {
    filters: {

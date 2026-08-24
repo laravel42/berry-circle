@@ -4,11 +4,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { getInitiativeProjects, Initiative } from '@/data/initiatives';
 import { health as allHealth } from '@/data/projects';
-import { teams } from '@/data/teams';
 import { useMemo, useState } from 'react';
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from 'recharts';
 
-type BreakdownTab = 'health' | 'status' | 'teams' | 'leads';
+type BreakdownTab = 'health' | 'status' | 'leads';
 
 /** Deterministic pseudo-random from a string seed (SSR safe). */
 const seedNumber = (seed: string): number =>
@@ -21,9 +20,9 @@ interface ProgressPoint {
    scope: number;
 }
 
-/** Progress area chart + Health/Status/Teams/Leads breakdown of an initiative. */
+/** Progress area chart + Health/Status/Leads breakdown of an initiative. */
 export function InitiativeProgressPanel({ initiative }: { initiative: Initiative }) {
-   const [tab, setTab] = useState<BreakdownTab>('teams');
+   const [tab, setTab] = useState<BreakdownTab>('health');
    const projects = useMemo(() => getInitiativeProjects(initiative), [initiative]);
 
    const series = useMemo<ProgressPoint[]>(() => {
@@ -49,16 +48,6 @@ export function InitiativeProgressPanel({ initiative }: { initiative: Initiative
    }, [initiative.id, projects.length]);
 
    const rows = useMemo(() => {
-      if (tab === 'teams') {
-         const byTeam = new Map<string, number>();
-         for (const project of projects) {
-            byTeam.set(project.teamId, (byTeam.get(project.teamId) ?? 0) + 1);
-         }
-         return [...byTeam.entries()].map(([teamId, count]) => {
-            const team = teams.find((entry) => entry.id === teamId);
-            return { key: teamId, icon: team?.icon ?? '👥', label: team?.name ?? teamId, count };
-         });
-      }
       if (tab === 'leads') {
          const byLead = new Map<string, { label: string; avatarUrl?: string; count: number }>();
          for (const project of projects) {
@@ -154,7 +143,6 @@ export function InitiativeProgressPanel({ initiative }: { initiative: Initiative
                [
                   ['health', 'Health'],
                   ['status', 'Status'],
-                  ['teams', 'Teams'],
                   ['leads', 'Leads'],
                ] as const
             ).map(([key, label]) => (

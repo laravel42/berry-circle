@@ -5,13 +5,13 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIssuesStore } from '@/store/issues-store';
-import { LabelInterface, labels } from '@/data/labels';
+import { LabelInterface } from '@/data/labels';
+import { useLabelsStore } from '@/store/labels-store';
 import { CheckIcon, TagIcon } from 'lucide-react';
 import { useId, useState } from 'react';
 import { cn } from '@/lib/utils';
@@ -25,6 +25,7 @@ export function LabelSelector({ selectedLabels, onChange }: LabelSelectorProps) 
    const id = useId();
    const [open, setOpen] = useState<boolean>(false);
 
+   const labels = useLabelsStore((state) => state.labels);
    const { filterByLabel } = useIssuesStore();
 
    const handleLabelToggle = (label: LabelInterface) => {
@@ -74,7 +75,6 @@ export function LabelSelector({ selectedLabels, onChange }: LabelSelectorProps) 
                align="start"
             >
                <Command>
-                  <CommandInput placeholder="Search labels..." />
                   <CommandList>
                      <CommandEmpty>No labels found.</CommandEmpty>
                      <CommandGroup>

@@ -144,8 +144,9 @@ metric cardinality bounded.
 
 `GET|POST /api/v1/issues`, `GET|PATCH /api/v1/issues/{issueId}` (UUID or identifier),
 `GET|POST /api/v1/issues/{issueId}/comments`, and `GET|PATCH|DELETE /api/v1/comments/{commentId}`.
-Collections use opaque cursor pagination. Mutating routes currently resolve the actor from
-`X-Berry-Actor-*` headers (BERR-24 session swap is the follow-up). Create may start in
+Collections use opaque cursor pagination. All of these routes (and run SSE) require a
+session bearer token (`Authorization: Bearer <token>`); the authenticated user is the
+author/actor. Create may start in
 `backlog` / `todo` / `inProgress` / `cancelled`; `inReview` and `done` return
 `409 INVALID_STATE_TRANSITION` so the review gate cannot be skipped.
 

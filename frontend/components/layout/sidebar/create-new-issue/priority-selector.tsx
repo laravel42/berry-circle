@@ -5,7 +5,6 @@ import {
    Command,
    CommandEmpty,
    CommandGroup,
-   CommandInput,
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
@@ -71,7 +70,6 @@ export function PrioritySelector({ priority, onChange }: PrioritySelectorProps) 
                align="start"
             >
                <Command>
-                  <CommandInput placeholder="Set priority..." />
                   <CommandList>
                      <CommandEmpty>No priority found.</CommandEmpty>
                      <CommandGroup>

@@ -1,15 +1,6 @@
 'use client';
 
-import {
-   Box,
-   Compass,
-   ContactRound,
-   Layers,
-   LayoutList,
-   LucideIcon,
-   MoreHorizontal,
-   UserRound,
-} from 'lucide-react';
+import { Box, LayoutList, LucideIcon, MoreHorizontal, Sparkles } from 'lucide-react';
 
 import {
    DropdownMenu,
@@ -32,8 +23,9 @@ import {
    useSidebarPrefsStore,
 } from '@/store/sidebar-prefs-store';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { isNavItemActive } from '@/lib/nav-active';
 import { CustomizeSidebarDialog } from './customize-sidebar-dialog';
 
 interface WorkspaceNavItem {
@@ -45,15 +37,13 @@ interface WorkspaceNavItem {
 }
 
 const WORKSPACE_NAV: WorkspaceNavItem[] = [
-   { key: 'initiatives', name: 'Initiatives', icon: Compass, url: '/initiatives' },
-   { key: 'projects', name: 'Projects', icon: Box, url: '/projects' },
-   { key: 'views', name: 'Views', icon: Layers, url: '/views' },
-   { key: 'teams', name: 'Teams', icon: ContactRound, url: '/teams' },
-   { key: 'members', name: 'Members', icon: UserRound, url: '/members' },
+   { key: 'projects', name: 'projects', icon: Box, url: '/projects' },
+   { key: 'agents', name: 'agents', icon: Sparkles, url: '/agents' },
 ];
 
 export function NavWorkspace() {
    const { orgId } = useParams<{ orgId: string }>();
+   const pathname = usePathname();
    const { visibility, order } = useSidebarPrefsStore();
    const [customizeOpen, setCustomizeOpen] = useState(false);
    const [mounted, setMounted] = useState(false);
@@ -68,34 +58,33 @@ export function NavWorkspace() {
            .filter((item): item is WorkspaceNavItem => Boolean(item))
       : WORKSPACE_NAV;
 
-   const items = orderedNav.filter((item) =>
-      mounted ? isSidebarItemVisible(visibility[item.key], 0) : true
-   );
-   const hidden = mounted
-      ? orderedNav.filter((item) => !isSidebarItemVisible(visibility[item.key], 0))
-      : [];
+   const items = orderedNav.filter((item) => isSidebarItemVisible(visibility[item.key], 0));
+   const hidden = orderedNav.filter((item) => !isSidebarItemVisible(visibility[item.key], 0));
 
    return (
       <SidebarGroup className="group-data-[collapsible=icon]:hidden">
-         <SidebarGroupLabel>Workspace</SidebarGroupLabel>
+         <SidebarGroupLabel>workspace</SidebarGroupLabel>
          <SidebarMenu>
-            {items.map((item) => (
-               <SidebarMenuItem key={item.key}>
-                  <SidebarMenuButton asChild>
-                     <Link href={`/${orgId}${item.url}`}>
-                        <item.icon />
-                        <span>{item.name}</span>
-                     </Link>
-                  </SidebarMenuButton>
-               </SidebarMenuItem>
-            ))}
+            {items.map((item) => {
+               const href = `/${orgId}${item.url}`;
+               return (
+                  <SidebarMenuItem key={item.key}>
+                     <SidebarMenuButton asChild size="sm" isActive={isNavItemActive(pathname, href)}>
+                        <Link href={href}>
+                           <item.icon />
+                           <span>{item.name}</span>
+                        </Link>
+                     </SidebarMenuButton>
+                  </SidebarMenuItem>
+               );
+            })}
             <SidebarMenuItem>
                <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                     <SidebarMenuButton asChild>
+                     <SidebarMenuButton asChild size="sm">
                         <span>
                            <MoreHorizontal />
-                           <span>More</span>
+                           <span>more</span>
                         </span>
                      </SidebarMenuButton>
                   </DropdownMenuTrigger>
@@ -111,7 +100,7 @@ export function NavWorkspace() {
                      {hidden.length > 0 && <DropdownMenuSeparator />}
                      <DropdownMenuItem onClick={() => setCustomizeOpen(true)}>
                         <LayoutList className="text-muted-foreground" />
-                        <span>Customize sidebar</span>
+                        <span>customize sidebar</span>
                      </DropdownMenuItem>
                   </DropdownMenuContent>
                </DropdownMenu>

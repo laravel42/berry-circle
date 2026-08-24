@@ -2,8 +2,8 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { getProjectDetail } from '@/data/project-details';
-import { getProjectById } from '@/data/projects';
-import { teams } from '@/data/teams';
+import { useProjectsStore } from '@/store/projects-store';
+import { useSessionStore } from '@/store/session-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { format, parseISO } from 'date-fns';
 import {
@@ -57,7 +57,8 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
    const { orgId } = useParams<{ orgId: string }>();
    const { issues: allIssues } = useIssuesStore();
 
-   const project = getProjectById(projectId);
+   const project = useProjectsStore((state) => state.getProjectById(projectId));
+   const workspace = useSessionStore((state) => state.workspace);
    const detail = getProjectDetail(projectId);
 
    const issues = useMemo(
@@ -86,7 +87,6 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
 
    if (!project) return null;
 
-   const team = teams.find((candidate) => candidate.id === project.teamId);
    const started = issues.filter((issue) => issue.status.category === 'started').length;
    const completed = issues.filter((issue) => issue.status.category === 'completed').length;
 
@@ -180,7 +180,7 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
                </PropertyRow>
                <PropertyRow label="Teams">
                   <span className="inline-flex items-center gap-1.5">
-                     {team?.icon} {team?.name ?? project.teamId}
+                     🫐 {workspace?.name ?? 'Workspace'}
                   </span>
                </PropertyRow>
                <PropertyRow label="Slack">

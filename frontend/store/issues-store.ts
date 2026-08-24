@@ -4,6 +4,13 @@ import { Priority } from '@/data/priorities';
 import { Project } from '@/data/projects';
 import { Status } from '@/data/status';
 import { User } from '@/data/users';
+import {
+   assigneeToApi,
+   patchBoardIssue,
+   rankFromSortOrder,
+   sortOrderBetween,
+} from '@/lib/issues';
+import { apiPriorityFromUi, apiStatusFromUi } from '@/lib/catalog';
 import { create } from 'zustand';
 
 interface FilterOptions {
@@ -25,6 +32,7 @@ interface IssuesState {
    getAllIssues: () => Issue[];
 
    // Actions
+   hydrateIssues: (issues: Issue[]) => void;
    addIssue: (issue: Issue) => void;
    updateIssue: (id: string, updatedIssue: Partial<Issue>) => void;
    deleteIssue: (id: string) => void;
@@ -42,11 +50,19 @@ interface IssuesState {
    // Status management
    updateIssueStatus: (issueId: string, newStatus: Status) => void;
 
+   /** Reorder within a column and optionally move across status columns on the board. */
+   moveIssue: (
+      issueId: string,
+      target: { targetStatus?: Status; insertBeforeId?: string | null }
+   ) => void;
+
    // Priority management
    updateIssuePriority: (issueId: string, newPriority: Priority) => void;
 
    // Assignee management
    updateIssueAssignee: (issueId: string, newAssignee: User | null) => void;
+
+   updateIssueDescription: (issueId: string, description: string) => void;
 
    // Labels management
    addIssueLabel: (issueId: string, label: LabelInterface) => void;
@@ -68,6 +84,13 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
    getAllIssues: () => get().issues,
 
    // Actions
+   hydrateIssues: (incoming: Issue[]) => {
+      set({
+         issues: incoming,
+         issuesByStatus: groupIssuesByStatus(incoming),
+      });
+   },
+
    addIssue: (issue: Issue) => {
       set((state) => {
          const newIssues = [...state.issues, issue];
@@ -206,16 +229,69 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
    // Status management
    updateIssueStatus: (issueId: string, newStatus: Status) => {
       get().updateIssue(issueId, { status: newStatus });
+      void patchBoardIssue(issueId, { status: apiStatusFromUi(newStatus.id) });
+   },
+
+   moveIssue: (issueId, { targetStatus, insertBeforeId }) => {
+      const issue = get().getIssueById(issueId);
+      if (!issue) return;
+
+      const status = targetStatus ?? issue.status;
+      const columnIssues = get()
+         .issues.filter((row) => row.status.id === status.id && row.id !== issueId)
+         .sort((a, b) => a.sortOrder - b.sortOrder || a.rank.localeCompare(b.rank));
+
+      let beforeSort: number | undefined;
+      let afterSort: number | undefined;
+
+      if (insertBeforeId === null || insertBeforeId === undefined) {
+         const last = columnIssues.at(-1);
+         beforeSort = last?.sortOrder;
+         afterSort = undefined;
+      } else {
+         const insertIndex = columnIssues.findIndex((row) => row.id === insertBeforeId);
+         if (insertIndex === -1) {
+            const last = columnIssues.at(-1);
+            beforeSort = last?.sortOrder;
+            afterSort = undefined;
+         } else {
+            afterSort = columnIssues[insertIndex].sortOrder;
+            beforeSort = insertIndex > 0 ? columnIssues[insertIndex - 1].sortOrder : undefined;
+         }
+      }
+
+      const newSortOrder = sortOrderBetween(beforeSort, afterSort);
+      const newRank = rankFromSortOrder(newSortOrder);
+      const statusChanged = status.id !== issue.status.id;
+
+      get().updateIssue(issueId, {
+         rank: newRank,
+         sortOrder: newSortOrder,
+         ...(statusChanged ? { status } : {}),
+      });
+
+      const patch: { sortOrder: number; status?: string } = { sortOrder: newSortOrder };
+      if (statusChanged) {
+         patch.status = apiStatusFromUi(status.id);
+      }
+      void patchBoardIssue(issueId, patch);
    },
 
    // Priority management
    updateIssuePriority: (issueId: string, newPriority: Priority) => {
       get().updateIssue(issueId, { priority: newPriority });
+      void patchBoardIssue(issueId, { priority: apiPriorityFromUi(newPriority.id) });
    },
 
    // Assignee management
    updateIssueAssignee: (issueId: string, newAssignee: User | null) => {
       get().updateIssue(issueId, { assignee: newAssignee });
+      void patchBoardIssue(issueId, { assignee: assigneeToApi(newAssignee) });
+   },
+
+   updateIssueDescription: (issueId: string, description: string) => {
+      get().updateIssue(issueId, { description });
+      void patchBoardIssue(issueId, { description: description || null });
    },
 
    // Labels management

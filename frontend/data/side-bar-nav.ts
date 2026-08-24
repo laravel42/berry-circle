@@ -1,5 +1,5 @@
 import {
-   Bot,
+   Activity,
    GitPullRequestArrow,
    Inbox,
    FolderKanban,
@@ -15,55 +15,40 @@ import {
    MessageSquare,
    Clock,
    Zap,
+   Sparkles,
    UserRound,
 } from 'lucide-react';
 
 /**
  * Static sidebar navigation items. URLs use the default workspace slug
- * (`berry`) — kept in sync with the redirect targets in `app/page.tsx`.
+ * (`berry`) — kept in sync with the redirect targets in `app/page.tsx`
+ * (`/{org}/runs`).
  */
 const ORG = 'berry';
 
 export const inboxItems = [
    {
-      name: 'Inbox',
-      url: `/${ORG}/inbox`,
-      icon: Inbox,
-   },
-   {
-      name: 'Reviews',
-      url: `/${ORG}/reviews`,
-      icon: GitPullRequestArrow,
-   },
-   {
-      name: 'My issues',
+      name: 'issues',
       url: `/${ORG}/my-issues`,
       icon: FolderKanban,
    },
    {
-      name: 'Agent',
-      url: `/${ORG}/agent`,
-      icon: Bot,
+      name: 'runs',
+      url: `/${ORG}/runs`,
+      icon: Activity,
+   },
+   {
+      name: 'reviews',
+      url: `/${ORG}/reviews`,
+      icon: GitPullRequestArrow,
+   },
+   {
+      name: 'inbox',
+      url: `/${ORG}/inbox`,
+      icon: Inbox,
    },
 ];
 
-export const workspaceItems = [
-   {
-      name: 'Teams',
-      url: `/${ORG}/teams`,
-      icon: ContactRound,
-   },
-   {
-      name: 'Projects',
-      url: `/${ORG}/projects`,
-      icon: Box,
-   },
-   {
-      name: 'Members',
-      url: `/${ORG}/members`,
-      icon: UserRound,
-   },
-];
 
 export const accountItems = [
    {

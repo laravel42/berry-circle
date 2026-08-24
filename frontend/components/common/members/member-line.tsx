@@ -4,7 +4,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 import { User } from '@/data/users';
 import { format, parseISO } from 'date-fns';
-import { SquareUser } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
@@ -77,19 +76,6 @@ export default function MemberLine({ user }: MemberLineProps) {
          {/* Joined */}
          <div className="hidden lg:block w-[100px] shrink-0 text-xs text-muted-foreground">
             {joinedLabel(user.joinedDate)}
-         </div>
-
-         {/* Teams */}
-         <div className="hidden md:flex w-[170px] shrink-0 items-center gap-1.5 text-xs text-muted-foreground min-w-0">
-            {user.teamIds.length > 0 && (
-               <>
-                  <SquareUser className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                     {user.teamIds.slice(0, 2).join(', ')}
-                     {user.teamIds.length > 2 && ` +${user.teamIds.length - 2}`}
-                  </span>
-               </>
-            )}
          </div>
 
          {/* Last seen (Linear only shows currently-online members) */}

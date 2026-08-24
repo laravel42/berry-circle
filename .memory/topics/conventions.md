@@ -5,3 +5,5 @@
 - 2026-08-22 — Reviewers: Sentinel (frontend), Backend PR Adversary (gateway). Zero blocking findings merges; re-review is full-PR. Skip `in_review` after a clean review this cycle.
 - 2026-08-22 — Done: gateway `typecheck` + `lint` + `test`; frontend `lint` + `build` + manual view check. Changelog: Keep a Changelog in `CHANGELOG.md` (`docs/changelog-process.md`).
 - 2026-08-22 — Five gateway review PRs landed squash-merge after BPA-style comments: #21 OpenFang, #18 session auth, #19 Valkey, #20 SSE, #23 issues/comments.
+- 2026-08-22 — Local `main` fast-forwarded to `64b925f`; leftover OpenFang/SSE WIP discarded (already on origin). Committed agent context as `e6f3961`.
+- 2026-08-22 — Next work is repo-derived (no Linear/GitHub issues): boards CRUD (BERR-11), session auth on product routes (BERR-24), frontend board wiring (BERR-29). Three isolated worktree agents launched.

@@ -2,12 +2,11 @@
 
 import { cn } from '@/lib/utils';
 import { Issue } from '@/data/issues';
-import { teams } from '@/data/teams';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-type BreakdownTab = 'labels' | 'priority' | 'projects' | 'teams';
+type BreakdownTab = 'labels' | 'priority' | 'projects';
 
 interface BreakdownRow {
    key: string;
@@ -39,8 +38,8 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 /**
- * Right panel of My issues: Labels / Priority / Projects / Teams counters
- * over the currently displayed issues (Linear side panel).
+ * Right panel of My issues: Labels / Priority / Projects counters over the
+ * currently displayed issues.
  */
 export function BreakdownPanel({ issues }: { issues: Issue[] }) {
    const { closePanel } = useRightPanelStore();
@@ -68,16 +67,8 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
                label: issue.priority.name,
                color: PRIORITY_COLORS[issue.priority.id] ?? '#94a3b8',
             });
-         } else if (tab === 'projects') {
-            if (issue.project) {
-               bump(issue.project.id, { key: issue.project.id, label: issue.project.name });
-            }
          } else if (issue.project) {
-            const team = teams.find((candidate) => candidate.id === issue.project?.teamId);
-            bump(issue.project.teamId, {
-               key: issue.project.teamId,
-               label: team ? `${team.icon} ${team.name}` : issue.project.teamId,
-            });
+            bump(issue.project.id, { key: issue.project.id, label: issue.project.name });
          }
       }
       return [...counter.values()].sort((a, b) => b.count - a.count);
@@ -92,7 +83,6 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
                      ['labels', 'Labels'],
                      ['priority', 'Priority'],
                      ['projects', 'Projects'],
-                     ['teams', 'Teams'],
                   ] as const
                ).map(([key, label]) => (
                   <button

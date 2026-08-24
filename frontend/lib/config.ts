@@ -23,10 +23,51 @@ export const WORKSPACE_NAME = process.env.NEXT_PUBLIC_WORKSPACE_NAME || 'Berry';
 export const ISSUE_IDENTIFIER_PREFIX = process.env.NEXT_PUBLIC_ISSUE_PREFIX || 'BERRY';
 
 /**
- * Base URL of the Berry gateway (BFF). Empty string = not configured yet;
- * the app boots with empty data until the gateway is wired (BERR-29/30).
+ * When set, Berry skips the login screen and signs in with this email if no
+ * session token exists. Empty disables auto-login.
  */
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_BERRY_API_URL || '').replace(/\/$/, '');
+export const AUTO_LOGIN_EMAIL = (
+   process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL ?? 'prototype@berry.test'
+).trim();
 
-/** True once a gateway base URL has been configured. */
-export const isApiConfigured = API_BASE_URL.length > 0;
+/**
+ * Optional browser-visible API origin for cross-origin development.
+ *
+ * Empty is the secure default: browser requests stay on the frontend origin
+ * and Next.js proxies them to the server-only `BERRY_API_ORIGIN`. No secret
+ * or upstream runtime URL belongs in this value.
+ */
+function apiBaseUrl(value: string | undefined): string {
+   const candidate = value?.trim() ?? '';
+   if (!candidate) return '';
+
+   let parsed: URL;
+   try {
+      parsed = new URL(candidate);
+   } catch {
+      throw new Error('NEXT_PUBLIC_BERRY_API_URL must be an absolute HTTP(S) URL');
+   }
+
+   if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new Error('NEXT_PUBLIC_BERRY_API_URL must be an HTTP(S) URL without credentials');
+   }
+   if (parsed.search || parsed.hash) {
+      throw new Error('NEXT_PUBLIC_BERRY_API_URL must not include a query string or fragment');
+   }
+
+   return candidate.replace(/\/+$/, '');
+}
+
+export const API_BASE_URL = apiBaseUrl(process.env.NEXT_PUBLIC_BERRY_API_URL);
+
+/** The same-origin proxy means the Berry API transport is configured by default. */
+export const isApiConfigured = true;
+
+/**
+ * Board whose issues fill the list/board UI when discovery should be skipped.
+ * Empty lets session bootstrap pick the first board the user can see.
+ */
+export const BOARD_ID = (process.env.NEXT_PUBLIC_BOARD_ID || '').trim();
+
+/** True when an env board override is present. */
+export const isBoardConfigured = BOARD_ID.length > 0;

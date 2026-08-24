@@ -15,6 +15,9 @@
 
 # next.js
 /.next/
+# Verification builds, kept out of .next so they cannot race `next dev`,
+# which shares that directory and fails with ENOENT on its manifests.
+/.next-verify/
 /out/
 
 # production

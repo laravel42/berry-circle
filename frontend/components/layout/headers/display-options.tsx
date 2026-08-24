@@ -46,7 +46,7 @@ const ORDERINGS: { value: OrderingKey; label: string }[] = [
  * Linear-style "Display" popover: list/board switch, grouping, ordering,
  * completed-issue visibility, list options and display property chips.
  */
-export function DisplayOptions() {
+export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
    const { viewType, setViewType } = useViewStore();
    const {
       grouping,
@@ -75,9 +75,14 @@ export function DisplayOptions() {
    return (
       <Popover>
          <PopoverTrigger asChild>
-            <Button className="relative" size="xs" variant="secondary">
-               <SlidersHorizontal className="size-4 mr-1" />
-               Display
+            <Button
+               className="relative"
+               size="xs"
+               variant="secondary"
+               aria-label={iconOnly ? 'Display' : undefined}
+            >
+               <SlidersHorizontal className={cn('size-4', !iconOnly && 'mr-1')} />
+               {iconOnly ? null : 'Display'}
                {(!isDefault || viewType === 'grid') && (
                   <span className="absolute right-0 top-0 w-2 h-2 bg-orange-500 rounded-full" />
                )}

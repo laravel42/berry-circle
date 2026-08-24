@@ -3,12 +3,12 @@ import type { BerryDb } from "~/db/client";
 import { users } from "~/db/schema";
 
 /**
- * Actor identity and display-name resolution.
+ * Actor display-name resolution.
  *
- * An {@link Actor} is *who is acting* (resolved from the request — today a dev
- * header seam, replaced by session auth in BERR-24). An {@link ActorRef} is the
- * public `type/id/name/avatarUrl` shape the contract embeds in issues and
- * comments, with the display name resolved at response time.
+ * An {@link ActorRef} is the public `type/id/name/avatarUrl` shape the contract
+ * embeds in issues and comments, with the display name resolved at response
+ * time. Who is acting on a request comes from the session (`authUser`), not
+ * from these types.
  *
  * User names resolve from the `users` table. Agent identities live in OpenFang,
  * not Berry's database; until the adapter (BERR-20) lands, agents resolve to a
@@ -17,14 +17,6 @@ import { users } from "~/db/schema";
  */
 
 export type ActorType = "user" | "agent";
-
-export interface Actor {
-  type: ActorType;
-  id: string;
-  /** Release 1 stopgap for the "administrator may edit/delete any comment"
-   * rule; real roles arrive with BERR-24. */
-  isAdmin: boolean;
-}
 
 export interface ActorRef {
   type: ActorType;

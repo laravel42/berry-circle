@@ -2,24 +2,22 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
-import { getInitiativeProjects, Initiative } from '@/data/initiatives';
+import { Initiative } from '@/data/initiatives';
 import { health as allHealth } from '@/data/projects';
-import { teams } from '@/data/teams';
 import { UserRound } from 'lucide-react';
 import { useMemo, useState } from 'react';
 
-type PanelTab = 'owner' | 'team' | 'health';
+type PanelTab = 'owner' | 'health';
 
 interface BreakdownRow {
    key: string;
    label: string;
    count: number;
    avatarUrl?: string;
-   icon?: string;
    color?: string;
 }
 
-/** Right side panel of the Initiatives page: counts by owner / team / health. */
+/** Right side panel of the Initiatives page: counts by owner / health. */
 export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[] }) {
    const [tab, setTab] = useState<PanelTab>('owner');
 
@@ -40,22 +38,6 @@ export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[
          }
          return [...byOwner.values()].sort((a, b) => b.count - a.count);
       }
-      if (tab === 'team') {
-         const byTeam = new Map<string, BreakdownRow>();
-         for (const initiative of initiatives) {
-            const teamIds = new Set(
-               getInitiativeProjects(initiative).map((project) => project.teamId)
-            );
-            for (const teamId of teamIds) {
-               const team = teams.find((entry) => entry.id === teamId);
-               if (!team) continue;
-               const existing = byTeam.get(teamId);
-               if (existing) existing.count += 1;
-               else byTeam.set(teamId, { key: teamId, label: team.name, icon: team.icon, count: 1 });
-            }
-         }
-         return [...byTeam.values()].sort((a, b) => b.count - a.count);
-      }
       return allHealth
          .map((entry) => ({
             key: entry.id,
@@ -73,7 +55,6 @@ export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[
             {(
                [
                   ['owner', 'Owner'],
-                  ['team', 'Team'],
                   ['health', 'Health'],
                ] as const
             ).map(([key, label]) => (
@@ -106,7 +87,6 @@ export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[
                      ) : (
                         <UserRound className="size-4 text-muted-foreground" />
                      ))}
-                  {tab === 'team' && <span className="text-sm">{row.icon}</span>}
                   {tab === 'health' && (
                      <span
                         className="size-2.5 rounded-full shrink-0"

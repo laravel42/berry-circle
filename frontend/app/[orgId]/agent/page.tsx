@@ -1,11 +1,6 @@
-import AgentChat from '@/components/common/agent/agent-chat';
-import Header from '@/components/layout/headers/agent/header';
-import MainLayout from '@/components/layout/main-layout';
+import { redirect } from 'next/navigation';
 
-export default function AgentPage() {
-   return (
-      <MainLayout header={<Header />} headersNumber={1}>
-         <AgentChat />
-      </MainLayout>
-   );
+export default async function AgentPage({ params }: { params: Promise<{ orgId: string }> }) {
+   const { orgId } = await params;
+   redirect(`/${orgId}/agents`);
 }

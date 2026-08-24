@@ -12,8 +12,7 @@ export type SidebarItemKey =
    | 'initiatives'
    | 'projects'
    | 'views'
-   | 'teams'
-   | 'members';
+   | 'agents';
 
 export type SidebarSection = 'personal' | 'workspace';
 
@@ -28,15 +27,14 @@ interface SidebarPrefsState {
 }
 
 const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
-   'inbox': 'always',
+   'inbox': 'never',
    'reviews': 'always',
    'my-issues': 'always',
    'agent': 'always',
-   'initiatives': 'always',
-   'projects': 'always',
-   'views': 'always',
-   'teams': 'always',
-   'members': 'always',
+   'initiatives': 'never',
+   'projects': 'never',
+   'views': 'never',
+   'agents': 'always',
 };
 
 /**
@@ -45,8 +43,8 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
  * sidebar keeps its shape across sessions.
  */
 const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
-   personal: ['inbox', 'reviews', 'my-issues', 'agent'],
-   workspace: ['initiatives', 'projects', 'views', 'teams', 'members'],
+   personal: ['my-issues', 'agent', 'reviews', 'inbox'],
+   workspace: ['projects', 'agents'],
 };
 
 export const useSidebarPrefsStore = create<SidebarPrefsState>()(
@@ -67,7 +65,7 @@ export const useSidebarPrefsStore = create<SidebarPrefsState>()(
                return { order: { ...state.order, [section]: keys } };
             }),
       }),
-      { name: 'sidebar-prefs' }
+      { name: 'sidebar-prefs-v3' }
    )
 );
 

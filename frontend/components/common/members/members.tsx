@@ -1,6 +1,6 @@
 'use client';
 
-import { users as allUsers } from '@/data/users';
+import { useMembersStore } from '@/store/members-store';
 import MemberLine from './member-line';
 import { useMembersFilterStore } from '@/store/members-filter-store';
 import { ArrowDown } from 'lucide-react';
@@ -8,6 +8,7 @@ import { useMemo } from 'react';
 
 export default function Members() {
    const { filters, sort } = useMembersFilterStore();
+   const allUsers = useMembersStore((state) => state.members);
 
    const displayed = useMemo(() => {
       let list = allUsers.slice();
@@ -29,17 +30,13 @@ export default function Members() {
                return new Date(a.joinedDate).getTime() - new Date(b.joinedDate).getTime();
             case 'joined-desc':
                return new Date(b.joinedDate).getTime() - new Date(a.joinedDate).getTime();
-            case 'teams-asc':
-               return a.teamIds.length - b.teamIds.length;
-            case 'teams-desc':
-               return b.teamIds.length - a.teamIds.length;
             default:
                return 0;
          }
       };
 
       return list.sort(compare);
-   }, [filters, sort]);
+   }, [allUsers, filters, sort]);
 
    return (
       <div className="w-full">
@@ -50,7 +47,6 @@ export default function Members() {
             </div>
             <div className="w-[110px] shrink-0">Status</div>
             <div className="hidden lg:block w-[100px] shrink-0">Joined</div>
-            <div className="hidden md:block w-[170px] shrink-0">Teams</div>
             <div className="hidden sm:block w-[90px] shrink-0">Last seen</div>
          </div>
 

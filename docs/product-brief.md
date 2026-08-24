@@ -1,68 +1,126 @@
 # Berry — Product Brief
 
-*Release 1 · M0 Foundation · BERR-9*
+*Expanded web direction · approved 2026-08-22*
 
 ## What Berry is
 
-Berry is a team workspace where humans and AI coding agents share one board. It looks and feels like a modern issue tracker — issues, projects, cycles, assignees, statuses, review gates — but an assignee can be a person *or* an agent, and the same workflow primitives (assignment, status transitions, comments, review) drive both.
+Berry is a multi-workspace web product where humans and AI coding agents plan,
+execute, and review work together. It combines issue and project management,
+collaboration, agent configuration, automation, integrations, and legible run
+evidence in one browser experience. An assignee can be a person or an agent,
+and the same assignment, status, comment, and review primitives drive both.
 
-Berry does not build its own agent runtime. It is a product layer on top of **OpenFang**, an MIT-licensed agent execution substrate (https://github.com/RightNow-AI/openfang). OpenFang provides the agent kernel — WASM-sandboxed tool execution, RBAC, a scheduler, budget tracking, a Merkle audit trail, and bindings for 27 LLM providers including local models (Qwen via vLLM) — exposed through a 140+ endpoint REST/WS/SSE API plus an OpenAI-compatible API on `localhost:4200`. Berry consumes that API; it never re-implements execution, sandboxing, or provider plumbing.
+Berry does not build its own agent runtime. It is the product and persistence
+layer on top of **OpenFang**, an MIT-licensed agent execution substrate
+(https://github.com/RightNow-AI/openfang). OpenFang owns execution, sandboxing,
+scheduling, tools, and model/provider plumbing. Berry consumes its server-side
+API and never reimplements those capabilities.
 
-What OpenFang does not ship — and what Berry exists to provide — is the *product motion*: an issue tracker, a board, team collaboration, and a review-gate model that make agent work legible, assignable, and shippable by a team.
+Berry owns the product motion and its durable facts: users and workspaces,
+memberships, issues and projects, collaboration, configuration, review
+decisions, and the issue-correlated run ledger. Browsers call Berry only; they
+never receive OpenFang credentials or call OpenFang directly.
 
 ## Who it's for
 
-**Primary: small software teams (3–20 people) that already use coding agents** and are hitting the coordination ceiling of running them from individual terminals. Their pain:
+**Primary: software teams that already use coding agents** and are hitting the
+coordination ceiling of running them from individual terminals. Their pain:
 
 - Agent work is invisible. Nobody knows what an agent is doing, what it cost, or whether its output was reviewed.
 - Hand-offs are manual. A human prompts an agent, copies the result into a PR, and pastes links back into the tracker.
 - There is no gate. Agent output lands wherever the agent left it; review is a vibe, not a state.
 
-**Secondary: engineering leads and founders** who want the throughput of agent labor with the accountability of a normal team process — an audit trail, budget visibility, and a human gate before release.
+**Secondary: engineering leads and operators** who want agent throughput with
+the accountability of a normal team process: an audit trail, budget visibility,
+workspace-level controls, and a human gate before release.
 
-Berry is not for teams looking for a hosted autonomous-dev service, and Release 1 is not a multi-tenant SaaS: it is a self-hosted web app a team runs next to its own OpenFang instance.
+Self-hosting is the complete default product, not a reduced hosted client. One
+deployment may contain multiple workspaces. Optional Berry-hosted/cloud modules
+may be added for billing, subscriptions, or managed runtime services, but they
+are disabled by default and core self-hosted behavior cannot depend on them.
 
 ## The product motion: issue → agent → review
 
 Berry's core loop mirrors how a team already works, extended to agents:
 
-1. **Issue.** Work starts as an issue on the board — title, description, priority, project, assignee. The board is Linear-shaped: list/board views, statuses (backlog → todo → in progress → in review → done), cycles, projects.
-2. **Assign to an agent.** Assigning an issue to an agent (or moving it into an agent-owned stage) dispatches a run through the gateway to OpenFang. The agent gets the issue context, the bound repository, and the workspace conventions. Its run — steps, tool calls, tokens, cost — is tracked against the issue.
+1. **Issue.** Work starts as an issue with a project, properties, status,
+   priority, relationships, and a human or agent assignee.
+2. **Assign to an agent.** Berry creates its own run record, then dispatches the
+   approved context through the server-side OpenFang adapter. Steps, events,
+   usage, and cost are correlated back to that Berry run and issue.
 3. **Work happens on the issue.** The agent posts progress and results as issue comments; status transitions happen as the work moves. A human can interject in the thread, redirect, or take over.
 4. **Review gate.** When the agent delivers, the issue moves to *in review*. Nothing ships without a human accepting it. Review is a first-class state with the run's evidence (diff, logs, cost, audit hash) attached — not a comment saying "LGTM".
-5. **Done & audit.** Acceptance is recorded by a human. Every step — dispatch, tool calls, transitions, approvals — lands in OpenFang's Merkle audit trail, so the team can answer "who did what, when, and at what cost" for any issue.
+5. **Done & audit.** Human acceptance and Berry workflow history are durable
+   product records. OpenFang audit evidence is linked as execution evidence; it
+   does not replace Berry's run ledger.
 
 The inner loop (issue → agent run → in review) is autonomous up to staging; the **release gate is always human**.
 
-## Release 1 scope
+## Approved web direction
 
-Release 1 is a **web application only**, delivered in two phases:
+The completion contract is the
+[pinned Multica web parity matrix](parity/multica-web.md). Every discovered
+source feature is classified as required core, optional hosted, replaced by
+OpenFang, or explicitly excluded. Berry delivers the web surface in phases:
 
-**Phase 1 — Gateway + wired frontend**
-- **Gateway (BFF):** a Bun/Hono TypeScript service that adapts OpenFang's API into a Linear-shaped product API (resource shapes, cursor pagination — as *convention*, not copied schema). Native fetch, Web Streams/SSE for live updates, Zod for validation, Valkey for cache/state, PostgreSQL for product data, OpenTelemetry + Pino for observability. Ships as Docker containers.
-- **Frontend:** the Circle template (MIT, Next.js + shadcn/ui + Tailwind) wired to the gateway — the board, issue views, and run status against the real API.
+1. **Contracts and Go foundation.** Establish provenance, the `server/` Go
+   module, shared API compatibility fixtures, storage boundaries, and
+   fail-closed module gates.
+2. **Identity and multi-workspace shell.** Authentication, onboarding,
+   workspace switching, members, invitations, navigation, search, shortcuts,
+   and settings foundations.
+3. **Work management and collaboration.** Full issue modes, tables, filters,
+   saved views, detail and bulk workflows, comments, attachments, projects,
+   inbox, and notifications.
+4. **Agent product layer.** Agent and builder surfaces, skills, MCP, squads,
+   chat, run evidence, usage, and OpenFang-backed runtime projections.
+5. **Automation, integrations, and language parity.** Autopilots, VCS/GitHub,
+   channel integrations, plugins/Composio, and `en`, `zh-Hans`, `ja`, and `ko`.
+6. **Optional hosted surfaces and public site.** Hosted billing,
+   subscriptions, managed cloud modules, and marketing pages, all isolated from
+   self-hosted core.
 
-**Phase 2 — Product layer**
-- Agent-crew setup UI (define the team's agents, their capabilities, and access).
-- Run replay: step through what an agent did on an issue.
-- Review gates as enforced workflow, not convention.
-- Team/role semantics (who can dispatch agents, who can approve releases, budgets per team/project).
-- Unified endpoint catalog with DTO relay.
+The browser-facing server is the Go service selected by
+[ADR-0004](adr/0004-go-product-server.md): Chi for routing, pgx/sqlc over
+PostgreSQL, Valkey for cache and ephemeral coordination, and WebSocket plus SSE
+for live product behavior. The public interface remains Berry's `/api/v1`
+contract with its error envelope, cursor, idempotency, authentication, and
+`camelCase` rules.
 
-**Explicitly out of scope for Release 1:** the internal central server tier (multi-tenant control plane), mobile/native clients, and any modification to OpenFang's kernel.
+Desktop and mobile clients are not part of web parity. Multica's CLI, daemon,
+daemon WebSocket, local launchers, provider adapters, and filesystem execution
+are not ported; OpenFang replaces those execution responsibilities. Placeholder
+or temporary development surfaces are excluded explicitly in the matrix.
 
-### Milestones
+## Historical scope and migration
 
-M0 Foundation & KB → M1 OpenFang integration proof → M2 Gateway → M3 Frontend wiring → M4 Agent execution loop → M5 Product layer → M6 Hardening & release. Documentation and reporting are continuous throughout.
+The original Release 1 brief scoped Berry to a narrow, single-workspace board
+and agent-review loop implemented by a Bun/Hono gateway and a partially wired
+Circle frontend. That was the accepted implementation scope for the M0/M1
+foundation work; it is retained in Git history and in superseded
+[ADR-0001](adr/0001-bun-hono-gateway.md).
+
+This expanded direction supersedes that Release 1 implementation scope. The
+existing Bun gateway and its tests remain a compatibility oracle while the Go
+server reaches parity, then are removed. The change in server implementation
+does not relax the OpenFang boundary or the human review gate.
 
 ## Licensing posture
 
 - **Berry's own code** is developed against permissive licenses only. Every dependency must be MIT / Apache-2.0 (or equivalently permissive); no copyleft in the shipped product.
 - **OpenFang** is MIT. Berry consumes it as an external service over its API and retains its MIT notices. Berry never uses the "OpenFang" name or marks in its own branding.
 - **Circle** (frontend template) is MIT; its notice is retained in the frontend.
-- Berry's API follows the *conventions* of Linear's public API (resource shapes, pagination style) as design convention only — no schema, code, brand, or marks are copied. The name "Linear" is never used in product, code identifiers, or docs.
+- **Multica:** the rights owner authorized reuse and relicensing of approved
+  first-party Go product/control-plane material at a pinned commit. Every
+  adapted path still requires the dependency and provenance audit in
+  [the reuse record](provenance/multica-server-reuse.md). Legacy UI code and
+  branding are not imported.
+- Berry's API uses conventional resource-oriented JSON and pagination. No
+  third-party product schema, brand, or marks become Berry product identity.
 - Berry's own license and third-party notice file live in the repository root and are kept current as dependencies are added.
 
 ---
 
-*Sources: project description (Berry — Web App, Release 1), OpenFang repository (github.com/RightNow-AI/openfang), Circle template (github.com/ln-dev7/circle).*
+*Sources: Berry's original Release 1 brief; the pinned Multica baseline in the
+provenance record; OpenFang (github.com/RightNow-AI/openfang); Circle
+(github.com/ln-dev7/circle).*

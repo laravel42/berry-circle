@@ -14,6 +14,7 @@ import { StatusSelector } from './status-selector';
 import { motion } from 'motion/react';
 
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
+import { cn } from '@/lib/utils';
 import { IssueContextMenu } from './issue-context-menu';
 import { WORKSPACE_SLUG } from '@/lib/config';
 
@@ -27,14 +28,20 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
          <ContextMenuTrigger asChild>
             <motion.div
                {...(layoutId && { layoutId: `issue-line-${issue.identifier}` })}
-               className="w-full flex items-center justify-start h-11 px-6 hover:bg-sidebar/50"
+               className={cn(
+                  'group flex min-h-11 w-full items-center justify-start border-b border-border/45 px-4 transition-colors sm:px-6',
+                  'hover:bg-accent/45 focus-within:bg-accent/45',
+                  issue.status.category === 'started' && 'bg-status-info/[0.025]',
+                  issue.status.category === 'completed' && 'bg-status-success/[0.025]',
+                  issue.status.id === 'blocked' && 'bg-status-warning/[0.035]'
+               )}
             >
                <div className="flex items-center gap-0.5">
                   {displayProperties.priority && (
                      <PrioritySelector priority={issue.priority} issueId={issue.id} />
                   )}
                   {displayProperties.id && (
-                     <span className="text-sm hidden sm:inline-block text-muted-foreground font-medium w-[66px] truncate shrink-0 mr-0.5">
+                     <span className="mr-1 hidden w-[72px] shrink-0 truncate text-xs text-subtle-foreground sm:inline-block">
                         {issue.identifier}
                      </span>
                   )}
@@ -44,11 +51,9 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                </div>
                <Link
                   href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}
-                  className="min-w-0 flex items-center justify-start mr-1 ml-0.5"
+                  className="mr-1 ml-1 flex min-w-0 items-center justify-start rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                >
-                  <span className="text-xs sm:text-sm font-medium sm:font-semibold truncate">
-                     {issue.title}
-                  </span>
+                  <span className="truncate text-xs font-normal">{issue.title}</span>
                </Link>
                <div className="flex items-center justify-end gap-2 ml-auto sm:w-fit">
                   <div className="w-3 shrink-0"></div>
@@ -64,8 +69,8 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                      </span>
                   )}
                   {displayProperties.dueDate && issue.dueDate && (
-                     <span className="text-xs text-orange-400 shrink-0 hidden sm:inline-block">
-                        Due {format(new Date(issue.dueDate), 'MMM dd')}
+                     <span className="hidden shrink-0 text-xs text-status-warning sm:inline-block">
+                        due {format(new Date(issue.dueDate), 'MMM dd')}
                      </span>
                   )}
                   {displayProperties.created && (
@@ -73,7 +78,9 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                         {format(new Date(issue.createdAt), 'MMM dd')}
                      </span>
                   )}
-                  {displayProperties.assignee && <AssigneeUser user={issue.assignee} />}
+                  {displayProperties.assignee && (
+                     <AssigneeUser user={issue.assignee} issueId={issue.id} />
+                  )}
                </div>
             </motion.div>
          </ContextMenuTrigger>

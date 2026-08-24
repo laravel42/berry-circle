@@ -1,12 +1,15 @@
 'use client';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { BerryMark } from '@/components/brand/berry-mark';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Issue, sortIssuesByPriority } from '@/data/issues';
 import { priorities } from '@/data/priorities';
 import { Status } from '@/data/status';
 import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { useFilterStore } from '@/store/filter-store';
+import { useCreateIssueStore } from '@/store/create-issue-store';
 import { Box, ChevronDown, User, X } from 'lucide-react';
 import { FC, useMemo, useState } from 'react';
 import { DndProvider } from 'react-dnd';
@@ -29,6 +32,25 @@ interface GroupEntry {
    issues: Issue[];
    /** Count of issues in this group before the filter bar. */
    total: number;
+}
+
+function EmptyQueue() {
+   const { openModal } = useCreateIssueStore();
+
+   return (
+      <div className="flex min-h-64 w-full items-center justify-center px-6 py-12">
+         <div className="flex max-w-sm flex-col items-center text-center">
+            <BerryMark size="lg" tone="neutral" state="hollow" label="Empty issue queue" />
+            <h2 className="mt-5 font-display text-2xl tracking-[-0.025em]">Nothing queued.</h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+               Create the first issue, then assign the whole ticket when it is ready to move.
+            </p>
+            <Button className="mt-6 h-10 px-5" onClick={() => openModal()}>
+               create issue
+            </Button>
+         </div>
+      </div>
+   );
 }
 
 const sortIssues = (issues: Issue[], ordering: string): Issue[] => {
@@ -83,7 +105,7 @@ function HiddenColumns({ entries }: { entries: GroupEntry[] }) {
    const [open, setOpen] = useState(true);
 
    return (
-      <div className="shrink-0 w-[280px] pt-1">
+      <div className="w-[256px] shrink-0 pt-1">
          <button
             type="button"
             onClick={() => setOpen((value) => !value)}
@@ -97,7 +119,7 @@ function HiddenColumns({ entries }: { entries: GroupEntry[] }) {
                {entries.map((entry) => (
                   <div
                      key={entry.group.id}
-                     className="flex items-center justify-between gap-2 rounded-md border bg-container px-3 h-9"
+                     className="flex items-center justify-between gap-2 rounded-lg border bg-container px-3 h-9"
                   >
                      <div className="flex items-center gap-2 min-w-0">
                         {entry.group.icon}
@@ -240,9 +262,14 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
 
       return buildGroups().map((entry) => ({
          ...entry,
-         issues: sortIssues(entry.issues, ordering),
+         issues:
+            isViewTypeGrid && grouping === 'status'
+               ? [...entry.issues].sort(
+                    (a, b) => a.sortOrder - b.sortOrder || a.rank.localeCompare(b.rank)
+                 )
+               : sortIssues(entry.issues, ordering),
       }));
-   }, [issues, totalIssues, statuses, grouping, ordering, completedIssues]);
+   }, [issues, totalIssues, statuses, grouping, ordering, completedIssues, isViewTypeGrid]);
 
    const hiddenCount = Math.max(0, totalIssues.length - issues.length);
    const showFooter = hasActiveFilters && hiddenCount > 0;
@@ -253,14 +280,16 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
       const boardGroups = hasActiveFilters
          ? groups.filter((entry) => entry.issues.length > 0)
          : groups.filter((entry) => showEmptyGroups || entry.issues.length > 0);
-      const hiddenGroups = hasActiveFilters ? groups.filter((entry) => entry.issues.length === 0) : [];
+      const hiddenGroups = hasActiveFilters
+         ? groups.filter((entry) => entry.issues.length === 0)
+         : [];
 
       return (
          <DndProvider backend={HTML5Backend}>
             <CustomDragLayer />
             <div className="h-full flex flex-col">
                <div className="flex-1 min-h-0 overflow-x-auto">
-                  <div className="flex h-full gap-3 px-2 py-2 min-w-max">
+                  <div className="flex h-full min-w-max gap-3 px-4 py-3">
                      {boardGroups.map((entry) => (
                         <GroupIssues
                            key={entry.group.id}
@@ -270,11 +299,7 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
                         />
                      ))}
                      {hiddenGroups.length > 0 && <HiddenColumns entries={hiddenGroups} />}
-                     {boardGroups.length === 0 && hiddenGroups.length === 0 && (
-                        <div className="flex items-center justify-center w-full h-40 text-sm text-muted-foreground">
-                           No issues to show.
-                        </div>
-                     )}
+                     {boardGroups.length === 0 && hiddenGroups.length === 0 && <EmptyQueue />}
                   </div>
                </div>
                {showFooter && (
@@ -293,12 +318,8 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
    return (
       <DndProvider backend={HTML5Backend}>
          <CustomDragLayer />
-         <div className="h-full overflow-y-auto">
-            {listGroups.length === 0 && !showFooter && (
-               <div className="flex items-center justify-center h-40 text-sm text-muted-foreground">
-                  No issues to show.
-               </div>
-            )}
+         <div className="h-full overflow-y-auto divide-y-[3px] divide-background">
+            {listGroups.length === 0 && !showFooter && <EmptyQueue />}
             {listGroups.map((entry) => (
                <GroupIssues
                   key={entry.group.id}

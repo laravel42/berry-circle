@@ -1,58 +1,54 @@
 'use client';
 
 import { Issue } from '@/data/issues';
+import { Status } from '@/data/status';
 import { useDisplaySettingsStore } from '@/store/display-settings-store';
+import { useIssuesStore } from '@/store/issues-store';
 import { format } from 'date-fns';
+import { GripVertical } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { motion } from 'motion/react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { DragSourceMonitor, useDrag, useDragLayer, useDrop } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
 import { AssigneeUser } from './assignee-user';
 import { LabelBadge } from './label-badge';
-import { PrioritySelector } from './priority-selector';
 import { ProjectBadge } from './project-badge';
-import { StatusSelector } from './status-selector';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { IssueContextMenu } from './issue-context-menu';
 import { WORKSPACE_SLUG } from '@/lib/config';
+import { cn } from '@/lib/utils';
 
 export const IssueDragType = 'ISSUE';
+
 type IssueGridProps = {
    issue: Issue;
+   index: number;
+   columnIssueIds: string[];
+   columnStatus?: Status;
 };
 
-// Custom DragLayer component to render the drag preview
 function IssueDragPreview({ issue }: { issue: Issue }) {
    return (
-      <div className="w-full p-3 bg-background rounded-md border border-border/50 overflow-hidden">
-         <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-1.5">
-               <PrioritySelector priority={issue.priority} issueId={issue.id} />
-               <span className="text-xs text-muted-foreground font-medium">{issue.identifier}</span>
-            </div>
-            <StatusSelector status={issue.status} issueId={issue.id} />
+      <div className="w-full overflow-hidden rounded-lg bg-void p-2 text-chalk shadow-lg">
+         <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-xs text-subtle-foreground">{issue.identifier}</span>
+            <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
          </div>
-
-         <h3 className="text-sm font-semibold mb-3 line-clamp-2">{issue.title}</h3>
-
-         <div className="flex flex-wrap gap-1.5 mb-3 min-h-[1.5rem]">
+         <h3 className="mb-2 line-clamp-2 text-xs">{issue.title}</h3>
+         <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
             <LabelBadge label={issue.labels} />
             {issue.project && <ProjectBadge project={issue.project} />}
          </div>
-
-         <div className="flex items-center justify-between mt-auto pt-2">
+         <div className="flex items-center mt-auto pt-1">
             <span className="text-xs text-muted-foreground">
                {format(new Date(issue.createdAt), 'MMM dd')}
             </span>
-            <AssigneeUser user={issue.assignee} />
          </div>
       </div>
    );
 }
 
-// Custom DragLayer to show custom preview during drag
 export function CustomDragLayer() {
    const { itemType, isDragging, item, currentOffset } = useDragLayer((monitor) => ({
       item: monitor.getItem() as Issue,
@@ -70,7 +66,7 @@ export function CustomDragLayer() {
          className="fixed pointer-events-none z-50 left-0 top-0"
          style={{
             transform: `translate(${currentOffset.x}px, ${currentOffset.y}px)`,
-            width: '348px', // Match the width of your cards
+            width: '266px',
          }}
       >
          <IssueDragPreview issue={item} />
@@ -78,82 +74,153 @@ export function CustomDragLayer() {
    );
 }
 
-export function IssueGrid({ issue }: IssueGridProps) {
-   const ref = useRef<HTMLDivElement>(null);
+export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueGridProps) {
+   const cardRef = useRef<HTMLDivElement>(null);
+   const insertBeforeIdRef = useRef<string | null | undefined>(undefined);
    const { orgId } = useParams<{ orgId: string }>();
    const { displayProperties } = useDisplaySettingsStore();
+   const moveIssue = useIssuesStore((state) => state.moveIssue);
+   const [dropEdge, setDropEdge] = useState<'top' | 'bottom' | null>(null);
 
-   // Set up drag functionality.
-   const [{ isDragging }, drag, preview] = useDrag(() => ({
-      type: IssueDragType,
-      item: issue,
-      collect: (monitor: DragSourceMonitor) => ({
-         isDragging: monitor.isDragging(),
+   const columnKey = columnIssueIds.join(',');
+
+   const [{ isDragging }, drag, preview] = useDrag(
+      () => ({
+         type: IssueDragType,
+         item: () => issue,
+         collect: (monitor: DragSourceMonitor) => ({
+            isDragging: monitor.isDragging(),
+         }),
       }),
-   }));
+      [issue]
+   );
 
-   // Use empty image as drag preview (we'll create a custom one with DragLayer)
    useEffect(() => {
       preview(getEmptyImage(), { captureDraggingState: true });
    }, [preview]);
 
-   // Set up drop functionality.
-   const [, drop] = useDrop(() => ({
-      accept: IssueDragType,
-   }));
+   const [{ isOver }, drop] = useDrop(
+      () => ({
+         accept: IssueDragType,
+         canDrop: (item: Issue) => item.id !== issue.id,
+         hover(draggedItem: Issue, monitor) {
+            if (!cardRef.current || draggedItem.id === issue.id) {
+               return;
+            }
 
-   // Connect drag and drop to the element.
-   drag(drop(ref));
+            const rect = cardRef.current.getBoundingClientRect();
+            const offset = monitor.getClientOffset();
+            if (!offset) return;
+
+            const middleY = (rect.bottom - rect.top) / 2;
+            const clientY = offset.y - rect.top;
+            const insertAfter = clientY > middleY;
+
+            setDropEdge(insertAfter ? 'bottom' : 'top');
+            insertBeforeIdRef.current = insertAfter
+               ? index + 1 < columnIssueIds.length
+                  ? columnIssueIds[index + 1]
+                  : null
+               : issue.id;
+         },
+         drop(draggedItem: Issue, monitor) {
+            if (monitor.didDrop()) return;
+            const insertBeforeId = insertBeforeIdRef.current;
+            if (insertBeforeId === undefined) return;
+
+            moveIssue(draggedItem.id, {
+               targetStatus: columnStatus,
+               insertBeforeId,
+            });
+            insertBeforeIdRef.current = undefined;
+            setDropEdge(null);
+         },
+         collect: (monitor) => ({
+            isOver: monitor.isOver() && monitor.canDrop(),
+         }),
+      }),
+      [issue.id, index, columnKey, columnStatus, moveIssue]
+   );
+
+   drag(drop(cardRef));
+
+   useEffect(() => {
+      if (!isOver) {
+         setDropEdge(null);
+      }
+   }, [isOver]);
 
    return (
-      <ContextMenu>
-         <ContextMenuTrigger asChild>
-            <motion.div
-               ref={ref}
-               className="w-full p-3 bg-background rounded-md shadow-xs border border-border/50 cursor-default"
-               layoutId={`issue-grid-${issue.identifier}`}
-               style={{
-                  opacity: isDragging ? 0.5 : 1,
-                  cursor: isDragging ? 'grabbing' : 'default',
-               }}
-            >
-               <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-1.5">
-                     {displayProperties.priority && (
-                        <PrioritySelector priority={issue.priority} issueId={issue.id} />
-                     )}
-                     {displayProperties.id && (
-                        <span className="text-xs text-muted-foreground font-medium">
-                           {issue.identifier}
-                        </span>
-                     )}
+      <div ref={cardRef} className="relative">
+         {isOver && dropEdge === 'top' ? (
+            <div className="pointer-events-none absolute inset-x-1 top-0 z-20 h-0.5 -translate-y-1/2 rounded-full bg-primary" />
+         ) : null}
+         {isOver && dropEdge === 'bottom' ? (
+            <div className="pointer-events-none absolute inset-x-1 bottom-0 z-20 h-0.5 translate-y-1/2 rounded-full bg-primary" />
+         ) : null}
+         <ContextMenu>
+            <ContextMenuTrigger asChild>
+               <div
+                  className={cn(
+                     'group w-full cursor-grab rounded-lg bg-void p-2 pl-1.5 text-chalk transition-colors active:cursor-grabbing',
+                     'hover:bg-base',
+                     isOver && 'ring-1 ring-primary/40',
+                     isOver && dropEdge === 'top' && 'mt-1',
+                     isOver && dropEdge === 'bottom' && 'mb-1'
+                  )}
+                  style={{ opacity: isDragging ? 0.45 : 1 }}
+               >
+                  <div className="flex gap-1.5">
+                     <div
+                        className="mt-0.5 flex h-5 w-3.5 shrink-0 items-start justify-center text-muted-foreground"
+                        aria-hidden
+                     >
+                        <GripVertical className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
+                     </div>
+                     <div className="min-w-0 flex-1">
+                        {displayProperties.id || displayProperties.assignee ? (
+                           <div className="mb-1.5 flex items-center justify-between gap-2">
+                              {displayProperties.id ? (
+                                 <span className="text-xs text-subtle-foreground">
+                                    {issue.identifier}
+                                 </span>
+                              ) : (
+                                 <span />
+                              )}
+                              {displayProperties.assignee ? (
+                                 <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
+                              ) : null}
+                           </div>
+                        ) : null}
+                        <Link
+                           href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}
+                           className="rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                           draggable={false}
+                           onClick={(event) => {
+                              if (isDragging) event.preventDefault();
+                           }}
+                        >
+                           <h3 className="mb-2 line-clamp-2 text-xs">{issue.title}</h3>
+                        </Link>
+                        <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
+                           {displayProperties.labels && <LabelBadge label={issue.labels} />}
+                           {displayProperties.project && issue.project && (
+                              <ProjectBadge project={issue.project} />
+                           )}
+                        </div>
+                        {displayProperties.created ? (
+                           <div className="mt-auto pt-1">
+                              <span className="text-xs text-muted-foreground">
+                                 {format(new Date(issue.createdAt), 'MMM dd')}
+                              </span>
+                           </div>
+                        ) : null}
+                     </div>
                   </div>
-                  {displayProperties.status && (
-                     <StatusSelector status={issue.status} issueId={issue.id} />
-                  )}
                </div>
-               <Link href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}>
-                  <h3 className="text-sm font-semibold mb-3 line-clamp-2">{issue.title}</h3>
-               </Link>
-               <div className="flex flex-wrap gap-1.5 mb-3 min-h-[1.5rem]">
-                  {displayProperties.labels && <LabelBadge label={issue.labels} />}
-                  {displayProperties.project && issue.project && (
-                     <ProjectBadge project={issue.project} />
-                  )}
-               </div>
-               <div className="flex items-center justify-between mt-auto pt-2">
-                  {displayProperties.created ? (
-                     <span className="text-xs text-muted-foreground">
-                        {format(new Date(issue.createdAt), 'MMM dd')}
-                     </span>
-                  ) : (
-                     <span />
-                  )}
-                  {displayProperties.assignee && <AssigneeUser user={issue.assignee} />}
-               </div>
-            </motion.div>
-         </ContextMenuTrigger>
-         <IssueContextMenu issueId={issue.id} />
-      </ContextMenu>
+            </ContextMenuTrigger>
+            <IssueContextMenu issueId={issue.id} />
+         </ContextMenu>
+      </div>
    );
 }

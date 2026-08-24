@@ -8,15 +8,17 @@ import { status as allStatus } from '@/data/status';
 import {
    filterIssuesForView,
    filterProjectsForView,
-   getViewById,
-   View,
 } from '@/data/views';
+import { useIssuesStore } from '@/store/issues-store';
+import { useProjectsStore } from '@/store/projects-store';
+import { useViewsStore } from '@/store/views-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { useMemo } from 'react';
 
-function IssueViewBody({ view }: { view: View }) {
+function IssueViewBody({ view }: { view: import('@/data/views').View }) {
    const { openPanel } = useRightPanelStore();
-   const issues = useMemo(() => filterIssuesForView(view), [view]);
+   const allIssues = useIssuesStore((state) => state.issues);
+   const issues = useMemo(() => filterIssuesForView(view, allIssues), [view, allIssues]);
 
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">
@@ -39,9 +41,10 @@ function IssueViewBody({ view }: { view: View }) {
    );
 }
 
-function ProjectViewBody({ view }: { view: View }) {
+function ProjectViewBody({ view }: { view: import('@/data/views').View }) {
+   const allProjects = useProjectsStore((state) => state.projects);
    const groups = useMemo<ProjectGroup[]>(() => {
-      const projects = filterProjectsForView(view);
+      const projects = filterProjectsForView(view, allProjects);
       const byStatus = new Map<string, ProjectGroup>();
       for (const project of projects) {
          const key = project.status.id;
@@ -51,14 +54,14 @@ function ProjectViewBody({ view }: { view: View }) {
          byStatus.get(key)!.projects.push(project);
       }
       return [...byStatus.values()];
-   }, [view]);
+   }, [view, allProjects]);
 
    return <ProjectsList groups={groups} />;
 }
 
 /** Saved-view detail page: filtered issues (with insights) or projects. */
 export default function ViewDetails({ viewId }: { viewId: string }) {
-   const view = getViewById(viewId);
+   const view = useViewsStore((state) => state.getViewById(viewId));
 
    if (!view) {
       return (

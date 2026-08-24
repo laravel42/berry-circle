@@ -56,7 +56,7 @@ const GROUP_ORDER: { key: string; label: string; match: (project: Project) => bo
    {
       key: 'backlog',
       label: 'Backlog',
-      match: (p) => p.status.category === 'backlog' || p.status.category === 'triage',
+      match: (p) => p.status.category === 'backlog',
    },
    { key: 'completed', label: 'Completed', match: (p) => p.status.category === 'completed' },
 ];
