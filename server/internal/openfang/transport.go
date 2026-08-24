@@ -266,8 +266,13 @@ func retryAllowed(method string, class RetryClass) (bool, error) {
 		}
 		return true, nil
 	case RetryIdempotentWrite:
-		if method != http.MethodPut {
-			return false, errors.New("idempotent-write retry class requires PUT")
+		// PUT is idempotent by definition; PATCH is not, in general — a patch
+		// that increments a value changes state on every application. The class
+		// is therefore the caller's assertion about the specific endpoint, and
+		// is only correct for a PATCH that sets absolute values. Anything with
+		// relative semantics belongs in RetryUnsafe.
+		if method != http.MethodPut && method != http.MethodPatch {
+			return false, errors.New("idempotent-write retry class requires PUT or PATCH")
 		}
 		return true, nil
 	case RetryUnsafe:

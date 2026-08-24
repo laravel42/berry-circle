@@ -101,3 +101,34 @@ func TestRetryClassRejectsUnsafeMethodPairing(t *testing.T) {
 		t.Fatal("Do() accepted POST with read retry class")
 	}
 }
+
+// The retry class is a safety boundary, so the method rules it enforces are
+// asserted rather than assumed. Agent configuration is sent as PATCH, and
+// rejecting it here fails the request before it is ever dispatched — which
+// surfaces to a user as an unavailable runtime rather than a bug.
+func TestRetryClassMethodRules(t *testing.T) {
+	cases := []struct {
+		name   string
+		method string
+		class  RetryClass
+		allow  bool
+		ok     bool
+	}{
+		{"read GET", http.MethodGet, RetryRead, true, true},
+		{"read HEAD", http.MethodHead, RetryRead, true, true},
+		{"read rejects POST", http.MethodPost, RetryRead, false, false},
+		{"idempotent PUT", http.MethodPut, RetryIdempotentWrite, true, true},
+		{"idempotent PATCH", http.MethodPatch, RetryIdempotentWrite, true, true},
+		{"idempotent rejects POST", http.MethodPost, RetryIdempotentWrite, false, false},
+		{"unsafe never retries", http.MethodPost, RetryUnsafe, false, true},
+	}
+	for _, testCase := range cases {
+		allow, err := retryAllowed(testCase.method, testCase.class)
+		if (err == nil) != testCase.ok {
+			t.Errorf("%s: err = %v, want ok = %v", testCase.name, err, testCase.ok)
+		}
+		if allow != testCase.allow {
+			t.Errorf("%s: allow = %v, want %v", testCase.name, allow, testCase.allow)
+		}
+	}
+}
