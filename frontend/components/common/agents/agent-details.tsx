@@ -40,7 +40,7 @@ import { useRunsStore } from '@/store/runs-store';
 import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
-import { AgentInstructions } from '@/components/common/agents/agent-instructions';
+import { AgentConfigField } from '@/components/common/agents/agent-config-field';
 
 const DETAIL_TABS = ['overview', 'work', 'capabilities', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
@@ -509,9 +509,23 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                   )}
                </TabsContent>
                <TabsContent value="capabilities" className="mt-0 flex flex-col gap-6 px-8 py-6">
-                  <AgentInstructions
+                  <AgentConfigField
                      agentId={agent.id}
-                     instructions={agent.instructions ?? ''}
+                     field="description"
+                     value={agent.description ?? ''}
+                     title="Description"
+                     hint="What this agent is for."
+                     placeholder="Describe what this agent does…"
+                     failureNote="The runtime kept its previous description."
+                  />
+                  <AgentConfigField
+                     agentId={agent.id}
+                     field="instructions"
+                     value={agent.instructions ?? ''}
+                     title="Instructions"
+                     hint="System prompt used for every task."
+                     placeholder="Describe how this agent should approach every task…"
+                     failureNote="The runtime was not updated, so the agent still uses its previous instructions."
                   />
                   <section className="flex flex-col gap-2">
                      <h3 className="text-sm font-medium text-foreground">Capabilities</h3>

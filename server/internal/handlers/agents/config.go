@@ -29,37 +29,56 @@ type Configurer interface {
 // an oversized body is rejected before it reaches the database or the runtime.
 const maxInstructions = 20000
 
-// Instructions are the system prompt applied to every task an agent runs.
-type instructionsRequest struct {
+// maxDescription matches the agents.description column's existing bound.
+const maxDescription = 5000
+
+// configRequest carries the agent configuration Berry authors. A nil field is
+// left unchanged; an empty string clears the value.
+type configRequest struct {
 	Instructions *string `json:"instructions"`
+	Description  *string `json:"description"`
 }
 
-// InstructionsStore is the durable seam for authored instructions.
-type InstructionsStore interface {
-	SetInstructions(ctx context.Context, agentID, workspaceID uuid.UUID, value *string) error
+// ConfigStore is the durable seam for authored agent configuration.
+type ConfigStore interface {
+	SetConfig(ctx context.Context, agentID, workspaceID uuid.UUID, config StoredConfig) error
+}
+
+// StoredConfig is the authored configuration Berry persists. A nil field means
+// "leave as it is", which is why these stay pointers rather than strings.
+type StoredConfig struct {
+	Instructions *string
+	Description  *string
 }
 
 // SetInstructions persists the authored prompt and stamps when it was last
 // pushed upstream. The stamp is what distinguishes an edit that reached
 // OpenFang from one that only ever landed locally.
-func (store PostgresStore) SetInstructions(
+func (store PostgresStore) SetConfig(
 	ctx context.Context,
 	agentID, workspaceID uuid.UUID,
-	value *string,
+	config StoredConfig,
 ) error {
 	if store.Pool == nil {
 		return errors.New("agent store pool is nil")
 	}
+	// COALESCE on the parameter leaves an unsent field untouched, so writing
+	// one field cannot silently blank the other.
 	tag, err := store.Pool.Exec(
 		ctx,
 		`UPDATE agents
-		    SET instructions = $3,
-		        instructions_synced_at = now(),
+		    SET instructions = CASE WHEN $4 THEN $3 ELSE instructions END,
+		        description  = CASE WHEN $6 THEN $5 ELSE description END,
+		        instructions_synced_at = CASE
+		            WHEN $4 THEN now() ELSE instructions_synced_at END,
 		        updated_at = now()
 		  WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL`,
 		agentID,
 		workspaceID,
-		value,
+		config.Instructions,
+		config.Instructions != nil,
+		config.Description,
+		config.Description != nil,
 	)
 	if err != nil {
 		return errors.New("persist agent instructions")
@@ -70,13 +89,13 @@ func (store PostgresStore) SetInstructions(
 	return nil
 }
 
-// instructionsHandler writes the agent's system prompt.
+// configHandler writes the agent configuration Berry authors.
 //
 // Order matters: the runtime is updated before Berry records the value. If the
 // upstream call fails, nothing is stored, so the editor never shows a prompt
 // the agent is not actually running with. The reverse order would let a save
 // look successful while the agent kept its old behaviour.
-func instructionsHandler(store Store, options Options) http.HandlerFunc {
+func configHandler(store Store, options Options) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		agentID, err := core.ParseUUID(chi.URLParam(request, "agentId"))
 		if err != nil {
@@ -94,7 +113,7 @@ func instructionsHandler(store Store, options Options) http.HandlerFunc {
 			return
 		}
 
-		var body instructionsRequest
+		var body configRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, maxInstructions*2))
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&body); err != nil {
@@ -105,23 +124,38 @@ func instructionsHandler(store Store, options Options) http.HandlerFunc {
 			return
 		}
 
-		// An empty string clears the prompt; a null field is the same request,
-		// so both normalise to "no instructions" rather than one meaning
-		// "leave unchanged" and silently doing nothing.
-		var value *string
-		if body.Instructions != nil {
-			trimmed := strings.TrimSpace(*body.Instructions)
-			if utf8.RuneCountInString(trimmed) > maxInstructions {
+		// A field the caller omitted is left alone; a field sent empty is
+		// cleared. Conflating the two would make "leave unchanged" and "erase"
+		// the same request.
+		normalise := func(raw *string, limit int, code string) (*string, bool) {
+			if raw == nil {
+				return nil, true
+			}
+			trimmed := strings.TrimSpace(*raw)
+			if utf8.RuneCountInString(trimmed) > limit {
 				httpapi.WriteError(
 					response, request, http.StatusBadRequest,
-					"INSTRUCTIONS_TOO_LONG",
-					"Instructions exceed the maximum length.", nil,
+					code, "Value exceeds the maximum length.", nil,
 				)
-				return
+				return nil, false
 			}
-			if trimmed != "" {
-				value = &trimmed
-			}
+			return &trimmed, true
+		}
+
+		instructions, ok := normalise(body.Instructions, maxInstructions, "INSTRUCTIONS_TOO_LONG")
+		if !ok {
+			return
+		}
+		description, ok := normalise(body.Description, maxDescription, "DESCRIPTION_TOO_LONG")
+		if !ok {
+			return
+		}
+		if instructions == nil && description == nil {
+			httpapi.WriteError(
+				response, request, http.StatusBadRequest,
+				"NO_FIELDS", "No configuration fields were provided.", nil,
+			)
+			return
 		}
 
 		found, err := store.Get(request.Context(), agentID, scope.WorkspaceID)
@@ -134,29 +168,31 @@ func instructionsHandler(store Store, options Options) http.HandlerFunc {
 			return
 		}
 
-		// OpenFang owns execution, so it is updated first. An empty prompt is
-		// sent explicitly rather than omitted: omitting it would leave the old
-		// prompt in place, which is the opposite of clearing.
-		prompt := ""
-		if value != nil {
-			prompt = *value
-		}
+		// OpenFang owns execution, so it is updated first. Only fields the
+		// caller sent are forwarded, so writing one cannot blank the other
+		// upstream.
 		if err := options.Configurer.PatchAgent(
 			request.Context(),
 			found.OpenFangAgentID,
-			openfang.PatchAgentRequest{SystemPrompt: &prompt},
+			openfang.PatchAgentRequest{
+				SystemPrompt: instructions,
+				Description:  description,
+			},
 		); err != nil {
 			writeDependencyError(response, request, err)
 			return
 		}
 
-		writer, ok := store.(InstructionsStore)
+		writer, ok := store.(ConfigStore)
 		if !ok {
 			writeInternal(response, request)
 			return
 		}
-		if err := writer.SetInstructions(
-			request.Context(), agentID, scope.WorkspaceID, value,
+		if err := writer.SetConfig(
+			request.Context(),
+			agentID,
+			scope.WorkspaceID,
+			StoredConfig{Instructions: instructions, Description: description},
 		); err != nil {
 			if errors.Is(err, ErrNotFound) {
 				writeNotFound(response, request)

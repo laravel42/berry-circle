@@ -74,22 +74,22 @@ export async function getWorkspaceAgent(agentId: string): Promise<Agent> {
 }
 
 /**
- * Write the agent's system prompt.
+ * Write the agent configuration Berry authors.
  *
  * The server pushes this to OpenFang before storing it, so a resolved promise
- * means the runtime accepted the prompt — not merely that Berry recorded it.
- * An empty string clears the instructions.
+ * means the runtime accepted the change — not merely that Berry recorded it.
+ * An omitted field is left unchanged; an empty string clears it.
  */
-export async function updateAgentInstructions(
+export async function updateAgentConfig(
    agentId: string,
-   instructions: string
+   config: { instructions?: string; description?: string }
 ): Promise<Agent> {
    const json: unknown = await apiFetch(
-      `/api/v1/agents/${encodeURIComponent(agentId)}/instructions`,
+      `/api/v1/agents/${encodeURIComponent(agentId)}/config`,
       {
          method: 'PUT',
          headers: { 'content-type': 'application/json' },
-         body: JSON.stringify({ instructions }),
+         body: JSON.stringify(config),
       }
    );
    const parsed = agentSchema.safeParse(json);

@@ -84,7 +84,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Get("/", listHandler(store, options))
 	router.Get("/{agentId}", getHandler(store, options))
 	if options.Configurer != nil {
-		router.Put("/{agentId}/instructions", instructionsHandler(store, options))
+		router.Put("/{agentId}/config", configHandler(store, options))
 	}
 	return httpapi.Mount{Prefix: "/api/v1/agents", Handler: router}, nil
 }

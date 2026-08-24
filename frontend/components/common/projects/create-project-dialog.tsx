@@ -1,7 +1,7 @@
 'use client';
 
 import { BerryMark } from '@/components/brand/berry-mark';
-import { MarkdownTextarea } from '@/components/common/editor/markdown-textarea';
+import { RichDescriptionEditor } from '@/components/common/editor/rich-description-editor';
 import { ProjectDateSelector } from '@/components/common/projects/create-project/date-selector';
 import { ProjectLeadSelector } from '@/components/common/projects/create-project/lead-selector';
 import { ProjectPrioritySelector } from '@/components/common/projects/create-project/priority-selector';
@@ -206,13 +206,15 @@ export function CreateProjectDialog() {
                   <label htmlFor="create-project-description" className="sr-only">
                      Description
                   </label>
-                  <MarkdownTextarea
-                     id="create-project-description"
-                     className="mt-5 min-h-40 flex-1 h-full resize-none border-none bg-transparent px-0 text-base text-foreground shadow-none placeholder:text-foreground/40 md:text-base"
-                     placeholder="Write a description or collect the work…"
-                     value={form.description}
-                     onChange={(description) => setForm({ ...form, description })}
-                  />
+                  <div className="mt-5 min-h-40 flex-1">
+                     <RichDescriptionEditor
+                        value={form.description}
+                        onChange={(description) => setForm({ ...form, description })}
+                        placeholder="Write a description or collect the work…"
+                        aria-label="Project description"
+                        className="min-h-40 text-base"
+                     />
+                  </div>
                </div>
 
                <DialogFooter className="flex-row items-center justify-end gap-2 border-t px-6 py-3">
