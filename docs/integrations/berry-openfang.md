@@ -21,6 +21,39 @@ Endpoint names and shapes were checked against the upstream API reference and ro
 
 Coverage check: all six capability groups named by BERR-10 appear above, and every capability without a complete backing endpoint is explicitly marked **GAP**.
 
+### Agent workspace ownership
+
+OpenFang exposes one flat agent list; Berry scopes agents to a workspace. Those
+models do not reconcile, because `agents.openfang_agent_id` is globally unique
+and the projection upsert only applies within the owning workspace:
+
+```sql
+ON CONFLICT (openfang_agent_id) DO UPDATE ...
+  WHERE agents.workspace_id = EXCLUDED.workspace_id
+```
+
+A conflict originating in a different workspace is therefore skipped silently —
+no error, no row. **A runtime agent can belong to exactly one Berry workspace:
+whichever projected it first.**
+
+Decision, 2026-08-24: accept one owning workspace. Berry is single-workspace in
+this release, so the constraint costs nothing today, and a global unique id
+keeps the mapping between a Berry agent and its upstream agent unambiguous.
+
+Consequences to know:
+
+- Startup seeding reports what a workspace actually holds, not what the runtime
+  offered, and says so when a workspace receives nothing because another owns
+  those agents. Reporting the offered count would claim a successful seed for a
+  workspace with no agents.
+- A second workspace will have no runtime agents and falls back to its built-in
+  orchestrator for all intake. That is correct under this decision, not a
+  failure.
+- Making agents usable from every workspace requires re-keying the unique index
+  to `(workspace_id, openfang_agent_id)` so each workspace holds its own
+  projection. That is a schema change touching run admission, which validates
+  `agents.workspace_id` against the run's workspace, and needs its own record.
+
 ## Trigger and data flow
 
 1. Assignment or an agent-owned workflow transition creates a Berry run in `queued` state with a Berry-generated run ID.

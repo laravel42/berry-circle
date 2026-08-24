@@ -140,9 +140,12 @@ func SyncAllWorkspaces(
 			"claimed", claimed,
 		)
 		if offered > 0 && claimed == 0 {
-			logger.Warn(
-				"workspace received no runtime agents: they are owned by another "+
-					"workspace, because agents.openfang_agent_id is globally unique",
+			// Expected under the accepted model rather than a fault: a runtime
+			// agent belongs to exactly one workspace, whichever projected it
+			// first, so this workspace falls back to its own orchestrator. See
+			// "Agent workspace ownership" in docs/integrations/berry-openfang.md.
+			logger.Info(
+				"workspace has no runtime agents; another workspace owns them",
 				"workspaceId", workspaceID,
 			)
 		}
