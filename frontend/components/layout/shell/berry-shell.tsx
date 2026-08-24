@@ -31,6 +31,9 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    // dependency instead of a fresh object every render.
    const current = useMemo(() => describeRoute(pathname, orgId), [pathname, orgId]);
    const activeRoute: ShellRoute | null = activeShellRoute(pathname);
+   // Settings replaces the rail's contents rather than sitting inside it, the
+   // way AppSidebar swapped its whole body on settings routes.
+   const settingsMode = pathname.includes('/settings');
 
    // The URL is the source of truth; the active tab follows it.
    useEffect(() => {
@@ -93,7 +96,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    return (
       <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono text-sm font-light text-[var(--shell-text)]">
          {railOpen ? (
-            <ShellRail orgId={orgId} active={activeRoute} onToggle={toggleRail} />
+            <ShellRail orgId={orgId} active={activeRoute} onToggle={toggleRail} settingsMode={settingsMode} />
          ) : (
             <button
                type="button"

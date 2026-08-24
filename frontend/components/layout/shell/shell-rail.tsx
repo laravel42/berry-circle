@@ -20,6 +20,7 @@ import {
 import { MORE_ICON, SHELL_SECTIONS, type ShellRouteDef, type ShellRoute } from './shell-routes';
 import { ShellIcon, BerryMark } from './shell-icon';
 import { WorkspaceMenuItems } from './workspace-menu';
+import { ShellRailSettings } from './shell-rail-settings';
 
 /** A workspace route the user can pin or hide. */
 type PinnableRoute = ShellRouteDef & { prefsKey: SidebarItemKey };
@@ -28,6 +29,8 @@ interface ShellRailProps {
    orgId: string;
    active: ShellRoute | null;
    onToggle: () => void;
+   /** Settings replaces the rail's contents, as it did in AppSidebar. */
+   settingsMode: boolean;
 }
 
 /**
@@ -38,7 +41,7 @@ interface ShellRailProps {
  * they do everywhere else — the prototype used div+onClick, which silently
  * removes all three.
  */
-export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
+export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailProps) {
    const { visibility, order } = useSidebarPrefsStore();
    const [customizeOpen, setCustomizeOpen] = useState(false);
 
@@ -76,6 +79,10 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
          aria-label="Workspace"
          className="flex w-[218px] flex-none flex-col bg-[var(--shell-rail)]"
       >
+         {settingsMode ? (
+            <ShellRailSettings orgId={orgId} />
+         ) : (
+            <>
          {/* The brand opens the workspace menu, as it does throughout the app.
              The prototype wired this row to collapse the rail, but a
              chevrons-up-down glyph reads as a switcher everywhere else in the
@@ -178,6 +185,9 @@ export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
                </div>
             );
          })}
+
+            </>
+         )}
 
          <div className="mt-auto flex items-center gap-1.5 p-3.5">
             <Link
