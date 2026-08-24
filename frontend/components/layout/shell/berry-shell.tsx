@@ -1,52 +1,84 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useShellStore } from '@/store/shell-store';
-import { activeShellRoute, shellRoute, type ShellRoute } from './shell-routes';
+import { activeShellRoute, type ShellRoute } from './shell-routes';
+import { describeTab, type ShellTab } from './shell-tab-model';
 import { ShellRail } from './shell-rail';
 import { ShellTabs } from './shell-tabs';
+
+/** Where the strip lands when the last tab is closed, per the prototype. */
+const HOME: ShellTab = { key: 'issues', label: 'issues', href: '/my-issues' };
 
 /**
  * The application shell from `Berry Prototype.dc.html`: a collapsible rail, a
  * browser-style tab strip, and the workspace canvas.
  *
- * The URL stays the source of truth for what is displayed; the tab list is
- * only chrome layered on top. Tabs therefore follow navigation rather than
- * driving it — arriving anywhere, by any means, opens a tab for it, and a
- * deep link or a refresh lands on the right view whatever the stored tabs say.
+ * The URL is the source of truth for what is displayed; tabs are chrome layered
+ * on top. Tabs therefore follow navigation rather than driving it — arriving
+ * anywhere, by any means, opens a tab for it, so a deep link, a browser back,
+ * or a refresh all land on the right view whatever the stored tabs say.
  */
 export function BerryShell({ orgId, children }: { orgId: string; children: React.ReactNode }) {
-   const pathname = usePathname();
+   const pathname = usePathname() ?? '';
    const router = useRouter();
    const { tabs, railOpen, openTab, closeTab, toggleRail } = useShellStore();
-   const active = activeShellRoute(pathname ?? '');
 
-   // Navigation opens tabs, never the reverse. Running on `active` alone keeps
-   // this from firing on every render while still catching deep links.
+   // describeTab is pure, so memoising gives the effect below a stable
+   // dependency instead of a fresh object every render.
+   const current = useMemo(() => describeTab(pathname, orgId), [pathname, orgId]);
+   const activeKey = current?.key ?? null;
+   const activeRoute: ShellRoute | null = activeShellRoute(pathname);
+
+   // Navigation opens tabs, never the reverse. Depending on the derived key and
+   // label rather than the object keeps this from firing every render.
    useEffect(() => {
-      if (active) openTab(active);
-   }, [active, openTab]);
+      if (current) openTab(current);
+   }, [current, openTab]);
 
-   const navigate = (route: ShellRoute) => {
-      const target = shellRoute(route);
-      if (target) router.push(`/${orgId}${target.href}`);
-   };
+   const navigate = useCallback(
+      (tab: ShellTab) => router.push(`/${orgId}${tab.href}`),
+      [orgId, router],
+   );
 
-   const handleClose = (route: ShellRoute) => {
-      const next = closeTab(route, active);
-      if (next) navigate(next);
-   };
+   const handleClose = useCallback(
+      (key: string) => {
+         const next = closeTab(key, activeKey);
+         // Closing the active tab moves left; emptying the strip returns home.
+         if (next) navigate(next);
+         else if (key === activeKey) navigate(HOME);
+      },
+      [activeKey, closeTab, navigate],
+   );
+
+   // Browser-style shortcuts. Ctrl is used rather than Cmd so the bindings do
+   // not collide with Safari and Chrome's own tab shortcuts on macOS.
+   useEffect(() => {
+      const onKey = (event: KeyboardEvent) => {
+         if (!event.ctrlKey || event.metaKey || event.altKey) return;
+         const index = tabs.findIndex((tab) => tab.key === activeKey);
+
+         if (event.key === 'w' && activeKey) {
+            event.preventDefault();
+            handleClose(activeKey);
+            return;
+         }
+         if (event.key === 'Tab' && tabs.length > 1) {
+            event.preventDefault();
+            const step = event.shiftKey ? -1 : 1;
+            const from = index === -1 ? 0 : index;
+            navigate(tabs[(from + step + tabs.length) % tabs.length]);
+         }
+      };
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
+   }, [tabs, activeKey, handleClose, navigate]);
 
    return (
       <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono text-[10px] font-light text-[var(--shell-text)]">
          {railOpen ? (
-            <ShellRail
-               orgId={orgId}
-               active={active}
-               onToggle={toggleRail}
-               onNavigate={openTab}
-            />
+            <ShellRail orgId={orgId} active={activeRoute} onToggle={toggleRail} />
          ) : (
             <button
                type="button"
@@ -63,14 +95,12 @@ export function BerryShell({ orgId, children }: { orgId: string; children: React
          <div className="relative flex min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
             <ShellTabs
                tabs={tabs}
-               active={active}
+               activeKey={activeKey}
                onActivate={navigate}
                onClose={handleClose}
-               onNew={() => navigate('issues')}
+               onNew={() => navigate(HOME)}
             />
-            <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">
-               {children}
-            </main>
+            <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">{children}</main>
          </div>
       </div>
    );

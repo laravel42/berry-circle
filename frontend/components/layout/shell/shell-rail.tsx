@@ -8,7 +8,6 @@ interface ShellRailProps {
    orgId: string;
    active: ShellRoute | null;
    onToggle: () => void;
-   onNavigate: (route: ShellRoute) => void;
 }
 
 /**
@@ -19,7 +18,7 @@ interface ShellRailProps {
  * they do everywhere else — the prototype used div+onClick, which silently
  * removes all three.
  */
-export function ShellRail({ orgId, active, onToggle, onNavigate }: ShellRailProps) {
+export function ShellRail({ orgId, active, onToggle }: ShellRailProps) {
    return (
       <nav
          aria-label="Workspace"
@@ -56,7 +55,6 @@ export function ShellRail({ orgId, active, onToggle, onNavigate }: ShellRailProp
                         <li key={route.id}>
                            <Link
                               href={`/${orgId}${route.href}`}
-                              onClick={() => onNavigate(route.id)}
                               aria-current={on ? 'page' : undefined}
                               className={[
                                  'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',

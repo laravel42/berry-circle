@@ -1,13 +1,14 @@
 'use client';
 
-import { shellRoute, type ShellRoute } from './shell-routes';
+import { useEffect, useRef } from 'react';
+import type { ShellTab } from './shell-tab-model';
 import { BerryMark } from './shell-icon';
 
 interface ShellTabsProps {
-   tabs: ShellRoute[];
-   active: ShellRoute | null;
-   onActivate: (route: ShellRoute) => void;
-   onClose: (route: ShellRoute) => void;
+   tabs: ShellTab[];
+   activeKey: string | null;
+   onActivate: (tab: ShellTab) => void;
+   onClose: (key: string) => void;
    onNew: () => void;
 }
 
@@ -15,25 +16,35 @@ interface ShellTabsProps {
  * The tab strip, ported from `Berry Prototype.dc.html`.
  *
  * Each tab's close control is a real button rather than a click handler on a
- * span. That is what makes it keyboard-reachable, and it is why the tab itself
- * is a button and not a wrapping anchor: nesting an interactive element inside
- * a link is invalid and breaks activation for both.
+ * span, which makes it keyboard-reachable. That is also why the tab itself is a
+ * button and not a wrapping anchor: nesting an interactive element inside a
+ * link is invalid and breaks activation for both.
  */
-export function ShellTabs({ tabs, active, onActivate, onClose, onNew }: ShellTabsProps) {
+export function ShellTabs({ tabs, activeKey, onActivate, onClose, onNew }: ShellTabsProps) {
+   const stripRef = useRef<HTMLDivElement>(null);
+   const activeRef = useRef<HTMLDivElement>(null);
+
+   // The strip scrolls, so an active tab opened beyond the fold would otherwise
+   // be selected but invisible.
+   useEffect(() => {
+      activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+   }, [activeKey]);
+
    return (
       <div
+         ref={stripRef}
          role="tablist"
          aria-label="Open views"
-         className="tabstrip flex h-[34px] flex-none items-stretch overflow-x-auto"
+         className="tabstrip flex h-[34px] flex-none items-stretch overflow-x-auto bg-[var(--shell-rail)]"
       >
          {tabs.map((tab) => {
-            const on = tab === active;
-            const label = shellRoute(tab)?.label ?? tab;
+            const on = tab.key === activeKey;
             return (
                <div
-                  key={tab}
+                  key={tab.key}
+                  ref={on ? activeRef : undefined}
                   className={[
-                     'flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-2.5 pl-3 text-[11px] transition-colors',
+                     'group flex h-[33px] min-w-24 max-w-[180px] flex-none items-center gap-2 pr-2.5 pl-3 text-[11px] transition-colors',
                      on
                         ? 'bg-[var(--shell-canvas)] text-[var(--shell-text)]'
                         : 'bg-[var(--shell-rail)] text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
@@ -44,16 +55,31 @@ export function ShellTabs({ tabs, active, onActivate, onClose, onNew }: ShellTab
                      role="tab"
                      aria-selected={on}
                      onClick={() => onActivate(tab)}
+                     onAuxClick={(event) => {
+                        // Middle-click closes, as in a browser.
+                        if (event.button === 1) {
+                           event.preventDefault();
+                           onClose(tab.key);
+                        }
+                     }}
+                     title={tab.label}
                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                   >
                      <BerryMark size={13} muted />
-                     <span className="truncate">{label}</span>
+                     <span className="truncate">{tab.label}</span>
                   </button>
                   <button
                      type="button"
-                     onClick={() => onClose(tab)}
-                     aria-label={`Close ${label}`}
-                     className="cursor-pointer px-[3px] text-[var(--shell-text-dim)] transition-colors hover:text-[var(--shell-text)]"
+                     onClick={() => onClose(tab.key)}
+                     aria-label={`Close ${tab.label}`}
+                     className={[
+                        'cursor-pointer px-[3px] text-[var(--shell-text-dim)] transition-colors hover:text-[var(--shell-text)]',
+                        // Keep the close affordance quiet until the tab is
+                        // hovered or active, so a full strip does not read as a
+                        // row of dismiss buttons. Focus reveals it for keyboard
+                        // users, who get no hover.
+                        on ? '' : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                     ].join(' ')}
                   >
                      &times;
                   </button>
