@@ -405,8 +405,15 @@ func (cfg Config) SafeSummary() map[string]any {
 	}
 }
 
+// value resolves a setting that has a meaningful default.
+//
+// A present-but-empty variable falls back rather than overriding. Compose
+// idiomatically forwards optional settings as "${VAR:-}", which sets the key to
+// an empty string; treating that as an explicit choice silently defeats every
+// default this function exists to provide. Settings where empty is itself
+// meaningful — optional credentials — read env[key] directly instead.
 func value(env map[string]string, key, fallback string) string {
-	if raw, ok := env[key]; ok {
+	if raw, ok := env[key]; ok && strings.TrimSpace(raw) != "" {
 		return raw
 	}
 	return fallback

@@ -178,10 +178,21 @@ func run() int {
 		_ = dispatcher.Close(closeCtx)
 	}()
 
+	// Parsed, not asserted: MustParse turns a bad config value into a panic and
+	// a crash loop, which is the least useful way to report a typo.
+	actorID, err := uuid.Parse(cfg.IntakeActorID)
+	if err != nil {
+		logger.Error(
+			"INTAKE_ACTOR_ID is not a valid UUID",
+			"value", cfg.IntakeActorID,
+			"error", err,
+		)
+		return 1
+	}
 	activities, err := orchestration.NewActivities(orchestration.Activities{
 		Intake:  intakeStore,
 		Runs:    dispatcher,
-		ActorID: uuid.MustParse(cfg.IntakeActorID),
+		ActorID: actorID,
 		Clock:   time.Now,
 		NewID:   uuid.New,
 	})

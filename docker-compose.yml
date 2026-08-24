@@ -249,18 +249,22 @@ services:
       # Loopback-only: the frontend never talks to Temporal.
       - "127.0.0.1:${TEMPORAL_PORT:-7233}:7233"
     healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
+      # Addressed by service name, not loopback: the frontend binds the
+      # container's own IP, so 127.0.0.1 inside the container is refused and
+      # the service never turns healthy — which blocks everything that waits
+      # on it.
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
       interval: 15s
       timeout: 5s
       start_period: 45s
       retries: 8
     restart: unless-stopped
 
-  # Operator UI. Off by default: it exposes run payloads and is not part of the
-  # product surface. Enable with --profile temporal-ui when debugging.
+  # Operator UI for inspecting workflows and their history. Published on
+  # loopback only: it renders run payloads, which carry issue content and agent
+  # output, and it has no authentication of its own.
   temporal-ui:
-    image: temporalio/ui:2.42.0
-    profiles: ["temporal-ui"]
+    image: temporalio/ui:2.53.3
     depends_on:
       temporal:
         condition: service_healthy
