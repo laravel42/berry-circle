@@ -1,0 +1,27 @@
+# OpenFang configuration, mounted into the container at $OPENFANG_HOME/config.toml.
+#
+# Config as code: this file is tracked, so the runtime a deployment gets is the
+# one in the repository rather than whatever accumulated in a volume. Secrets
+# never appear here — providers read their keys from the environment, named by
+# api_key_env and passed through docker-compose.yml.
+
+# Container-internal. The published port is set in docker-compose.yml; OpenFang
+# binds loopback by default, which is unreachable through a published port.
+api_listen = "0.0.0.0:4200"
+
+[memory]
+decay_rate = 0.05
+
+[default_model]
+# Fallback for any agent whose manifest does not name a model. Agents that do
+# carry their own are unaffected.
+#
+# Verified rather than assumed: an agent spawned with exactly this
+# provider/model pair returned a live completion through OpenRouter.
+provider = "openrouter"
+model = "anthropic/claude-sonnet-4"
+api_key_env = "OPENROUTER_API_KEY"
+
+# No provider_urls entry for openrouter: the binary already defaults to
+# https://openrouter.ai/api/v1, and overriding a correct default is one more
+# thing that can drift.

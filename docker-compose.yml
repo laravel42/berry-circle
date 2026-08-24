@@ -33,6 +33,8 @@ services:
         condition: service_healthy
       openfang:
         condition: service_healthy
+      temporal:
+        condition: service_healthy
     environment:
       APP_ENV: "${APP_ENV:-development}"
       SERVICE_NAME: "${SERVICE_NAME:-berry-server}"
@@ -74,8 +76,8 @@ services:
       REALTIME_READ_BLOCK: "${REALTIME_READ_BLOCK:-5s}"
       # Durable run orchestration (ADR-0005). Disabled selects the in-process
       # dispatcher, which is a supported configuration.
-      TEMPORAL_ENABLED: "${TEMPORAL_ENABLED:-false}"
-      TEMPORAL_REQUIRED: "${TEMPORAL_REQUIRED:-false}"
+      TEMPORAL_ENABLED: "${TEMPORAL_ENABLED:-true}"
+      TEMPORAL_REQUIRED: "${TEMPORAL_REQUIRED:-true}"
       TEMPORAL_HOSTPORT: "${TEMPORAL_HOSTPORT:-temporal:7233}"
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-berry}"
       TEMPORAL_TASK_QUEUE: "${TEMPORAL_TASK_QUEUE:-berry-runs}"
@@ -135,8 +137,15 @@ services:
       VLLM_BASE_URL: "${VLLM_BASE_URL:-}"
       VLLM_API_KEY: "${VLLM_API_KEY:-}"
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
+      OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
+      # Named by default_model.api_key_env in deploy/openfang/config.toml.
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
     volumes:
       - openfang-data:/data
+      # Config as code: the runtime uses the file in the repository rather than
+      # whatever accumulated in the volume. Read-only so a container cannot
+      # silently rewrite it — drop :ro if OpenFang ever needs to persist here.
+      - ./deploy/openfang/config.toml:/data/config.toml:ro
     # Lets the container reach host-run providers (vLLM/Ollama) via host.docker.internal.
     # No-op on Docker Desktop; required on Linux/colima.
     extra_hosts:
@@ -164,7 +173,6 @@ services:
       dockerfile: Dockerfile
     image: berry-api:local
     entrypoint: ["/usr/local/bin/berry-worker"]
-    profiles: ["temporal"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -224,7 +232,6 @@ services:
   # self-hosting gains one service rather than a whole new datastore.
   temporal:
     image: temporalio/auto-setup:1.29.0
-    profiles: ["temporal"]
     depends_on:
       postgres:
         condition: service_healthy
