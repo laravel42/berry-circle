@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { BerryApiError, apiFetch, apiStream } from './api';
 import { connectionSchema, newIdempotencyKey } from './api-schemas';
+import type { ActivityItem } from '@/data/issue-details';
+import type { User } from '@/data/users';
 
 const runStatusSchema = z.enum(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
 
@@ -214,6 +216,46 @@ export async function* streamRunEvents(
    }
 }
 
+/**
+ * Every run event on a board, as it happens.
+ *
+ * The board stream carries the same envelope as the per-run one, so it reuses
+ * the same parser. Agents change issues without anyone clicking anything, and
+ * until something consumed this the only way to see their work was to reload
+ * the page.
+ */
+export async function* streamBoardEvents(
+   boardId: string,
+   signal?: AbortSignal
+): AsyncGenerator<RunEvent> {
+   const response = await apiStream(
+      `/api/v1/events?boardId=${encodeURIComponent(boardId)}`,
+      undefined,
+      { signal }
+   );
+   if (!response.body) {
+      throw new Error('Board event stream had no body');
+   }
+   const reader = response.body.getReader();
+   const decoder = new TextDecoder();
+   let buffer = '';
+   try {
+      while (true) {
+         const { done, value } = await reader.read();
+         if (done) break;
+         buffer += decoder.decode(value, { stream: true });
+         const blocks = buffer.split('\n\n');
+         buffer = blocks.pop() ?? '';
+         for (const block of blocks) {
+            const event = parseSseBlock(block);
+            if (event) yield event;
+         }
+      }
+   } finally {
+      reader.releaseLock();
+   }
+}
+
 function parseSseBlock(block: string): RunEvent | undefined {
    let eventName = '';
    const dataLines: string[] = [];
@@ -264,4 +306,81 @@ export function textFromRunEvent(event: RunEvent): string {
       return payload.message;
    }
    return '';
+}
+
+/**
+ * Turn a run into feed entries.
+ *
+ * A run produces at most two: one line recording that it happened and how it
+ * ended, and — when the agent actually said something — a card carrying the
+ * result. The result is a card rather than another grey line because it is the
+ * work itself, and burying an agent's output in a lifecycle log is how it ends
+ * up looking like nothing was produced.
+ */
+export function runToActivityItems(run: RunRecord, actor: User): ActivityItem[] {
+   const at = run.completedAt ?? run.startedAt ?? run.createdAt;
+   const items: ActivityItem[] = [
+      {
+         kind: 'event',
+         id: `run:${run.id}:status`,
+         actor,
+         event: 'run',
+         text: runOutcomeText(run),
+         timeAgo: relativeTime(at),
+      },
+   ];
+
+   const summary = run.summary?.trim();
+   if (summary) {
+      items.push({
+         kind: 'comment',
+         id: `run:${run.id}:result`,
+         actor,
+         timeAgo: relativeTime(at),
+         body: [{ type: 'paragraph', text: summary }],
+      });
+   }
+   return items;
+}
+
+function runOutcomeText(run: RunRecord): string {
+   const duration = runDurationMs(run);
+   const parts: string[] = [];
+   if (duration !== null) parts.push(formatRunDuration(duration));
+   if (run.usage.totalTokens > 0) {
+      parts.push(`${run.usage.totalTokens.toLocaleString()} tokens`);
+   }
+   const detail = parts.length > 0 ? ` · ${parts.join(' · ')}` : '';
+
+   switch (run.status) {
+      case 'succeeded':
+         return `finished a run${detail}`;
+      case 'failed':
+         // The failure code is the part an operator can act on, so it is shown
+         // rather than a generic "run failed".
+         return `run failed${run.failure ? `: ${run.failure.message}` : ''}${detail}`;
+      case 'cancelled':
+         return `run cancelled${detail}`;
+      case 'running':
+         return 'is working on this';
+      default:
+         return 'queued a run';
+   }
+}
+
+/** Sort key for merging runs and comments into one chronological feed. */
+export function runTimestamp(run: RunRecord): string {
+   return run.completedAt ?? run.startedAt ?? run.createdAt;
+}
+
+function relativeTime(iso: string): string {
+   const then = new Date(iso).getTime();
+   if (Number.isNaN(then)) return 'recently';
+   const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+   if (seconds < 60) return 'just now';
+   const minutes = Math.round(seconds / 60);
+   if (minutes < 60) return `${minutes}m ago`;
+   const hours = Math.round(minutes / 60);
+   if (hours < 24) return `${hours}h ago`;
+   return `${Math.round(hours / 24)}d ago`;
 }

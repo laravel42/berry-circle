@@ -4,12 +4,17 @@ import { BerryMark } from '@/components/brand/berry-mark';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActivityItem } from '@/data/issue-details';
+import type { User } from '@/data/users';
 import { commentToActivityItem, createIssueComment, loadIssueComments } from '@/lib/comments';
+import { listIssueRuns, runToActivityItems, runTimestamp } from '@/lib/runs';
+import { loadWorkspaceAgents } from '@/lib/agents';
+import { useAgentsStore } from '@/store/agents-store';
 import { useSessionStore } from '@/store/session-store';
 import { toUiUser } from '@/lib/catalog';
 import { cn } from '@/lib/utils';
 import {
    Ban,
+   Bot,
    CircleDot,
    GitPullRequestArrow,
    Link2,
@@ -33,6 +38,7 @@ const EVENT_ICONS: Record<string, ReactNode> = {
    unblocked: <Unlock className="size-3.5" />,
    related: <Link2 className="size-3.5" />,
    pr: <GitPullRequestArrow className="size-3.5" />,
+   run: <Bot className="size-3.5" />,
 };
 
 function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) {
@@ -107,11 +113,45 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
    );
 }
 
-export function useIssueActivity(issueRef: string) {
+export function useIssueActivity(issueRef: string, issueId?: string) {
    const [items, setItems] = useState<ActivityItem[]>([]);
    const [draft, setDraft] = useState('');
    const [submitting, setSubmitting] = useState(false);
    const sessionUser = useSessionStore((state) => state.user);
+   const agents = useAgentsStore((state) => state.agents);
+   const hydrateAgents = useAgentsStore((state) => state.hydrateAgents);
+
+   // The agents store is filled by the agents page, which a person reading an
+   // issue has usually never opened. Without this the feed would name every
+   // agent "Agent" — the same blank the assignee bug produced.
+   useEffect(() => {
+      if (agents.length > 0) return;
+      let cancelled = false;
+      void loadWorkspaceAgents()
+         .then((loaded) => {
+            if (!cancelled) hydrateAgents(loaded, null);
+         })
+         .catch(() => undefined);
+      return () => {
+         cancelled = true;
+      };
+   }, [agents.length, hydrateAgents]);
+
+   // Runs carry an agent id and nothing else, so the name comes from the store.
+   // An agent the store has not loaded still gets a row — an unnamed actor is
+   // better than a missing entry in an audit trail.
+   const agentActor = useCallback(
+      (agentId: string): User => {
+         const agent = agents.find((candidate) => candidate.id === agentId);
+         return toUiUser({
+            id: agentId,
+            name: agent?.name ?? 'Agent',
+            avatarUrl: agent?.avatarUrl ?? '',
+            type: 'agent',
+         });
+      },
+      [agents],
+   );
 
    useEffect(() => {
       if (!issueRef) {
@@ -119,15 +159,33 @@ export function useIssueActivity(issueRef: string) {
          return;
       }
       let cancelled = false;
-      void loadIssueComments(issueRef).then((comments) => {
-         if (!cancelled) {
-            setItems(comments.map(commentToActivityItem));
-         }
+      // Comments and runs are two halves of the same story: what people said
+      // and what agents did. Fetched together and merged by time, so an agent's
+      // work appears in the thread rather than nowhere.
+      void Promise.all([
+         loadIssueComments(issueRef),
+         listIssueRuns(issueId ?? issueRef).catch(() => []),
+      ]).then(([comments, runs]) => {
+         if (cancelled) return;
+         const commentItems = comments.map((comment) => ({
+            item: commentToActivityItem(comment),
+            at: comment.createdAt,
+         }));
+         const runItems = runs.flatMap((run) =>
+            runToActivityItems(run, agentActor(run.agentId)).map((item) => ({
+               item,
+               at: runTimestamp(run),
+            })),
+         );
+         const merged = [...commentItems, ...runItems].sort((left, right) =>
+            left.at.localeCompare(right.at),
+         );
+         setItems(merged.map((entry) => entry.item));
       });
       return () => {
          cancelled = true;
       };
-   }, [issueRef]);
+   }, [issueRef, issueId, agentActor]);
 
    const submitComment = useCallback(() => {
       const text = draft.trim();

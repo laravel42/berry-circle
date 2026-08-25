@@ -43,7 +43,7 @@ export default function IssueDetails() {
       };
    }, [issue, issueId, addIssue]);
 
-   const activityFeed = useIssueActivity(issue?.identifier ?? issueId ?? '');
+   const activityFeed = useIssueActivity(issue?.identifier ?? issueId ?? '', issue?.id ?? issueId);
 
    if (!issue) {
       return (

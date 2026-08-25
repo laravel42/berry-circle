@@ -20,11 +20,15 @@ import { useRunsStore } from '@/store/runs-store';
 import { useSessionStore } from '@/store/session-store';
 import { useViewsStore } from '@/store/views-store';
 import { useEffect } from 'react';
+import { useBoardEventStream } from './use-board-event-stream';
 
 /**
  * Seeds workspace data from the Go API once a session is ready.
  */
 export function useHydrateWorkspaceData(): void {
+   // The initial load below is a snapshot; this keeps it current as agents work.
+   useBoardEventStream();
+
    const status = useSessionStore((state) => state.status);
    const boardId = useSessionStore((state) => state.boardId);
    const workspaceId = useSessionStore((state) => state.workspace?.id);
