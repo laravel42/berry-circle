@@ -107,21 +107,17 @@
    --chart-4: var(--brand-amber);
    --chart-5: var(--brand-slate);
    --radius: 0.625rem;
-   --board-column-body: color-mix(in oklab, var(--color-zinc-900) 80%, transparent);
-   /* The column body as it actually paints, for anything that has to sit
-      against it opaquely. Borders paint over their own element's background,
-      so they cannot borrow the translucency above -- a translucent copy would
-      blend into the card rather than match the column. Resolving over
-      `--background` re-derives it per theme from one definition, which matters
-      because 80% zinc lands near-black on the dark page and mid-grey on the
-      light one. */
-   --board-column-body-solid: color-mix(in oklab, var(--color-zinc-900) 80%, var(--background));
+   /* Flat and theme-independent, like the shell: the board's cards are dark in
+      both themes, and the column previously resolved 80% zinc over the page,
+      which put mid-grey behind dark cards in light mode. Stated once here with
+      no `.dark` counterpart, so the two cannot drift. */
+   --board-column-body: #19191d;
    /* Edge of a card sitting in a board column: the column lifted a step, so it
       reads as a seam rather than a line of its own. White goes last on
       purpose -- where `color-mix` is unsupported the declaration degrades to
       its first colour, and an edge that matches the column disappears, where
       one that fell back to white would blaze. */
-   --board-card-line: color-mix(in oklab, var(--board-column-body-solid) 95%, #ffffff);
+   --board-card-line: color-mix(in oklab, var(--board-column-body) 95%, #ffffff);
    /* Circle board column header neutral tint (~6% zinc on container). */
    --board-column-header-neutral: color-mix(in oklab, var(--color-zinc-500) 6%, var(--container));
    --sidebar: var(--brand-base);
@@ -177,7 +173,6 @@
    --sidebar-accent-foreground: var(--brand-chalk);
    --sidebar-border: var(--brand-hairline);
    --sidebar-ring: var(--brand-azure);
-   --board-column-body: color-mix(in oklab, var(--color-zinc-900) 80%, transparent);
 }
 
 @theme inline {
