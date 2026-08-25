@@ -233,6 +233,19 @@ func run() int {
 		}
 		artifactRuns = promotableRuns{store: runStore}
 		logger.Info("artifact promotion enabled", "root", cfg.RuntimeWorkspaceRoot)
+
+		// Recover anything an earlier run left behind. In the background: a
+		// worker must start serving whether or not a filesystem sweep succeeds.
+		go func(promoter *artifacts.Promoter, source artifacts.PendingSource) {
+			recovered, err := artifacts.Recover(ctx, promoter, source, time.Now(), logger)
+			if err != nil {
+				logger.Warn("artifact recovery pass failed", "error", err)
+				return
+			}
+			if recovered > 0 {
+				logger.Info("artifact recovery complete", "files", recovered)
+			}
+		}(promoter, artifactRuns.(promotableRuns))
 	}
 
 	activities, err := orchestration.NewActivities(orchestration.Activities{
@@ -343,6 +356,37 @@ func closeValkey(client *cache.Client) {
 // which is what keeps orchestration free of a repository import.
 type promotableRuns struct {
 	store *runsrepo.Repository
+}
+
+func (adapter promotableRuns) RunsAwaitingPromotion(
+	ctx context.Context,
+	since time.Time,
+	limit int,
+) ([]uuid.UUID, error) {
+	return adapter.store.RunsAwaitingPromotion(ctx, since, limit)
+}
+
+// PromotableRunContext reports whether a run is one whose output may be
+// published, and the window its files must fall in. The boolean separates "not
+// eligible" from "could not be read", so a failed run is skipped quietly while
+// a broken lookup is logged.
+func (adapter promotableRuns) PromotableRunContext(
+	ctx context.Context,
+	runID uuid.UUID,
+) (artifacts.RunContext, bool, error) {
+	row, err := adapter.store.PromotableRun(ctx, runID)
+	if err != nil {
+		return artifacts.RunContext{}, false, err
+	}
+	if !row.Succeeded {
+		return artifacts.RunContext{}, false, nil
+	}
+	return artifacts.RunContext{
+		RunID:       runID,
+		AgentSlug:   row.AgentSlug,
+		StartedAt:   row.StartedAt,
+		CompletedAt: row.CompletedAt,
+	}, true, nil
 }
 
 func (adapter promotableRuns) PromotableRun(

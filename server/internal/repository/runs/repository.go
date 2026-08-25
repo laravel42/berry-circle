@@ -357,3 +357,53 @@ func (repository *Repository) PromotableRun(
 	}
 	return row, nil
 }
+
+// RunsAwaitingPromotion lists recent successful runs that produced no
+// artifacts, newest first.
+//
+// Promotion happens when a run finishes, which leaves nothing to recover a run
+// whose promotion never ran — the worker was down, object storage was briefly
+// unavailable, or the run predates the feature. Without this the outputs of
+// such a run are orphaned permanently: the files sit in the runtime's scratch
+// space and no later run will ever claim them, because each run only promotes
+// files from its own window.
+//
+// Bounded by time and count so a worker start does not walk the entire history.
+func (repository *Repository) RunsAwaitingPromotion(
+	ctx context.Context,
+	since time.Time,
+	limit int,
+) ([]uuid.UUID, error) {
+	if limit < 1 || limit > 200 {
+		limit = 50
+	}
+	rows, err := repository.Pool.Query(
+		ctx,
+		`SELECT run.id
+		   FROM runs AS run
+		  WHERE run.status = 'succeeded'
+		    AND run.completed_at IS NOT NULL
+		    AND run.completed_at >= $1
+		    AND NOT EXISTS (
+		        SELECT 1 FROM attachments AS attachment
+		         WHERE attachment.run_id = run.id
+		    )
+		  ORDER BY run.completed_at DESC
+		  LIMIT $2`,
+		since.UTC(), limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list runs awaiting promotion: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]uuid.UUID, 0, limit)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan run awaiting promotion: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}

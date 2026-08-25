@@ -411,3 +411,111 @@ func TestNonRegularFilesAreNotDeliverables(t *testing.T) {
 		}
 	}
 }
+
+// fakePending stands in for the runs a recovery pass would reconsider.
+type fakePending struct {
+	pending []uuid.UUID
+	runs    map[uuid.UUID]RunContext
+	skipped map[uuid.UUID]bool
+}
+
+func (source *fakePending) RunsAwaitingPromotion(
+	context.Context, time.Time, int,
+) ([]uuid.UUID, error) {
+	return source.pending, nil
+}
+
+func (source *fakePending) PromotableRunContext(
+	_ context.Context, runID uuid.UUID,
+) (RunContext, bool, error) {
+	if source.skipped[runID] {
+		return RunContext{}, false, nil
+	}
+	run, ok := source.runs[runID]
+	return run, ok, nil
+}
+
+func TestRecoverPublishesOutputAnEarlierRunLeftBehind(t *testing.T) {
+	t.Parallel()
+	// The case that motivated this: a run succeeded and wrote a deliverable
+	// before promotion existed. No later run will ever claim that file, because
+	// each run only promotes files from its own window.
+	root := workspace(t, "writer", map[string]string{"blog.md": "# the deliverable"})
+	run := runContext("writer")
+	source := &fakePending{
+		pending: []uuid.UUID{run.RunID},
+		runs:    map[uuid.UUID]RunContext{run.RunID: run},
+	}
+	store, backend := &fakeStore{}, newFakeStorage()
+	promoter := newPromoter(root, store, backend)
+
+	recovered, err := Recover(context.Background(), promoter, source, runStart, nil)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if recovered != 1 {
+		t.Fatalf("recovered %d files, want 1", recovered)
+	}
+	if len(backend.objects) != 1 {
+		t.Fatalf("stored %d objects, want 1", len(backend.objects))
+	}
+}
+
+func TestRecoverSkipsRunsThatDidNotSucceed(t *testing.T) {
+	t.Parallel()
+	// A failed run may have left a half-written file, and attaching that would
+	// present an abandoned draft as a deliverable.
+	root := workspace(t, "writer", map[string]string{"partial.md": "half a"})
+	run := runContext("writer")
+	source := &fakePending{
+		pending: []uuid.UUID{run.RunID},
+		runs:    map[uuid.UUID]RunContext{run.RunID: run},
+		skipped: map[uuid.UUID]bool{run.RunID: true},
+	}
+	store, backend := &fakeStore{}, newFakeStorage()
+	promoter := newPromoter(root, store, backend)
+
+	recovered, err := Recover(context.Background(), promoter, source, runStart, nil)
+	if err != nil {
+		t.Fatalf("Recover: %v", err)
+	}
+	if recovered != 0 || len(backend.objects) != 0 {
+		t.Fatalf("recovered %d from an ineligible run", recovered)
+	}
+}
+
+func TestRecoverIsSafeToRepeat(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "writer", map[string]string{"blog.md": "body"})
+	run := runContext("writer")
+	source := &fakePending{
+		pending: []uuid.UUID{run.RunID},
+		runs:    map[uuid.UUID]RunContext{run.RunID: run},
+	}
+	store, backend := &fakeStore{}, newFakeStorage()
+	promoter := newPromoter(root, store, backend)
+
+	if _, err := Recover(context.Background(), promoter, source, runStart, nil); err != nil {
+		t.Fatalf("first Recover: %v", err)
+	}
+	// A second pass sees what the first published and must not attach it twice.
+	store.existing = []collaboration.Attachment{{FileName: "blog.md"}}
+	recovered, err := Recover(context.Background(), promoter, source, runStart, nil)
+	if err != nil {
+		t.Fatalf("second Recover: %v", err)
+	}
+	if recovered != 0 {
+		t.Fatalf("a repeat pass re-published %d files", recovered)
+	}
+	if len(store.reserved) != 1 {
+		t.Fatalf("reserved %d times across two passes, want 1", len(store.reserved))
+	}
+}
+
+func TestRecoverIsInertWithoutAPromoter(t *testing.T) {
+	t.Parallel()
+	recovered, err := Recover(context.Background(), nil, nil, runStart, nil)
+	if err != nil || recovered != 0 {
+		t.Fatalf("Recover without a promoter = %d, %v", recovered, err)
+	}
+}
