@@ -198,7 +198,7 @@ export function AssigneeUser({ user, issueId, placeholderForAgents = false }: As
                         value={agentQuery}
                         onChange={(event) => setAgentQuery(event.target.value)}
                         placeholder="Filter agents…"
-                        className="h-8 text-xs"
+                        className="h-8"
                         aria-label="Filter agents"
                      />
                   </div>
@@ -212,10 +212,10 @@ export function AssigneeUser({ user, issueId, placeholderForAgents = false }: As
                         />
                      ))
                   ) : (
-                     <div className="px-2 py-1.5 text-xs text-muted-foreground">No agents found</div>
+                     <div className="px-2 py-1.5 text-muted-foreground">No agents found</div>
                   )}
                   {agentAssignees.length > MAX_VISIBLE_AGENTS && !agentQuery.trim() ? (
-                     <div className="px-2 py-1 text-[11px] text-muted-foreground">
+                     <div className="px-2 py-1 text-muted-foreground">
                         Showing {MAX_VISIBLE_AGENTS} of {agentAssignees.length}. Type to filter.
                      </div>
                   ) : null}

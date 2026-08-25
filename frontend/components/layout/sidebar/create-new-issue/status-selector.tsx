@@ -83,7 +83,7 @@ export function StatusSelector({ status, onChange }: StatusSelectorProps) {
                                  {item.name}
                               </div>
                               {value === item.id && <CheckIcon size={16} className="ml-auto" />}
-                              <span className="text-muted-foreground text-xs">
+                              <span className="text-muted-foreground">
                                  {filterByStatus(item.id).length}
                               </span>
                            </CommandItem>

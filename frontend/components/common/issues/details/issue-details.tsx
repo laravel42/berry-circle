@@ -49,8 +49,8 @@ export default function IssueDetails() {
       return (
          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <BerryMark size="lg" tone="neutral" state="crossed" label="Issue unavailable" />
-            <h1 className="mt-5 font-display text-3xl tracking-[-0.025em]">Issue unavailable.</h1>
-            <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+            <h1 className="mt-5 font-display tracking-[-0.025em]">Issue unavailable.</h1>
+            <p className="mt-2 max-w-sm leading-relaxed text-muted-foreground">
                {issueId} is not in this workspace. Return to the queue and choose another issue.
             </p>
             <Button variant="outline" className="mt-6" asChild>
@@ -73,7 +73,7 @@ export default function IssueDetails() {
          <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             <div className="min-h-0 flex-1 overflow-y-auto">
                <div className="mx-auto max-w-3xl px-6 py-6 pb-4 sm:px-8 sm:py-8">
-                  <h1 className="text-balance font-display text-4xl leading-[1.08] tracking-[-0.025em]">
+                  <h1 className="text-balance font-display leading-[1.08] tracking-[-0.025em]">
                      {issue.title}
                   </h1>
 
@@ -102,7 +102,7 @@ export default function IssueDetails() {
                      <div className="mt-4">
                         {subIssues.length > 0 ? (
                            <>
-                              <h2 className="mb-1 text-sm font-medium">
+                              <h2 className="mb-1 font-medium">
                                  sub-issues{' '}
                                  <span className="text-muted-foreground">
                                     {
@@ -118,10 +118,10 @@ export default function IssueDetails() {
                                     <Link
                                        key={subIssue.id}
                                        href={`/${orgId ?? WORKSPACE_SLUG}/issue/${subIssue.identifier}`}
-                                       className="flex items-center gap-2.5 h-10 px-1 border-b border-border/50 hover:bg-sidebar/50 text-sm min-w-0"
+                                       className="flex items-center gap-2.5 h-10 px-1 border-b border-border/50 hover:bg-sidebar/50 min-w-0"
                                     >
                                        <subIssue.status.icon />
-                                       <span className="text-muted-foreground shrink-0 text-xs font-medium">
+                                       <span className="text-muted-foreground shrink-0 font-medium">
                                           {subIssue.identifier}
                                        </span>
                                        <span className="truncate font-medium">
@@ -138,7 +138,7 @@ export default function IssueDetails() {
                               </div>
                            </>
                         ) : (
-                           <button className="flex items-center gap-1.5 rounded-sm text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
+                           <button className="flex items-center gap-1.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
                               <Plus className="size-4" />
                               add sub-issues
                            </button>

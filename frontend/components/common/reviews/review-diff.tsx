@@ -30,7 +30,7 @@ export function ReviewDiff({ review }: { review: Review }) {
    return (
       <div className="h-full flex flex-col overflow-hidden">
          <div className="flex items-center justify-between gap-2 px-4 py-2 border-b shrink-0">
-            <div className="flex items-center gap-1.5 text-xs">
+            <div className="flex items-center gap-1.5">
                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border bg-accent font-medium">
                   <ListFilter className="size-3.5" />
                   Files
@@ -44,10 +44,10 @@ export function ReviewDiff({ review }: { review: Review }) {
                         <span>{review.commits.length}</span>
                      </button>
                   </PopoverTrigger>
-                  <PopoverContent align="start" className="w-96 p-0 text-sm">
+                  <PopoverContent align="start" className="w-96 p-0">
                      <div className="flex items-center justify-between px-3 py-2 border-b">
                         <span className="font-medium">All commits</span>
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        <span className="inline-flex items-center gap-1 text-muted-foreground">
                            <Check className="size-3.5" />
                            {review.commits.length} commits
                         </span>
@@ -55,7 +55,7 @@ export function ReviewDiff({ review }: { review: Review }) {
                      {review.commits.map((commit) => (
                         <div
                            key={commit.sha}
-                           className="flex items-center gap-2 px-3 py-2 border-b last:border-b-0 text-xs"
+                           className="flex items-center gap-2 px-3 py-2 border-b last:border-b-0"
                         >
                            <span className="font-mono text-muted-foreground">{commit.sha}</span>
                            <span className="flex-1 truncate">{commit.message}</span>
@@ -76,7 +76,7 @@ export function ReviewDiff({ review }: { review: Review }) {
                      placeholder="Filter files..."
                      value={query}
                      onChange={(event) => setQuery(event.target.value)}
-                     className="pl-7 h-8 text-xs"
+                     className="pl-7 h-8"
                   />
                </div>
                {files.map((file) => (
@@ -84,7 +84,7 @@ export function ReviewDiff({ review }: { review: Review }) {
                      key={file.name + file.path}
                      href={`#diff-${file.name}`}
                      className={cn(
-                        'flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs hover:bg-accent/50 transition-colors'
+                        'flex items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors'
                      )}
                   >
                      <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />

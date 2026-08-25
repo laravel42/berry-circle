@@ -63,7 +63,7 @@ export function StatusWithPercent({
                   }
                   return null;
                })()}
-               <span className="text-xs font-medium mt-[1px]">{percentComplete}%</span>
+               <span className="font-medium mt-[1px]">{percentComplete}%</span>
             </Button>
          </PopoverTrigger>
          <PopoverContent className="border-input w-48 p-0" align="start">
@@ -82,7 +82,7 @@ export function StatusWithPercent({
                            >
                               <div className="flex items-center gap-2">
                                  <Icon />
-                                 <span className="text-xs">{item.name}</span>
+                                 <span>{item.name}</span>
                               </div>
                               {value === item.id && <CheckIcon size={14} className="ml-auto" />}
                            </CommandItem>

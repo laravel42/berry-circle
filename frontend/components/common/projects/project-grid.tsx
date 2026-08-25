@@ -33,8 +33,8 @@ function ProjectDragPreview({ project }: { project: Project }) {
                <AvatarFallback>{project.lead.name[0]}</AvatarFallback>
             </Avatar>
          </div>
-         <h3 className="mb-2 line-clamp-2 text-xs">{project.name}</h3>
-         <div className="flex items-center gap-2 text-xs text-muted-foreground">
+         <h3 className="mb-2 line-clamp-2">{project.name}</h3>
+         <div className="flex items-center gap-2 text-muted-foreground">
             <CapacityRing value={project.percentComplete} color="#6771c5" />
             {project.percentComplete}%
          </div>
@@ -171,11 +171,11 @@ export function ProjectGrid({ project, columnStatus }: ProjectGridProps) {
                               if (isDragging) event.preventDefault();
                            }}
                         >
-                           <h3 className="mb-2 line-clamp-2 text-xs">{project.name}</h3>
+                           <h3 className="mb-2 line-clamp-2">{project.name}</h3>
                         </Link>
                         <div className="flex flex-wrap items-center gap-2 mb-1 min-h-[1.25rem]">
                            {displayProperties.health && (
-                              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <span className="inline-flex items-center gap-1 text-muted-foreground">
                                  <span
                                     className="size-1.5 rounded-full shrink-0"
                                     style={{ backgroundColor: project.health.color }}
@@ -187,13 +187,13 @@ export function ProjectGrid({ project, columnStatus }: ProjectGridProps) {
                               <project.priority.icon className="size-3.5 shrink-0 text-muted-foreground" />
                            )}
                            {displayProperties.status && (
-                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1 text-muted-foreground">
                                  <CapacityRing value={project.percentComplete} color="#6771c5" />
                                  {project.percentComplete}%
                               </span>
                            )}
                            {displayProperties.targetDate && project.targetDate && (
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-muted-foreground">
                                  {format(parseISO(project.targetDate), 'MMM d')}
                               </span>
                            )}

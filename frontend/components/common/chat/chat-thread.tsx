@@ -64,7 +64,7 @@ export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
             return (
                <div key={message.id} className="flex flex-col gap-4">
                   {divider ? (
-                     <div className="flex items-center gap-3 text-[11px] text-[var(--shell-text-dim)]">
+                     <div className="flex items-center gap-3 text-[var(--shell-text-dim)]">
                         <span className="h-px flex-1 bg-[var(--shell-line)]" />
                         {divider}
                         <span className="h-px flex-1 bg-[var(--shell-line)]" />
@@ -74,7 +74,7 @@ export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
                   <article className="flex gap-3">
                      <span
                         className={[
-                           'mt-0.5 flex size-6 flex-none items-center justify-center rounded text-[11px]',
+                           'mt-0.5 flex size-6 flex-none items-center justify-center rounded',
                            isAgent
                               ? 'bg-[color-mix(in_srgb,var(--shell-accent)_28%,transparent)] text-[var(--shell-text)]'
                               : 'bg-[var(--shell-line)] text-[var(--shell-text-muted)]',
@@ -87,11 +87,11 @@ export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
                         <div className="flex items-baseline gap-2">
                            <span className="text-[var(--shell-text)]">{message.authorName}</span>
                            {isAgent ? (
-                              <span className="rounded-sm bg-[var(--shell-line)] px-1.5 text-[11px] text-[var(--shell-text-dim)]">
+                              <span className="rounded-sm bg-[var(--shell-line)] px-1.5 text-[var(--shell-text-dim)]">
                                  agent
                               </span>
                            ) : null}
-                           <span className="text-[11px] text-[var(--shell-text-dim)] tabular-nums">
+                           <span className="text-[var(--shell-text-dim)] tabular-nums">
                               {clockTime(message.createdAt)}
                            </span>
                         </div>
@@ -106,7 +106,7 @@ export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
 
          {pending ? (
             <div className="flex gap-3" role="status" aria-live="polite">
-               <span className="mt-0.5 flex size-6 flex-none items-center justify-center rounded bg-[color-mix(in_srgb,var(--shell-accent)_28%,transparent)] text-[11px]">
+               <span className="mt-0.5 flex size-6 flex-none items-center justify-center rounded bg-[color-mix(in_srgb,var(--shell-accent)_28%,transparent)]">
                   {agentName ? initial(agentName) : '·'}
                </span>
                <p className="text-[var(--shell-text-dim)] [animation:berrypulse_1.4s_ease-in-out_infinite] motion-reduce:animate-none">

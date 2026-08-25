@@ -128,7 +128,7 @@ export function CreateProjectDialog() {
                   Name the project, set its properties, and add an optional summary and description.
                </DialogDescription>
                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground">
+                  <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                      <BerryMark size="sm" />
                      <span className="font-medium text-foreground">{WORKSPACE_NAME}</span>
                      <ChevronRight className="size-3.5 shrink-0" />
@@ -161,7 +161,7 @@ export function CreateProjectDialog() {
                   <Input
                      id="create-project-name"
                      autoFocus
-                     className="h-auto border-none bg-transparent px-0 text-2xl font-medium text-foreground shadow-none placeholder:text-foreground/40 md:text-2xl"
+                     className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none placeholder:text-foreground/40"
                      placeholder="Project name"
                      value={form.name}
                      onChange={(event) => setForm({ ...form, name: event.target.value })}
@@ -172,7 +172,7 @@ export function CreateProjectDialog() {
                   </label>
                   <Input
                      id="create-project-summary"
-                     className="mt-1 h-auto border-none bg-transparent px-0 text-base text-foreground shadow-none placeholder:text-foreground/40 md:text-base"
+                     className="mt-1 h-auto border-none bg-transparent px-0 text-foreground shadow-none placeholder:text-foreground/40"
                      placeholder="Add a short summary…"
                      value={form.summary}
                      onChange={(event) => setForm({ ...form, summary: event.target.value })}
@@ -212,7 +212,7 @@ export function CreateProjectDialog() {
                         onChange={(description) => setForm({ ...form, description })}
                         placeholder="Write a description or collect the work…"
                         aria-label="Project description"
-                        className="min-h-40 text-base"
+                        className="min-h-40"
                      />
                   </div>
                </div>

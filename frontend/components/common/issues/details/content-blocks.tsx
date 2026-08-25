@@ -20,10 +20,7 @@ export function InlineText({ text }: { text: string }) {
          {parts.map((part, index) => {
             if (part.startsWith('`') && part.endsWith('`')) {
                return (
-                  <code
-                     key={index}
-                     className="px-1 py-0.5 rounded bg-accent text-[0.85em] font-mono"
-                  >
+                  <code key={index} className="px-1 py-0.5 rounded bg-accent font-mono">
                      {part.slice(1, -1)}
                   </code>
                );
@@ -91,12 +88,10 @@ function ImagePlaceholder({
             )}
          >
             <ImageIcon className="size-6 opacity-60" />
-            <span className="text-xs px-6 text-center">{alt}</span>
+            <span className="px-6 text-center">{alt}</span>
          </div>
          {caption && (
-            <figcaption className="mt-1.5 text-xs text-muted-foreground text-center">
-               {caption}
-            </figcaption>
+            <figcaption className="mt-1.5 text-muted-foreground text-center">{caption}</figcaption>
          )}
       </figure>
    );
@@ -108,7 +103,7 @@ function VideoPlaceholder({ title, duration }: { title: string; duration?: strin
          <div className="size-12 rounded-full bg-white/10 backdrop-blur flex items-center justify-center">
             <Play className="size-5 text-white fill-white ml-0.5" />
          </div>
-         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-xs text-white/80">
+         <div className="absolute bottom-3 left-3 right-3 flex items-center justify-between text-white/80">
             <span className="truncate">{title}</span>
             {duration && <span className="shrink-0 ml-2 font-mono">{duration}</span>}
          </div>
@@ -122,7 +117,7 @@ function IssueRef({ identifier, note }: { identifier: string; note?: string }) {
    const issue = issues.find((candidate) => candidate.identifier === identifier);
 
    return (
-      <div className="my-2 flex items-start gap-2 text-sm">
+      <div className="my-2 flex items-start gap-2">
          <span className="mt-1 size-1 rounded-full bg-muted-foreground shrink-0" />
          <div className="min-w-0">
             <Link
@@ -145,7 +140,7 @@ function IssueRef({ identifier, note }: { identifier: string; note?: string }) {
  */
 export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
    return (
-      <div className="text-sm leading-6">
+      <div className="leading-6">
          {blocks.map((block, index) => {
             switch (block.type) {
                case 'heading':
@@ -153,7 +148,7 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                      <h3
                         key={index}
                         id={`doc-h-${index}`}
-                        className="text-base font-semibold mt-5 mb-1.5 scroll-mt-24"
+                        className="font-semibold mt-5 mb-1.5 scroll-mt-24"
                      >
                         {block.text}
                      </h3>
@@ -161,7 +156,7 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                      <h2
                         key={index}
                         id={`doc-h-${index}`}
-                        className="text-lg font-semibold mt-6 mb-2 first:mt-0 scroll-mt-24"
+                        className="font-semibold mt-6 mb-2 first:mt-0 scroll-mt-24"
                      >
                         {block.text}
                      </h2>
@@ -224,7 +219,7 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                   return (
                      <pre
                         key={index}
-                        className="my-4 overflow-x-auto rounded-sm border border-border/60 bg-accent/40 p-4 font-mono text-sm leading-6"
+                        className="my-4 overflow-x-auto rounded-sm border border-border/60 bg-accent/40 p-4 font-mono leading-6"
                      >
                         <code>{block.code}</code>
                      </pre>
@@ -246,11 +241,11 @@ export function ContentBlocks({ blocks }: { blocks: ContentBlock[] }) {
                   return (
                      <blockquote
                         key={index}
-                        className="my-5 border-l border-status-info/60 pl-4 font-display text-lg italic leading-relaxed text-muted-foreground"
+                        className="my-5 border-l border-status-info/60 pl-4 font-display italic leading-relaxed text-muted-foreground"
                      >
                         <InlineText text={block.text} />
                         {block.author && (
-                           <span className="block not-italic text-xs mt-1">— {block.author}</span>
+                           <span className="block not-italic mt-1">— {block.author}</span>
                         )}
                      </blockquote>
                   );
@@ -279,7 +274,7 @@ export function IssueRefRow({ identifier }: { identifier: string }) {
    return (
       <Link
          href={`/${orgId ?? WORKSPACE_SLUG}/issue/${identifier}`}
-         className="flex items-center gap-2 py-1 text-sm hover:bg-sidebar/50 rounded px-1.5 -mx-1.5 min-w-0"
+         className="flex items-center gap-2 py-1 hover:bg-sidebar/50 rounded px-1.5 -mx-1.5 min-w-0"
       >
          <issue.status.icon />
          <span className="truncate">{issue.title}</span>

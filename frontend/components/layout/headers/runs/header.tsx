@@ -7,9 +7,9 @@ export default function Header() {
          <div className="flex min-w-0 items-center gap-2">
             <SidebarTrigger />
             <BerryMark size="sm" tone="neutral" state="hollow" label="Runs" />
-            <span className="truncate text-sm">runs</span>
+            <span className="truncate">runs</span>
          </div>
-         <span className="text-xs font-normal text-muted-foreground">ledger</span>
+         <span className="font-normal text-muted-foreground">ledger</span>
       </header>
    );
 }

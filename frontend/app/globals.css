@@ -9,7 +9,7 @@
    --font-mono: var(--font-geist-mono);
    --font-display: var(--font-dm-serif);
    --font-weight-normal: 300;
-   --text-xs: 0.6875rem;
+   --text-xs: 0.75rem;
    --text-xs--line-height: 1rem;
    --text-sm: 0.8125rem;
    --text-sm--line-height: 1.25rem;
@@ -238,12 +238,68 @@
       @apply border-border outline-ring/50;
    }
 
+   /* --- Type scale ---------------------------------------------------------
+      The element decides its size; a utility class never does. h1–h4 step
+      down through the named scale and everything else — h5 and h6 included —
+      sits at text-xs. Because these live in the base layer, any `text-*`
+      utility in a component would silently win, so components are barred from
+      carrying one at all (`no-restricted-syntax` in eslint.config.mjs). That
+      lint rule is what keeps this block the single source of truth rather
+      than merely the default. */
    body {
-      @apply bg-background text-foreground font-sans font-normal text-sm;
+      @apply bg-background text-foreground font-sans text-xs;
       --font-sans: var(--font-geist-mono);
       --font-mono: var(--font-geist-mono);
       --font-display: var(--font-dm-serif);
+      /* 400, not the 300 that `font-normal` resolves to: this weight used to
+         ride along with `.text-xs` (below) on the elements that opted into the
+         small size. Now that text-xs is the body default, the weight it was
+         paired with has to move with it or every label in the app thins out. */
+      font-weight: 400;
       min-height: 100svh;
+   }
+
+   /* Written against the tokens rather than with `@apply`, because `text-base`
+      is not a font size in this project: the palette below defines
+      `--color-base`, and a colour of that name beats the size of the same name
+      when Tailwind resolves `text-*`. `@apply text-base` compiles to
+      `color: var(--brand-base)`. Reading the tokens directly sidesteps the
+      collision here and keeps all four rules in one shape. */
+   h1 {
+      font-size: var(--text-xl);
+      line-height: var(--text-xl--line-height);
+   }
+
+   h2 {
+      font-size: var(--text-lg);
+      line-height: var(--text-lg--line-height);
+   }
+
+   h3 {
+      font-size: var(--text-base);
+      line-height: var(--text-base--line-height);
+   }
+
+   h4 {
+      font-size: var(--text-sm);
+      line-height: var(--text-sm--line-height);
+   }
+
+   /* The one size set outside the scale above. The wordmark is a logo lockup,
+      not running text: the word is drawn to sit against the mark beside it, so
+      it has to scale with the mark and not with the surrounding UI. Kept here
+      rather than inline in the component so the exception stays visible next
+      to the rule it departs from. */
+   [data-wordmark='sm'] {
+      font-size: var(--text-base);
+   }
+
+   [data-wordmark='md'] {
+      font-size: var(--text-2xl);
+   }
+
+   [data-wordmark='lg'] {
+      font-size: var(--text-4xl);
    }
 
    /* Keep the already-compacted sidebar menu on the previous type scale. */
@@ -322,7 +378,9 @@ select {
    -webkit-text-fill-color: var(--foreground);
 }
 
-input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])::placeholder,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
+      [type='file']
+   )::placeholder,
 textarea::placeholder {
    color: color-mix(in oklab, var(--foreground) 42%, transparent);
    -webkit-text-fill-color: color-mix(in oklab, var(--foreground) 42%, transparent);

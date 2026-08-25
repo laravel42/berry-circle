@@ -105,7 +105,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                            className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-3.5 pt-4 pb-3.5 text-left transition-colors hover:bg-[var(--shell-hover)] data-[state=open]:bg-[var(--shell-hover)]"
                         >
                            <BerryMark />
-                           <span className="font-display text-[15px] tracking-[-0.01em] text-[var(--shell-text)]">
+                           <span className="font-display tracking-[-0.01em] text-[var(--shell-text)]">
                               Berry<span className="text-[var(--shell-accent)]">.</span>
                            </span>
                            <svg
@@ -150,7 +150,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                   return (
                      <div key={section.heading ?? 'primary'}>
                         {section.heading ? (
-                           <div className="px-[18px] pt-[18px] pb-[7px] text-xs uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+                           <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
                               {section.heading}
                            </div>
                         ) : null}

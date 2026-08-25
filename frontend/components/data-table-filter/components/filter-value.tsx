@@ -69,7 +69,7 @@ function __FilterValue<TData, TType extends ColumnDataType>({
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          className="m-0 h-full w-fit whitespace-nowrap rounded-none p-0 px-2 text-xs"
+          className="m-0 h-full w-fit whitespace-nowrap rounded-none p-0 px-2"
         >
           <FilterValueDisplay
             filter={filter}
@@ -791,7 +791,7 @@ export function FilterValueNumberController<TData>({
               value={isNumberRange ? 'range' : 'single'}
               onValueChange={(v) => changeType(v as 'single' | 'range')}
             >
-              <TabsList className="w-full *:text-xs">
+              <TabsList className="w-full">
                 <TabsTrigger value="single">{t('single', locale)}</TabsTrigger>
                 <TabsTrigger value="range">{t('range', locale)}</TabsTrigger>
               </TabsList>
@@ -807,7 +807,7 @@ export function FilterValueNumberController<TData>({
                   />
                 )}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">
+                  <span className="font-medium">
                     {t('value', locale)}
                   </span>
                   <DebouncedInput
@@ -831,7 +831,7 @@ export function FilterValueNumberController<TData>({
                 )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">
+                    <span className="font-medium">
                       {t('min', locale)}
                     </span>
                     <DebouncedInput
@@ -841,7 +841,7 @@ export function FilterValueNumberController<TData>({
                     />
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">
+                    <span className="font-medium">
                       {t('max', locale)}
                     </span>
                     <DebouncedInput

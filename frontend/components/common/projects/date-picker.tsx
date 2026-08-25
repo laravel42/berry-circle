@@ -38,13 +38,11 @@ export function DatePicker({ date, onDateChange }: DatePickerProps) {
             >
                <CalendarIcon className="h-4 w-4 md:mr-0.5" />
                {selectedDate ? (
-                  <span className="text-xs hidden xl:inline mt-[1px]">
+                  <span className="hidden xl:inline mt-[1px]">
                      {format(selectedDate, 'MMM dd, yyyy')}
                   </span>
                ) : (
-                  <span className="text-xs text-muted-foreground hidden xl:inline mt-[1px]">
-                     No date
-                  </span>
+                  <span className="text-muted-foreground hidden xl:inline mt-[1px]">No date</span>
                )}
             </Button>
          </PopoverTrigger>

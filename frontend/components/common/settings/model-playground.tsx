@@ -118,7 +118,7 @@ export function ModelPlayground() {
                   }
                />
                <div className="space-y-2">
-                  <label htmlFor="runtime-prompt" className="text-sm font-medium">
+                  <label htmlFor="runtime-prompt" className="font-medium">
                      Prompt
                   </label>
                   <Textarea
@@ -144,20 +144,20 @@ export function ModelPlayground() {
                      )}
                   </Button>
                   {usage ? (
-                     <span className="text-xs text-muted-foreground">
+                     <span className="text-muted-foreground">
                         {usage.inputTokens} in / {usage.outputTokens} out tokens
                      </span>
                   ) : null}
                </div>
                {error ? (
-                  <p className="text-sm text-destructive">{error}</p>
+                  <p className="text-destructive">{error}</p>
                ) : null}
                {response ? (
                   <div className="rounded-lg border bg-muted/20 p-3">
-                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                     <p className="mb-2 font-medium uppercase tracking-wide text-muted-foreground">
                         Response
                      </p>
-                     <pre className="whitespace-pre-wrap text-sm">{response}</pre>
+                     <pre className="whitespace-pre-wrap">{response}</pre>
                   </div>
                ) : null}
             </form>

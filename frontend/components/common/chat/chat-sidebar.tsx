@@ -35,7 +35,7 @@ export function ChatSidebar({ agents, threads, activeAgentId, onSelect }: ChatSi
             <span className="ml-auto text-[var(--shell-text-dim)]">{agents.length}</span>
          </div>
 
-         <div className="px-[18px] pt-2 pb-[7px] text-xs uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+         <div className="px-[18px] pt-2 pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
             Direct
          </div>
          <ul className="flex flex-col gap-px px-2 pb-4">
@@ -58,7 +58,7 @@ export function ChatSidebar({ agents, threads, activeAgentId, onSelect }: ChatSi
                         <BerryMark size={13} muted />
                         <span className="truncate">{agent.name}</span>
                         {count > 0 ? (
-                           <span className="ml-auto text-[11px] text-[var(--shell-text-dim)] tabular-nums">
+                           <span className="ml-auto text-[var(--shell-text-dim)] tabular-nums">
                               {count}
                            </span>
                         ) : null}
@@ -67,7 +67,7 @@ export function ChatSidebar({ agents, threads, activeAgentId, onSelect }: ChatSi
                );
             })}
             {agents.length === 0 ? (
-               <li className="px-2.5 py-2 text-[11px] text-[var(--shell-text-dim)]">
+               <li className="px-2.5 py-2 text-[var(--shell-text-dim)]">
                   No agents are available in this workspace.
                </li>
             ) : null}

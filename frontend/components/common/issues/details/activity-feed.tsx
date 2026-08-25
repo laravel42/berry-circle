@@ -43,7 +43,7 @@ const EVENT_ICONS: Record<string, ReactNode> = {
 
 function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) {
    return (
-      <div className="flex items-center gap-2.5 text-sm text-muted-foreground py-1.5">
+      <div className="flex items-center gap-2.5 text-muted-foreground py-1.5">
          <span className="flex size-5 shrink-0 items-center justify-center bg-accent">
             {item.actor.role === 'Application' ? (
                <BerryMark size="sm" tone="working" label={`${item.actor.name}, agent`} />
@@ -54,7 +54,7 @@ function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) 
          <span className="min-w-0 truncate">
             <span className="text-foreground/90 font-medium">{item.actor.name}</span> {item.text}
          </span>
-         <span className="shrink-0 text-xs">· {item.timeAgo}</span>
+         <span className="shrink-0">· {item.timeAgo}</span>
       </div>
    );
 }
@@ -83,13 +83,13 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
                   <AvatarFallback>{item.actor.name[0]}</AvatarFallback>
                </Avatar>
             )}
-            <span className="text-sm font-medium">{item.actor.name}</span>
-            <span className={cn('text-xs text-muted-foreground', isAgent && 'text-ash')}>
+            <span className="font-medium">{item.actor.name}</span>
+            <span className={cn('text-muted-foreground', isAgent && 'text-ash')}>
                {item.timeAgo}
             </span>
          </div>
          <div
-            className={cn('text-sm [&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}
+            className={cn('[&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}
          >
             <ContentBlocks blocks={item.body} />
          </div>
@@ -98,7 +98,7 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
                <span
                   key={reaction.emoji}
                   className={cn(
-                     'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5 text-xs',
+                     'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5',
                      isAgent && 'border-white/10 bg-white/5 text-ash'
                   )}
                >
@@ -268,8 +268,8 @@ export function ActivityFeedList({ items }: { items: ActivityItem[] }) {
    return (
       <div className="mt-4 border-t border-border/60 pt-4">
          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-base font-medium">activity</h2>
-            <button className="text-xs text-muted-foreground hover:text-foreground">
+            <h2 className="font-medium">activity</h2>
+            <button className="text-muted-foreground hover:text-foreground">
                subscribe
             </button>
          </div>
@@ -316,7 +316,7 @@ export function ActivityCommentComposer({
             onPointerDown={(event) => event.stopPropagation()}
             placeholder="leave a comment…"
             rows={2}
-            className="w-full resize-none bg-transparent text-foreground outline-none text-sm placeholder:text-foreground/40"
+            className="w-full resize-none bg-transparent text-foreground outline-none placeholder:text-foreground/40"
          />
          <div className="flex items-center justify-between">
             <Plus className="size-4 text-muted-foreground" />

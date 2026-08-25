@@ -88,8 +88,8 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
          {/* Header */}
          <div className="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
             <div className="flex items-baseline gap-1.5">
-               <span className="text-xl font-semibold">{issues.length}</span>
-               <span className="text-sm text-muted-foreground">issues</span>
+               <span className="font-semibold">{issues.length}</span>
+               <span className="text-muted-foreground">issues</span>
             </div>
             <Button variant="ghost" size="icon" className="size-7" onClick={closePanel}>
                <X className="size-4" />
@@ -99,9 +99,9 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
          {/* Measure / Slice / Segment */}
          <div className="grid grid-cols-3 gap-2 px-4 pb-4 shrink-0">
             <div className="flex flex-col gap-1">
-               <span className="text-xs text-muted-foreground">Measure</span>
+               <span className="text-muted-foreground">Measure</span>
                <Select defaultValue="issue-count">
-                  <SelectTrigger className="h-8 text-xs w-full">
+                  <SelectTrigger className="h-8 w-full">
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -110,9 +110,9 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
                </Select>
             </div>
             <div className="flex flex-col gap-1">
-               <span className="text-xs text-muted-foreground">Slice</span>
+               <span className="text-muted-foreground">Slice</span>
                <Select defaultValue="status">
-                  <SelectTrigger className="h-8 text-xs w-full">
+                  <SelectTrigger className="h-8 w-full">
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -121,9 +121,9 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
                </Select>
             </div>
             <div className="flex flex-col gap-1">
-               <span className="text-xs text-muted-foreground">Segment</span>
+               <span className="text-muted-foreground">Segment</span>
                <Select defaultValue="priority">
-                  <SelectTrigger className="h-8 text-xs w-full">
+                  <SelectTrigger className="h-8 w-full">
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -178,7 +178,7 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
 
          {/* Detail table */}
          <div className="flex-1 overflow-auto border-t mt-2">
-            <table className="w-full text-sm">
+            <table className="w-full">
                <thead className="sticky top-0 bg-container z-10">
                   <tr className="text-left text-muted-foreground">
                      <th className="font-medium px-4 py-2">Status</th>
@@ -214,7 +214,7 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
                               <div className="flex items-center gap-2 whitespace-nowrap">
                                  <Icon />
                                  <span className="truncate max-w-28">{row.status.name}</span>
-                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-background/80 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                                 <span className="px-1.5 py-0.5 rounded bg-background/80 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                                     {active ? 'Clear filter' : 'Filter'}
                                  </span>
                               </div>
@@ -236,7 +236,7 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
          </div>
 
          <div className="shrink-0 border-t px-4 py-3">
-            <button className="text-xs text-primary underline-offset-4 hover:underline">
+            <button className="text-primary underline-offset-4 hover:underline">
                Set default for everyone
             </button>
          </div>

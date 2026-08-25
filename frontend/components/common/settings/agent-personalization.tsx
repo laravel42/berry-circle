@@ -17,7 +17,7 @@ export default function AgentPersonalization() {
          >
             <textarea
                placeholder="Enter personal guidance for the agent (optional)..."
-               className="w-full min-h-36 rounded-lg border bg-background p-4 text-sm text-foreground outline-none resize-y placeholder:text-foreground/40 focus-visible:ring-0"
+               className="w-full min-h-36 rounded-lg border bg-background p-4 text-foreground outline-none resize-y placeholder:text-foreground/40 focus-visible:ring-0"
             />
          </SettingsSection>
 

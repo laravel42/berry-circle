@@ -19,8 +19,8 @@ export function ReviewGuide({ review }: { review: Review }) {
       <div className="h-full overflow-y-auto relative">
          <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col gap-10">
             <div className="flex flex-col gap-1.5">
-               <h1 className="text-2xl font-semibold leading-snug">{review.title}</h1>
-               <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono flex-wrap">
+               <h1 className="font-semibold leading-snug">{review.title}</h1>
+               <div className="flex items-center gap-1.5 text-muted-foreground font-mono flex-wrap">
                   <PrIcon status={review.status} className="size-3.5" />
                   <span>
                      {review.repo}#{review.prNumber}
@@ -41,8 +41,8 @@ export function ReviewGuide({ review }: { review: Review }) {
                      className="grid grid-cols-1 xl:grid-cols-[minmax(260px,1fr)_2fr] gap-6"
                   >
                      <div className="flex flex-col gap-3">
-                        <h2 className="text-lg font-semibold leading-snug">{section.title}</h2>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <h2 className="font-semibold leading-snug">{section.title}</h2>
+                        <div className="flex items-center gap-3 text-muted-foreground">
                            {String(index + 1).padStart(2, '0')} / {String(sections.length).padStart(2, '0')}
                            <label className="inline-flex items-center gap-1.5 cursor-pointer">
                               <Checkbox className="size-3.5" />
@@ -50,7 +50,7 @@ export function ReviewGuide({ review }: { review: Review }) {
                            </label>
                         </div>
                         {section.paragraphs.map((paragraph, pIndex) => (
-                           <p key={pIndex} className="text-sm leading-relaxed">
+                           <p key={pIndex} className="leading-relaxed">
                               <InlineText text={paragraph} />
                            </p>
                         ))}
@@ -58,7 +58,7 @@ export function ReviewGuide({ review }: { review: Review }) {
                            {section.fileRefs.map((ref) => (
                               <div
                                  key={ref.name}
-                                 className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs bg-container"
+                                 className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 bg-container"
                               >
                                  <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />
                                  <span className="font-medium">{ref.name}</span>
@@ -79,7 +79,7 @@ export function ReviewGuide({ review }: { review: Review }) {
          </div>
 
          <div className="sticky bottom-4 flex justify-center pointer-events-none">
-            <span className="pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-container shadow-sm px-4 py-1.5 text-xs text-muted-foreground">
+            <span className="pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-container shadow-sm px-4 py-1.5 text-muted-foreground">
                {review.files.length} files changed
                <DiffStat additions={review.additions} deletions={review.deletions} />
             </span>

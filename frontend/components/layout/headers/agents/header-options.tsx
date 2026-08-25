@@ -40,7 +40,7 @@ export default function HeaderOptions() {
                         type="button"
                         onClick={() => setTab(item.value)}
                         className={cn(
-                           'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs transition-colors',
+                           'inline-flex items-center gap-1 rounded-md px-2 py-1 transition-colors',
                            tab === item.value
                               ? 'bg-accent text-foreground'
                               : 'text-muted-foreground hover:text-foreground'

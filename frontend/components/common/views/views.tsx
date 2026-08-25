@@ -53,12 +53,12 @@ function DisplayOptions() {
          </PopoverTrigger>
          <PopoverContent align="end" className="w-72 p-3 flex flex-col gap-3">
             <div className="flex items-center justify-between">
-               <span className="text-xs text-muted-foreground">Ordering</span>
+               <span className="text-muted-foreground">Ordering</span>
                <Select
                   value={ordering}
                   onValueChange={(value) => setOrdering(value as ViewsOrdering)}
                >
-                  <SelectTrigger className="w-32 h-7 text-xs">
+                  <SelectTrigger className="w-32 h-7">
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -69,7 +69,7 @@ function DisplayOptions() {
                </Select>
             </div>
             <div className="flex flex-col gap-2">
-               <span className="text-xs text-muted-foreground">Display properties</span>
+               <span className="text-muted-foreground">Display properties</span>
                <div className="flex flex-wrap gap-1.5">
                   {(
                      [
@@ -82,7 +82,7 @@ function DisplayOptions() {
                         key={key}
                         onClick={() => toggleProperty(key)}
                         className={cn(
-                           'px-2 py-0.5 rounded-md border text-xs transition-colors',
+                           'px-2 py-0.5 rounded-md border transition-colors',
                            displayProperties[key]
                               ? 'bg-accent border-transparent'
                               : 'text-muted-foreground hover:bg-accent/50'
@@ -105,20 +105,20 @@ function ViewRow({ view, orgId }: { view: View; orgId: string }) {
          href={`/${orgId}/view/${view.id}`}
          className="flex items-center gap-3 px-6 py-2.5 border-b border-border/50 hover:bg-sidebar/50 transition-colors"
       >
-         <span className="inline-flex size-6 items-center justify-center rounded bg-muted/50 text-sm shrink-0">
+         <span className="inline-flex size-6 items-center justify-center rounded bg-muted/50 shrink-0">
             {view.icon}
          </span>
          <span className="flex flex-col min-w-0 flex-1">
-            <span className="text-sm font-medium truncate">{view.name}</span>
-            <span className="text-xs text-muted-foreground truncate">{view.description}</span>
+            <span className="font-medium truncate">{view.name}</span>
+            <span className="text-muted-foreground truncate">{view.description}</span>
          </span>
          {displayProperties.created && (
-            <span className="hidden sm:block text-xs text-muted-foreground w-24 shrink-0">
+            <span className="hidden sm:block text-muted-foreground w-24 shrink-0">
                {formatDate(view.createdAt)}
             </span>
          )}
          {displayProperties.updated && (
-            <span className="hidden sm:block text-xs text-muted-foreground w-24 shrink-0">
+            <span className="hidden sm:block text-muted-foreground w-24 shrink-0">
                {formatDate(view.updatedAt)}
             </span>
          )}
@@ -126,11 +126,9 @@ function ViewRow({ view, orgId }: { view: View; orgId: string }) {
             <span className="flex items-center gap-1.5 w-32 shrink-0 justify-end">
                <Avatar className="size-5">
                   <AvatarImage src={view.owner.avatarUrl} alt={view.owner.name} />
-                  <AvatarFallback className="text-[9px]">{view.owner.name[0]}</AvatarFallback>
+                  <AvatarFallback>{view.owner.name[0]}</AvatarFallback>
                </Avatar>
-               <span className="text-xs text-muted-foreground truncate max-w-24">
-                  {view.owner.name}
-               </span>
+               <span className="text-muted-foreground truncate max-w-24">{view.owner.name}</span>
             </span>
          )}
       </Link>
@@ -164,7 +162,7 @@ export default function Views() {
                      key={candidate}
                      onClick={() => setTab(candidate)}
                      className={cn(
-                        'px-2.5 py-1 rounded-md border text-xs font-medium capitalize transition-colors',
+                        'px-2.5 py-1 rounded-md border font-medium capitalize transition-colors',
                         tab === candidate
                            ? 'bg-accent border-transparent'
                            : 'text-muted-foreground hover:bg-accent/50'
@@ -177,18 +175,18 @@ export default function Views() {
             <DisplayOptions />
          </div>
 
-         <div className="flex items-center gap-1 px-6 py-1.5 text-xs text-muted-foreground border-b">
+         <div className="flex items-center gap-1 px-6 py-1.5 text-muted-foreground border-b">
             Name
             <ArrowDown className="size-3" />
          </div>
 
          <div className="flex items-center justify-between px-6 py-2 bg-sidebar/60 border-b border-border/50">
-            <span className="flex items-center gap-2 text-sm">
-               <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground text-[10px] font-semibold">
+            <span className="flex items-center gap-2">
+               <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground font-semibold">
                   LN
                </span>
                <span className="font-medium">Berry</span>
-               <span className="text-muted-foreground text-xs">· Workspace</span>
+               <span className="text-muted-foreground">· Workspace</span>
             </span>
             <Button size="xs" variant="ghost">
                <Plus className="size-3.5" />
@@ -199,7 +197,7 @@ export default function Views() {
             <ViewRow key={view.id} view={view} orgId={orgId} />
          ))}
          {list.length === 0 && (
-            <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+            <div className="flex items-center justify-center py-16 text-muted-foreground">
                No views yet
             </div>
          )}

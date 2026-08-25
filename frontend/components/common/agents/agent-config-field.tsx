@@ -67,13 +67,9 @@ export function AgentConfigField({
    return (
       <section className="flex flex-col gap-2">
          <div className="flex items-baseline gap-2">
-            <h3 className="text-sm font-medium text-foreground">{title}</h3>
-            <p className="text-[11px] text-muted-foreground">{hint}</p>
-            <span
-               className="ml-auto text-[11px] text-muted-foreground"
-               role="status"
-               aria-live="polite"
-            >
+            <h3 className="font-medium text-foreground">{title}</h3>
+            <p className="text-muted-foreground">{hint}</p>
+            <span className="ml-auto text-muted-foreground" role="status" aria-live="polite">
                {state === 'saving' ? 'Saving…' : null}
                {state === 'saved' ? 'Saved' : null}
             </span>
@@ -89,7 +85,7 @@ export function AgentConfigField({
          </div>
 
          {state === 'error' && message ? (
-            <p className="text-[11px] text-destructive" role="alert">
+            <p className="text-destructive" role="alert">
                {message}. {failureNote}
             </p>
          ) : null}

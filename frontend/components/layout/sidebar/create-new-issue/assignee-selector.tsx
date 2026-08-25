@@ -105,7 +105,7 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                               Unassigned
                            </div>
                            {value === null && <CheckIcon size={16} className="ml-auto" />}
-                           <span className="text-muted-foreground text-xs">
+                           <span className="text-muted-foreground">
                               {filterByAssignee(null).length}
                            </span>
                         </CommandItem>
@@ -124,7 +124,7 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                                  {user.name}
                               </div>
                               {value === user.id && <CheckIcon size={16} className="ml-auto" />}
-                              <span className="text-muted-foreground text-xs">
+                              <span className="text-muted-foreground">
                                  {filterByAssignee(user.id).length}
                               </span>
                            </CommandItem>

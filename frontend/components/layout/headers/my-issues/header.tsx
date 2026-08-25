@@ -51,7 +51,7 @@ function HeaderNav() {
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
          <div className="flex items-center gap-2">
             <SidebarTrigger />
-            <span className="text-sm font-medium">Issues</span>
+            <span className="font-medium">Issues</span>
          </div>
          <div className="flex items-center gap-2">
             {isSearchOpen ? (
@@ -63,7 +63,7 @@ function HeaderNav() {
                      value={searchQuery}
                      onChange={(event) => setSearchQuery(event.target.value)}
                      placeholder="Search issues..."
-                     className="pl-8 h-7 text-sm"
+                     className="pl-8 h-7"
                      onKeyDown={(event) => {
                         if (event.key === 'Escape') {
                            if (searchQuery.trim() === '') closeSearch();
@@ -115,7 +115,7 @@ function HeaderOptions() {
                            void setTab(item.value === DEFAULT_MY_ISSUES_TAB ? null : item.value)
                         }
                         className={cn(
-                           'inline-flex h-7 cursor-pointer items-center rounded-sm border px-3.5 text-xs font-medium transition-colors',
+                           'inline-flex h-7 cursor-pointer items-center rounded-sm border px-3.5 font-medium transition-colors',
                            isActive
                               ? 'border-border/70 bg-accent text-foreground'
                               : 'border-border/40 text-muted-foreground hover:border-border/60 hover:bg-accent/50 hover:text-foreground'
@@ -126,7 +126,7 @@ function HeaderOptions() {
                   );
                })}
             </div>
-            <span className="hidden text-xs text-muted-foreground sm:inline">
+            <span className="hidden text-muted-foreground sm:inline">
                {count} {count === 1 ? 'issue' : 'issues'}
             </span>
          </div>

@@ -32,16 +32,16 @@ function IssueDragPreview({ issue }: { issue: Issue }) {
    return (
       <div className="w-full overflow-hidden rounded-lg bg-void p-2 text-chalk shadow-lg">
          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="text-xs text-subtle-foreground">{issue.identifier}</span>
+            <span className="text-subtle-foreground">{issue.identifier}</span>
             <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
          </div>
-         <h3 className="mb-2 line-clamp-2 text-xs">{issue.title}</h3>
+         <h3 className="mb-2 line-clamp-2">{issue.title}</h3>
          <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
             <LabelBadge label={issue.labels} />
             {issue.project && <ProjectBadge project={issue.project} />}
          </div>
          <div className="flex items-center mt-auto pt-1">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground">
                {format(new Date(issue.createdAt), 'MMM dd')}
             </span>
          </div>
@@ -181,7 +181,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                         {displayProperties.id || displayProperties.assignee ? (
                            <div className="mb-1.5 flex items-center justify-between gap-2">
                               {displayProperties.id ? (
-                                 <span className="text-xs text-subtle-foreground">
+                                 <span className="text-subtle-foreground">
                                     {issue.identifier}
                                  </span>
                               ) : (
@@ -200,7 +200,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                               if (isDragging) event.preventDefault();
                            }}
                         >
-                           <h3 className="mb-2 line-clamp-2 text-xs">{issue.title}</h3>
+                           <h3 className="mb-2 line-clamp-2">{issue.title}</h3>
                         </Link>
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
                            {displayProperties.labels && <LabelBadge label={issue.labels} />}
@@ -210,7 +210,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                         </div>
                         {displayProperties.created ? (
                            <div className="mt-auto pt-1">
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-muted-foreground">
                                  {format(new Date(issue.createdAt), 'MMM dd')}
                               </span>
                            </div>

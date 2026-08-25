@@ -26,7 +26,7 @@ export function HelpButton() {
             <DropdownMenuItem>
                <Keyboard className="mr-2 h-4 w-4" />
                <span>Keyboard shortcuts</span>
-               <span className="ml-auto text-xs text-muted-foreground">⌘/</span>
+               <span className="ml-auto text-muted-foreground">⌘/</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>About</DropdownMenuLabel>

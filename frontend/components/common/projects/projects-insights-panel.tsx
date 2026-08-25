@@ -26,7 +26,7 @@ interface CountRow {
 
 function CountList({ rows }: { rows: CountRow[] }) {
    if (rows.length === 0) {
-      return <p className="text-xs text-muted-foreground px-1 py-3">Nothing to show yet.</p>;
+      return <p className="text-muted-foreground px-1 py-3">Nothing to show yet.</p>;
    }
    return (
       <div className="flex flex-col">
@@ -44,15 +44,15 @@ function CountList({ rows }: { rows: CountRow[] }) {
                >
                   <div className="flex items-center gap-2 min-w-0">
                      {row.leading}
-                     <span className="text-sm truncate">{row.label}</span>
+                     <span className="truncate">{row.label}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                      {row.onClick && (
-                        <span className="text-xs px-1.5 py-0.5 rounded bg-background/80 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 rounded bg-background/80 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
                            {row.active ? 'Clear filter' : 'Filter'}
                         </span>
                      )}
-                     <span className="text-sm text-muted-foreground">{row.count}</span>
+                     <span className="text-muted-foreground">{row.count}</span>
                   </div>
                </button>
             );
@@ -105,8 +105,8 @@ export default function ProjectsInsightsPanel({ projects }: ProjectsInsightsPane
       <div className="flex flex-col h-full w-full overflow-y-auto">
          <div className="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
             <div className="flex items-baseline gap-1.5">
-               <span className="text-xl font-semibold">{projects.length}</span>
-               <span className="text-sm text-muted-foreground">projects</span>
+               <span className="font-semibold">{projects.length}</span>
+               <span className="text-muted-foreground">projects</span>
             </div>
             <Button variant="ghost" size="icon" className="size-7" onClick={closePanel}>
                <X className="size-4" />
@@ -116,10 +116,10 @@ export default function ProjectsInsightsPanel({ projects }: ProjectsInsightsPane
          <div className="px-4 pb-6">
             <Tabs defaultValue="health">
                <TabsList className="h-8 bg-transparent gap-1 p-0">
-                  <TabsTrigger value="health" className="text-xs px-2.5 rounded-full">
+                  <TabsTrigger value="health" className="px-2.5 rounded-full">
                      Health
                   </TabsTrigger>
-                  <TabsTrigger value="leads" className="text-xs px-2.5 rounded-full">
+                  <TabsTrigger value="leads" className="px-2.5 rounded-full">
                      Leads
                   </TabsTrigger>
                </TabsList>

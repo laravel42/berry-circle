@@ -40,7 +40,7 @@ export default function Members() {
 
    return (
       <div className="w-full">
-         <div className="bg-container px-6 py-1.5 text-sm flex items-center text-muted-foreground border-b sticky top-0 z-10">
+         <div className="bg-container px-6 py-1.5 flex items-center text-muted-foreground border-b sticky top-0 z-10">
             <div className="flex-1 min-w-0 flex items-center gap-1">
                Name
                <ArrowDown className="size-3" />

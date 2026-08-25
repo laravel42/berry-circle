@@ -53,7 +53,7 @@ function IntegrationIcon({ integration, size = 36 }: { integration: Integration;
 
 function StatusBadge({ status }: { status: NonNullable<Integration['status']> }) {
    return (
-      <span className="text-[11px] text-muted-foreground border rounded px-1 py-px leading-none shrink-0">
+      <span className="text-muted-foreground border rounded px-1 py-px leading-none shrink-0">
          {status === 'enabled' ? 'Enabled' : 'Pre-installed'}
       </span>
    );
@@ -65,10 +65,10 @@ function IntegrationCard({ integration }: { integration: Integration }) {
          <IntegrationIcon integration={integration} />
          <span className="flex flex-col gap-0.5 min-w-0">
             <span className="flex items-center gap-2">
-               <span className="text-sm font-medium truncate">{integration.name}</span>
+               <span className="font-medium truncate">{integration.name}</span>
                {integration.status && <StatusBadge status={integration.status} />}
             </span>
-            <span className="text-xs text-muted-foreground line-clamp-2">
+            <span className="text-muted-foreground line-clamp-2">
                {integration.description}
             </span>
          </span>
@@ -87,7 +87,7 @@ function CategorySection({
    const visible = expanded ? items : items.slice(0, VISIBLE_PER_CATEGORY);
    return (
       <section className="flex flex-col gap-3">
-         <h2 className="text-base font-medium">{label}</h2>
+         <h2 className="font-medium">{label}</h2>
          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             {visible.map((integration) => (
                <IntegrationCard key={integration.id} integration={integration} />
@@ -96,7 +96,7 @@ function CategorySection({
          {!expanded && items.length > VISIBLE_PER_CATEGORY && (
             <button
                onClick={() => setExpanded(true)}
-               className="self-start text-xs text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
+               className="self-start text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
             >
                Show all
                <ChevronRight className="size-3" />
@@ -127,8 +127,8 @@ export default function Integrations() {
       <div className="w-full overflow-y-auto h-full">
          <div className="max-w-2xl mx-auto px-6 py-10 flex flex-col gap-8">
             <div className="flex flex-col gap-1">
-               <h1 className="text-2xl font-medium">Integrations</h1>
-               <p className="text-sm text-muted-foreground">
+               <h1 className="font-medium">Integrations</h1>
+               <p className="text-muted-foreground">
                   Enhance your workspace with a wide variety of add-ons and integrations
                </p>
             </div>
@@ -145,7 +145,7 @@ export default function Integrations() {
 
             {searchResults ? (
                <section className="flex flex-col gap-3">
-                  <h2 className="text-base font-medium">
+                  <h2 className="font-medium">
                      {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
                   </h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -158,8 +158,8 @@ export default function Integrations() {
                <>
                   <section className="flex flex-col gap-3">
                      <div className="flex items-center justify-between">
-                        <h2 className="text-base font-medium">Enabled</h2>
-                        <button className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        <h2 className="font-medium">Enabled</h2>
+                        <button className="text-muted-foreground hover:text-foreground transition-colors">
                            View all
                         </button>
                      </div>
@@ -171,10 +171,10 @@ export default function Integrations() {
                            >
                               <IntegrationIcon integration={integration} size={28} />
                               <span className="flex flex-col items-start">
-                                 <span className="text-xs font-medium truncate max-w-full">
+                                 <span className="font-medium truncate max-w-full">
                                     {integration.name}
                                  </span>
-                                 <span className="text-[11px] text-muted-foreground">Enabled</span>
+                                 <span className="text-muted-foreground">Enabled</span>
                               </span>
                            </button>
                         ))}

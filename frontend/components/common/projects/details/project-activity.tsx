@@ -31,7 +31,7 @@ interface ProjectActivityProps {
 
 function HealthBadge({ health }: { health: ProjectUpdateHealth }) {
    return (
-      <span className="inline-flex items-center gap-1.5 text-xs font-medium rounded-full border px-2 py-0.5">
+      <span className="inline-flex items-center gap-1.5 font-medium rounded-full border px-2 py-0.5">
          <span
             className="size-2 rounded-full"
             style={{ backgroundColor: projectUpdateHealthColor[health] }}
@@ -44,20 +44,20 @@ function HealthBadge({ health }: { health: ProjectUpdateHealth }) {
 function UpdateCard({ update }: { update: ProjectUpdate }) {
    return (
       <div className="border rounded-lg p-4">
-         <div className="flex items-center gap-2 text-sm">
+         <div className="flex items-center gap-2">
             <Avatar className="size-5">
                <AvatarImage src={update.author.avatarUrl} alt={update.author.name} />
                <AvatarFallback>{update.author.name[0]}</AvatarFallback>
             </Avatar>
             <span className="font-medium">{update.author.name}</span>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground">
                {format(parseISO(update.date), 'MMM d')}
             </span>
             <span className="ml-auto">
                <HealthBadge health={update.health} />
             </span>
          </div>
-         <div className="mt-2 text-sm leading-relaxed">
+         <div className="mt-2 leading-relaxed">
             <ContentBlocks blocks={update.blocks} />
          </div>
       </div>
@@ -96,7 +96,7 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
    }, [updates]);
 
    if (!project) {
-      return <div className="p-6 text-sm text-muted-foreground">Loading project…</div>;
+      return <div className="p-6 text-muted-foreground">Loading project…</div>;
    }
 
    const completedPercent =
@@ -121,7 +121,7 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
                {/* Composer */}
                <div className="border rounded-lg p-4">
                   <div className="flex items-center gap-2">
-                     <div className="flex items-center rounded-md border p-0.5 text-xs">
+                     <div className="flex items-center rounded-md border p-0.5">
                         {(['comment', 'update'] as const).map((value) => (
                            <button
                               key={value}
@@ -168,11 +168,11 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
                      placeholder={
                         mode === 'update' ? 'Write a project update…' : 'Leave a comment…'
                      }
-                     className="mt-3 w-full min-h-24 resize-y bg-transparent text-sm text-foreground outline-none placeholder:text-foreground/40"
+                     className="mt-3 w-full min-h-24 resize-y bg-transparent text-foreground outline-none placeholder:text-foreground/40"
                   />
 
                   {mode === 'update' && (
-                     <div className="mt-1 border-l-2 pl-4 py-1 flex flex-col gap-1.5 text-xs text-muted-foreground">
+                     <div className="mt-1 border-l-2 pl-4 py-1 flex flex-col gap-1.5 text-muted-foreground">
                         <div className="flex gap-6">
                            <span className="w-20">Priority</span>
                            <span>
@@ -228,13 +228,13 @@ export default function ProjectActivity({ projectId }: ProjectActivityProps) {
 
                {/* Timeline */}
                {updatesByMonth.length === 0 ? (
-                  <p className="mt-10 text-sm text-muted-foreground text-center">
+                  <p className="mt-10 text-muted-foreground text-center">
                      No updates yet — post the first one to keep the team in the loop.
                   </p>
                ) : (
                   updatesByMonth.map(([month, monthUpdates]) => (
                      <div key={month} className="mt-8">
-                        <h3 className="text-lg font-semibold mb-3">{month}</h3>
+                        <h3 className="font-semibold mb-3">{month}</h3>
                         <div className="flex flex-col gap-3">
                            {monthUpdates.map((update) => (
                               <UpdateCard key={update.id} update={update} />

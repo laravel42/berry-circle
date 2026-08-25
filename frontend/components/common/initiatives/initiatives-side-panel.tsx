@@ -62,7 +62,7 @@ export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[
                   key={key}
                   onClick={() => setTab(key)}
                   className={cn(
-                     'px-2.5 py-1 rounded-full border text-xs font-medium transition-colors',
+                     'px-2.5 py-1 rounded-full border font-medium transition-colors',
                      tab === key
                         ? 'bg-accent border-transparent'
                         : 'text-muted-foreground hover:bg-accent/50'
@@ -76,13 +76,13 @@ export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[
             {rows.map((row) => (
                <div
                   key={row.key}
-                  className="flex items-center gap-2 px-1.5 py-1.5 rounded-md hover:bg-accent/40 text-sm"
+                  className="flex items-center gap-2 px-1.5 py-1.5 rounded-md hover:bg-accent/40"
                >
                   {tab === 'owner' &&
                      (row.avatarUrl ? (
                         <Avatar className="size-5">
                            <AvatarImage src={row.avatarUrl} alt={row.label} />
-                           <AvatarFallback className="text-[9px]">{row.label[0]}</AvatarFallback>
+                           <AvatarFallback>{row.label[0]}</AvatarFallback>
                         </Avatar>
                      ) : (
                         <UserRound className="size-4 text-muted-foreground" />
@@ -94,7 +94,7 @@ export function InitiativesSidePanel({ initiatives }: { initiatives: Initiative[
                      />
                   )}
                   <span className="flex-1 truncate">{row.label}</span>
-                  <span className="text-muted-foreground text-xs">{row.count}</span>
+                  <span className="text-muted-foreground">{row.count}</span>
                </div>
             ))}
          </div>
