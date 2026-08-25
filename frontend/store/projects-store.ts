@@ -17,6 +17,7 @@ interface ProjectsState {
    updateProjectTargetDate: (id: string, targetDate: string | undefined) => void;
    updateProjectLead: (id: string, lead: User) => void;
    updateProjectHealth: (id: string, healthId: Project['health']['id']) => void;
+   deleteProject: (id: string) => void;
    getProjectById: (id: string) => Project | undefined;
 }
 
@@ -50,6 +51,9 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
    projects: seedProjects,
 
    hydrateProjects: (projects) => set({ projects }),
+
+   deleteProject: (id) =>
+      set((state) => ({ projects: state.projects.filter((project) => project.id !== id) })),
 
    addProject: (project) =>
       set((state) => ({

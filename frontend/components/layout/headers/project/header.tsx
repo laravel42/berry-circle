@@ -1,13 +1,13 @@
 'use client';
 
+import { ProjectActionsMenu } from '@/components/common/projects/project-actions-menu';
 import { Button } from '@/components/ui/button';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { useProject } from '@/hooks/use-project';
 import { useRightPanelStore } from '@/store/right-panel-store';
-import { BarChart3, ChevronRight, Link2, MoreHorizontal, PanelRight, Star } from 'lucide-react';
+import { BarChart3, ChevronRight, Link2, PanelRight, Star } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
+import { useParams, usePathname, useRouter } from 'next/navigation';
 
 const PROJECT_TABS = [
    { label: 'Overview', segment: 'overview' },
@@ -71,6 +71,7 @@ function PanelToggles() {
 
 export default function Header({ projectId }: { projectId: string }) {
    const { orgId } = useParams<{ orgId: string }>();
+   const router = useRouter();
    const project = useProject(projectId);
    if (!project) {
       return (
@@ -84,7 +85,6 @@ export default function Header({ projectId }: { projectId: string }) {
       <>
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
             <div className="flex items-center gap-2 min-w-0">
-               <SidebarTrigger />
                <div className="flex items-center gap-1.5 min-w-0">
                   <Link
                      href={`/${orgId}/projects`}
@@ -100,14 +100,18 @@ export default function Header({ projectId }: { projectId: string }) {
                   <Button variant="ghost" size="icon" className="size-6 text-muted-foreground">
                      <Star className="size-3.5" />
                   </Button>
+                  {/* Beside the name, as on an issue. The overflow button that
+                      used to sit in the right-hand group had no menu behind
+                      it, so this replaces it rather than adding a second. */}
+                  <ProjectActionsMenu
+                     project={project}
+                     onDeleted={() => router.push(`/${orgId}/projects`)}
+                  />
                </div>
             </div>
             <div className="flex items-center gap-1">
                <Button variant="ghost" size="icon" className="size-7 text-muted-foreground">
                   <Link2 className="size-4" />
-               </Button>
-               <Button variant="ghost" size="icon" className="size-7 text-muted-foreground">
-                  <MoreHorizontal className="size-4" />
                </Button>
             </div>
          </div>

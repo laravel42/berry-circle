@@ -176,3 +176,17 @@ export async function patchWorkspaceProject(
       return undefined;
    }
 }
+
+/**
+ * Delete a project.
+ *
+ * Unlike patchWorkspaceProject above, a failure is raised rather than
+ * swallowed. That helper returns undefined so an optimistic field can
+ * reconcile on the next load; a delete cannot borrow that, because showing a
+ * project as gone when it is not means someone stops looking for it.
+ */
+export async function deleteWorkspaceProject(projectId: string): Promise<void> {
+   await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+   });
+}
