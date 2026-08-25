@@ -35,7 +35,10 @@ function IssueDragPreview({ issue }: { issue: Issue }) {
             <span className="text-subtle-foreground">{issue.identifier}</span>
             <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
          </div>
-         <h4 className="mb-2 line-clamp-2">{issue.title}</h4>
+         {/* Plain text, not a heading: the ghost is a transient copy of the
+             card that only exists mid-drag, so it has nothing to contribute to
+             the document outline. */}
+         <div className="mb-2 line-clamp-2">{issue.title}</div>
          <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
             <LabelBadge label={issue.labels} />
             {issue.project && <ProjectBadge project={issue.project} />}
@@ -200,7 +203,15 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                               if (isDragging) event.preventDefault();
                            }}
                         >
-                           <h4 className="mb-2 line-clamp-2">{issue.title}</h4>
+                           {/* Sized as body text, so under the type scale it
+                               cannot be an h1-h4 -- those carry sizes. The
+                               heading role keeps what the element was giving
+                               back: a grid of cards is skimmed by its titles,
+                               and dropping to a bare div would leave screen
+                               readers tabbing every card to find one. */}
+                           <div className="mb-2 line-clamp-2" role="heading" aria-level={4}>
+                              {issue.title}
+                           </div>
                         </Link>
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
                            {displayProperties.labels && <LabelBadge label={issue.labels} />}
