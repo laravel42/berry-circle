@@ -110,6 +110,19 @@ func RunOrchestration(ctx workflow.Context, runID string) error {
 		logger.Warn("artifact promotion failed", "runId", runID, "error", err)
 	}
 
+	// Deliver what it produced (part three of the loop). After promotion and
+	// separately from it: the two answer different questions about the same
+	// files — whether Berry keeps them, and whether they belong in the
+	// repository — and a failed pull request should not lose stored artifacts.
+	deliverCtx := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
+	if err := workflow.ExecuteActivity(
+		deliverCtx,
+		(*Activities).DeliverRunOutput,
+		runID,
+	).Get(ctx, nil); err != nil {
+		logger.Warn("delivery failed", "runId", runID, "error", err)
+	}
+
 	logger.Info("run orchestration finished", "runId", runID)
 	return nil
 }

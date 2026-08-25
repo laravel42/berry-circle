@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -45,6 +46,11 @@ type Activities struct {
 	// which is what it did before ADR-0006 rather than a failure.
 	Artifacts    ArtifactPromoter
 	ArtifactRuns RunArtifactSource
+	// Delivery opens a pull request for what a run produced. Optional: without
+	// it a run still promotes its artifacts and simply delivers nothing.
+	Delivery        RunDelivery
+	DeliverableRuns DeliverableRuns
+	Logger          *slog.Logger
 }
 
 // NewActivities validates dependencies up front so a misconfigured worker

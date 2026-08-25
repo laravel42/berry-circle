@@ -519,3 +519,63 @@ func TestRecoverIsInertWithoutAPromoter(t *testing.T) {
 		t.Fatalf("Recover without a promoter = %d, %v", recovered, err)
 	}
 }
+
+// Delivery has to place files, not just name them: a run that edits
+// src/api/handler.go writes output/src/api/handler.go, and the path is the
+// whole point. Promotion stays flat — an attachment has a name, not a location.
+func TestOutputKeepsThePathTheRunWroteEvenThoughPromotionDoesNot(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "writer", map[string]string{"README.md": "top level"})
+	nested := filepath.Join(root, "writer", outputDirectory, "src", "api")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	deep := filepath.Join(nested, "handler.go")
+	if err := os.WriteFile(deep, []byte("package api\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chtimes(deep, runStart.Add(time.Minute), runStart.Add(time.Minute)); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	promoter := newPromoter(root, &fakeStore{}, newFakeStorage())
+
+	produced, err := promoter.Output(runContext("writer"))
+	if err != nil {
+		t.Fatalf("Output: %v", err)
+	}
+	found := map[string]string{}
+	for _, file := range produced {
+		found[file.Name] = file.Contents
+	}
+	if found["src/api/handler.go"] != "package api\n" {
+		t.Fatalf("output %v, want src/api/handler.go with its contents", found)
+	}
+	if _, ok := found["README.md"]; !ok {
+		t.Fatalf("output %v, want the top-level file too", found)
+	}
+}
+
+// The walk lstats, so a symlinked directory is a symlink and never a way out.
+func TestOutputWillNotWalkOutOfTheWorkspaceThroughASymlinkedDirectory(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "writer", map[string]string{"real.md": "mine"})
+	secret := t.TempDir()
+	if err := os.WriteFile(filepath.Join(secret, "credentials"), []byte("token"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	link := filepath.Join(root, "writer", outputDirectory, "elsewhere")
+	if err := os.Symlink(secret, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	promoter := newPromoter(root, &fakeStore{}, newFakeStorage())
+
+	produced, err := promoter.Output(runContext("writer"))
+	if err != nil {
+		t.Fatalf("Output: %v", err)
+	}
+	for _, file := range produced {
+		if strings.Contains(file.Contents, "token") {
+			t.Fatalf("read %s from outside the workspace", file.Name)
+		}
+	}
+}

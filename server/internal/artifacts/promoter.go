@@ -399,3 +399,102 @@ func (promoter *Promoter) logger() *slog.Logger {
 	}
 	return slog.Default()
 }
+
+// Produced is one file a run wrote, with its contents.
+type Produced struct {
+	Name     string
+	Contents string
+}
+
+// Output reads the files a finished run produced, at the paths it wrote them.
+//
+// Shares the promoter's rules — the same output directory, the same run window,
+// the same refusal of symlinks, empty files and anything that is not a plain
+// file — but descends into subdirectories, which promotion does not. An
+// attachment is named; a commit is placed. A run that writes
+// output/src/api/handler.go means that file to arrive at src/api/handler.go in
+// the repository, and a flat name cannot say so.
+func (promoter *Promoter) Output(run RunContext) ([]Produced, error) {
+	if !promoter.Enabled() {
+		return nil, nil
+	}
+	directory, err := promoter.outputPath(run.AgentSlug)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := promoter.resolveInsideRoot(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	const margin = 2 * time.Minute
+	from := run.StartedAt.Add(-margin)
+	until := run.CompletedAt.Add(margin)
+
+	produced := make([]Produced, 0, 8)
+	// WalkDir lstats, so a symlinked directory is reported as a symlink and
+	// never descended into. Combined with O_NOFOLLOW below, nothing outside the
+	// output directory can be read however the tree is arranged.
+	err = filepath.WalkDir(resolved, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if entry != nil && entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if current == resolved {
+			return nil
+		}
+		if strings.HasPrefix(entry.Name(), ".") {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if len(produced) >= maxPromotedFiles {
+			return fs.SkipAll
+		}
+		info, err := entry.Info()
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			return nil
+		}
+		if promoter.MaxBytes > 0 && info.Size() > promoter.MaxBytes {
+			return nil
+		}
+		modified := info.ModTime()
+		if modified.Before(from) || modified.After(until) {
+			return nil
+		}
+		relative, err := filepath.Rel(resolved, current)
+		if err != nil {
+			return nil
+		}
+		// O_NOFOLLOW for the same reason the promoter uses it: the agent can
+		// still write to this directory while delivery runs.
+		handle, err := os.OpenFile(current, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		if err != nil {
+			return nil
+		}
+		contents, readErr := io.ReadAll(io.LimitReader(handle, info.Size()))
+		handle.Close()
+		if readErr != nil {
+			return nil
+		}
+		produced = append(produced, Produced{
+			Name:     filepath.ToSlash(relative),
+			Contents: string(contents),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("artifacts: read output directory: %w", err)
+	}
+	sort.Slice(produced, func(a, b int) bool { return produced[a].Name < produced[b].Name })
+	return produced, nil
+}

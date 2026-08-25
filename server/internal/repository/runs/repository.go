@@ -408,3 +408,63 @@ func (repository *Repository) RunsAwaitingPromotion(
 	}
 	return ids, rows.Err()
 }
+
+// DeliverableRunRow is what delivery needs to know about a finished run.
+type DeliverableRunRow struct {
+	WorkspaceID     uuid.UUID
+	Repository      string
+	AgentSlug       string
+	IssueIdentifier string
+	IssueTitle      string
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	Succeeded       bool
+}
+
+// DeliverableRun resolves a run to the repository its work belongs in.
+//
+// The repository is reached through the issue's project, so a run on an issue
+// in no project — or a project naming no repository — resolves with an empty
+// one and delivers nothing.
+func (repository *Repository) DeliverableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (DeliverableRunRow, error) {
+	var (
+		row         DeliverableRunRow
+		status      string
+		boardSlug   string
+		number      int32
+		startedAt   *time.Time
+		completedAt *time.Time
+	)
+	if err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT board.workspace_id,
+		        COALESCE(project.github_repo_full_name, ''),
+		        agent.name, board.slug, issue.number, issue.title,
+		        run.status::text, run.started_at, run.completed_at
+		   FROM runs AS run
+		   JOIN issues AS issue ON issue.id = run.issue_id
+		   JOIN boards AS board ON board.id = run.board_id
+		   JOIN agents AS agent ON agent.id = run.agent_id
+		   LEFT JOIN issue_project_links AS link ON link.issue_id = issue.id
+		   LEFT JOIN projects AS project
+		     ON project.id = link.project_id AND project.deleted_at IS NULL
+		  WHERE run.id = $1`,
+		runID,
+	).Scan(&row.WorkspaceID, &row.Repository, &row.AgentSlug,
+		&boardSlug, &number, &row.IssueTitle,
+		&status, &startedAt, &completedAt); err != nil {
+		return DeliverableRunRow{}, fmt.Errorf("load deliverable run: %w", err)
+	}
+	row.IssueIdentifier = fmt.Sprintf("%s-%d", strings.ToUpper(boardSlug), number)
+	row.Succeeded = status == "succeeded"
+	if startedAt != nil {
+		row.StartedAt = *startedAt
+	}
+	if completedAt != nil {
+		row.CompletedAt = *completedAt
+	}
+	return row, nil
+}

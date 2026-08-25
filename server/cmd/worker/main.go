@@ -27,6 +27,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
+	"github.com/laravel42/berry-circle/server/internal/delivery"
 	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
@@ -272,14 +273,39 @@ func run() int {
 		}(promoter, artifactRuns.(promotableRuns))
 	}
 
+	// Delivery turns a finished run's output into a pull request. Needs the
+	// same credential the context builder uses and the promoter's file
+	// discovery, so it only exists when both do.
+	var (
+		runDeliveries   orchestration.RunDelivery
+		deliverableRows orchestration.DeliverableRuns
+	)
+	if promoter != nil && runCode != nil {
+		sealer, sealerErr := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+		if sealerErr == nil {
+			credentials, storeErr := integrationrepo.New(pool, sealer)
+			if storeErr == nil {
+				runDeliveries = runDelivery{service: &delivery.Service{
+					Output:    promoter,
+					Publisher: githubclient.Publisher{Credentials: credentials},
+				}}
+				deliverableRows = deliverableRuns{store: runStore}
+				logger.Info("pull request delivery enabled for runs")
+			}
+		}
+	}
+
 	activities, err := orchestration.NewActivities(orchestration.Activities{
-		Intake:       intakeStore,
-		Runs:         dispatcher,
-		ActorID:      actorID,
-		Clock:        time.Now,
-		NewID:        uuid.New,
-		Artifacts:    promoter,
-		ArtifactRuns: artifactRuns,
+		Intake:          intakeStore,
+		Runs:            dispatcher,
+		ActorID:         actorID,
+		Clock:           time.Now,
+		NewID:           uuid.New,
+		Artifacts:       promoter,
+		ArtifactRuns:    artifactRuns,
+		Delivery:        runDeliveries,
+		DeliverableRuns: deliverableRows,
+		Logger:          logger,
 	})
 	if err != nil {
 		logger.Error("orchestration activities setup failed", "error", err)
@@ -427,4 +453,46 @@ func (adapter promotableRuns) PromotableRun(
 		CompletedAt: row.CompletedAt,
 		Succeeded:   row.Succeeded,
 	}, nil
+}
+
+// deliverableRuns adapts the run repository to the orchestration interface.
+type deliverableRuns struct {
+	store *runsrepo.Repository
+}
+
+func (adapter deliverableRuns) DeliverableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (orchestration.DeliverableRun, error) {
+	row, err := adapter.store.DeliverableRun(ctx, runID)
+	if err != nil {
+		return orchestration.DeliverableRun{}, err
+	}
+	return orchestration.DeliverableRun{
+		WorkspaceID:     row.WorkspaceID,
+		Repository:      row.Repository,
+		AgentSlug:       row.AgentSlug,
+		IssueIdentifier: row.IssueIdentifier,
+		IssueTitle:      row.IssueTitle,
+		StartedAt:       row.StartedAt,
+		CompletedAt:     row.CompletedAt,
+		Succeeded:       row.Succeeded,
+	}, nil
+}
+
+// runDelivery adapts the delivery service, returning the pull request URL.
+type runDelivery struct {
+	service *delivery.Service
+}
+
+func (adapter runDelivery) Deliver(
+	ctx context.Context,
+	run delivery.Run,
+	window artifacts.RunContext,
+) (string, error) {
+	pull, err := adapter.service.Deliver(ctx, run, window)
+	if err != nil {
+		return "", err
+	}
+	return pull.HTMLURL, nil
 }
