@@ -1,6 +1,7 @@
 'use client';
 
 import { ProjectActionsMenu } from '@/components/common/projects/project-actions-menu';
+import { useDetailDrawerClose } from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useProject } from '@/hooks/use-project';
@@ -8,6 +9,7 @@ import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, ChevronRight, Link2, PanelRight, Star } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useCallback } from 'react';
 
 const PROJECT_TABS = [
    { label: 'Overview', segment: 'overview' },
@@ -72,7 +74,22 @@ function PanelToggles() {
 export default function Header({ projectId }: { projectId: string }) {
    const { orgId } = useParams<{ orgId: string }>();
    const router = useRouter();
+   const closeDrawer = useDetailDrawerClose();
    const project = useProject(projectId);
+
+   // Whatever is showing the project has to stop showing it. In the drawer
+   // that means closing: navigating instead would move the page behind the
+   // overlay while the overlay kept rendering a project that no longer
+   // exists. On the full page there is nothing left to show, so it returns
+   // to the list.
+   const afterDelete = useCallback(() => {
+      if (closeDrawer) {
+         closeDrawer();
+         return;
+      }
+      router.push(`/${orgId}/projects`);
+   }, [closeDrawer, router, orgId]);
+
    if (!project) {
       return (
          <div className="w-full flex items-center border-b py-1.5 px-6 h-10 text-muted-foreground">
@@ -103,10 +120,7 @@ export default function Header({ projectId }: { projectId: string }) {
                   {/* Beside the name, as on an issue. The overflow button that
                       used to sit in the right-hand group had no menu behind
                       it, so this replaces it rather than adding a second. */}
-                  <ProjectActionsMenu
-                     project={project}
-                     onDeleted={() => router.push(`/${orgId}/projects`)}
-                  />
+                  <ProjectActionsMenu project={project} onDeleted={afterDelete} />
                </div>
             </div>
             <div className="flex items-center gap-1">
