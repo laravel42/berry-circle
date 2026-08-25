@@ -73,14 +73,14 @@ const PRIMARY: ShellRouteDef[] = [
 const WORKSPACE: ShellRouteDef[] = [
    {
       id: 'issues',
-      label: 'issues',
+      label: 'tasks',
       href: '/my-issues',
       prefsKey: 'my-issues',
       icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
    },
    {
       id: 'autopilot',
-      label: 'autopilot',
+      label: 'automations',
       prefsKey: 'autopilot',
       icon: '<path d="M20 8a8 8 0 10-2.2 6.4" /><path d="M20 4v5h-5" />',
    },
@@ -145,10 +145,15 @@ export function shellRoute(id: string): ShellRouteDef | undefined {
  */
 export function activeShellRoute(pathname: string): ShellRoute | null {
    let match: ShellRouteDef | null = null;
+   // Tracked beside the match: `href` is optional on the type, so comparing
+   // against `match.href` would need a non-null assertion even though a match
+   // is only ever a route that has one.
+   let matchLength = 0;
    for (const route of BY_ID.values()) {
       if (!route.href) continue;
-      if (pathname.includes(route.href) && (!match || route.href.length > match.href.length)) {
+      if (pathname.includes(route.href) && route.href.length > matchLength) {
          match = route;
+         matchLength = route.href.length;
       }
    }
    return match?.id ?? null;
