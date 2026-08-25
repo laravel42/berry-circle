@@ -104,9 +104,19 @@ type Issue struct {
 	DueDate     *time.Time
 	Assignee    *ActorRef
 	ActiveRunID *uuid.UUID
-	CreatedBy   *ActorRef
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// Project is the project this issue belongs to, if any. An issue lives on
+	// a board and may additionally be linked to one project, which is why this
+	// is a reference rather than a column.
+	Project   *ProjectRef
+	CreatedBy *ActorRef
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// ProjectRef names the project an issue is linked to.
+type ProjectRef struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
 }
 
 // IssueCursor is the final stable key of an issue page.
@@ -138,6 +148,7 @@ type CreateIssueParams struct {
 	SortOrder    int32
 	DueDate      *time.Time
 	Assignee     *AssigneeInput
+	Project      *uuid.UUID
 	CreatedBy    uuid.UUID
 	CreatedAt    time.Time
 }
@@ -154,6 +165,11 @@ type IssuePatch struct {
 	DueDate        *time.Time
 	AssigneeSet    bool
 	Assignee       *AssigneeInput
+	// ProjectSet distinguishes "leave the project alone" from "clear it", the
+	// same way DescriptionSet and DueDateSet do: a nil Project with the flag
+	// unset means untouched, with the flag set means unlinked.
+	ProjectSet bool
+	Project    *uuid.UUID
 }
 
 // UpdateIssueParams carries a locked update and optional assignment history ID.

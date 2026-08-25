@@ -47,6 +47,7 @@ type createIssueBody struct {
 	SortOrder   optional[int32]        `json:"sortOrder"`
 	DueDate     optional[string]       `json:"dueDate"`
 	Assignee    optional[assigneeBody] `json:"assignee"`
+	ProjectID   optional[string]       `json:"projectId"`
 }
 
 type updateIssueBody struct {
@@ -57,6 +58,7 @@ type updateIssueBody struct {
 	SortOrder   optional[int32]        `json:"sortOrder"`
 	DueDate     optional[string]       `json:"dueDate"`
 	Assignee    optional[assigneeBody] `json:"assignee"`
+	ProjectID   optional[string]       `json:"projectId"`
 }
 
 type createIssueInput struct {
@@ -68,6 +70,7 @@ type createIssueInput struct {
 	SortOrder   int32
 	DueDate     *time.Time
 	Assignee    *core.AssigneeInput
+	Project     *uuid.UUID
 }
 
 type issueQuery struct {
@@ -176,6 +179,16 @@ func parseCreateIssue(
 	}
 	dueDate := parseOptionalDate(&fields, "/dueDate", body.DueDate)
 	assignee := parseOptionalAssignee(&fields, body.Assignee)
+	var project *uuid.UUID
+	if body.ProjectID.Set && !body.ProjectID.Null {
+		parsed, err := uuid.Parse(strings.TrimSpace(body.ProjectID.Value))
+		if err != nil {
+			fields = append(fields, issueFieldError(
+				"/projectId", "invalid_string", "projectId must be a UUID."))
+		} else {
+			project = &parsed
+		}
+	}
 	if len(fields) > 0 {
 		writeIssueValidation(response, request, fields...)
 		return createIssueInput{}, false
@@ -189,6 +202,7 @@ func parseCreateIssue(
 		SortOrder:   sortOrder,
 		DueDate:     dueDate,
 		Assignee:    assignee,
+		Project:     project,
 	}, true
 }
 
@@ -280,6 +294,22 @@ func parseIssuePatch(
 		count++
 		patch.AssigneeSet = true
 		patch.Assignee = parseOptionalAssignee(&fields, body.Assignee)
+	}
+	if body.ProjectID.Set {
+		count++
+		patch.ProjectSet = true
+		// Explicit null unlinks. The Set flag is what separates that from
+		// "field absent", so an update of the title alone does not silently
+		// drop the issue's project.
+		if !body.ProjectID.Null {
+			projectID, err := uuid.Parse(strings.TrimSpace(body.ProjectID.Value))
+			if err != nil {
+				fields = append(fields, issueFieldError(
+					"/projectId", "invalid", "Project id must be a UUID."))
+			} else {
+				patch.Project = &projectID
+			}
+		}
 	}
 	if count == 0 {
 		fields = append(fields, issueFieldError(
