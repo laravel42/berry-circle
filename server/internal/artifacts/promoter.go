@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -182,6 +183,29 @@ func (promoter *Promoter) outputPath(agentSlug string) (string, error) {
 	return resolved, nil
 }
 
+// resolveInsideRoot follows symlinks and confirms the result is still within
+// the mounted volume.
+//
+// Both sides are resolved before comparison: on macOS a temporary directory is
+// reached through /var, which is itself a link to /private/var, so comparing a
+// resolved path against an unresolved root would reject every legitimate path.
+func (promoter *Promoter) resolveInsideRoot(path string) (string, error) {
+	root, err := filepath.EvalSymlinks(promoter.Root)
+	if err != nil {
+		return "", fmt.Errorf("artifacts: resolve root: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// Not-exist is passed through so the caller can treat a missing output
+		// directory as "produced nothing" rather than as a failure.
+		return "", err
+	}
+	if resolved != root && !strings.HasPrefix(resolved, root+string(os.PathSeparator)) {
+		return "", fmt.Errorf("artifacts: %q resolves outside the runtime volume", path)
+	}
+	return resolved, nil
+}
+
 // candidates lists the files this run is credited with.
 //
 // The runtime keys workspaces by agent, so two runs by one agent share a
@@ -191,9 +215,20 @@ func (promoter *Promoter) outputPath(agentSlug string) (string, error) {
 // here. The alternative — promoting everything in the directory — would
 // re-attach every previous run's output on every run, which is worse.
 func (promoter *Promoter) candidates(directory string, run RunContext) ([]candidate, error) {
-	entries, err := os.ReadDir(directory)
+	// The lexical check in outputPath cannot see a symlink, and the agent owns
+	// every component of this path. Resolving before reading means a workspace
+	// whose output/ is a link to somewhere else is refused rather than walked.
+	resolved, err := promoter.resolveInsideRoot(directory)
 	if errors.Is(err, fs.ErrNotExist) {
 		// An agent that produced no files is the common case, not a fault.
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(resolved)
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
@@ -209,11 +244,22 @@ func (promoter *Promoter) candidates(directory string, run RunContext) ([]candid
 
 	found := make([]candidate, 0, len(entries))
 	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
+		// Info is lstat, so a symlink reports as a symlink here rather than as
+		// whatever it points at.
 		info, err := entry.Info()
 		if err != nil {
+			continue
+		}
+		// Regular files only. A symlink would be followed on open and promote
+		// whatever it targets in *this* process's filesystem — the worker's
+		// environment, its credentials, another workspace's data — and the
+		// agent that writes into this directory is running model-authored tool
+		// calls. Devices, sockets and FIFOs are refused for the same reason:
+		// nothing that is not a plain file is a deliverable.
+		if !info.Mode().IsRegular() {
 			continue
 		}
 		if info.Size() == 0 {
@@ -225,7 +271,7 @@ func (promoter *Promoter) candidates(directory string, run RunContext) ([]candid
 		}
 		found = append(found, candidate{
 			name: entry.Name(),
-			path: filepath.Join(directory, entry.Name()),
+			path: filepath.Join(resolved, entry.Name()),
 			size: info.Size(),
 		})
 	}
@@ -246,11 +292,27 @@ func (promoter *Promoter) promoteOne(
 	run RunContext,
 	file candidate,
 ) error {
-	handle, err := os.Open(file.path)
+	// O_NOFOLLOW closes the window between listing and opening: the agent can
+	// still write to this directory while promotion runs, and replacing a plain
+	// file with a symlink after it was checked would otherwise be enough.
+	handle, err := os.OpenFile(file.path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", file.name, err)
 	}
 	defer handle.Close()
+
+	// Re-checked against the open descriptor rather than the earlier directory
+	// entry, so what is read is provably the file that was inspected.
+	stat, err := handle.Stat()
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", file.name, err)
+	}
+	if !stat.Mode().IsRegular() {
+		return fmt.Errorf("artifacts: %s is not a regular file", file.name)
+	}
+	if stat.Size() != file.size {
+		return fmt.Errorf("artifacts: %s changed size during promotion", file.name)
+	}
 
 	digest := sha256.New()
 	if _, err := io.Copy(digest, io.LimitReader(handle, file.size)); err != nil {

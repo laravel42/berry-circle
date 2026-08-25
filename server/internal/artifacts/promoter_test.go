@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -314,5 +315,99 @@ func TestAgentAuthoredContentIsNeverServedAsRenderableHTML(t *testing.T) {
 	}
 	if got := contentTypeFor("blog.md"); !strings.HasPrefix(got, "text/markdown") {
 		t.Errorf("contentTypeFor(blog.md) = %q", got)
+	}
+}
+
+// windowNow returns a run whose window brackets real time, which is what a
+// freshly created symlink's own timestamp falls inside.
+func windowNow(agent string) RunContext {
+	now := time.Now().UTC()
+	return RunContext{
+		RunID:       uuid.New(),
+		AgentSlug:   agent,
+		StartedAt:   now.Add(-time.Minute),
+		CompletedAt: now.Add(time.Minute),
+	}
+}
+
+func TestASymlinkedFileIsNeverPromoted(t *testing.T) {
+	t.Parallel()
+	// The agent writing into this directory runs model-authored tool calls and
+	// has write access to the volume. A symlink here would be followed on open
+	// and promote whatever it points at inside the *worker's* filesystem — its
+	// environment, its database URL, its object-storage keys — into an
+	// attachment any workspace member can download.
+	secret := filepath.Join(t.TempDir(), "worker-environment")
+	if err := os.WriteFile(secret, []byte("DATABASE_URL=postgres://berry:pw@db/berry"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+	root := workspace(t, "writer", map[string]string{"real.md": "a genuine deliverable"})
+	if err := os.Symlink(secret, filepath.Join(root, "writer", outputDirectory, "notes.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	store, backend := &fakeStore{}, newFakeStorage()
+	promoter := newPromoter(root, store, backend)
+	result, err := promoter.Promote(context.Background(), windowNow("writer"))
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	for _, name := range result.Promoted {
+		if name == "notes.md" {
+			t.Fatal("a symlink was promoted")
+		}
+	}
+	for key, body := range backend.objects {
+		if strings.Contains(string(body), "DATABASE_URL") {
+			t.Fatalf("out-of-workspace bytes stored at %s", key)
+		}
+	}
+}
+
+func TestASymlinkedOutputDirectoryIsRefused(t *testing.T) {
+	t.Parallel()
+	// The agent owns every component of its workspace path, so linking the
+	// output directory itself would walk somewhere else entirely.
+	elsewhere := t.TempDir()
+	if err := os.WriteFile(filepath.Join(elsewhere, "stolen.md"), []byte("not ours"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "writer"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(elsewhere, filepath.Join(root, "writer", outputDirectory)); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	store, backend := &fakeStore{}, newFakeStorage()
+	promoter := newPromoter(root, store, backend)
+	if _, err := promoter.Promote(context.Background(), windowNow("writer")); err == nil {
+		t.Fatal("a symlinked output directory was walked")
+	}
+	if len(backend.objects) != 0 {
+		t.Fatal("objects were stored from outside the volume")
+	}
+}
+
+func TestNonRegularFilesAreNotDeliverables(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "writer", map[string]string{"real.md": "ok"})
+	output := filepath.Join(root, "writer", outputDirectory)
+	// A FIFO would block the reader forever if it were opened.
+	if err := syscall.Mkfifo(filepath.Join(output, "pipe.md"), 0o644); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+
+	store := &fakeStore{}
+	promoter := newPromoter(root, store, newFakeStorage())
+	result, err := promoter.Promote(context.Background(), windowNow("writer"))
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	for _, name := range result.Promoted {
+		if name == "pipe.md" {
+			t.Fatal("a FIFO was promoted")
+		}
 	}
 }
