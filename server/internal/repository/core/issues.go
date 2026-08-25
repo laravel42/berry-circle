@@ -15,10 +15,27 @@ import (
 const issueProjection = `
 	i.id, i.board_id, b.slug, i.number, i.title, i.description,
 	i.status::text, i.priority::text, i.sort_order, i.due_date,
-	i.assignee_type::text, i.assignee_id, assignee_user.name, assignee_user.avatar_url,
+	i.assignee_type::text, i.assignee_id,
+	COALESCE(assignee_user.name, assignee_agent.name),
+	COALESCE(assignee_user.avatar_url, assignee_agent.avatar_url),
 	i.active_run_id,
 	i.created_by, creator.name, creator.avatar_url,
 	i.created_at, i.updated_at`
+
+// issueSource resolves an issue and both kinds of assignee.
+//
+// Shared rather than repeated: this clause was duplicated at each call site and
+// every copy joined only users, so an issue assigned to an agent came back with
+// a null name and rendered as the literal word "Agent" with no avatar. Keeping
+// it in one place means the agent join cannot be forgotten at a fourth site.
+const issueSource = `
+	   FROM issues AS i
+	   JOIN boards AS b ON b.id = i.board_id
+	   LEFT JOIN users AS assignee_user
+	     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
+	   LEFT JOIN agents AS assignee_agent
+	     ON i.assignee_type = 'agent' AND assignee_agent.id = i.assignee_id
+	   LEFT JOIN users AS creator ON creator.id = i.created_by`
 
 var issueIdentifierPattern = regexp.MustCompile(`^(.+)-([1-9][0-9]*)$`)
 
@@ -61,12 +78,7 @@ func (repository *Repository) ListIssues(
 
 	rows, err := repository.Pool.Query(
 		ctx,
-		`SELECT `+issueProjection+`
-		   FROM issues AS i
-		   JOIN boards AS b ON b.id = i.board_id
-		   LEFT JOIN users AS assignee_user
-		     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
-		   LEFT JOIN users AS creator ON creator.id = i.created_by
+		`SELECT `+issueProjection+issueSource+`
 		  WHERE i.board_id = $1
 		    AND (
 				COALESCE(cardinality($2::text[]), 0) = 0 OR
@@ -135,12 +147,7 @@ func (repository *Repository) GetIssue(ctx context.Context, reference string) (I
 	}
 	issue, err := scanIssue(repository.Pool.QueryRow(
 		ctx,
-		`SELECT `+issueProjection+`
-		   FROM issues AS i
-		   JOIN boards AS b ON b.id = i.board_id
-		   LEFT JOIN users AS assignee_user
-		     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
-		   LEFT JOIN users AS creator ON creator.id = i.created_by
+		`SELECT `+issueProjection+issueSource+`
 		  WHERE lower(b.slug) = lower($1) AND i.number = $2`,
 		match[1],
 		number,
@@ -369,12 +376,7 @@ func getIssueByID(
 	}
 	issue, err := scanIssue(queryer.QueryRow(
 		ctx,
-		`SELECT `+issueProjection+`
-		   FROM issues AS i
-		   JOIN boards AS b ON b.id = i.board_id
-		   LEFT JOIN users AS assignee_user
-		     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
-		   LEFT JOIN users AS creator ON creator.id = i.created_by
+		`SELECT `+issueProjection+issueSource+`
 		  WHERE i.id = $1`+lock,
 		id,
 	))
