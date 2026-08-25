@@ -294,6 +294,25 @@
       line-height: var(--text-sm--line-height);
    }
 
+   /* Form fields standing in for headings: the title field of a create
+      dialog is the h1 of the thing being made and its other fields sit one
+      step down, but an <input> cannot be an <h1>. The attribute borrows the
+      size so the scale still has one home. */
+   [data-heading='h1'] {
+      font-size: var(--text-xl);
+      line-height: var(--text-xl--line-height);
+   }
+
+   [data-heading='h2'] {
+      font-size: var(--text-lg);
+      line-height: var(--text-lg--line-height);
+   }
+
+   [data-heading='h3'] {
+      font-size: var(--text-base);
+      line-height: var(--text-base--line-height);
+   }
+
    /* The one size set outside the scale above. The wordmark is a logo lockup,
       not running text: the word is drawn to sit against the mark beside it, so
       it has to scale with the mark and not with the surrounding UI. Kept here

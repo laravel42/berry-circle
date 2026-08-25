@@ -1,13 +1,21 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTrigger } from '@/components/ui/dialog';
+import {
+   Dialog,
+   DialogContent,
+   DialogDescription,
+   DialogHeader,
+   DialogTitle,
+   DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { MarkdownTextarea } from '@/components/common/editor/markdown-textarea';
 import { BerryMark } from '@/components/brand/berry-mark';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { RiEditLine } from '@remixicon/react';
+import { ChevronRight, X } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { Issue } from '@/data/issues';
 import { priorities } from '@/data/priorities';
@@ -26,7 +34,6 @@ import { rankFromSortOrder } from '@/lib/issues';
 import { WORKSPACE_NAME } from '@/lib/config';
 import { BerryApiError } from '@/lib/api';
 import { createBoardIssue } from '@/lib/issues';
-import { DialogTitle } from '@radix-ui/react-dialog';
 
 export function CreateNewIssue() {
    const [createMore, setCreateMore] = useState<boolean>(false);
@@ -121,28 +128,49 @@ export function CreateNewIssue() {
                <RiEditLine />
             </Button>
          </DialogTrigger>
-         <DialogContent className="w-full sm:max-w-[750px] p-0 shadow-xl top-[30%]">
-            <DialogHeader>
-               <DialogTitle>
-                  <div className="flex items-center px-4 pt-4 gap-2">
-                     <Button size="sm" variant="outline" className="gap-1.5">
-                        <BerryMark size="sm" />
-                        <span className="font-medium">{WORKSPACE_NAME}</span>
-                     </Button>
+         <DialogContent
+            showCloseButton={false}
+            className="w-full sm:max-w-[750px] p-0 shadow-xl top-[30%]"
+         >
+            {/* Same header as the create-project dialog: the workspace crumb
+                says where the thing lands, the close button is the only chrome. */}
+            <DialogHeader className="px-4 pt-4 pb-0">
+               <DialogTitle className="sr-only">New issue</DialogTitle>
+               <DialogDescription className="sr-only">
+                  Give the issue a title, set its properties, and add an optional description.
+               </DialogDescription>
+               <div className="flex items-center justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                     <BerryMark size="sm" />
+                     <span className="font-medium text-foreground">{WORKSPACE_NAME}</span>
+                     <ChevronRight className="size-3.5 shrink-0" />
+                     <span className="truncate">New issue</span>
                   </div>
-               </DialogTitle>
+                  <Button
+                     type="button"
+                     variant="ghost"
+                     size="icon"
+                     className="size-8 shrink-0"
+                     aria-label="Close"
+                     onClick={closeModal}
+                  >
+                     <X className="size-4" />
+                  </Button>
+               </div>
             </DialogHeader>
 
-            <div className="px-4 pb-0 space-y-3 w-full">
+            <div className="px-4 pb-0 space-y-1 w-full">
                <Input
-                  className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:font-normal placeholder:leading-4"
+                  data-heading="h1"
+                  className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:font-normal"
                   placeholder="Issue title"
                   value={addIssueForm.title}
                   onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}
                />
 
                <MarkdownTextarea
-                  className="min-h-16 resize-none border-none bg-transparent px-0 text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:leading-4"
+                  data-heading="h3"
+                  className="min-h-28 resize-none border-none bg-transparent px-0 text-foreground shadow-none outline-none placeholder:text-foreground/40"
                   placeholder="Add description..."
                   value={addIssueForm.description}
                   onChange={(description) => setAddIssueForm({ ...addIssueForm, description })}

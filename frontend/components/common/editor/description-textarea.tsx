@@ -19,6 +19,8 @@ interface DescriptionTextareaProps {
    'className'?: string;
    'readOnly'?: boolean;
    'aria-label'?: string;
+   /** Heading step to borrow the size of; see globals.css [data-heading]. */
+   'data-heading'?: 'h1' | 'h2' | 'h3';
 }
 
 /**
@@ -38,6 +40,7 @@ export function DescriptionTextarea({
    className,
    readOnly = false,
    'aria-label': ariaLabel,
+   'data-heading': dataHeading,
 }: DescriptionTextareaProps) {
    const [draft, setDraft] = useState(value);
    // Tracked so an external update cannot replace text mid-keystroke.
@@ -66,6 +69,7 @@ export function DescriptionTextarea({
          readOnly={readOnly}
          placeholder={placeholder}
          aria-label={ariaLabel}
+         data-heading={dataHeading}
          onFocus={() => {
             focusedRef.current = true;
          }}

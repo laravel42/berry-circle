@@ -124,7 +124,7 @@ export function CreateProjectDialog() {
       <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
          <DialogContent
             showCloseButton={false}
-            className="flex w-full h-[min(42rem,calc(100vh-3.5rem))] flex-col gap-0 p-0 shadow-lg top-[5vh] translate-y-0 sm:max-w-[40rem]"
+            className="flex w-full h-[min(42rem,calc(100vh-3.5rem))] flex-col gap-0 p-0 shadow-lg top-[5vh] translate-y-0 sm:max-w-[52rem]"
          >
             <DialogHeader className="px-6 pt-5 pb-0">
                <DialogTitle className="sr-only">New project</DialogTitle>
@@ -164,6 +164,7 @@ export function CreateProjectDialog() {
                   </label>
                   <Input
                      id="create-project-name"
+                     data-heading="h1"
                      autoFocus
                      className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none placeholder:text-foreground/40"
                      placeholder="Project name"
@@ -176,6 +177,7 @@ export function CreateProjectDialog() {
                   </label>
                   <Input
                      id="create-project-summary"
+                     data-heading="h3"
                      className="mt-1 h-auto border-none bg-transparent px-0 text-foreground shadow-none placeholder:text-foreground/40"
                      placeholder="Add a short summary…"
                      value={form.summary}
@@ -207,16 +209,19 @@ export function CreateProjectDialog() {
                      />
                      {/* Held in form state rather than saved on selection: the
                          project does not exist yet, so there is nothing to link
-                         until it is created. */}
-                     <div className="min-w-44">
-                        <RepositoryPicker
-                           value={form.githubRepo}
-                           placeholder="Repository"
-                           onSelect={(githubRepo) =>
-                              setForm({ ...form, githubRepo: githubRepo ?? undefined })
-                           }
-                        />
-                     </div>
+                         until it is created. Styled like the sibling chips; the
+                         width cap makes a long repository name truncate instead
+                         of wrapping the property row. */}
+                     <RepositoryPicker
+                        value={form.githubRepo}
+                        placeholder="Repository"
+                        variant="secondary"
+                        size="xs"
+                        className="max-w-56"
+                        onSelect={(githubRepo) =>
+                           setForm({ ...form, githubRepo: githubRepo ?? undefined })
+                        }
+                     />
                   </div>
 
                   <label htmlFor="create-project-description" className="sr-only">
@@ -224,6 +229,7 @@ export function CreateProjectDialog() {
                   </label>
                   <div className="mt-5 min-h-40 flex-1">
                      <DescriptionTextarea
+                        data-heading="h3"
                         value={form.description}
                         onChange={(description) => setForm({ ...form, description })}
                         placeholder="Write a description or collect the work…"

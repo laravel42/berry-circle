@@ -18,9 +18,10 @@ import {
    type GitHubAccess,
    type GitHubRepository,
 } from '@/lib/projects';
+import { cn } from '@/lib/utils';
 import { useProjectsStore } from '@/store/projects-store';
 import { Check, Github, Loader2, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ComponentProps } from 'react';
 import { toast } from 'sonner';
 
 /**
@@ -40,11 +41,20 @@ export function RepositoryPicker({
    onSelect,
    disabled,
    placeholder = 'Link a repository',
+   variant = 'ghost',
+   size = 'sm',
+   className = 'w-full px-1.5',
 }: {
    value?: string;
    onSelect: (fullName: string | null) => void;
    disabled?: boolean;
    placeholder?: string;
+   /** Trigger styling. The project view wants a quiet full-width row; a form
+    *  row of property buttons wants the same gray, auto-width chip as its
+    *  siblings — so the caller decides, and the default keeps the row. */
+   variant?: ComponentProps<typeof Button>['variant'];
+   size?: ComponentProps<typeof Button>['size'];
+   className?: string;
 }) {
    const [open, setOpen] = useState(false);
    const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
@@ -93,9 +103,9 @@ export function RepositoryPicker({
       <Popover open={open} onOpenChange={setOpen}>
          <PopoverTrigger asChild>
             <Button
-               variant="ghost"
-               size="sm"
-               className="w-full justify-start gap-2 px-1.5"
+               variant={variant}
+               size={size}
+               className={cn('justify-start gap-2', className)}
                disabled={disabled}
             >
                {disabled ? (
