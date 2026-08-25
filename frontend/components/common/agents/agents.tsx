@@ -89,14 +89,14 @@ export default function Agents() {
       <div className="w-full">
          <div className="sticky top-0 z-10 flex items-center border-b bg-container px-6 py-1.5 text-muted-foreground">
             <div className="min-w-0 flex-1">Agent</div>
-            <div className="w-[110px] shrink-0">Status</div>
-            <div className="hidden w-[100px] shrink-0 lg:block">Access</div>
-            <div className="hidden w-[180px] shrink-0 xl:block">Model</div>
-            <div className="hidden w-[110px] shrink-0 sm:flex sm:items-center sm:gap-1">
+            <div className="w-27.5 shrink-0">Status</div>
+            <div className="hidden w-25 shrink-0 lg:block">Access</div>
+            <div className="hidden w-45 shrink-0 xl:block">Model</div>
+            <div className="hidden w-27.5 shrink-0 sm:flex sm:items-center sm:gap-1">
                Last active
                {sort === 'last-active-desc' ? <ArrowDown className="size-3" /> : <ArrowUpDown className="size-3" />}
             </div>
-            <div className="w-[56px] shrink-0 text-right">Runtimes</div>
+            <div className="w-14 shrink-0 text-right">Runtimes</div>
          </div>
 
          {loading ? (

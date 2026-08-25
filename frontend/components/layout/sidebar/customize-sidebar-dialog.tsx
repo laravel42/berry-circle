@@ -104,7 +104,7 @@ function DropZone({ show }: { show: boolean }) {
             show ? 'opacity-100' : 'opacity-0'
          )}
       >
-         <div className="absolute inset-x-0 -top-px h-0.5 bg-[var(--shell-accent)]" />
+         <div className="absolute inset-x-0 -top-px h-0.5 bg-(--shell-accent)" />
       </div>
    );
 }
@@ -208,7 +208,7 @@ function ItemSection({ section, items }: { section: SidebarSection; items: ItemC
                      className={cn(
                         'flex items-center gap-2 px-3 py-2.5',
                         index < ordered.length - 1 && 'border-b border-border/60',
-                        dragIndex === index && 'opacity-40 ring-1 ring-inset ring-[var(--shell-accent)]'
+                        dragIndex === index && 'opacity-40 ring-1 ring-inset ring-(--shell-accent)'
                      )}
                   >
                      <span

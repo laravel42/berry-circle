@@ -44,7 +44,7 @@ export default function AgentLine({ agent, runCount, highlightYou = false }: Age
             </div>
          </div>
 
-         <div className="w-[110px] shrink-0">
+         <div className="w-27.5 shrink-0">
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                <span
                   className={cn(
@@ -59,18 +59,18 @@ export default function AgentLine({ agent, runCount, highlightYou = false }: Age
             </span>
          </div>
 
-         <div className="hidden w-[100px] shrink-0 text-muted-foreground lg:block">Workspace</div>
+         <div className="hidden w-25 shrink-0 text-muted-foreground lg:block">Workspace</div>
 
          <div
-            className="hidden w-[180px] shrink-0 truncate text-muted-foreground xl:block"
+            className="hidden w-45 shrink-0 truncate text-muted-foreground xl:block"
             title={model.title}
          >
             {model.label}
          </div>
 
-         <div className="hidden w-[110px] shrink-0 text-muted-foreground sm:block">{lastActive}</div>
+         <div className="hidden w-27.5 shrink-0 text-muted-foreground sm:block">{lastActive}</div>
 
-         <div className="w-[56px] shrink-0 text-right tabular-nums text-muted-foreground">
+         <div className="w-14 shrink-0 text-right tabular-nums text-muted-foreground">
             {runCount}
          </div>
       </Link>
