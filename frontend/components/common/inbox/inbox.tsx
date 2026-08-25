@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import NotificationPreview from './issue-preview';
 import IssueLine from './issue-line';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ChevronLeft } from 'lucide-react';
 
@@ -81,7 +80,6 @@ export default function Inbox() {
       <>
          <div className="flex items-center justify-between px-4 h-10 border-b border-border">
             <div className="flex items-center gap-2">
-               <SidebarTrigger className="inline-flex lg:hidden" />
                <h2 className="font-semibold">Inbox</h2>
                <DropdownMenu>
                   <DropdownMenuTrigger asChild>

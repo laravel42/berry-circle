@@ -1,16 +1,12 @@
 'use client';
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
-import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
-import {
-   useDetailDrawerClose,
-   useInDetailDrawer,
-} from '@/components/layout/detail-drawer-context';
+import { IssueActionsMenu } from '@/components/common/issues/issue-actions-menu';
+import { useDetailDrawerClose } from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getCycleById } from '@/data/cycles';
 import { useIssuesStore } from '@/store/issues-store';
-import { ChevronDown, ChevronRight, ChevronUp, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback } from 'react';
@@ -22,7 +18,6 @@ import { useCallback } from 'react';
 export default function HeaderNav() {
    const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
    const { issues } = useIssuesStore();
-   const inDrawer = useInDetailDrawer();
    const closeDrawer = useDetailDrawerClose();
    const router = useRouter();
 
@@ -37,8 +32,6 @@ export default function HeaderNav() {
       router.push(`/${orgId}/my-issues`);
    }, [closeDrawer, router, orgId]);
 
-   const deletion = useIssueDeletion(afterDelete);
-
    const index = issues.findIndex((candidate) => candidate.identifier === issueId);
    const issue = index >= 0 ? issues[index] : undefined;
    const cycle = issue?.cycleId ? getCycleById(issue.cycleId) : undefined;
@@ -49,7 +42,6 @@ export default function HeaderNav() {
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10 gap-4">
          <div className="flex items-center gap-2 min-w-0">
-            {!inDrawer && <SidebarTrigger />}
             {cycle && (
                <>
                   <span className="hidden sm:flex items-center gap-1.5 shrink-0 text-muted-foreground">
@@ -60,12 +52,18 @@ export default function HeaderNav() {
                </>
             )}
             {issue && (
-               <span className="min-w-0 truncate">
-                  <span className="font-medium text-muted-foreground mr-1.5">
-                     {issue.identifier}
+               <>
+                  <span className="min-w-0 truncate">
+                     <span className="font-medium text-muted-foreground mr-1.5">
+                        {issue.identifier}
+                     </span>
+                     <span className="font-medium">{issue.title}</span>
                   </span>
-                  <span className="font-medium">{issue.title}</span>
-               </span>
+                  {/* Beside the title rather than in the navigation group on
+                      the right: these act on the issue being read, while the
+                      chevrons move between issues. */}
+                  <IssueActionsMenu issue={issue} onDeleted={afterDelete} />
+               </>
             )}
          </div>
 
@@ -75,18 +73,6 @@ export default function HeaderNav() {
                   {index + 1} / {issues.length}
                </span>
             )}
-            <Button
-               variant="ghost"
-               size="icon"
-               className="size-6 text-muted-foreground hover:text-destructive"
-               aria-label="Delete issue"
-               disabled={!issue}
-               onClick={() => {
-                  if (issue) deletion.request(issue);
-               }}
-            >
-               <Trash2 className="size-4" />
-            </Button>
             <Button
                variant="ghost"
                size="icon"
@@ -121,8 +107,6 @@ export default function HeaderNav() {
                )}
             </Button>
          </div>
-
-         <DeleteIssueDialog deletion={deletion} />
       </div>
    );
 }

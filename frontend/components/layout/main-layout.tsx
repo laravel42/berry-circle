@@ -29,13 +29,13 @@ const isEmptyHeader = (header: React.ReactNode | undefined): boolean => {
 
 export default function MainLayout({ children, header }: MainLayoutProps) {
    return (
-      <SidebarProvider>
+      <SidebarProvider className="h-full max-h-full">
          <IssuesHydrator />
          <CreateIssueModalProvider />
          <CommandPalette />
          {/* No sidebar here: BerryShell owns the rail and the tab strip. The
-             provider stays because SidebarTrigger and the sidebar preference
-             stores are still used across headers and settings. */}
+             provider stays because sidebar preference stores are still used
+             across headers and settings. */}
          <div className="h-full w-full overflow-hidden bg-background">
             <div className="flex h-full w-full flex-col items-center justify-start overflow-hidden bg-container">
                {header}

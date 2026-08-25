@@ -4,7 +4,6 @@ import { IssueFilterTrigger } from '@/components/common/issues/issue-filter-trig
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { issueCreatorIndex } from '@/data/issues';
 import { User, users } from '@/data/users';
 import { cn } from '@/lib/utils';
@@ -135,7 +134,6 @@ export default function Header({ member }: { member: User }) {
       <>
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
             <div className="flex items-center gap-2 min-w-0">
-               <SidebarTrigger />
                <div className="flex items-center gap-1.5 min-w-0">
                   <Link
                      href={`/${orgId}/members`}

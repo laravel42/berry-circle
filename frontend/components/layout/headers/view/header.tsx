@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { filterIssuesForView, filterProjectsForView, getViewById } from '@/data/views';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, MoreHorizontal, Star } from 'lucide-react';
@@ -23,7 +22,6 @@ export default function Header() {
       <div className="w-full flex flex-col">
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
             <div className="flex items-center gap-2 min-w-0">
-               <SidebarTrigger />
                <span className="inline-flex size-5 items-center justify-center rounded bg-muted/50 shrink-0">
                   {view.icon}
                </span>

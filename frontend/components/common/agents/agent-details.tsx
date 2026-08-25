@@ -430,7 +430,7 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                            <div className="mt-3 grid grid-cols-2 gap-3">
                               <div>
                                  <p className="font-medium tabular-nums">{stats.recent.length}</p>
-                                 <p className="text-muted-foreground">runs</p>
+                                 <p className="text-muted-foreground">runtimes</p>
                               </div>
                               <div>
                                  <p className="font-medium tabular-nums">

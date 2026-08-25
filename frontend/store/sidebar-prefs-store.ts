@@ -7,14 +7,18 @@ export type SidebarBadgeStyle = 'count' | 'dot';
 export type SidebarItemKey =
    | 'inbox'
    | 'reviews'
+   | 'chat'
+   | 'meetings'
    | 'my-issues'
+   | 'autopilot'
+   | 'analytics'
    | 'agent'
    | 'initiatives'
    | 'projects'
    | 'views'
    | 'agents';
 
-export type SidebarSection = 'personal' | 'workspace';
+export type SidebarSection = 'personal' | 'workspace' | 'configure';
 
 interface SidebarPrefsState {
    badgeStyle: SidebarBadgeStyle;
@@ -27,14 +31,18 @@ interface SidebarPrefsState {
 }
 
 const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
-   'inbox': 'never',
-   'reviews': 'always',
+   inbox: 'always',
+   reviews: 'always',
+   chat: 'always',
+   meetings: 'always',
    'my-issues': 'always',
-   'agent': 'always',
-   'initiatives': 'never',
-   'projects': 'never',
-   'views': 'never',
-   'agents': 'always',
+   autopilot: 'always',
+   analytics: 'always',
+   agent: 'always',
+   initiatives: 'never',
+   projects: 'never',
+   views: 'never',
+   agents: 'always',
 };
 
 /**
@@ -43,43 +51,20 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
  * sidebar keeps its shape across sessions.
  */
 const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
-   personal: ['my-issues', 'agent', 'reviews', 'inbox'],
-   workspace: ['projects', 'agents'],
+   personal: ['inbox', 'reviews', 'chat', 'meetings'],
+   workspace: ['my-issues', 'autopilot', 'analytics', 'projects'],
+   configure: ['agent', 'agents'],
 };
-
-export const useSidebarPrefsStore = create<SidebarPrefsState>()(
-   persist(
-      (set) => ({
-         badgeStyle: 'count',
-         visibility: DEFAULT_VISIBILITY,
-         order: DEFAULT_ORDER,
-         setBadgeStyle: (badgeStyle) => set({ badgeStyle }),
-         setVisibility: (item, value) =>
-            set((state) => ({ visibility: { ...state.visibility, [item]: value } })),
-         moveItem: (section, from, to) =>
-            set((state) => {
-               const keys = [...state.order[section]];
-               if (from < 0 || from >= keys.length || to < 0 || to >= keys.length) return state;
-               const [moved] = keys.splice(from, 1);
-               keys.splice(to, 0, moved);
-               return { order: { ...state.order, [section]: keys } };
-            }),
-      }),
-      { name: 'sidebar-prefs-v3' }
-   )
-);
 
 /**
  * Stored order, resilient to new items: unknown keys are dropped, missing
- * defaults are appended at the end.
+ * defaults are inserted after their default predecessor.
  */
 export function resolveOrder(
    stored: SidebarItemKey[] | undefined,
    defaults: SidebarItemKey[]
 ): SidebarItemKey[] {
    const result = (stored ?? []).filter((key) => defaults.includes(key));
-   // Insert items missing from the stored order (added after it was
-   // persisted) right after their default predecessor, not at the end.
    defaults.forEach((key, index) => {
       if (result.includes(key)) return;
       let insertAt = 0;
@@ -94,6 +79,44 @@ export function resolveOrder(
    });
    return result;
 }
+
+export const useSidebarPrefsStore = create<SidebarPrefsState>()(
+   persist(
+      (set) => ({
+         badgeStyle: 'count',
+         visibility: DEFAULT_VISIBILITY,
+         order: DEFAULT_ORDER,
+         setBadgeStyle: (badgeStyle) => set({ badgeStyle }),
+         setVisibility: (item, value) =>
+            set((state) => ({ visibility: { ...state.visibility, [item]: value } })),
+         moveItem: (section, from, to) =>
+            set((state) => {
+               const keys = resolveOrder(state.order[section], DEFAULT_ORDER[section]);
+               if (from < 0 || from >= keys.length || to < 0 || to >= keys.length) return state;
+               const [moved] = keys.splice(from, 1);
+               keys.splice(to, 0, moved);
+               return { order: { ...state.order, [section]: keys } };
+            }),
+      }),
+      {
+         name: 'sidebar-prefs-v3',
+         merge: (persisted, current) => {
+            const stored = persisted as Partial<SidebarPrefsState> | undefined;
+            const mergedOrder = { ...current.order, ...stored?.order };
+            return {
+               ...current,
+               ...stored,
+               visibility: { ...current.visibility, ...stored?.visibility },
+               order: {
+                  personal: resolveOrder(mergedOrder.personal, DEFAULT_ORDER.personal),
+                  workspace: resolveOrder(mergedOrder.workspace, DEFAULT_ORDER.workspace),
+                  configure: resolveOrder(mergedOrder.configure, DEFAULT_ORDER.configure),
+               },
+            };
+         },
+      }
+   )
+);
 
 /**
  * Should an item be rendered, given its visibility pref and badge count?

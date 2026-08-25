@@ -1,6 +1,5 @@
 'use client';
 
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { getInitiativeById } from '@/data/initiatives';
 import { ChevronRight, MoreHorizontal, Star } from 'lucide-react';
@@ -24,7 +23,6 @@ export default function Header() {
       <div className="w-full flex flex-col">
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
             <div className="flex items-center gap-2 min-w-0">
-               <SidebarTrigger />
                <Link
                   href={`/${orgId}/initiatives`}
                   className="font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"

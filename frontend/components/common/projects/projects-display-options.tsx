@@ -18,7 +18,6 @@ import {
    ProjectsViewType,
    useProjectsDisplayStore,
 } from '@/store/projects-display-store';
-import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import {
    ArrowUpDown,
    ArrowUpNarrowWide,
@@ -56,12 +55,8 @@ function OptionRow({ label, children }: { label: React.ReactNode; children: Reac
 
 /** Linear-style Display popover for the Projects page (List/Board/Timeline). */
 export function ProjectsDisplayOptions() {
-   const [tab] = useQueryState(
-      'tab',
-      parseAsStringLiteral(['all', 'active'] as const).withDefault('all')
-   );
    const {
-      viewTypes,
+      viewType,
       grouping,
       ordering,
       closedProjects,
@@ -79,7 +74,6 @@ export function ProjectsDisplayOptions() {
       toggleDisplayProperty,
       resetDisplaySettings,
    } = useProjectsDisplayStore();
-   const viewType = viewTypes[tab];
 
    return (
       <Popover>
@@ -96,7 +90,7 @@ export function ProjectsDisplayOptions() {
                      <button
                         key={view.value}
                         type="button"
-                        onClick={() => setViewType(tab, view.value)}
+                        onClick={() => setViewType(view.value)}
                         className={cn(
                            'flex items-center justify-center gap-1.5 h-9 rounded-full border transition-colors',
                            viewType === view.value

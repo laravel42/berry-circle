@@ -17,7 +17,7 @@ export default function Preferences() {
                <SettingsRow
                   title="Default home view"
                   description="Select which view to display when launching the app"
-                  trailing={<SelectMenu options={['Runs (default)', 'Inbox', 'Issues']} />}
+                  trailing={<SelectMenu options={['Runtimes (default)', 'Inbox', 'Issues']} />}
                />
                <SettingsRow
                   title="Display names"

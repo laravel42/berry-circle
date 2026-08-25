@@ -134,7 +134,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
             </button>
          )}
 
-         <div className="relative flex min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
+         <div className="relative flex h-[100vh] max-h-[100vh] min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
             <ShellTabs
                tabs={tabs}
                activeTabId={activeTabId}

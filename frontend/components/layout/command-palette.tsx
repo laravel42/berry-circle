@@ -181,7 +181,7 @@ export function CommandPalette() {
          />
          {route === 'root' && (
             <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-muted-foreground pointer-events-none">
-               open runs
+               open runtimes
                <kbd className="h-5 px-1.5 inline-flex items-center rounded border bg-muted/50 font-sans">
                   Tab
                </kbd>

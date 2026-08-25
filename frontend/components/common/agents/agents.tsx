@@ -25,7 +25,7 @@ export default function Agents() {
    const storedError = useAgentsStore((state) => state.error);
    const hydrateAgents = useAgentsStore((state) => state.hydrateAgents);
    const runs = useRunsStore((state) => state.runs);
-   const { search, tab, sort, setTabCounts } = useAgentsListStore();
+   const { search, sort } = useAgentsListStore();
 
    const [loading, setLoading] = useState(storedAgents.length === 0 && !storedError);
 
@@ -75,12 +75,6 @@ export default function Agents() {
          );
       }
 
-      if (tab === 'archived') {
-         list = [];
-      } else if (tab === 'mine') {
-         list = list.filter((agent) => agent.id === featuredAgentId || (runCounts.get(agent.id) ?? 0) > 0);
-      }
-
       list.sort((left, right) => {
          if (sort === 'name-asc') {
             return left.name.localeCompare(right.name);
@@ -89,18 +83,7 @@ export default function Agents() {
       });
 
       return list;
-   }, [storedAgents, search, tab, sort, featuredAgentId, runCounts]);
-
-   useEffect(() => {
-      const mine = storedAgents.filter(
-         (agent) => agent.id === featuredAgentId || (runCounts.get(agent.id) ?? 0) > 0
-      ).length;
-      setTabCounts({
-         all: storedAgents.length,
-         mine,
-         archived: 0,
-      });
-   }, [storedAgents, featuredAgentId, runCounts, setTabCounts]);
+   }, [storedAgents, search, sort]);
 
    return (
       <div className="w-full">
@@ -113,7 +96,7 @@ export default function Agents() {
                Last active
                {sort === 'last-active-desc' ? <ArrowDown className="size-3" /> : <ArrowUpDown className="size-3" />}
             </div>
-            <div className="w-[56px] shrink-0 text-right">Runs</div>
+            <div className="w-[56px] shrink-0 text-right">Runtimes</div>
          </div>
 
          {loading ? (
@@ -122,11 +105,9 @@ export default function Agents() {
             <div className="px-6 py-10 text-muted-foreground">{storedError}</div>
          ) : displayed.length === 0 ? (
             <div className="px-6 py-10 text-muted-foreground">
-               {tab === 'archived'
-                  ? 'No archived agents yet.'
-                  : search.trim()
-                    ? 'No agents match your search.'
-                    : 'No agents are registered for this workspace yet.'}
+               {search.trim()
+                  ? 'No agents match your search.'
+                  : 'No agents are registered for this workspace yet.'}
             </div>
          ) : (
             displayed.map((agent) => (

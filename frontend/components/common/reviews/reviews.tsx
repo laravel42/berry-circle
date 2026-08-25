@@ -1,6 +1,5 @@
 'use client';
 
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import {
    createdReviews,
@@ -137,7 +136,6 @@ export default function Reviews({
          <div className="w-[420px] max-w-[45%] shrink-0 border-r h-full flex flex-col bg-container">
             <div className="flex items-center justify-between px-4 py-1.5 h-10 border-b shrink-0">
                <div className="flex items-center gap-2">
-                  <SidebarTrigger />
                   <span className="font-medium">Reviews</span>
                </div>
                <div className="flex items-center gap-2 text-muted-foreground">

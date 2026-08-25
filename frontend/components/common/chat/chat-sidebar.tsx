@@ -26,13 +26,8 @@ export function ChatSidebar({ agents, threads, activeAgentId, onSelect }: ChatSi
 
    return (
       <aside className="flex w-[218px] flex-none flex-col overflow-y-auto border-r border-[var(--shell-line)] bg-[var(--shell-rail)]">
-         <div className="flex items-center gap-2.5 px-3.5 pt-4 pb-3.5">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} className="flex-none text-[var(--shell-text-dim)]" aria-hidden="true">
-               <rect x="3" y="4" width="18" height="16" rx="2" />
-               <path d="M9.5 4v16" />
-            </svg>
-            <span className="text-[var(--shell-text)]">Chat</span>
-            <span className="ml-auto text-[var(--shell-text-dim)]">{agents.length}</span>
+         <div className="flex h-10 shrink-0 items-center border-b border-[var(--shell-line)] px-4 py-1.5">
+            <span className="font-medium">Chat</span>
          </div>
 
          <div className="px-[18px] pt-2 pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">

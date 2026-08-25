@@ -4,7 +4,6 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 /* Linear-style display settings for the Projects page (3 view types). */
 
 export type ProjectsViewType = 'timeline' | 'board' | 'list';
-export type ProjectsTab = 'all' | 'active';
 export type ProjectsGrouping = 'status' | 'none';
 export type ProjectsOrdering = 'start-date' | 'target-date' | 'title';
 export type ClosedProjectsFilter = 'all' | 'hide';
@@ -45,8 +44,7 @@ const DEFAULT_PROPERTIES: Record<ProjectDisplayPropertyKey, boolean> = {
 };
 
 interface ProjectsDisplayState {
-   /** View type per tab — All projects defaults to list, Active to timeline. */
-   viewTypes: Record<ProjectsTab, ProjectsViewType>;
+   viewType: ProjectsViewType;
    grouping: ProjectsGrouping;
    ordering: ProjectsOrdering;
    closedProjects: ClosedProjectsFilter;
@@ -58,7 +56,7 @@ interface ProjectsDisplayState {
    showWeekNumbers: boolean;
    displayProperties: Record<ProjectDisplayPropertyKey, boolean>;
 
-   setViewType: (tab: ProjectsTab, viewType: ProjectsViewType) => void;
+   setViewType: (viewType: ProjectsViewType) => void;
    setGrouping: (grouping: ProjectsGrouping) => void;
    setOrdering: (ordering: ProjectsOrdering) => void;
    setClosedProjects: (value: ClosedProjectsFilter) => void;
@@ -70,7 +68,7 @@ interface ProjectsDisplayState {
 }
 
 const DEFAULTS = {
-   viewTypes: { all: 'list', active: 'timeline' } as Record<ProjectsTab, ProjectsViewType>,
+   viewType: 'list' as ProjectsViewType,
    grouping: 'status' as ProjectsGrouping,
    ordering: 'start-date' as ProjectsOrdering,
    closedProjects: 'all' as ClosedProjectsFilter,
@@ -85,8 +83,7 @@ export const useProjectsDisplayStore = create<ProjectsDisplayState>()(
       (set) => ({
          ...DEFAULTS,
 
-         setViewType: (tab, viewType) =>
-            set((state) => ({ viewTypes: { ...state.viewTypes, [tab]: viewType } })),
+         setViewType: (viewType) => set({ viewType }),
          setGrouping: (grouping) => set({ grouping }),
          setOrdering: (ordering) => set({ ordering }),
          setClosedProjects: (closedProjects) => set({ closedProjects }),
@@ -103,7 +100,7 @@ export const useProjectsDisplayStore = create<ProjectsDisplayState>()(
          resetDisplaySettings: () => set({ ...DEFAULTS }),
       }),
       {
-         name: 'projects-display-settings-v2',
+         name: 'projects-display-settings-v3',
          storage: createJSONStorage(() => localStorage),
       }
    )
