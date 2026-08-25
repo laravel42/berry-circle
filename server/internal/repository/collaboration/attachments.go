@@ -99,12 +99,16 @@ func (repository *Repository) ReserveAttachment(
 	}
 	if _, err := tx.Exec(
 		ctx,
+		// uploader_type is written explicitly rather than defaulted: an
+		// attachment with a null kind reads as unattributed, and this path is
+		// the human upload. An agent-authored artifact sets 'agent' and
+		// uploader_agent_id instead (ADR-0006).
 		`INSERT INTO attachments (
-		    id, issue_id, comment_id, uploader_id, uploader_name,
+		    id, issue_id, comment_id, uploader_type, uploader_id, uploader_name,
 		    file_name, content_type, size_bytes, checksum_sha256,
 		    storage_key, state, created_at
 		 ) VALUES (
-		    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'pending', $11
+		    $1, $2, $3, 'user', $4, $5, $6, $7, $8, $9, $10, 'pending', $11
 		 )`,
 		params.ID,
 		access.IssueID,

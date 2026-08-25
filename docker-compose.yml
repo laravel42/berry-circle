@@ -35,6 +35,10 @@ services:
         condition: service_healthy
       temporal:
         condition: service_healthy
+      # The bucket must exist before the first artifact upload; waiting on the
+      # job rather than on minio itself is what makes that ordering real.
+      minio-bucket:
+        condition: service_completed_successfully
     environment:
       APP_ENV: "${APP_ENV:-development}"
       SERVICE_NAME: "${SERVICE_NAME:-berry-server}"
@@ -51,17 +55,17 @@ services:
       OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
       METRICS_ENABLED: "${METRICS_ENABLED:-true}"
       TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
-      STORAGE_BACKEND: "${STORAGE_BACKEND:-local}"
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-s3}"
       STORAGE_LOCAL_ROOT: "/data/uploads"
       STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
-      S3_BUCKET: "${S3_BUCKET:-}"
-      S3_REGION: "${S3_REGION:-}"
-      S3_ENDPOINT: "${S3_ENDPOINT:-}"
-      S3_USE_PATH_STYLE: "${S3_USE_PATH_STYLE:-}"
+      S3_BUCKET: "${S3_BUCKET:-berry-artifacts}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_USE_PATH_STYLE: "${S3_USE_PATH_STYLE:-true}"
       # Standard AWS credentials are server-side only. Empty values use the
       # SDK's workload/instance credential chain when S3 is enabled.
-      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
-      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-berryminio}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
       AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
       SESSION_TTL: "${SESSION_TTL:-720h}"
       AUTH_ALLOW_PASSWORDLESS_LOGIN: "${AUTH_ALLOW_PASSWORDLESS_LOGIN:-true}"
@@ -285,6 +289,48 @@ services:
       - "127.0.0.1:${TEMPORAL_UI_PORT:-8233}:8080"
     restart: unless-stopped
 
+  minio:
+    # S3-compatible object storage for artifacts (ADR-0006). Development runs the
+    # same S3 code path as deployment rather than the local-filesystem backend,
+    # so presigning and content-type behaviour are exercised here instead of
+    # first appearing in production.
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: "${AWS_ACCESS_KEY_ID:-berryminio}"
+      MINIO_ROOT_PASSWORD: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
+    ports:
+      # Loopback-only: these are weak dev credentials, so never expose the API or
+      # console beyond the local host.
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - berry-artifacts:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    restart: unless-stopped
+
+  minio-bucket:
+    # Creates the artifact bucket once, then exits. A missing bucket otherwise
+    # surfaces as an opaque S3 error on the first upload rather than at startup.
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - sh
+      - -c
+      - |
+        mc alias set berry http://minio:9000 \
+          "${AWS_ACCESS_KEY_ID:-berryminio}" "${AWS_SECRET_ACCESS_KEY:-berryminio}" &&
+        mc mb --ignore-existing "berry/${S3_BUCKET:-berry-artifacts}" &&
+        echo "artifact bucket ready"
+    restart: "no"
+
   postgres:
     # Berry's durable system of record. Keep PostgreSQL 16 on this existing
     # named volume; a future 17 upgrade must migrate into a separate volume.
@@ -332,4 +378,5 @@ volumes:
   openfang-data:
   berry-postgres:
   berry-valkey:
+  berry-artifacts:
   berry-uploads:
