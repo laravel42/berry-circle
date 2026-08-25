@@ -4,16 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/laravel42/berry-circle/server/internal/issueid"
 )
 
 const issueProjection = `
-	i.id, i.board_id, b.slug, i.number, i.title, i.description,
+	i.id, i.board_id, b.slug, w.settings->>'issuePrefix', i.number, i.title, i.description,
 	i.status::text, i.priority::text, i.sort_order, i.due_date,
 	i.assignee_type::text, i.assignee_id,
 	COALESCE(assignee_user.name, assignee_agent.name),
@@ -35,6 +35,7 @@ const issueSource = `
 	   -- WHERE. For an inner join the two are equivalent, and putting it here
 	   -- means a query cannot read a deleted issue by forgetting to exclude one.
 	   JOIN boards AS b ON b.id = i.board_id AND i.deleted_at IS NULL
+	   JOIN workspaces AS w ON w.id = b.workspace_id AND w.deleted_at IS NULL
 	   LEFT JOIN users AS assignee_user
 	     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
 	   LEFT JOIN agents AS assignee_agent
@@ -45,8 +46,6 @@ const issueSource = `
 	   LEFT JOIN issue_project_links AS link ON link.issue_id = i.id
 	   LEFT JOIN projects AS project
 	     ON project.id = link.project_id AND project.deleted_at IS NULL`
-
-var issueIdentifierPattern = regexp.MustCompile(`^(.+)-([1-9][0-9]*)$`)
 
 type queryRower interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
@@ -102,7 +101,7 @@ func (repository *Repository) ListIssues(
 			))
 		    AND (NOT $7::boolean OR (
 				i.title ILIKE $8::text ESCAPE E'\\' OR
-				(b.slug || '-' || i.number::text) ILIKE $8::text ESCAPE E'\\'
+				(w.settings->>'issuePrefix' || '-' || i.number::text) ILIKE $8::text ESCAPE E'\\'
 			))
 		    AND (NOT $9::boolean OR
 				(i.updated_at, i.id) < ($10::timestamptz, $11::uuid)
@@ -146,19 +145,15 @@ func (repository *Repository) GetIssue(ctx context.Context, reference string) (I
 	if id, err := ParseUUID(reference); err == nil {
 		return getIssueByID(ctx, repository.Pool, id, false)
 	}
-	match := issueIdentifierPattern.FindStringSubmatch(reference)
-	if match == nil {
-		return Issue{}, ErrNotFound
-	}
-	number, err := strconv.ParseInt(match[2], 10, 32)
-	if err != nil {
+	prefix, number, ok := issueid.Parse(reference)
+	if !ok {
 		return Issue{}, ErrNotFound
 	}
 	issue, err := scanIssue(repository.Pool.QueryRow(
 		ctx,
 		`SELECT `+issueProjection+issueSource+`
-		  WHERE lower(b.slug) = lower($1) AND i.number = $2`,
-		match[1],
+		  WHERE lower(w.settings->>'issuePrefix') = lower($1) AND i.number = $2`,
+		prefix,
 		number,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -426,6 +421,7 @@ func scanIssue(row rowScanner) (Issue, error) {
 		&issue.ID,
 		&issue.BoardID,
 		&issue.BoardSlug,
+		&issue.IssuePrefix,
 		&issue.Number,
 		&issue.Title,
 		&issue.Description,

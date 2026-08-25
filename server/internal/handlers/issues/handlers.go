@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -563,7 +562,7 @@ func serializeIssue(issue core.Issue) issueResource {
 		ID:          issue.ID,
 		BoardID:     issue.BoardID,
 		Number:      issue.Number,
-		Identifier:  strings.ToUpper(issue.BoardSlug) + "-" + fmt.Sprint(issue.Number),
+		Identifier:  issue.Identifier(),
 		Title:       issue.Title,
 		Description: issue.Description,
 		Status:      dbStatusToAPI(issue.Status),

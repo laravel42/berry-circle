@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/laravel42/berry-circle/server/internal/issueid"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
 
@@ -190,7 +189,8 @@ func (repository *Repository) ResolveIssueID(
 		`SELECT i.id
 		   FROM issues AS i
 		   JOIN boards AS b ON b.id = i.board_id
-		  WHERE lower(b.slug) = lower($1) AND i.number = $2
+		   JOIN workspaces AS w ON w.id = b.workspace_id
+		  WHERE lower(w.settings->>'issuePrefix') = lower($1) AND i.number = $2
 		    AND i.deleted_at IS NULL`,
 		slug,
 		number,
@@ -295,19 +295,7 @@ func scanRun(row rowScanner) (Run, error) {
 }
 
 func splitIssueReference(reference string) (string, int32, bool) {
-	index := strings.LastIndex(reference, "-")
-	if index < 1 || index == len(reference)-1 {
-		return "", 0, false
-	}
-	number, err := strconv.ParseInt(reference[index+1:], 10, 32)
-	if err != nil || number < 1 {
-		return "", 0, false
-	}
-	slug := reference[:index]
-	if strings.TrimSpace(slug) != slug || slug == "" {
-		return "", 0, false
-	}
-	return slug, int32(number), true
+	return issueid.Parse(reference)
 }
 
 func wrap(operation string, err error) error {
@@ -433,8 +421,6 @@ func (repository *Repository) DeliverableRun(
 	var (
 		row         DeliverableRunRow
 		status      string
-		boardSlug   string
-		number      int32
 		startedAt   *time.Time
 		completedAt *time.Time
 	)
@@ -442,7 +428,8 @@ func (repository *Repository) DeliverableRun(
 		ctx,
 		`SELECT board.workspace_id,
 		        COALESCE(project.github_repo_full_name, ''),
-		        agent.name, board.slug, issue.number, issue.title,
+		        agent.name, issue.title,
+		        berry_issue_identifier(board.workspace_id, issue.number),
 		        run.status::text, run.started_at, run.completed_at
 		   FROM runs AS run
 		   JOIN issues AS issue ON issue.id = run.issue_id
@@ -454,11 +441,10 @@ func (repository *Repository) DeliverableRun(
 		  WHERE run.id = $1`,
 		runID,
 	).Scan(&row.WorkspaceID, &row.Repository, &row.AgentSlug,
-		&boardSlug, &number, &row.IssueTitle,
+		&row.IssueTitle, &row.IssueIdentifier,
 		&status, &startedAt, &completedAt); err != nil {
 		return DeliverableRunRow{}, fmt.Errorf("load deliverable run: %w", err)
 	}
-	row.IssueIdentifier = fmt.Sprintf("%s-%d", strings.ToUpper(boardSlug), number)
 	row.Succeeded = status == "succeeded"
 	if startedAt != nil {
 		row.StartedAt = *startedAt

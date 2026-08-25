@@ -12,7 +12,7 @@ Current implementation note: the Go product server at `server/` implements this 
 
 Shipped but not yet specified here — treat the implementation as authoritative until these sections are written:
 
-- **Inbox** — `GET /api/v1/inbox`, `GET /api/v1/inbox/unread-count`, `POST /api/v1/inbox/{itemId}/{action}` (`read`, `unread`, `archive`, `unarchive`), `POST /api/v1/inbox/bulk`. Items carry `issueIdentifier` (board slug and issue number, for example `PLATFORM-3`), derived on read and `null` when the item references no issue.
+- **Inbox** — `GET /api/v1/inbox`, `GET /api/v1/inbox/unread-count`, `POST /api/v1/inbox/{itemId}/{action}` (`read`, `unread`, `archive`, `unarchive`), `POST /api/v1/inbox/bulk`. Items carry `issueIdentifier` (workspace issue prefix and issue number, for example `BER-3`), derived on read and `null` when the item references no issue.
 - **Agent models** — `GET /api/v1/agents/models` returns the runtime model catalog; `PUT /api/v1/agents/{agentId}/config` sets an agent's provider, model, description, and instructions. A provider/model pair is rejected unless the runtime catalog reports it available.
 - **Conversations** — `GET /api/v1/conversations`, `POST /api/v1/conversations/agents/{agentId}`, and `GET`/`POST /api/v1/conversations/{conversationId}/messages`. All require the caller to be a participant in the thread.
 
@@ -208,7 +208,7 @@ Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRE
 | `id` | `Uuid` | yes | Immutable |
 | `boardId` | `Uuid` | yes | Owning board; immutable |
 | `number` | integer | yes | Positive, sequential within the board; immutable |
-| `identifier` | string | yes | Uppercase board slug plus number, e.g. `BERRY-42`; immutable |
+| `identifier` | string | yes | Uppercase workspace issue prefix (first three characters of the workspace name) plus sequential number, e.g. `BER-42`; immutable |
 | `title` | string | yes | 1–500 characters |
 | `description` | string or null | yes | Markdown, at most 100,000 characters |
 | `status` | `IssueStatus` | yes | Workflow state |
@@ -226,7 +226,7 @@ Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRE
   "id": "8138a662-f20f-41aa-bd5a-cf46e35ba952",
   "boardId": "bb99372f-88c4-44f0-914f-a343bf30e6fb",
   "number": 42,
-  "identifier": "BERRY-42",
+  "identifier": "BER-42",
   "title": "Wire the board to the gateway",
   "description": "Replace fixture data with API resources.",
   "status": "inProgress",

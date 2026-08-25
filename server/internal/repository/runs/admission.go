@@ -228,7 +228,7 @@ func lockIssueForAdmission(
 		if !ok {
 			return issueAdmissionRow{}, ErrNotFound
 		}
-		where = "lower(b.slug) = lower($1) AND i.number = $2"
+		where = "lower(w.settings->>'issuePrefix') = lower($1) AND i.number = $2"
 		argument = slug
 		var result issueAdmissionRow
 		err := tx.QueryRow(
@@ -237,6 +237,7 @@ func lockIssueForAdmission(
 			        i.assignee_type::text, i.assignee_id, i.active_run_id
 			   FROM issues AS i
 			   JOIN boards AS b ON b.id = i.board_id
+			   JOIN workspaces AS w ON w.id = b.workspace_id
 			  WHERE `+where+` AND b.workspace_id = $3
 			    AND i.deleted_at IS NULL
 			  FOR UPDATE OF i`,

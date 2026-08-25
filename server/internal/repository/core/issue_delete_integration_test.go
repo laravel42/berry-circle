@@ -102,7 +102,7 @@ func TestDeletedIssueKeepsItsRowAndNumber(t *testing.T) {
 		t.Fatalf("DeleteIssue: %v", err)
 	}
 
-	// The row survives, which is what keeps PLATFORM-7 retired: the next number
+	// The row survives, which is what keeps BER-7 retired: the next number
 	// comes from max(number), so removing the row would hand it to a new issue
 	// and make the identifier name two different things over time.
 	var (

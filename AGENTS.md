@@ -190,7 +190,8 @@ files.
   POSTs, stable `SCREAMING_SNAKE_CASE` error codes.
 - Env booleans: do not use `z.coerce.boolean()` (`"false"` becomes `true`).
   Follow `boolFromEnv` in `apps/gateway/src/config.ts`.
-- Frontend issue prefix default is `BERRY`; tracker issues are `BERR-NN`.
+- Frontend issue prefixes are the first three characters of the workspace name
+  (stored as `settings.issuePrefix`); tracker issues are `BERR-NN`.
   Do not conflate them.
 - Prefer semantic design tokens over raw palette utilities. Proposed
   status/actor aliases in the design-system doc are not implemented yet.

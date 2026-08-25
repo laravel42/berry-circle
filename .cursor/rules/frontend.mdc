@@ -20,7 +20,8 @@ Next.js App Router (see `package.json` for the installed version). Prettier
 - `data/*` holds domain types and empty collections on purpose. Zustand stores
   in `store/` seed from those modules. Do not reintroduce Circle demo datasets.
 - `currentUser` in `data/users.ts` is a pre-auth placeholder.
-- Default issue prefix `BERRY` is display config; tracker issues are `BERR-NN`.
+- Default issue prefix is the first three characters of the workspace name
+  (`settings.issuePrefix`); tracker issues are `BERR-NN`.
 
 ## UI
 

@@ -53,12 +53,12 @@ func (repository *Repository) Search(
 				issue.id,
 				issue.title,
 				board.name::text AS subtitle,
-				upper(board.slug) || '-' || issue.number::text AS identifier,
+				berry_issue_identifier(board.workspace_id, issue.number) AS identifier,
 				issue.board_id,
 				CASE
-					WHEN lower(board.slug || '-' || issue.number::text) = $2 THEN 100
+					WHEN lower(berry_issue_identifier(board.workspace_id, issue.number)) = $2 THEN 100
 					WHEN lower(issue.title) = $2 THEN 90
-					WHEN lower(board.slug || '-' || issue.number::text) LIKE $3 ESCAPE '\' THEN 80
+					WHEN lower(berry_issue_identifier(board.workspace_id, issue.number)) LIKE $3 ESCAPE '\' THEN 80
 					WHEN lower(issue.title) LIKE $3 ESCAPE '\' THEN 70
 					WHEN lower(issue.title) LIKE $4 ESCAPE '\' THEN 50
 					WHEN lower(COALESCE(issue.description, '')) LIKE $4 ESCAPE '\' THEN 30
@@ -73,7 +73,7 @@ func (repository *Repository) Search(
 			  AND (
 				lower(issue.title) LIKE $4 ESCAPE '\'
 				OR lower(COALESCE(issue.description, '')) LIKE $4 ESCAPE '\'
-				OR lower(board.slug || '-' || issue.number::text) LIKE $4 ESCAPE '\'
+				OR lower(berry_issue_identifier(board.workspace_id, issue.number)) LIKE $4 ESCAPE '\'
 			  )
 			UNION ALL
 			SELECT
@@ -270,7 +270,7 @@ func (repository *Repository) ListIssueRows(
 	query := `WITH filtered AS (
 		SELECT
 			issue.id, issue.board_id,
-			upper(board.slug) || '-' || issue.number::text AS identifier,
+			berry_issue_identifier(board.workspace_id, issue.number) AS identifier,
 			issue.title, issue.status::text, issue.priority::text,
 			issue.assignee_type::text, issue.assignee_id, issue.due_date,
 			issue.updated_at, ` + keyExpression + ` AS group_key
@@ -421,7 +421,7 @@ const issueFilterWhere = `
 	))
 	AND (NOT $10::boolean OR (
 		lower(issue.title) LIKE $11::text ESCAPE '\'
-		OR lower(board.slug || '-' || issue.number::text) LIKE $11::text ESCAPE '\'
+		OR lower(berry_issue_identifier(board.workspace_id, issue.number)) LIKE $11::text ESCAPE '\'
 	))
 	AND (NOT $12::boolean OR issue.created_at >= $13::timestamptz)
 	AND (NOT $14::boolean OR issue.updated_at >= $15::timestamptz)`

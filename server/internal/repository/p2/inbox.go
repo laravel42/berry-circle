@@ -15,7 +15,10 @@ const inboxProjection = `
 	inbox.id, inbox.workspace_id, inbox.recipient_id, inbox.source_event_id,
 	inbox.event_type, inbox.category, inbox.severity, inbox.issue_id,
 	issue.status::text,
-	upper(board.slug) || '-' || issue.number::text AS issue_identifier,
+	CASE
+		WHEN issue.id IS NULL THEN NULL
+		ELSE berry_issue_identifier(board.workspace_id, issue.number)
+	END AS issue_identifier,
 	inbox.actor_type, inbox.actor_id, inbox.title, inbox.body,
 	inbox.details, inbox.read_at, inbox.archived_at, inbox.created_at`
 

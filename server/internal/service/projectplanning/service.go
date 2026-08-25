@@ -217,7 +217,7 @@ func (service *Service) GenerateIssues(
 		}
 		created = append(created, projecthandlers.GeneratedIssue{
 			ID:         issue.ID,
-			Identifier: fmt.Sprintf("%s-%d", upper(issue.BoardSlug), issue.Number),
+			Identifier: issue.Identifier(),
 			Title:      issue.Title,
 			Priority:   issue.Priority,
 		})
@@ -243,16 +243,6 @@ func (service *Service) existingTitles(
 		}
 	}
 	return titles, nil
-}
-
-func upper(value string) string {
-	out := []rune(value)
-	for index, letter := range out {
-		if letter >= 'a' && letter <= 'z' {
-			out[index] = letter - 32
-		}
-	}
-	return string(out)
 }
 
 func nonEmpty(value string) *string {

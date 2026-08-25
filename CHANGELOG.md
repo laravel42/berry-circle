@@ -134,6 +134,10 @@ and known issues.
 
 ### Changed
 
+- Issue identifiers use the workspace issue prefix (first three characters of the
+  workspace name) plus the board sequential number — for example `BER-5` instead of
+  `PLATFORM-5`. Lookups, search, inbox, and run dispatch all format and resolve the
+  same `PREFIX-N` shape.
 - Issue, project, and agent descriptions are plain-text fields again. A rich editor
   round-tripped markdown through parse/serialize, and because the round trip is not
   byte-stable — bullet markers normalise, blank lines are inserted, and `web_search`

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/laravel42/berry-circle/server/internal/issueid"
 )
 
 // ParseUUID accepts only canonical RFC 4122 text, unlike uuid.Parse's broader
@@ -95,6 +97,7 @@ type Issue struct {
 	ID          uuid.UUID
 	BoardID     uuid.UUID
 	BoardSlug   string
+	IssuePrefix string
 	Number      int32
 	Title       string
 	Description *string
@@ -111,6 +114,11 @@ type Issue struct {
 	CreatedBy *ActorRef
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// Identifier is the public PREFIX-N key derived from the workspace prefix.
+func (issue Issue) Identifier() string {
+	return issueid.Format(issue.IssuePrefix, issue.Number)
 }
 
 // ProjectRef names the project an issue is linked to.

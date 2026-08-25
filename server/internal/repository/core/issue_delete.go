@@ -12,7 +12,7 @@ import (
 // DeleteIssue marks an issue deleted without destroying it.
 //
 // Soft for two reasons the schema cannot express. The issue's number is part of
-// its identity — PLATFORM-4 appears in run history, audit rows and links — and
+// its identity — BER-4 appears in run history, audit rows and links — and
 // the next number comes from max(number) on the board, so removing the row
 // would hand the number to the next issue created. And twelve foreign keys
 // cascade from here, including runs, run_events and attachments, whose bytes

@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -14,10 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/laravel42/berry-circle/server/internal/identity"
+	"github.com/laravel42/berry-circle/server/internal/issueid"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
-
-var issueIdentifierPattern = regexp.MustCompile(`^(.+)-([1-9][0-9]*)$`)
 
 // Repository is the narrow, membership-aware persistence boundary for P2
 // collaboration resources.
@@ -68,16 +65,12 @@ func authorizeIssueReference(
 		condition = "issue.id = $2"
 		arguments = []any{userID, id}
 	} else {
-		match := issueIdentifierPattern.FindStringSubmatch(reference)
-		if match == nil {
+		prefix, number, ok := issueid.Parse(reference)
+		if !ok {
 			return issueAccess{}, ErrNotFound
 		}
-		number, err := strconv.ParseInt(match[2], 10, 32)
-		if err != nil {
-			return issueAccess{}, ErrNotFound
-		}
-		condition = "lower(board.slug) = lower($2) AND issue.number = $3"
-		arguments = []any{userID, match[1], number}
+		condition = "lower(workspace.settings->>'issuePrefix') = lower($2) AND issue.number = $3"
+		arguments = []any{userID, prefix, number}
 	}
 	statement := `SELECT issue.id, board.workspace_id, membership.role::text
 		FROM issues AS issue

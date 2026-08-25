@@ -231,7 +231,7 @@ func resolveProjectionIssue(
 	err := tx.QueryRow(
 		ctx,
 		`SELECT issue.id, board.workspace_id,
-		        upper(board.slug) || '-' || issue.number::text,
+		        berry_issue_identifier(board.workspace_id, issue.number),
 		        issue.title, issue.created_by,
 		        CASE WHEN issue.assignee_type = 'user' THEN issue.assignee_id END
 		   FROM issues AS issue

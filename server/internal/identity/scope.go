@@ -53,7 +53,7 @@ func (repository *Repository) IssueScope(
 	))
 }
 
-// IssueReferenceScope resolves either a canonical issue UUID or board-number
+// IssueReferenceScope resolves either a canonical issue UUID or PREFIX-N
 // identifier without exposing whether an inaccessible issue exists.
 func (repository *Repository) IssueReferenceScope(
 	ctx context.Context,
@@ -76,7 +76,7 @@ func (repository *Repository) IssueReferenceScope(
 		   JOIN workspace_memberships AS membership
 		     ON membership.workspace_id = workspace.id
 		    AND membership.user_id = $1
-		  WHERE lower(board.slug) || '-' || issue.number::text = lower($2)`,
+		  WHERE lower(workspace.settings->>'issuePrefix') || '-' || issue.number::text = lower($2)`,
 		userID,
 		reference,
 	))

@@ -125,7 +125,7 @@ func upsertWorkspace(ctx context.Context, tx pgx.Tx, now time.Time) error {
 		    id, name, slug, description, settings, created_by, created_at, updated_at
 		 ) VALUES (
 		    $1, $2, $3, 'Local Berry workspace',
-		    '{"issuePrefix":"BERRY","defaultRole":"member","allowMemberInvites":false}'::jsonb,
+		    '{"issuePrefix":"BER","defaultRole":"member","allowMemberInvites":false}'::jsonb,
 		    $4, $5, $5
 		 )
 		 ON CONFLICT (id) DO UPDATE SET

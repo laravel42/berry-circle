@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,17 +53,16 @@ func (repository *Repository) ClaimDispatch(
 		instructions *string
 		requestID    *string
 		traceparent  *string
-		boardSlug    string
-		number       int32
 	)
 	if err := tx.QueryRow(
 		ctx,
 		`SELECT r.id, r.issue_id, r.board_id, r.agent_id,
 		        r.upstream_agent_id::uuid,
-		        b.slug, i.number, i.title, i.description,
+		        i.title, i.description,
 		        r.instructions, r.request_id, r.traceparent,
 		        b.workspace_id,
-		        COALESCE(project.github_repo_full_name, '')
+		        COALESCE(project.github_repo_full_name, ''),
+		        berry_issue_identifier(b.workspace_id, i.number)
 		   FROM runs AS r
 		   JOIN issues AS i ON i.id = r.issue_id
 		   JOIN boards AS b ON b.id = r.board_id
@@ -83,8 +81,6 @@ func (repository *Repository) ClaimDispatch(
 		&result.BoardID,
 		&result.AgentID,
 		&result.UpstreamAgentID,
-		&boardSlug,
-		&number,
 		&result.IssueTitle,
 		&description,
 		&instructions,
@@ -92,10 +88,10 @@ func (repository *Repository) ClaimDispatch(
 		&traceparent,
 		&result.WorkspaceID,
 		&result.Repository,
+		&result.IssueIdentifier,
 	); err != nil {
 		return Dispatch{}, errors.New("load dispatch context")
 	}
-	result.IssueIdentifier = stringsUpper(boardSlug) + "-" + fmt.Sprint(number)
 	result.IssueDescription = description
 	result.Instructions = instructions
 	if requestID != nil {

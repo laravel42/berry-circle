@@ -89,7 +89,8 @@ type InboxItem struct {
 	Severity      string
 	IssueID       *uuid.UUID
 	IssueStatus   *string
-	// Human identifier ("PLATFORM-3"), derived from the issue's board slug and
+	// Human identifier ("BER-3"), derived from the workspace issue prefix and
+	// the issue's sequential board number.
 	// number at read time. Not stored: deriving it repairs rows already
 	// projected, which a write-time column would leave showing a raw id.
 	IssueIdentifier *string

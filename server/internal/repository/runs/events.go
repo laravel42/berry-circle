@@ -224,28 +224,29 @@ func issueUpdatedEvent(
 	occurredAt time.Time,
 ) (Event, error) {
 	var (
-		resource                    issueResource
-		boardSlug, status, priority string
-		dueDate                     *time.Time
-		assigneeType                *string
-		assigneeID                  *uuid.UUID
-		assigneeName                *string
-		assigneeAvatar              *string
-		creatorID                   *uuid.UUID
-		creatorName                 *string
-		creatorAvatar               *string
-		createdAt, updatedAt        time.Time
+		resource             issueResource
+		status, priority     string
+		dueDate              *time.Time
+		assigneeType         *string
+		assigneeID           *uuid.UUID
+		assigneeName         *string
+		assigneeAvatar       *string
+		creatorID            *uuid.UUID
+		creatorName          *string
+		creatorAvatar        *string
+		createdAt, updatedAt time.Time
 	)
 	err := tx.QueryRow(
 		ctx,
-		`SELECT i.id, i.board_id, b.slug, i.number, i.title, i.description,
+		`SELECT i.id, i.board_id, i.number, i.title, i.description,
 		        i.status::text, i.priority::text, i.sort_order, i.due_date,
 		        i.assignee_type::text, i.assignee_id,
 		        COALESCE(assignee_user.name, assignee_agent.name),
 		        COALESCE(assignee_user.avatar_url, assignee_agent.avatar_url),
 		        i.active_run_id,
 		        i.created_by, creator.name, creator.avatar_url,
-		        i.created_at, i.updated_at
+		        i.created_at, i.updated_at,
+		        berry_issue_identifier(b.workspace_id, i.number)
 		   -- Deliberately not filtered on i.deleted_at: this builds the
 		   -- payload for an event a run already emitted. A run whose issue was
 		   -- deleted still has a history, and refusing to describe it would
@@ -262,7 +263,6 @@ func issueUpdatedEvent(
 	).Scan(
 		&resource.ID,
 		&resource.BoardID,
-		&boardSlug,
 		&resource.Number,
 		&resource.Title,
 		&resource.Description,
@@ -280,11 +280,11 @@ func issueUpdatedEvent(
 		&creatorAvatar,
 		&createdAt,
 		&updatedAt,
+		&resource.Identifier,
 	)
 	if err != nil {
 		return Event{}, fmt.Errorf("read issue event snapshot: %w", err)
 	}
-	resource.Identifier = stringsUpper(boardSlug) + "-" + fmt.Sprint(resource.Number)
 	resource.Status = issueStatusToAPI(status)
 	resource.Priority = priority
 	if dueDate != nil {
@@ -341,16 +341,6 @@ func issueUpdatedEvent(
 		Sequence:   nil,
 		Payload:    payload,
 	}, nil
-}
-
-func stringsUpper(value string) string {
-	result := []byte(value)
-	for index, character := range result {
-		if character >= 'a' && character <= 'z' {
-			result[index] = character - ('a' - 'A')
-		}
-	}
-	return string(result)
 }
 
 func issueStatusToAPI(value string) string {

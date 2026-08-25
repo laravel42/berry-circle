@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	coreauth "github.com/laravel42/berry-circle/server/internal/auth"
+	"github.com/laravel42/berry-circle/server/internal/issueid"
 )
 
 const InvitationTokenPrefix = "berry_inv_"
@@ -117,7 +118,7 @@ func (service *Service) AuthorizeIssue(
 }
 
 // AuthorizeIssueReference is the hidden workspace seam for nested routes that
-// receive either an issue UUID or a board-number identifier.
+// receive either an issue UUID or a workspace-prefix issue identifier.
 func (service *Service) AuthorizeIssueReference(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -295,7 +296,7 @@ func (service *Service) CreateWorkspace(
 		Slug:        slug,
 		Description: description,
 		Settings: WorkspaceSettings{
-			IssuePrefix:        "BERRY",
+			IssuePrefix:        issueid.PrefixFromName(name, slug),
 			DefaultRole:        RoleMember,
 			AllowMemberInvites: false,
 		},
