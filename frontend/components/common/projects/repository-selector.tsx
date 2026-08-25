@@ -145,26 +145,13 @@ export function RepositoryPicker({
                      </>
                   )}
                </CommandList>
-               {/* Installations are per account, so a picker can be complete
-                   and still be missing everything someone expects: an app
-                   installed on a personal account reaches none of an
-                   organisation's repositories. Saying whose repositories these
-                   are is what makes a short list interpretable. */}
-               {access ? (
+               {/* Without an installation a user token reads only public
+                   repositories, which looks like a broken picker rather than a
+                   missing install. That is the one case worth a footer; once the
+                   app is installed the list speaks for itself. */}
+               {access && !access.installed ? (
                   <div className="border-t px-3 py-2 text-muted-foreground">
-                     {access.installed ? (
-                        <>
-                           Showing repositories from{' '}
-                           <span className="text-foreground">
-                              {access.accounts?.length
-                                 ? access.accounts.join(', ')
-                                 : 'the connected account'}
-                           </span>
-                           .{' '}
-                        </>
-                     ) : (
-                        <>Only public repositories are visible. </>
-                     )}
+                     Only public repositories are visible.{' '}
                      {access.installUrl ? (
                         <a
                            href={access.installUrl}
@@ -172,21 +159,8 @@ export function RepositoryPicker({
                            rel="noreferrer"
                            className="text-foreground underline underline-offset-2"
                         >
-                           {access.installed ? 'Add another account' : 'Install the app'}
+                           Install the app
                         </a>
-                     ) : null}
-                     {access.installed && access.manageUrl ? (
-                        <>
-                           {' or '}
-                           <a
-                              href={access.manageUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-foreground underline underline-offset-2"
-                           >
-                              manage access
-                           </a>
-                        </>
                      ) : null}
                      .
                   </div>
