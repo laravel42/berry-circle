@@ -227,3 +227,17 @@ export async function createBoardIssue(input: {
    }
    return issue;
 }
+
+/**
+ * Delete an issue.
+ *
+ * Unlike the optimistic patch above, a failure is reported rather than
+ * swallowed. Removing the card locally after a delete the server refused would
+ * show the issue as gone until the next refresh brought it back — and a person
+ * who believes something is deleted stops looking for it.
+ */
+export async function deleteBoardIssue(issueRef: string): Promise<void> {
+   await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}`, {
+      method: 'DELETE',
+   });
+}
