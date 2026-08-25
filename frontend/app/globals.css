@@ -51,7 +51,7 @@
       inverting them with the content theme would make the frame compete with
       what sits inside it. Values come from the prototype verbatim so the
       implementation and the design file cannot drift apart silently. */
-   --shell-rail: #171717;
+   --shell-rail: #18181b;
    --shell-canvas: #111113;
    --shell-surface: #1a1a1d;
    --shell-hover: #17171a;
