@@ -23,7 +23,7 @@ func newTestSealer(t *testing.T) *AESGCM {
 
 func TestSealedCredentialRoundTrips(t *testing.T) {
 	sealer := newTestSealer(t)
-	token := []byte("gho_averyrealisticlookinggithubtoken")
+	token := []byte("FAKE-TEST-FIXTURE-not-a-real-token")
 
 	sealed, err := sealer.Seal(token)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestSealedCredentialRoundTrips(t *testing.T) {
 // the table could tell that two workspaces connected the same account.
 func TestSealingIsNotDeterministic(t *testing.T) {
 	sealer := newTestSealer(t)
-	token := []byte("xoxb-slack-token")
+	token := []byte("FAKE-TEST-FIXTURE-slack")
 
 	first, err := sealer.Seal(token)
 	if err != nil {
