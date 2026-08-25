@@ -425,7 +425,19 @@ func run() int {
 			}
 		}
 
+		// The attachments ledger, which also indexes what a run produced.
+		runArtifactStore, err := collabrepo.New(dbPool)
+		if err != nil {
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("run artifact store setup failed", "error", err)
+			return 1
+		}
+
 		runRoutes, err = runhandlers.New(runhandlers.Options{
+			// Lists a run's promoted outputs (ADR-0006).
+			Artifacts:        runArtifactStore,
 			Dispatcher:       runDispatcher,
 			Pool:             dbPool,
 			Sessions:         authenticator,

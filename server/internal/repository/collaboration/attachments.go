@@ -14,10 +14,23 @@ import (
 
 const attachmentProjection = `
 	attachment.id, board.workspace_id, attachment.issue_id, attachment.comment_id,
-	attachment.uploader_id, attachment.uploader_name, uploader.avatar_url,
+	COALESCE(attachment.uploader_type::text, 'user'),
+	COALESCE(attachment.uploader_id, attachment.uploader_agent_id),
+	attachment.uploader_name,
+	COALESCE(uploader.avatar_url, uploader_agent.avatar_url),
 	attachment.file_name, attachment.content_type, attachment.size_bytes,
 	attachment.checksum_sha256, attachment.storage_key, attachment.state,
-	attachment.created_at, attachment.ready_at`
+	attachment.created_at, attachment.ready_at, attachment.run_id`
+
+// attachmentUploaderJoins resolves an uploader of either kind.
+//
+// Kept beside the projection because the two must agree: the projection reads a
+// column from each table, so a query that selects it without joining both would
+// fail, and one that joins only users would silently render every agent's
+// output as unattributed.
+const attachmentUploaderJoins = `
+	   LEFT JOIN users AS uploader ON uploader.id = attachment.uploader_id
+	   LEFT JOIN agents AS uploader_agent ON uploader_agent.id = attachment.uploader_agent_id`
 
 // ReserveAttachment validates membership and association under locks, then
 // inserts metadata in an invisible pending state.
@@ -333,7 +346,7 @@ func (repository *Repository) listAttachments(
 		   FROM attachments AS attachment
 		   JOIN issues AS issue ON issue.id = attachment.issue_id
 		   JOIN boards AS board ON board.id = issue.board_id
-		   LEFT JOIN users AS uploader ON uploader.id = attachment.uploader_id
+`+attachmentUploaderJoins+`
 		  WHERE attachment.issue_id = $1
 		    AND attachment.state = 'ready'
 		    AND ($2::uuid IS NULL OR attachment.comment_id = $2)
@@ -536,7 +549,7 @@ func getAttachmentAuthorized(
 		JOIN workspace_memberships AS membership
 		  ON membership.workspace_id = workspace.id
 		 AND membership.user_id = $2
-		LEFT JOIN users AS uploader ON uploader.id = attachment.uploader_id
+` + attachmentUploaderJoins + `
 		WHERE attachment.id = $1 AND attachment.state = ANY($3::text[])`
 	if lock {
 		statement += ` FOR UPDATE OF attachment`
@@ -578,6 +591,7 @@ func scanAttachmentFields(row pgx.Row, role *string) (Attachment, error) {
 		&attachment.WorkspaceID,
 		&attachment.IssueID,
 		&attachment.CommentID,
+		&attachment.UploaderType,
 		&uploaderID,
 		&name,
 		&avatar,
@@ -589,6 +603,7 @@ func scanAttachmentFields(row pgx.Row, role *string) (Attachment, error) {
 		&attachment.State,
 		&attachment.CreatedAt,
 		&attachment.ReadyAt,
+		&attachment.RunID,
 	}
 	if role != nil {
 		targets = append(targets, role)
