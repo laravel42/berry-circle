@@ -96,6 +96,20 @@ func RunOrchestration(ctx workflow.Context, runID string) error {
 		logger.Error("run dispatch failed", "runId", runID, "error", dispatchErr)
 		return dispatchErr
 	}
+
+	// Publish what the run produced (ADR-0006). Best effort on purpose: the
+	// model call is already paid for and its result already recorded, so a
+	// promotion failure is a missing file, not a failed run. Returning the
+	// error here would retry the whole workflow and re-run the work.
+	promoteCtx := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
+	if err := workflow.ExecuteActivity(
+		promoteCtx,
+		(*Activities).PromoteRunArtifacts,
+		runID,
+	).Get(ctx, nil); err != nil {
+		logger.Warn("artifact promotion failed", "runId", runID, "error", err)
+	}
+
 	logger.Info("run orchestration finished", "runId", runID)
 	return nil
 }

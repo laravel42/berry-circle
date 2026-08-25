@@ -239,6 +239,23 @@ services:
       INFOBIP_WHATSAPP_FROM: "${INFOBIP_WHATSAPP_FROM:-}"
       INFOBIP_SMS_FROM: "${INFOBIP_SMS_FROM:-}"
       INFOBIP_WEBHOOK_SECRET: "${INFOBIP_WEBHOOK_SECRET:-}"
+      # The runtime volume is mounted at /runtime-workspaces below; agent
+      # directories sit one level down under workspaces/. Promotion is off
+      # when unset, so a deployment without the mount is unaffected.
+      RUNTIME_WORKSPACE_ROOT: "${RUNTIME_WORKSPACE_ROOT:-/runtime-workspaces/workspaces}"
+      # Artifact promotion writes a finished run's output to the same
+      # object store the API serves attachments from, so the worker needs
+      # the identical storage configuration (ADR-0006).
+      STORAGE_BACKEND: "${STORAGE_BACKEND:-s3}"
+      STORAGE_LOCAL_ROOT: "/data/uploads"
+      STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
+      S3_BUCKET: "${S3_BUCKET:-berry-artifacts}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_USE_PATH_STYLE: "${S3_USE_PATH_STYLE:-true}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-berryminio}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
       SHUTDOWN_TIMEOUT: "${SHUTDOWN_TIMEOUT:-15s}"
       REALTIME_RELAY_REQUIRED: "${REALTIME_RELAY_REQUIRED:-true}"
     # The image is shared with berry-api, whose Dockerfile HEALTHCHECK probes
@@ -262,6 +279,12 @@ services:
 
   # Temporal reuses the existing Postgres instance with its own databases, so
   # self-hosting gains one service rather than a whole new datastore.
+    volumes:
+      # Read-only: the worker reads a finished run's output and copies it
+      # into object storage. It must never be able to write to the
+      # runtime's filesystem.
+      - openfang-data:/runtime-workspaces:ro
+
   temporal:
     image: temporalio/auto-setup:1.29.0
     depends_on:

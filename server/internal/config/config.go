@@ -94,6 +94,12 @@ type Config struct {
 	InfobipSMSFrom       string
 	InfobipWebhookSecret string
 
+	// RuntimeWorkspaceRoot is where the runtime's workspaces volume is mounted
+	// into this process, read-only. Empty disables artifact promotion, so a
+	// deployment without the mount behaves as it did before ADR-0006 rather
+	// than failing every run.
+	RuntimeWorkspaceRoot string
+
 	// Integrations connect a workspace to GitHub, Slack, Linear, Notion and
 	// Gmail. Berry owns the credential; the runtime's MCP servers make the
 	// calls. Enabled only when there is a key to seal tokens with, because a
@@ -362,6 +368,8 @@ func Load(env map[string]string) (Config, error) {
 	// the feature rather than downgrading it. There is deliberately no
 	// generated default: a key that appeared on its own would differ between
 	// restarts and strand every token already stored under the previous one.
+	cfg.RuntimeWorkspaceRoot = strings.TrimSpace(env["RUNTIME_WORKSPACE_ROOT"])
+
 	cfg.IntegrationEncryptionKey = strings.TrimSpace(env["INTEGRATION_ENCRYPTION_KEY"])
 	cfg.IntegrationCallbackBaseURL = strings.TrimSpace(env["INTEGRATION_CALLBACK_BASE_URL"])
 	cfg.IntegrationRedirectAllowlist = redirectAllowlist(
