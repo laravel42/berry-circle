@@ -25,6 +25,8 @@ export interface Project {
    healthUpdatedAgoDays?: number;
    /** GitHub repository this project delivers into, as owner/name. */
    githubRepo?: string;
+   /** What the project is for, as stored. Plain text with light markdown. */
+   description?: string;
 }
 
 export interface Health {

@@ -9,6 +9,7 @@ import { format, parseISO } from 'date-fns';
 import { ArrowRight, ChevronDown, FileText, PenLine, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { descriptionToBlocks } from '@/lib/description-blocks';
 import { useMemo, useRef } from 'react';
 import { DocumentOutline, getOutlineItems } from './document-outline';
 import { ProjectSidePanel } from './project-side-panel';
@@ -31,7 +32,18 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
 
    const { orgId } = useParams<{ orgId: string }>();
    const scrollRef = useRef<HTMLDivElement>(null);
-   const outlineItems = useMemo(() => getOutlineItems(detail.description), [detail.description]);
+   // The project's own description, which the API has always returned and
+   // nothing rendered: getProjectDetail is a stub that reports every project as
+   // having none. Falls back to it so a real detail source can take over
+   // without this changing again.
+   const descriptionBlocks = useMemo(
+      () =>
+         detail.description.length > 0
+            ? detail.description
+            : descriptionToBlocks(project?.description),
+      [detail.description, project?.description]
+   );
+   const outlineItems = useMemo(() => getOutlineItems(descriptionBlocks), [descriptionBlocks]);
 
    if (!project) {
       return <div className="p-6 text-muted-foreground">Loading project…</div>;
@@ -153,7 +165,7 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                         <ChevronDown className="size-3.5" />
                      </div>
                      <div>
-                        <ContentBlocks blocks={detail.description} />
+                        <ContentBlocks blocks={descriptionBlocks} />
                      </div>
                   </div>
                </div>

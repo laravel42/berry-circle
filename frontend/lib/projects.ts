@@ -65,6 +65,9 @@ export function toUiProject(apiProject: ApiProject, lead: User): Project | undef
    if (apiProject.githubRepo) {
       project.githubRepo = apiProject.githubRepo;
    }
+   if (apiProject.description) {
+      project.description = apiProject.description;
+   }
    return project;
 }
 
