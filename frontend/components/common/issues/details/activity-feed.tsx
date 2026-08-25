@@ -21,7 +21,6 @@ import {
    PenLine,
    Plus,
    RefreshCcw,
-   SmilePlus,
    Tag,
    Unlock,
 } from 'lucide-react';
@@ -65,7 +64,7 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
    return (
       <div
          className={cn(
-            'my-2 rounded-sm border border-border/60 bg-container p-3.5',
+            'mb-0 rounded-sm border border-border/60 bg-container p-3.5',
             isAgent && 'border-azure/25 bg-deep text-chalk'
          )}
       >
@@ -88,27 +87,24 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
                {item.timeAgo}
             </span>
          </div>
-         <div
-            className={cn('[&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}
-         >
+         <div className={cn('[&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}>
             <ContentBlocks blocks={item.body} />
          </div>
-         <div className="flex items-center gap-1.5 mt-1">
-            {item.reactions?.map((reaction) => (
-               <span
-                  key={reaction.emoji}
-                  className={cn(
-                     'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5',
-                     isAgent && 'border-white/10 bg-white/5 text-ash'
-                  )}
-               >
-                  {reaction.emoji} {reaction.count}
-               </span>
-            ))}
-            <button className="text-muted-foreground hover:text-foreground">
-               <SmilePlus className="size-3.5" />
-            </button>
-         </div>
+         {item.reactions && item.reactions.length > 0 ? (
+            <div className="mt-1 flex items-center gap-1.5">
+               {item.reactions.map((reaction) => (
+                  <span
+                     key={reaction.emoji}
+                     className={cn(
+                        'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5',
+                        isAgent && 'border-white/10 bg-white/5 text-ash'
+                     )}
+                  >
+                     {reaction.emoji} {reaction.count}
+                  </span>
+               ))}
+            </div>
+         ) : null}
       </div>
    );
 }
@@ -150,7 +146,7 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
             type: 'agent',
          });
       },
-      [agents],
+      [agents]
    );
 
    useEffect(() => {
@@ -175,10 +171,10 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
             runToActivityItems(run, agentActor(run.agentId)).map((item) => ({
                item,
                at: runTimestamp(run),
-            })),
+            }))
          );
          const merged = [...commentItems, ...runItems].sort((left, right) =>
-            left.at.localeCompare(right.at),
+            left.at.localeCompare(right.at)
          );
          setItems(merged.map((entry) => entry.item));
       });
@@ -197,17 +193,19 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
             setDraft('');
          })
          .catch(() => {
-            const actor = sessionUser ? toUiUser({ ...sessionUser, type: 'user' }) : {
-               id: 'me',
-               name: 'You',
-               avatarUrl: '',
-               email: '',
-               status: 'online' as const,
-               role: 'Member' as const,
-               joinedDate: '',
-               teamIds: [],
-               timezone: 'UTC',
-            };
+            const actor = sessionUser
+               ? toUiUser({ ...sessionUser, type: 'user' })
+               : {
+                    id: 'me',
+                    name: 'You',
+                    avatarUrl: '',
+                    email: '',
+                    status: 'online' as const,
+                    role: 'Member' as const,
+                    joinedDate: '',
+                    teamIds: [],
+                    timezone: 'UTC',
+                 };
             setItems((previous) => [
                ...previous,
                {
@@ -266,15 +264,12 @@ export function useActivityFeed(activity: ActivityItem[]) {
 
 export function ActivityFeedList({ items }: { items: ActivityItem[] }) {
    return (
-      <div className="mt-4 border-t border-border/60 pt-4">
-         <div className="flex items-center justify-between mb-2">
-            <h2 className="font-medium">activity</h2>
-            <button className="text-muted-foreground hover:text-foreground">
-               subscribe
-            </button>
+      <div className="border-t border-border/60 pt-4">
+         <div className="mb-1 pb-[7px] font-medium uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+            activity
          </div>
 
-         <div className="flex flex-col">
+         <div className="flex flex-col gap-1.5">
             {items.map((item) =>
                item.kind === 'event' ? (
                   <EventRow key={item.id} item={item} />
@@ -299,12 +294,7 @@ export function ActivityCommentComposer({
    className?: string;
 }) {
    return (
-      <div
-         className={cn(
-            'flex flex-col gap-2 border-t border-border/60 bg-container p-3 sm:px-8',
-            className
-         )}
-      >
+      <div className={cn('flex flex-col border-t border-border/60 bg-container p-3', className)}>
          <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
@@ -318,7 +308,7 @@ export function ActivityCommentComposer({
             rows={2}
             className="w-full resize-none bg-transparent text-foreground outline-none placeholder:text-foreground/40"
          />
-         <div className="flex items-center justify-between">
+         <div className="flex items-center justify-between" style={{ marginTop: 28 }}>
             <Plus className="size-4 text-muted-foreground" />
             <Button size="xs" onClick={submitComment} disabled={!draft.trim()}>
                comment

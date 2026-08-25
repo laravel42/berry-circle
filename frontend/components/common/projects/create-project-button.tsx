@@ -10,7 +10,7 @@ export function CreateProjectButton() {
    return (
       <Button className="relative" size="xs" variant="secondary" onClick={() => openModal()}>
          <Plus className="size-4" />
-         <span className="hidden sm:inline ml-1">Create project</span>
+         <span className="hidden sm:inline ml-1">New project</span>
       </Button>
    );
 }

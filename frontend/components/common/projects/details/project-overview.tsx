@@ -1,41 +1,43 @@
 'use client';
 
+import {
+   ActivityCommentComposer,
+} from '@/components/common/issues/details/activity-feed';
 import { ContentBlocks } from '@/components/common/issues/details/content-blocks';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useDetailDrawerClose, useInDetailDrawer } from '@/components/layout/detail-drawer-context';
 import { useProject } from '@/hooks/use-project';
 import { getProjectDetail } from '@/data/project-details';
 import { useIssuesStore } from '@/store/issues-store';
-import { format, parseISO } from 'date-fns';
-import { ArrowRight, ChevronDown, FileText, PenLine, Plus } from 'lucide-react';
-import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useProjectUpdatesStore } from '@/store/project-updates-store';
 import { descriptionToBlocks } from '@/lib/description-blocks';
-import { useMemo, useRef } from 'react';
-import { DocumentOutline, getOutlineItems } from './document-outline';
-import { ProjectSidePanel } from './project-side-panel';
+import { WORKSPACE_SLUG } from '@/lib/config';
+import { cn } from '@/lib/utils';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useMemo, useState } from 'react';
+import { ProjectActivityFeedList } from './project-activity-section';
+import { ProjectPropertiesPanel } from './project-properties-panel';
+import { ProjectTasksSection } from './project-tasks-section';
 
 interface ProjectOverviewProps {
    projectId: string;
 }
 
-const formatDay = (iso?: string) => (iso ? format(parseISO(iso), 'MMM do') : '—');
-
-/** Project "Overview" tab: description column + properties side panel. */
+/** Unified project detail — layout mirrors issue detail. */
 export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
+   const { orgId } = useParams<{ orgId: string }>();
+   const inDrawer = useInDetailDrawer();
+   const closeDrawer = useDetailDrawerClose();
+   const router = useRouter();
    const project = useProject(projectId);
    const detail = getProjectDetail(projectId);
    const { issues: allIssues } = useIssuesStore();
+   const { postUpdate } = useProjectUpdatesStore();
+   const [draft, setDraft] = useState('');
    const issues = useMemo(
       () => (project ? allIssues.filter((issue) => issue.project?.id === project.id) : []),
       [allIssues, project]
    );
 
-   const { orgId } = useParams<{ orgId: string }>();
-   const scrollRef = useRef<HTMLDivElement>(null);
-   // The project's own description, which the API has always returned and
-   // nothing rendered: getProjectDetail is a stub that reports every project as
-   // having none. Falls back to it so a real detail source can take over
-   // without this changing again.
    const descriptionBlocks = useMemo(
       () =>
          detail.description.length > 0
@@ -43,137 +45,83 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
             : descriptionToBlocks(project?.description),
       [detail.description, project?.description]
    );
-   const outlineItems = useMemo(() => getOutlineItems(descriptionBlocks), [descriptionBlocks]);
+
+   const afterDelete = useCallback(() => {
+      if (closeDrawer) {
+         closeDrawer();
+         return;
+      }
+      router.push(`/${orgId ?? WORKSPACE_SLUG}/projects`);
+   }, [closeDrawer, router, orgId]);
+
+   const submitComment = useCallback(() => {
+      const text = draft.trim();
+      if (!text || !project) return;
+      postUpdate(project.id, 'on-track', text);
+      setDraft('');
+   }, [draft, postUpdate, project]);
 
    if (!project) {
       return <div className="p-6 text-muted-foreground">Loading project…</div>;
    }
 
    return (
-      <div className="w-full h-full flex overflow-hidden">
-         {/* Main column */}
-         <div className="flex-1 min-w-0 h-full relative">
-            <DocumentOutline items={outlineItems} scrollRef={scrollRef} />
-            <div ref={scrollRef} className="h-full overflow-y-auto">
-               <div className="max-w-3xl mx-auto px-6 lg:px-10 py-10">
-                  <div className="inline-flex size-10 bg-muted/50 items-center justify-center rounded-md mb-4">
-                     <project.icon className="size-6" />
-                  </div>
-                  <h1 className="font-semibold tracking-tight">{project.name}</h1>
-                  <p className="mt-3 text-muted-foreground leading-relaxed">{detail.summary}</p>
+      <div
+         className={cn(
+            'h-full min-h-0 w-full overflow-hidden bg-container',
+            inDrawer ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto]' : 'flex'
+         )}
+      >
+         <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+               <div className="mx-auto max-w-3xl px-6 py-6 pb-4 sm:px-8 sm:py-8">
+                  <h1 className="text-balance font-display leading-[1.08] tracking-[-0.025em]">
+                     {project.name}
+                  </h1>
 
-                  {/* Inline properties */}
-                  <div className="mt-6 flex flex-col gap-2.5">
-                     <div className="flex items-center gap-3">
-                        <span className="w-24 text-muted-foreground shrink-0">Properties</span>
-                        <div className="flex items-center gap-3 flex-wrap">
-                           <span className="inline-flex items-center gap-1.5">
-                              <project.status.icon />
-                              {project.status.name}
-                           </span>
-                           <span className="inline-flex items-center gap-1.5">
-                              <project.priority.icon className="size-3.5 text-muted-foreground" />
-                              {project.priority.name}
-                           </span>
-                           <span className="inline-flex items-center gap-1.5">
-                              <Avatar className="size-4">
-                                 <AvatarImage
-                                    src={project.lead.avatarUrl}
-                                    alt={project.lead.name}
-                                 />
-                                 <AvatarFallback>{project.lead.name[0]}</AvatarFallback>
-                              </Avatar>
-                              {project.lead.name}
-                           </span>
-                           <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                              {formatDay(project.startDate)}
-                              <ArrowRight className="size-3" />
-                              {formatDay(project.targetDate)}
-                           </span>
-                        </div>
-                     </div>
-
-                     {project.initiative && (
-                        <div className="flex items-center gap-3">
-                           <span className="w-24 text-muted-foreground shrink-0">Initiatives</span>
-                           <span className="inline-flex items-center gap-1.5">
-                              📄 {project.initiative}
-                              <button className="text-muted-foreground hover:text-foreground transition-colors">
-                                 <Plus className="size-3.5" />
-                              </button>
-                           </span>
-                        </div>
-                     )}
-
-                     <div className="flex items-center gap-3">
-                        <span className="w-24 text-muted-foreground shrink-0">Labels</span>
-                        <div className="flex items-center gap-1.5">
-                           {project.labels.map((label) => (
-                              <span
-                                 key={label.id}
-                                 className="inline-flex items-center gap-1 border rounded-full px-2 py-0.5"
-                              >
-                                 <span
-                                    className="size-2 rounded-full"
-                                    style={{ backgroundColor: label.color }}
-                                 />
-                                 {label.name}
-                                 <ChevronDown className="size-3 text-muted-foreground" />
-                              </span>
-                           ))}
-                           <button className="text-muted-foreground hover:text-foreground transition-colors">
-                              <Plus className="size-3.5" />
-                           </button>
-                        </div>
-                     </div>
-
-                     {detail.resources.length > 0 && (
-                        <div className="flex items-center gap-3">
-                           <span className="w-24 text-muted-foreground shrink-0">Resources</span>
-                           <div className="flex items-center gap-2 flex-wrap">
-                              {detail.resources.map((resource) => (
-                                 <a
-                                    key={resource.label}
-                                    href={resource.url}
-                                    className="inline-flex items-center gap-1.5 border rounded-md px-2 py-1 hover:bg-accent/50 transition-colors"
-                                 >
-                                    <FileText className="size-3.5 text-muted-foreground" />
-                                    {resource.label}
-                                 </a>
-                              ))}
-                              <button className="text-muted-foreground hover:text-foreground transition-colors">
-                                 <Plus className="size-3.5" />
-                              </button>
-                           </div>
-                        </div>
-                     )}
-                  </div>
-
-                  {/* Update CTA */}
-                  <Link
-                     href={`/${orgId}/project/${project.id}/activity`}
-                     className="mt-8 flex items-center justify-center gap-2 border rounded-lg py-4 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
-                  >
-                     <PenLine className="size-4" />
-                     Write {detail.updates.length === 0 ? 'first ' : ''}project update
-                  </Link>
-
-                  {/* Description */}
-                  <div className="mt-10">
-                     <div className="flex items-center gap-1 font-medium text-muted-foreground mb-2">
-                        Description
-                        <ChevronDown className="size-3.5" />
-                     </div>
-                     <div>
+                  <div className="mt-3">
+                     {descriptionBlocks.length > 0 ? (
                         <ContentBlocks blocks={descriptionBlocks} />
-                     </div>
+                     ) : detail.summary ? (
+                        <p className="leading-relaxed text-muted-foreground">{detail.summary}</p>
+                     ) : (
+                        <p className="text-muted-foreground">No description yet.</p>
+                     )}
                   </div>
+
+                  <div className="mt-4">
+                     <ProjectActivityFeedList projectId={projectId} />
+                  </div>
+
+                  <div className="mt-6 border-t border-border/60 pt-4 pb-2">
+                     <ProjectTasksSection issues={issues} />
+                  </div>
+               </div>
+            </div>
+
+            <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
+               <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
+                  <ActivityCommentComposer
+                     draft={draft}
+                     setDraft={setDraft}
+                     submitComment={submitComment}
+                     className="border-0 bg-transparent p-0 sm:px-0"
+                  />
                </div>
             </div>
          </div>
 
-         {/* Side panel */}
-         <ProjectSidePanel project={project} detail={detail} issues={issues} />
+         <aside
+            className="hidden h-full min-w-0 w-[221px] shrink-0 flex-col overflow-hidden border-l bg-muted/15 px-5 pt-6 pb-3.5 lg:flex"
+         >
+            <ProjectPropertiesPanel
+               project={project}
+               detail={detail}
+               issues={issues}
+               compact
+               onDeleted={afterDelete}
+            />
+         </aside>
       </div>
    );
 }

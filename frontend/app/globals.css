@@ -516,3 +516,30 @@ input[type='search'] {
       opacity: 0.45;
    }
 }
+
+@keyframes ai-border-flow {
+   0% {
+      background-position: 0% 50%;
+   }
+
+   100% {
+      background-position: 300% 50%;
+   }
+}
+
+.ai-animated-border {
+   display: inline-flex;
+   padding: 1px;
+   border-radius: calc(var(--radius-md) + 1px);
+   background: linear-gradient(
+      90deg,
+      #f472b6,
+      #a78bfa,
+      #60a5fa,
+      #34d399,
+      #fbbf24,
+      #f472b6
+   );
+   background-size: 300% 100%;
+   animation: ai-border-flow 4s linear infinite;
+}

@@ -1,22 +1,13 @@
 'use client';
 
+import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
 import { Button } from '@/components/ui/button';
 import { getCycleById } from '@/data/cycles';
 import { IssueDetail } from '@/data/issue-details';
 import { Issue } from '@/data/issues';
-import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
-import { BerryApiError } from '@/lib/api';
-import { pickRunnableAgent } from '@/lib/agents';
-import { WORKSPACE_SLUG } from '@/lib/config';
-import { createIssueRun } from '@/lib/runs';
-import { useAgentsStore } from '@/store/agents-store';
-import { Ban, GitPullRequestArrow, Plus } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import { Ban, GitPullRequestArrow, Trash2 } from 'lucide-react';
 import { AssigneeUser } from '../assignee-user';
-import { LabelBadge } from '../label-badge';
 import { PrioritySelector } from '../priority-selector';
 import { StatusSelector } from '../status-selector';
 import { IssueRefRow } from './content-blocks';
@@ -24,12 +15,15 @@ import { IssueRefRow } from './content-blocks';
 interface IssuePropertiesPanelProps {
    issue: Issue;
    detail: IssueDetail;
+   onDeleted?: () => void;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
    return (
       <div>
-         <h3 className="mb-2 text-subtle-foreground">{title.toLowerCase()}</h3>
+         <div className="mb-2 pb-[7px] font-medium uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+            {title.toLowerCase()}
+         </div>
          {children}
       </div>
    );
@@ -39,37 +33,14 @@ function Section({ title, children }: { title: string; children: React.ReactNode
  * Right sidebar of the issue page: editable properties (status, priority,
  * assignee), cycle, labels, project + milestone, relations and linked PRs.
  */
-export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProps) {
+export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssuePropertiesPanelProps) {
    const cycle = issue.cycleId ? getCycleById(issue.cycleId) : undefined;
-   const inDrawer = useInDetailDrawer();
-   const { orgId } = useParams<{ orgId: string }>();
-   const router = useRouter();
-   const agents = useAgentsStore((state) => state.agents);
-   const [starting, setStarting] = useState(false);
-
-   const startRun = async () => {
-      const agent = pickRunnableAgent(agents);
-      if (!agent) {
-         toast.error('No agent is available');
-         return;
-      }
-      setStarting(true);
-      try {
-         const run = await createIssueRun(issue.id, {
-            agentId: agent.id,
-            instructions: issue.description || undefined,
-         });
-         toast.success(`Run started with ${agent.name}`);
-         router.push(`/${orgId ?? WORKSPACE_SLUG}/runs?run=${run.id}`);
-      } catch (error) {
-         toast.error(error instanceof BerryApiError ? error.message : 'Could not start a run');
-      } finally {
-         setStarting(false);
-      }
-   };
+   const deletion = useIssueDeletion(onDeleted);
 
    return (
-      <div className="flex flex-col gap-7">
+      <>
+         <div className="flex h-full min-h-0 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col gap-7 overflow-y-auto">
          <Section title="Properties">
             <div className="flex flex-col gap-1.5">
                <div className="flex items-center gap-1.5 -ml-1.5">
@@ -84,21 +55,6 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                   <AssigneeUser user={issue.assignee} issueId={issue.id} />
                   <span>{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                </div>
-               {/* Not offered in the drawer. Starting a run navigates to the
-                   runs view, which closes the drawer and drops the person out
-                   of whatever they were looking at when they peeked in. The
-                   full issue page still has it. */}
-               {!inDrawer && agents.length > 0 ? (
-                  <Button
-                     className="mt-2 w-fit"
-                     size="sm"
-                     variant="secondary"
-                     disabled={starting}
-                     onClick={() => void startRun()}
-                  >
-                     {starting ? 'starting…' : 'ask agent'}
-                  </Button>
-               ) : null}
                {cycle && (
                   <div className="flex items-center gap-2 mt-0.5">
                      <CyclePlayIcon className="size-4" />
@@ -107,22 +63,6 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                )}
             </div>
          </Section>
-
-         {!inDrawer ? (
-            <Section title="Labels">
-               <div className="flex items-center flex-wrap gap-1.5">
-                  <LabelBadge label={issue.labels} />
-                  <Button
-                     variant="ghost"
-                     size="icon"
-                     className="size-6 rounded-sm border"
-                     aria-label="Add label"
-                  >
-                     <Plus className="size-3.5" />
-                  </Button>
-               </div>
-            </Section>
-         ) : null}
 
          {issue.project && (
             <Section title="Project">
@@ -183,6 +123,22 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                </div>
             </Section>
          )}
-      </div>
+            </div>
+
+            <div className="flex shrink-0 justify-end">
+               <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 translate-x-[10px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  aria-label="Delete task"
+                  onClick={() => deletion.request(issue)}
+               >
+                  <Trash2 className="size-4" />
+               </Button>
+            </div>
+         </div>
+
+         <DeleteIssueDialog deletion={deletion} />
+      </>
    );
 }

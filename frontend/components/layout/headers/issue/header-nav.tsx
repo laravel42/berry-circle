@@ -1,15 +1,12 @@
 'use client';
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
-import { IssueActionsMenu } from '@/components/common/issues/issue-actions-menu';
-import { useDetailDrawerClose } from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
 import { getCycleById } from '@/data/cycles';
 import { useIssuesStore } from '@/store/issues-store';
 import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { useCallback } from 'react';
+import { useParams } from 'next/navigation';
 
 /**
  * Issue page header: breadcrumb (cycle › identifier + title) and previous /
@@ -18,19 +15,6 @@ import { useCallback } from 'react';
 export default function HeaderNav() {
    const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
    const { issues } = useIssuesStore();
-   const closeDrawer = useDetailDrawerClose();
-   const router = useRouter();
-
-   // Whatever is showing the issue has to stop showing it. In the drawer that
-   // means closing; on the full page there is nothing left to render, so it
-   // returns to the list rather than sitting on a deleted issue.
-   const afterDelete = useCallback(() => {
-      if (closeDrawer) {
-         closeDrawer();
-         return;
-      }
-      router.push(`/${orgId}/my-issues`);
-   }, [closeDrawer, router, orgId]);
 
    const index = issues.findIndex((candidate) => candidate.identifier === issueId);
    const issue = index >= 0 ? issues[index] : undefined;
@@ -59,10 +43,6 @@ export default function HeaderNav() {
                      </span>
                      <span className="font-medium">{issue.title}</span>
                   </span>
-                  {/* Beside the title rather than in the navigation group on
-                      the right: these act on the issue being read, while the
-                      chevrons move between issues. */}
-                  <IssueActionsMenu issue={issue} onDeleted={afterDelete} />
                </>
             )}
          </div>

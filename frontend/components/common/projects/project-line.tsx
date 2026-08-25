@@ -17,6 +17,7 @@ import { PrioritySelector } from './priority-selector';
 import { LeadSelector } from './lead-selector';
 import { StatusWithPercent } from './status-with-percent';
 import { DatePicker } from './date-picker';
+import { cn } from '@/lib/utils';
 
 interface ProjectLineProps {
    project: Project;
@@ -39,26 +40,34 @@ export default function ProjectLine({ project }: ProjectLineProps) {
    const issueCount = useMemo(() => countIssues(issues, project.id), [issues, project.id]);
 
    return (
-      <div className="w-full flex items-center py-3 px-6 border-b hover:bg-sidebar/50 border-muted-foreground/5">
-         <div className="flex-1 min-w-0 flex items-center gap-2">
+      <div
+         className={cn(
+            'group relative flex w-full items-center border-b border-border/45 px-6 py-3 transition-colors',
+            'hover:bg-accent/45 focus-within:bg-accent/45'
+         )}
+      >
+         <Link
+            href={`/${orgId}/project/${project.id}/overview`}
+            className="absolute inset-0 z-0 cursor-pointer"
+            aria-label={project.name}
+         />
+
+         <div className="relative z-10 flex min-w-0 flex-1 items-center gap-2 pointer-events-none">
             <div className="relative">
-               <div className="inline-flex size-6 bg-muted/50 items-center justify-center rounded shrink-0">
+               <div className="inline-flex size-6 shrink-0 items-center justify-center rounded bg-muted/50">
                   <project.icon className="size-4" />
                </div>
             </div>
             <div className="flex flex-col items-start overflow-hidden">
-               <Link
-                  href={`/${orgId}/project/${project.id}/overview`}
-                  className="font-medium truncate w-full hover:underline underline-offset-2"
-               >
+               <span className="w-full truncate font-medium transition-colors group-hover:text-foreground">
                   {project.name}
-               </Link>
+               </span>
             </div>
             {displayProperties.labels &&
                project.labels.map((label) => (
                   <span
                      key={label.id}
-                     className="hidden lg:inline-flex items-center gap-1 border rounded-full px-1.5 py-px text-muted-foreground shrink-0"
+                     className="hidden shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-muted-foreground lg:inline-flex"
                   >
                      <span
                         className="size-1.5 rounded-full"
@@ -70,12 +79,12 @@ export default function ProjectLine({ project }: ProjectLineProps) {
          </div>
 
          {displayProperties.health && (
-            <div className="hidden sm:block w-[120px] shrink-0">
+            <div className="relative z-10 hidden w-[120px] shrink-0 pointer-events-auto sm:block">
                <HealthPopover project={project} />
             </div>
          )}
          {displayProperties.priority && (
-            <div className="hidden md:block w-[70px] shrink-0">
+            <div className="relative z-10 hidden w-[70px] shrink-0 pointer-events-auto md:block">
                <PrioritySelector
                   priority={project.priority}
                   onPriorityChange={(priorityId) => {
@@ -86,7 +95,7 @@ export default function ProjectLine({ project }: ProjectLineProps) {
             </div>
          )}
          {displayProperties.lead && (
-            <div className="hidden xl:block w-[130px] shrink-0">
+            <div className="relative z-10 hidden w-[130px] shrink-0 pointer-events-auto xl:block">
                <LeadSelector
                   lead={project.lead}
                   members={members}
@@ -98,7 +107,7 @@ export default function ProjectLine({ project }: ProjectLineProps) {
             </div>
          )}
          {displayProperties.targetDate && (
-            <div className="hidden xl:block w-[110px] shrink-0">
+            <div className="relative z-10 hidden w-[110px] shrink-0 pointer-events-auto xl:block">
                <DatePicker
                   date={project.targetDate ? new Date(project.targetDate) : undefined}
                   onDateChange={(date) => {
@@ -111,12 +120,12 @@ export default function ProjectLine({ project }: ProjectLineProps) {
             </div>
          )}
          {displayProperties.issues && (
-            <div className="hidden xl:block w-[60px] shrink-0 text-muted-foreground pl-2.5">
+            <div className="relative z-10 hidden w-[60px] shrink-0 pl-2.5 text-muted-foreground pointer-events-none xl:block">
                {issueCount}
             </div>
          )}
          {displayProperties.status && (
-            <div className="w-[90px] shrink-0">
+            <div className="relative z-10 w-[90px] shrink-0 pointer-events-auto">
                <StatusWithPercent
                   status={project.status}
                   percentComplete={project.percentComplete}

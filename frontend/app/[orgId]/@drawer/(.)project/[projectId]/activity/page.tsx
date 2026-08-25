@@ -2,7 +2,7 @@
 
 import { useParams } from 'next/navigation';
 
-import ProjectActivity from '@/components/common/projects/details/project-activity';
+import ProjectOverview from '@/components/common/projects/details/project-overview';
 import DetailDrawerShell from '@/components/layout/detail-drawer-shell';
 import Header from '@/components/layout/headers/project/header';
 
@@ -11,7 +11,7 @@ export default function ProjectActivityDrawerPage() {
 
    return (
       <DetailDrawerShell header={<Header projectId={projectId} />}>
-         <ProjectActivity projectId={projectId} />
+         <ProjectOverview projectId={projectId} />
       </DetailDrawerShell>
    );
 }

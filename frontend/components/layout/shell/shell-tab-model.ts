@@ -4,7 +4,7 @@ import { SHELL_SECTIONS } from './shell-routes';
  * What a route looks like when shown in a tab.
  *
  * Tabs hold detail routes (`reviewsCreated` -> "reviews / created", `issue404`
- * -> "BERRY-404") as well as rail destinations, so a label cannot be looked up
+ * -> "BER-404") as well as rail destinations, so a label cannot be looked up
  * from the nav table alone.
  */
 export interface RouteDescriptor {
@@ -25,7 +25,7 @@ const SECTION_LABELS: Record<string, string> = {
    view: 'views',
 };
 
-/** Looks like an issue key (BERRY-404), which the prototype shows verbatim. */
+/** Looks like an issue key (BER-404), which the prototype shows verbatim. */
 const ISSUE_KEY = /^[a-z][a-z0-9]*-\d+$/i;
 
 /**

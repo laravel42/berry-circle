@@ -12,10 +12,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { MarkdownTextarea } from '@/components/common/editor/markdown-textarea';
 import { BerryMark } from '@/components/brand/berry-mark';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import { RiEditLine } from '@remixicon/react';
-import { ChevronRight, X } from 'lucide-react';
+import { ChevronRight, Sparkles, X } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { Issue } from '@/data/issues';
 import { priorities } from '@/data/priorities';
@@ -29,14 +27,12 @@ import { StatusSelector } from './status-selector';
 import { PrioritySelector } from './priority-selector';
 import { AssigneeSelector } from './assignee-selector';
 import { ProjectSelector } from './project-selector';
-import { LabelSelector } from './label-selector';
 import { rankFromSortOrder } from '@/lib/issues';
 import { WORKSPACE_NAME } from '@/lib/config';
 import { BerryApiError } from '@/lib/api';
 import { createBoardIssue } from '@/lib/issues';
 
 export function CreateNewIssue() {
-   const [createMore, setCreateMore] = useState<boolean>(false);
    const { isOpen, defaultStatus, openModal, closeModal } = useCreateIssueStore();
    const { addIssue, getAllIssues } = useIssuesStore();
    const boardId = useSessionStore((state) => state.boardId);
@@ -105,9 +101,7 @@ export function CreateNewIssue() {
             labels: addIssueForm.labels,
          });
          toast.success('Task created');
-         if (!createMore) {
-            closeModal();
-         }
+         closeModal();
          setAddIssueForm(createDefaultData());
       } catch (error) {
          toast.error(error instanceof BerryApiError ? error.message : 'Could not create task');
@@ -201,25 +195,19 @@ export function CreateNewIssue() {
                         setAddIssueForm({ ...addIssueForm, project: newProject })
                      }
                   />
-                  <LabelSelector
-                     selectedLabels={addIssueForm.labels}
-                     onChange={(newLabels) =>
-                        setAddIssueForm({ ...addIssueForm, labels: newLabels })
-                     }
-                  />
                </div>
             </div>
             <div className="flex items-center justify-between py-2.5 px-4 w-full border-t">
-               <div className="flex items-center gap-2">
-                  <div className="flex items-center space-x-2">
-                     <Switch
-                        id="create-more"
-                        checked={createMore}
-                        onCheckedChange={setCreateMore}
-                     />
-                     <Label htmlFor="create-more">Create more</Label>
-                  </div>
-               </div>
+               <span className="ai-animated-border">
+                  <Button
+                     variant="ghost"
+                     size="sm"
+                     className="gap-1.5 border-0 bg-background shadow-none hover:bg-accent"
+                  >
+                     <Sparkles className="size-4" />
+                     Improve with AI
+                  </Button>
+               </span>
                <Button
                   size="sm"
                   disabled={pending}

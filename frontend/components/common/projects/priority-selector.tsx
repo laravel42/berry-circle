@@ -42,7 +42,7 @@ export function PrioritySelector({ priority, onPriorityChange }: PrioritySelecto
             <PopoverTrigger asChild>
                <Button
                   id={id}
-                  className="flex items-center justify-center"
+                  className="flex size-7 items-center justify-center"
                   size="icon"
                   variant="ghost"
                   role="combobox"

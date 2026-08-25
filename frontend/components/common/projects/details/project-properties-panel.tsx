@@ -1,24 +1,34 @@
 'use client';
 
+import { DeleteProjectDialog, useProjectDeletion } from '@/components/common/projects/delete-project';
 import { CapacityRing } from '@/components/common/cycles/capacity-ring';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Issue } from '@/data/issues';
 import { getCycleById } from '@/data/cycles';
+import { priorities } from '@/data/priorities';
 import { ProjectDetail } from '@/data/project-details';
 import { Project } from '@/data/projects';
 import { PanelFilterTarget, usePanelFilter } from '@/components/common/issues/use-panel-filter';
 import { RepositorySelector } from '@/components/common/projects/repository-selector';
+import { useMembersStore } from '@/store/members-store';
+import { useProjectsStore } from '@/store/projects-store';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { ProjectProgressChart } from './project-progress-chart';
-import { ArrowRight, Calendar, Check, Compass, Plus, Slack, Tag, UserPlus } from 'lucide-react';
+import { ArrowRight, Calendar, Check, Compass, Plus, Slack, Tag, Trash2, UserPlus } from 'lucide-react';
 import { useMemo } from 'react';
+import { ProjectDetailLeadPicker } from '../project-detail-lead-picker';
+import { ProjectDetailStatusSelector } from '../project-detail-status-selector';
+import { PrioritySelector } from '../priority-selector';
 
 interface ProjectPropertiesPanelProps {
    project: Project;
    detail: ProjectDetail;
    issues: Issue[];
+   compact?: boolean;
+   onDeleted?: () => void;
 }
 
 const isCompleted = (issue: Issue) => issue.status.category === 'completed';
@@ -106,11 +116,127 @@ function PropertyRow({ label, children }: { label: string; children: React.React
    );
 }
 
+function SidebarSection({ title, children }: { title: string; children: React.ReactNode }) {
+   return (
+      <div>
+         <div className="mb-2 pb-[7px] font-medium uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+            {title.toLowerCase()}
+         </div>
+         {children}
+      </div>
+   );
+}
+
+function ProjectPropertiesPanelCompact({
+   project,
+   detail,
+   onDeleted,
+}: {
+   project: Project;
+   detail: ProjectDetail;
+   onDeleted?: () => void;
+}) {
+   const members = useMembersStore((state) => state.members);
+   const {
+      updateProjectStatus,
+      updateProjectPriority,
+      updateProjectLead,
+   } = useProjectsStore();
+   const deletion = useProjectDeletion(onDeleted);
+
+   return (
+      <>
+         <div className="flex h-full min-h-0 flex-col">
+            <div className="flex min-h-0 flex-1 flex-col gap-7 overflow-y-auto">
+               <SidebarSection title="Properties">
+                  <div className="flex flex-col gap-1.5">
+                     <div className="flex items-center gap-1.5 -ml-1.5">
+                        <ProjectDetailStatusSelector
+                           status={project.status}
+                           onStatusChange={(status) => updateProjectStatus(project.id, status)}
+                        />
+                        <span>{project.status.name}</span>
+                     </div>
+                     <div className="flex items-center gap-1.5 -ml-1.5">
+                        <PrioritySelector
+                           priority={project.priority}
+                           onPriorityChange={(priorityId) => {
+                              const match = priorities.find((entry) => entry.id === priorityId);
+                              if (match) updateProjectPriority(project.id, match);
+                           }}
+                        />
+                        <span>{project.priority.name}</span>
+                     </div>
+                     <div className="flex items-center gap-1.5 -ml-1.5 mt-0.5">
+                        <ProjectDetailLeadPicker
+                           lead={project.lead}
+                           members={members}
+                           onLeadChange={(member) => updateProjectLead(project.id, member)}
+                        />
+                        <span className="truncate">{project.lead.name}</span>
+                     </div>
+                     {(project.startDate || project.targetDate) && (
+                        <div className="flex items-center gap-1.5 -ml-1.5">
+                           <span className="flex size-7 shrink-0 items-center justify-center">
+                              <Calendar className="size-4" />
+                           </span>
+                           <span className="truncate">
+                              {formatDay(project.startDate)}
+                              {project.targetDate ? ` – ${formatDay(project.targetDate)}` : ''}
+                           </span>
+                        </div>
+                     )}
+                  </div>
+               </SidebarSection>
+
+               {detail.milestones.length > 0 && (
+                  <SidebarSection title="Milestones">
+                     {detail.milestones.map((milestone, index) => (
+                        <div
+                           key={milestone.id}
+                           className={
+                              index === 0
+                                 ? 'flex items-center gap-2 min-w-0'
+                                 : 'mt-1.5 flex items-center gap-2 pl-6 text-muted-foreground min-w-0'
+                           }
+                        >
+                           <span className="size-2 shrink-0 rotate-45 border border-status-warning" />
+                           <span className="truncate">{milestone.name}</span>
+                        </div>
+                     ))}
+                  </SidebarSection>
+               )}
+            </div>
+
+            <div className="flex shrink-0 justify-end">
+               <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 translate-x-[10px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                  aria-label="Delete project"
+                  onClick={() => deletion.request(project)}
+               >
+                  <Trash2 className="size-4" />
+               </Button>
+            </div>
+         </div>
+
+         <DeleteProjectDialog deletion={deletion} />
+      </>
+   );
+}
+
 /**
  * Right-side panel of the project pages: properties, milestones,
  * progress breakdowns and a compact activity feed.
  */
-export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPropertiesPanelProps) {
+export function ProjectPropertiesPanel({
+   project,
+   detail,
+   issues,
+   compact = false,
+   onDeleted,
+}: ProjectPropertiesPanelProps) {
    const panelFilter = usePanelFilter();
    const completed = issues.filter(isCompleted).length;
 
@@ -192,6 +318,16 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
          ),
       [issues]
    );
+
+   if (compact) {
+      return (
+         <ProjectPropertiesPanelCompact
+            project={project}
+            detail={detail}
+            onDeleted={onDeleted}
+         />
+      );
+   }
 
    return (
       <div className="flex flex-col h-full w-full overflow-y-auto">
