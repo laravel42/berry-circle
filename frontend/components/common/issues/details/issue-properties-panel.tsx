@@ -84,7 +84,11 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                   <AssigneeUser user={issue.assignee} issueId={issue.id} />
                   <span>{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                </div>
-               {agents.length > 0 ? (
+               {/* Not offered in the drawer. Starting a run navigates to the
+                   runs view, which closes the drawer and drops the person out
+                   of whatever they were looking at when they peeked in. The
+                   full issue page still has it. */}
+               {!inDrawer && agents.length > 0 ? (
                   <Button
                      className="mt-2 w-fit"
                      size="sm"
