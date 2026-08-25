@@ -1,5 +1,6 @@
 'use client';
 
+import { GenerateIssuesButton } from '@/components/common/projects/generate-issues-button';
 import { ProjectActionsMenu } from '@/components/common/projects/project-actions-menu';
 import { useDetailDrawerClose } from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
@@ -124,6 +125,7 @@ export default function Header({ projectId }: { projectId: string }) {
                </div>
             </div>
             <div className="flex items-center gap-1">
+               <GenerateIssuesButton project={project} />
                <Button variant="ghost" size="icon" className="size-7 text-muted-foreground">
                   <Link2 className="size-4" />
                </Button>

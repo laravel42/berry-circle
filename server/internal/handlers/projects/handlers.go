@@ -82,6 +82,9 @@ type Options struct {
 	// one. Optional: without it, linking is refused rather than stored half
 	// resolved.
 	Repositories RepositoryResolver
+	// Generator decomposes a project into issues. Optional: without a runtime
+	// the route refuses rather than pretending to think.
+	Generator IssueGenerator
 }
 
 // RepositoryResolver turns a repository's full name into the id GitHub keeps
@@ -97,6 +100,7 @@ type RepositoryResolver interface {
 type handlers struct {
 	service    API
 	repository RepositoryResolver
+	generator  IssueGenerator
 }
 
 // NewMount validates dependencies and builds the project subtree.
@@ -133,7 +137,11 @@ func NewMount(options Options) (httpapi.Mount, error) {
 		}
 		service = built
 	}
-	target := &handlers{service: service, repository: options.Repositories}
+	target := &handlers{
+		service:    service,
+		repository: options.Repositories,
+		generator:  options.Generator,
+	}
 	idempotent := func(next http.HandlerFunc) http.HandlerFunc {
 		return workmanagement.RequireIdempotency(
 			options.IdempotencyStore,
@@ -148,6 +156,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Get("/{projectId}", target.get)
 	router.Patch("/{projectId}", target.update)
 	router.Delete("/{projectId}", target.delete)
+	router.Post("/{projectId}/generated-issues", target.generateIssues)
 	router.Get("/{projectId}/resources", target.listResources)
 	router.Post("/{projectId}/resources", idempotent(target.createResource))
 	router.Patch("/{projectId}/resources/{resourceId}", target.updateResource)

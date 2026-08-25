@@ -55,11 +55,13 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	collabrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	conversationrepo "github.com/laravel42/berry-circle/server/internal/repository/conversations"
+	corerepo "github.com/laravel42/berry-circle/server/internal/repository/core"
 	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 	projectrepo "github.com/laravel42/berry-circle/server/internal/repository/projects"
 	"github.com/laravel42/berry-circle/server/internal/secrets"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
+	"github.com/laravel42/berry-circle/server/internal/service/projectplanning"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
 	"github.com/laravel42/berry-circle/server/internal/storage"
 	temporalclient "go.temporal.io/sdk/client"
@@ -705,7 +707,30 @@ func run() int {
 			repositoryResolver = githubclient.Resolver{Credentials: integrationCredentials}
 		}
 
+		// Decomposing a project needs somewhere to put the issues and someone to
+		// ask. Both are resolved per request from the project itself, so this
+		// only needs the pool and the runtime.
+		issueStore, err := corerepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("issue store setup failed", "error", err)
+			return 1
+		}
+		issueGenerator := &projectplanning.Service{
+			Projects:   projectplanning.ProjectLookup{Pool: dbPool},
+			Issues:     issueStore,
+			Agents:     projectplanning.AgentLookup{Pool: dbPool},
+			Runtime:    upstream,
+			Authorizer: identityService,
+			Clock:      time.Now,
+			NewID:      uuid.New,
+		}
+
 		projectMount, err := projects.NewMount(projects.Options{
+			Generator:        issueGenerator,
 			Repositories:     repositoryResolver,
 			Pool:             dbPool,
 			Sessions:         authenticator,

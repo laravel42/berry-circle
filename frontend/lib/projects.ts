@@ -252,3 +252,30 @@ export async function setProjectRepository(
       body: JSON.stringify({ githubRepo: fullName }),
    });
 }
+
+const generatedIssueSchema = z.object({
+   id: z.string(),
+   identifier: z.string(),
+   title: z.string(),
+   priority: z.string(),
+});
+
+export type GeneratedIssue = z.infer<typeof generatedIssueSchema>;
+
+/**
+ * Ask an agent to decompose a project into issues.
+ *
+ * Slow by nature — it is a model call the person is waiting on — and errors are
+ * raised rather than swallowed, because the two failures worth telling apart
+ * are "no agent could answer" and "the answer was unusable", and both are
+ * things the person can act on.
+ */
+export async function generateProjectIssues(projectId: string): Promise<GeneratedIssue[]> {
+   const json: unknown = await apiFetch(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/generated-issues`,
+      { method: 'POST' }
+   );
+   const parsed = z.object({ issues: z.array(generatedIssueSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Generated issues were not recognized');
+   return parsed.data.issues;
+}
