@@ -11,6 +11,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
 import { AssigneeUser } from '../assignee-user';
 import { ActivityCommentComposer, ActivityFeedList, useIssueActivity } from './activity-feed';
+import { IssueAttachments } from './issue-attachments';
 import { IssueDescriptionEditor } from './issue-description-editor';
 import { IssuePropertiesPanel } from './issue-properties-panel';
 import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
@@ -144,6 +145,8 @@ export default function IssueDetails() {
                            </button>
                         )}
                      </div>
+
+                     <IssueAttachments issueRef={issue?.identifier ?? issueId ?? ''} />
 
                      <ActivityFeedList items={activityFeed.items} />
                   </>
