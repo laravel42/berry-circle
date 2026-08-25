@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { BerryApiError } from '@/lib/api';
 import {
+   agentModelDisplay,
    agentStatusDisplay,
    getWorkspaceAgent,
    pickRunnableAgent,
@@ -232,7 +233,7 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
    const isDefault = pickRunnableAgent(storedAgents)?.id === agent.id;
    const isIdle = agent.status === 'available' && activeRuns.length === 0;
    const updatedAgo = formatDistanceToNow(parseISO(agent.updatedAt), { addSuffix: true });
-   const modelLabel = agent.capabilities[0] ?? 'Default';
+   const modelLabel = agentModelDisplay(agent).label;
 
    return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden leading-[1.35]">

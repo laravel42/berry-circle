@@ -91,7 +91,7 @@ export default function Agents() {
             <div className="min-w-0 flex-1">Agent</div>
             <div className="w-[110px] shrink-0">Status</div>
             <div className="hidden w-[100px] shrink-0 lg:block">Access</div>
-            <div className="hidden w-[150px] shrink-0 xl:block">Runtime</div>
+            <div className="hidden w-[180px] shrink-0 xl:block">Model</div>
             <div className="hidden w-[110px] shrink-0 sm:flex sm:items-center sm:gap-1">
                Last active
                {sort === 'last-active-desc' ? <ArrowDown className="size-3" /> : <ArrowUpDown className="size-3" />}

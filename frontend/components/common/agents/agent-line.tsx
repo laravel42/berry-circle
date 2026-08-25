@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 
 import { BerryMark } from '@/components/brand/berry-mark';
 import { cn } from '@/lib/utils';
-import { agentStatusDisplay, type Agent } from '@/lib/agents';
+import { agentModelDisplay, agentStatusDisplay, type Agent } from '@/lib/agents';
 
 interface AgentLineProps {
    agent: Agent;
@@ -17,6 +17,7 @@ interface AgentLineProps {
 export default function AgentLine({ agent, runCount, highlightYou = false }: AgentLineProps) {
    const { orgId } = useParams<{ orgId: string }>();
    const status = agentStatusDisplay(agent.status);
+   const model = agentModelDisplay(agent);
    const lastActive = formatDistanceToNow(parseISO(agent.updatedAt), { addSuffix: true });
 
    return (
@@ -60,8 +61,11 @@ export default function AgentLine({ agent, runCount, highlightYou = false }: Age
 
          <div className="hidden w-[100px] shrink-0 text-muted-foreground lg:block">Workspace</div>
 
-         <div className="hidden w-[150px] shrink-0 truncate text-muted-foreground xl:block">
-            Berry
+         <div
+            className="hidden w-[180px] shrink-0 truncate text-muted-foreground xl:block"
+            title={model.title}
+         >
+            {model.label}
          </div>
 
          <div className="hidden w-[110px] shrink-0 text-muted-foreground sm:block">{lastActive}</div>

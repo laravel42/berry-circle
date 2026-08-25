@@ -44,6 +44,47 @@ export function agentStatusDisplay(status: string): AgentStatusDisplay {
    }
 }
 
+export interface AgentModelDisplay {
+   /** Bare model name for a cell, or a dash when none is assigned. */
+   label: string;
+   /** Provider-qualified full id for a tooltip; absent when nothing is assigned. */
+   title?: string;
+}
+
+/**
+ * Bare model name: `minimax/minimax-m2.7:free` → `minimax-m2.7`.
+ *
+ * Routed ids carry the vendor as a path (`anthropic/claude-sonnet-5`, or even
+ * `openrouter/anthropic/…` when the runtime repeats its own prefix) and a
+ * pricing tier as a suffix (`:free`, `:batch`). Both are how the model is
+ * bought, not what it is, so a list cell drops them and the full id stays in
+ * the tooltip.
+ */
+export function bareModelName(modelId: string): string {
+   const withoutVendor = modelId.slice(modelId.lastIndexOf('/') + 1);
+   const tier = withoutVendor.indexOf(':');
+   return tier > 0 ? withoutVendor.slice(0, tier) : withoutVendor;
+}
+
+/**
+ * The LLM an agent runs on, for list and summary cells.
+ *
+ * The label is the bare name; provider and full id go into the title so a
+ * hover still attributes the model. Berry's built-in orchestrator has no
+ * runtime model, which is what the dash means.
+ */
+export function agentModelDisplay(
+   agent: Pick<Agent, 'modelProvider' | 'modelName'>
+): AgentModelDisplay {
+   const model = agent.modelName?.trim();
+   if (!model) return { label: '—' };
+   const provider = agent.modelProvider?.trim();
+   return {
+      label: bareModelName(model) || model,
+      title: provider ? `${provider} · ${model}` : model,
+   };
+}
+
 /** Load workspace agents; OpenFang summaries are reconciled server-side. */
 export async function loadWorkspaceAgents(): Promise<Agent[]> {
    const collected: Agent[] = [];
