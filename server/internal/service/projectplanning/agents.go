@@ -40,7 +40,9 @@ func (lookup AgentLookup) FindAgent(
 		  ORDER BY
 		        -- Preferred names first, in the order given; everything else
 		        -- after, so the choice is stable rather than incidental.
-		        COALESCE(array_position($2::text[], agent.name), 2147483647),
+		        -- Compared lowercased because the runtime names its agents as
+		        -- it likes and "Orchestrator" must match "orchestrator".
+		        COALESCE(array_position($2::text[], lower(agent.name)), 2147483647),
 		        agent.name
 		  LIMIT 1`,
 		workspaceID, names,
@@ -104,3 +106,51 @@ func (lookup ProjectLookup) ProjectContext(
 // ErrProjectUnavailable means the project is gone, or its workspace has no
 // board for issues to live on.
 var ErrProjectUnavailable = errors.New("projectplanning: project cannot receive issues")
+
+// Candidate is an agent a plan may nominate, with what it is good at.
+type Candidate struct {
+	ID           uuid.UUID
+	Name         string
+	Capabilities []string
+}
+
+// Candidates lists the agents a plan may assign work to.
+//
+// Excludes the built-in orchestrator: it exists to run work when a workspace
+// has nobody else, and offering it beside the specialists invites a plan to
+// route everything to the one agent that has no speciality — which is what
+// alphabetical tie-breaking already did by accident.
+func (lookup AgentLookup) Candidates(
+	ctx context.Context,
+	workspaceID uuid.UUID,
+) ([]Candidate, error) {
+	if lookup.Pool == nil {
+		return nil, errors.New("projectplanning: no database pool")
+	}
+	rows, err := lookup.Pool.Query(
+		ctx,
+		`SELECT id, name, capabilities
+		   FROM agents
+		  WHERE workspace_id = $1
+		    AND archived_at IS NULL
+		    AND status <> 'offline'
+		    AND NOT protected
+		    AND lower(name) <> 'orchestrator'
+		  ORDER BY name`,
+		workspaceID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("projectplanning: list candidates: %w", err)
+	}
+	defer rows.Close()
+
+	candidates := make([]Candidate, 0, 16)
+	for rows.Next() {
+		var candidate Candidate
+		if err := rows.Scan(&candidate.ID, &candidate.Name, &candidate.Capabilities); err != nil {
+			return nil, fmt.Errorf("projectplanning: scan candidate: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, rows.Err()
+}

@@ -32,6 +32,15 @@ type Proposal struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
 	Priority    string `json:"priority"`
+	// Agent is the specialist nominated to do it, by name. Empty leaves the
+	// issue unassigned for ordinary routing to place.
+	Agent string `json:"agent"`
+}
+
+// Candidate is an agent the plan may nominate.
+type Candidate struct {
+	Name         string
+	Capabilities []string
 }
 
 // Brief is what the agent is asked to decompose.
@@ -42,6 +51,10 @@ type Brief struct {
 	// Existing titles already on the project, so a second generation adds to
 	// the work rather than proposing it again.
 	Existing []string
+	// Candidates the plan may nominate. Supplied rather than invented: an
+	// issue assigned to an agent that does not exist is worse than one left
+	// for routing, because it looks decided and never runs.
+	Candidates []Candidate
 }
 
 // Prompt renders the request sent to the agent.
@@ -71,14 +84,36 @@ func Prompt(brief Brief) string {
 		}
 	}
 
+	if len(brief.Candidates) > 0 {
+		builder.WriteString("\n\nAssign each issue to one of these agents, by name:\n")
+		for _, candidate := range brief.Candidates {
+			builder.WriteString("- ")
+			builder.WriteString(candidate.Name)
+			if len(candidate.Capabilities) > 0 {
+				builder.WriteString(" (")
+				builder.WriteString(strings.Join(candidate.Capabilities, ", "))
+				builder.WriteString(")")
+			}
+			builder.WriteString("\n")
+		}
+	}
+
 	builder.WriteString("\n\nRules:\n")
 	builder.WriteString("- Reply with a JSON array and nothing else.\n")
 	builder.WriteString(fmt.Sprintf("- At most %d issues. Fewer is better.\n", maxIssues))
 	builder.WriteString("- Each issue must be independently deliverable.\n")
 	builder.WriteString("- priority is one of: urgent, high, medium, low, none.\n")
 	builder.WriteString("- title is one line. description says what done looks like.\n")
+	if len(brief.Candidates) > 0 {
+		builder.WriteString("- agent is one of the names listed above, whichever suits the work.\n")
+	}
 	builder.WriteString("\nShape:\n")
-	builder.WriteString(`[{"title":"...","description":"...","priority":"medium"}]`)
+	if len(brief.Candidates) > 0 {
+		builder.WriteString(
+			`[{"title":"...","description":"...","priority":"medium","agent":"coder"}]`)
+	} else {
+		builder.WriteString(`[{"title":"...","description":"...","priority":"medium"}]`)
+	}
 	return builder.String()
 }
 
@@ -136,6 +171,7 @@ func Parse(reply string) ([]Proposal, error) {
 			Title:       truncate(title, 500),
 			Description: truncate(strings.TrimSpace(proposal.Description), 20000),
 			Priority:    normalizePriority(proposal.Priority),
+			Agent:       collapse(proposal.Agent),
 		})
 		if len(proposals) == maxIssues {
 			break

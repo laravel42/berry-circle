@@ -223,6 +223,12 @@ func (repository *Repository) Candidates(
 		        ORDER BY
 		              -- Real agents before the built-in orchestrator.
 		              agent.protected ASC,
+		              -- An agent that declares nothing before one that declares
+		              -- something only if nothing else separates them. Without
+		              -- this the last tiebreak is the name, and a generalist
+		              -- called "Orchestrator" wins every unlabelled issue in
+		              -- this collation because uppercase sorts before lowercase.
+		              (COALESCE(cardinality(agent.capabilities), 0) = 0) ASC,
 		              -- Then the strongest capability match.
 		              COALESCE(cardinality(ARRAY(
 		                  SELECT unnest(agent.capabilities)

@@ -3,6 +3,7 @@ package projects
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -67,6 +68,11 @@ func (handler *handlers) generateIssues(response http.ResponseWriter, request *h
 			nil)
 		return
 	case err != nil:
+		// Logged before it is translated. A generation failure costs a model
+		// call, and a 500 with no cause recorded means paying again to find out
+		// what happened.
+		slog.Default().Error("issue generation failed",
+			"projectId", projectID, "error", err)
 		if !writeServiceError(response, request, err, "Project") {
 			return
 		}

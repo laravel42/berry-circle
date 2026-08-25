@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,16 +22,22 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
 
-// preferredAgents are tried in order.
+// preferredAgents are tried in order, orchestrator first.
+//
+// Reading a project and deciding who does what is the orchestrating role, not a
+// specialist one — a planner asked to assign work is guessing at a judgement
+// the orchestrator exists to make. The rest are a fallback so a workspace whose
+// orchestrator is unprovisioned still gets a plan rather than a refusal.
 //
 // Named rather than "any available" so the same project decomposes the same way
 // twice. Falling through to whatever happens to be idle would make the quality
 // of a plan depend on which agent was busy.
-var preferredAgents = []string{"planner", "architect", "analyst"}
+var preferredAgents = []string{"orchestrator", "planner", "architect", "analyst"}
 
 // AgentDirectory finds an agent to ask.
 type AgentDirectory interface {
 	FindAgent(ctx context.Context, workspaceID uuid.UUID, names []string) (uuid.UUID, error)
+	Candidates(ctx context.Context, workspaceID uuid.UUID) ([]Candidate, error)
 }
 
 // ProjectContext is everything the decomposition needs about a project, and
@@ -130,7 +137,28 @@ func (service *Service) GenerateIssues(
 		return nil, err
 	}
 
-	brief := planning.Brief{ProjectName: project.Name, Existing: existing}
+	// Who the plan may assign to. Without this the issues arrive unassigned and
+	// routing places them by capability match — which scores zero when nothing
+	// is labelled, leaving an alphabetical tiebreak to decide who does the work.
+	candidates, err := service.Agents.Candidates(ctx, project.WorkspaceID)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]uuid.UUID, len(candidates))
+	briefCandidates := make([]planning.Candidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		byName[strings.ToLower(candidate.Name)] = candidate.ID
+		briefCandidates = append(briefCandidates, planning.Candidate{
+			Name:         candidate.Name,
+			Capabilities: candidate.Capabilities,
+		})
+	}
+
+	brief := planning.Brief{
+		ProjectName: project.Name,
+		Existing:    existing,
+		Candidates:  briefCandidates,
+	}
 	if project.Description != nil {
 		brief.Description = *project.Description
 	}
@@ -147,10 +175,29 @@ func (service *Service) GenerateIssues(
 	now := service.Clock().UTC()
 	created := make([]projecthandlers.GeneratedIssue, 0, len(proposals))
 	for index, proposal := range proposals {
+		// A nomination naming an agent that does not exist is dropped rather
+		// than guessed at: an issue assigned to nobody looks decided and never
+		// runs, which is worse than one routing can still place.
+		var assignee *core.AssigneeInput
+		if agentID, known := byName[strings.ToLower(proposal.Agent)]; known {
+			assignee = &core.AssigneeInput{Type: "agent", ID: agentID}
+		}
+
+		// An assignment records a history row keyed by this id. Leaving it nil
+		// made every assigned issue insert a row keyed by the nil UUID, so the
+		// first collided with itself on the second issue — and with the run
+		// before it, once one had been created.
+		assignmentID := uuid.Nil
+		if assignee != nil {
+			assignmentID = service.NewID()
+		}
+
 		issue, err := service.Issues.CreateIssue(ctx, core.CreateIssueParams{
-			ID:      service.NewID(),
-			BoardID: project.BoardID,
-			Title:   proposal.Title,
+			ID:           service.NewID(),
+			AssignmentID: assignmentID,
+			BoardID:      project.BoardID,
+			Assignee:     assignee,
+			Title:        proposal.Title,
 			// Empty descriptions are stored as absent rather than as "".
 			Description: nonEmpty(proposal.Description),
 			Status:      "todo",
