@@ -8,6 +8,7 @@ import { getCycleById } from '@/data/cycles';
 import { ProjectDetail } from '@/data/project-details';
 import { Project } from '@/data/projects';
 import { PanelFilterTarget, usePanelFilter } from '@/components/common/issues/use-panel-filter';
+import { RepositorySelector } from '@/components/common/projects/repository-selector';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { ProjectProgressChart } from './project-progress-chart';
@@ -205,6 +206,9 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
                <PropertyRow label="Priority">
                   <project.priority.icon className="size-3.5 text-muted-foreground" />
                   <span>{project.priority.name}</span>
+               </PropertyRow>
+               <PropertyRow label="Repository">
+                  <RepositorySelector project={project} />
                </PropertyRow>
                <PropertyRow label="Lead">
                   <Avatar className="size-5">

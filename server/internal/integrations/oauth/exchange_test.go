@@ -407,3 +407,47 @@ func TestRedirectAllowlistIsEmptyUntilConfigured(t *testing.T) {
 		t.Fatalf("allowlist = %v", got)
 	}
 }
+
+func TestGitHubAuthorizeOmitsScopes(t *testing.T) {
+	t.Parallel()
+	// Berry authorises against a GitHub App, whose token carries the App's own
+	// permissions. Sending a scope describes an access model GitHub does not
+	// use for Apps, and the values would be Berry's word for permissions the
+	// App already declares — two places to disagree about the same thing.
+	client := Client{Now: fixedClock()}
+	raw, err := client.AuthorizeURL(Config{
+		Endpoint: Endpoints()["github"],
+		ClientID: "gh-id", ClientSecret: testSecret,
+		Scopes: []string{"contents:read", "issues:write"},
+	}, "state", "https://berry.test/cb", "")
+	if err != nil {
+		t.Fatalf("AuthorizeURL: %v", err)
+	}
+	query := mustQuery(t, raw)
+	if got := query.Get("scope"); got != "" {
+		t.Errorf("scope = %q, want it omitted for a GitHub App", got)
+	}
+	// The rest of the request is unchanged.
+	if query.Get("client_id") != "gh-id" || query.Get("state") != "state" {
+		t.Errorf("authorize url lost its other parameters: %v", query)
+	}
+}
+
+func TestProvidersThatUseScopesStillSendThem(t *testing.T) {
+	t.Parallel()
+	// The suppression must be specific to GitHub, not a general behaviour that
+	// quietly drops scopes everywhere.
+	for _, id := range []string{"slack", "linear", "notion", "gmail"} {
+		raw, err := Client{Now: fixedClock()}.AuthorizeURL(Config{
+			Endpoint: Endpoints()[id],
+			ClientID: "c", ClientSecret: testSecret,
+			Scopes: []string{"alpha", "beta"},
+		}, "state", "https://berry.test/cb", "verifier")
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if mustQuery(t, raw).Get("scope") == "" {
+			t.Errorf("%s dropped its scopes", id)
+		}
+	}
+}

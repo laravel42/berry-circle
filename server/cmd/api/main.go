@@ -43,6 +43,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
+	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
 	"github.com/laravel42/berry-circle/server/internal/integrations/oauth"
 	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/modelcatalog"
@@ -671,7 +672,41 @@ func run() int {
 			logger.Error("catalog route setup failed", "error", err)
 			return 1
 		}
+		// Built once here and shared with the integration routes below: the
+		// repository picker and the project link open the same credential, and
+		// two stores would mean two sealers to keep in step.
+		var integrationCredentials *integrationrepo.Repository
+		if cfg.IntegrationsEnabled {
+			sealer, err := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration sealer setup failed", "error", err)
+				return 1
+			}
+			integrationCredentials, err = integrationrepo.New(dbPool, sealer)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration repository setup failed", "error", err)
+				return 1
+			}
+		}
+
+		// Resolving a repository needs the workspace's GitHub credential, which
+		// only exists when integrations are configured. Nil otherwise, and
+		// linking is refused rather than stored half resolved.
+		var repositoryResolver projects.RepositoryResolver
+		if integrationCredentials != nil {
+			repositoryResolver = githubclient.Resolver{Credentials: integrationCredentials}
+		}
+
 		projectMount, err := projects.NewMount(projects.Options{
+			Repositories:     repositoryResolver,
 			Pool:             dbPool,
 			Sessions:         authenticator,
 			Authorization:    identityService,
@@ -801,24 +836,7 @@ func run() int {
 		// them.
 		var integrationMounts []httpapi.Mount
 		if cfg.IntegrationsEnabled {
-			sealer, err := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("integration sealer setup failed", "error", err)
-				return 1
-			}
-			integrationStore, err := integrationrepo.New(dbPool, sealer)
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("integration repository setup failed", "error", err)
-				return 1
-			}
+			integrationStore := integrationCredentials
 			providerRegistry := integrationcore.NewRegistry()
 			for _, provider := range providers.All() {
 				if err := providerRegistry.Register(provider); err != nil {
@@ -832,6 +850,7 @@ func run() int {
 			}
 			integrationMount, err := integrationhandlers.NewMount(integrationhandlers.Options{
 				Store:           integrationStore,
+				Credentials:     integrationStore,
 				Sessions:        authenticator,
 				Authorization:   identityService,
 				Clock:           time.Now,

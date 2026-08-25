@@ -21,6 +21,7 @@ const projectSchema = z.object({
    priority: z.string(),
    startDate: z.string().nullish(),
    targetDate: z.string().nullish(),
+   githubRepo: z.string().nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -60,6 +61,9 @@ export function toUiProject(apiProject: ApiProject, lead: User): Project | undef
    };
    if (apiProject.targetDate) {
       project.targetDate = apiProject.targetDate;
+   }
+   if (apiProject.githubRepo) {
+      project.githubRepo = apiProject.githubRepo;
    }
    return project;
 }
@@ -188,5 +192,41 @@ export async function patchWorkspaceProject(
 export async function deleteWorkspaceProject(projectId: string): Promise<void> {
    await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
       method: 'DELETE',
+   });
+}
+
+const repositorySchema = z.object({
+   id: z.number(),
+   fullName: z.string(),
+   name: z.string(),
+   private: z.boolean(),
+   defaultBranch: z.string(),
+   description: z.string().optional(),
+});
+
+export type GitHubRepository = z.infer<typeof repositorySchema>;
+
+/**
+ * Repositories the workspace's GitHub connection can see.
+ *
+ * Errors are raised rather than swallowed: an empty picker and a picker that
+ * could not load look identical, and the fixes are opposite — connect GitHub
+ * versus try again.
+ */
+export async function loadGitHubRepositories(): Promise<GitHubRepository[]> {
+   const json: unknown = await apiFetch('/api/v1/integrations/github/repositories');
+   const parsed = z.object({ repositories: z.array(repositorySchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Repository list was not recognized');
+   return parsed.data.repositories;
+}
+
+/** Link a project to a repository, or unlink it with null. */
+export async function setProjectRepository(
+   projectId: string,
+   fullName: string | null
+): Promise<void> {
+   await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ githubRepo: fullName }),
    });
 }

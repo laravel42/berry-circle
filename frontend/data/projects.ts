@@ -23,6 +23,8 @@ export interface Project {
    initiative?: string;
    /** Days since the last health update (undefined = no update yet). */
    healthUpdatedAgoDays?: number;
+   /** GitHub repository this project delivers into, as owner/name. */
+   githubRepo?: string;
 }
 
 export interface Health {

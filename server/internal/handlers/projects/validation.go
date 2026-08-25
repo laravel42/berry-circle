@@ -3,6 +3,7 @@ package projects
 import (
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -24,6 +25,11 @@ type createProjectBody struct {
 	TargetDate  workmanagement.Optional[string]               `json:"targetDate"`
 }
 
+// githubRepoPattern mirrors the column constraint. The value ends up in a
+// GitHub REST path, so anything that could address a different resource is
+// refused before it is stored, not only before it is sent.
+var githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,100}/[A-Za-z0-9._-]{1,100}$`)
+
 type updateProjectBody struct {
 	Name        workmanagement.Optional[string]               `json:"name"`
 	Description workmanagement.Optional[string]               `json:"description"`
@@ -31,6 +37,10 @@ type updateProjectBody struct {
 	Priority    workmanagement.Optional[projectrepo.Priority] `json:"priority"`
 	StartDate   workmanagement.Optional[string]               `json:"startDate"`
 	TargetDate  workmanagement.Optional[string]               `json:"targetDate"`
+	// The full name alone. The numeric id is resolved from GitHub rather than
+	// accepted from the client: a caller-supplied id could name a repository
+	// the connection cannot see, and the pair would then disagree.
+	GitHubRepo workmanagement.Optional[string] `json:"githubRepo"`
 }
 
 type createResourceBody struct {
@@ -169,6 +179,22 @@ func parseProjectPatch(
 		patch.TargetDateSet = true
 		if !body.TargetDate.Null {
 			patch.TargetDate = validateDate(&fields, "/targetDate", body.TargetDate.Value)
+		}
+	}
+	if body.GitHubRepo.Set {
+		count++
+		patch.GitHubRepoSet = true
+		if !body.GitHubRepo.Null {
+			name := strings.TrimSpace(body.GitHubRepo.Value)
+			if !githubRepoPattern.MatchString(name) {
+				fields = append(fields, httpapi.FieldError{
+					Path:    "/githubRepo",
+					Code:    "invalid_string",
+					Message: "Repository must be owner/name.",
+				})
+			} else {
+				patch.GitHubRepoFullName = &name
+			}
 		}
 	}
 	if count == 0 {

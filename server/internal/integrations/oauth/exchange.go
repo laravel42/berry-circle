@@ -39,6 +39,11 @@ type Endpoint struct {
 	// AuthorizeParams are extra query parameters the authorisation URL needs —
 	// Google's offline access, Notion's owner selector.
 	AuthorizeParams map[string]string
+	// OmitScope suppresses the scope parameter. A GitHub App's token is limited
+	// to the permissions the App itself declares, so scopes are not part of its
+	// authorisation request; sending them describes an access model the
+	// provider does not use.
+	OmitScope bool
 	// ParseAccount pulls the provider's account identity out of a token
 	// response. Optional: a provider that returns no identity leaves the
 	// connection unnamed rather than failing.
@@ -143,7 +148,7 @@ func (client Client) AuthorizeURL(
 	query.Set("client_id", config.ClientID)
 	query.Set("redirect_uri", redirectURI)
 	query.Set("state", state)
-	if len(config.Scopes) > 0 {
+	if len(config.Scopes) > 0 && !config.OmitScope {
 		query.Set("scope", strings.Join(config.Scopes, config.scopeSeparator()))
 	}
 	if config.UsePKCE {

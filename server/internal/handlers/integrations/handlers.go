@@ -46,6 +46,14 @@ type Store interface {
 	ListAudit(ctx context.Context, workspaceID uuid.UUID, limit int) ([]repo.AuditRecord, error)
 }
 
+// CredentialStore opens a connection's token for a call Berry makes itself.
+//
+// Separate from Store because it is the one capability that hands out a secret,
+// and keeping it nameable makes every holder of it visible.
+type CredentialStore interface {
+	Credential(ctx context.Context, workspaceID uuid.UUID, provider string) (repo.Credential, error)
+}
+
 // Authorizer is the workspace boundary these routes enforce.
 type Authorizer interface {
 	AuthorizeWorkspace(
@@ -68,6 +76,11 @@ type Options struct {
 	// CallbackBaseURL is where providers send the browser back to. This is
 	// Berry's own origin: the authorisation code must land on the server that
 	// holds the client secret, never in a page.
+	// Credentials opens a token for the product's own GitHub calls — the
+	// repository picker, and later the run context and pull requests. Agent
+	// tool calls do not come through here; those remain MCP's job.
+	Credentials CredentialStore
+
 	CallbackBaseURL string
 	// ReturnAllowlist is where the browser may be sent after a flow finishes.
 	// Empty refuses every flow rather than defaulting somewhere convenient.
@@ -116,6 +129,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 		authenticated.Put("/grants", setGrantHandler(options))
 		authenticated.Delete("/grants", revokeGrantHandler(options))
 		authenticated.Get("/audit", listAuditHandler(options))
+		authenticated.Get("/github/repositories", listRepositoriesHandler(options))
 	})
 	return httpapi.Mount{Prefix: "/api/v1/integrations", Handler: router}, nil
 }

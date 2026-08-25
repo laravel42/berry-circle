@@ -17,6 +17,11 @@ func Endpoints() map[string]Endpoint {
 			AuthorizeURL:   "https://github.com/login/oauth/authorize",
 			TokenURL:       "https://github.com/login/oauth/access_token",
 			ScopeSeparator: " ",
+			// Berry authorises against a GitHub App, whose token carries the
+			// App's own permissions. The scope parameter belongs to the OAuth
+			// App model and has no effect here, so it is left off rather than
+			// sent and ignored.
+			OmitScope: true,
 			// GitHub's token response carries no identity, so the connection is
 			// named by the caller after a follow-up lookup rather than here.
 		},
