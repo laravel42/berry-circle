@@ -134,7 +134,8 @@ func (repository *Repository) Candidates(
 		           issue.created_at
 		      FROM issues AS issue
 		      JOIN boards AS board ON board.id = issue.board_id
-		     WHERE issue.status = 'todo'
+		     WHERE issue.deleted_at IS NULL
+		       AND issue.status = 'todo'
 		       AND issue.active_run_id IS NULL
 		     ORDER BY issue.created_at ASC, issue.id ASC
 		     FOR UPDATE OF issue SKIP LOCKED

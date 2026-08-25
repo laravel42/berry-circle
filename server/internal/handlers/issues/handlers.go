@@ -165,6 +165,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	}
 	router.Get("/{issueRef}", getHandler(repository, options.Authorization))
 	router.Patch("/{issueRef}", updateHandler(repository, options))
+	router.Delete("/{issueRef}", deleteHandler(repository, options))
 	return httpapi.Mount{Prefix: "/api/v1/issues", Handler: router}, nil
 }
 

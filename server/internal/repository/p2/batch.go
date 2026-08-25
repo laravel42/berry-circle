@@ -29,6 +29,7 @@ func (repository *Repository) BatchUpdateIssues(
 			`SELECT issue.status::text
 			   FROM issues AS issue
 			   JOIN boards AS board ON board.id = issue.board_id
+			    AND issue.deleted_at IS NULL
 			  WHERE issue.id = $1 AND board.workspace_id = $2
 			  FOR UPDATE OF issue`,
 			issueID,
@@ -83,6 +84,7 @@ func (repository *Repository) BatchDeleteIssues(
 	ctx context.Context,
 	workspaceID uuid.UUID,
 	ids []uuid.UUID,
+	now time.Time,
 ) ([]BatchResult, error) {
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -93,13 +95,23 @@ func (repository *Repository) BatchDeleteIssues(
 	for _, issueID := range ids {
 		tag, err := tx.Exec(
 			ctx,
-			`DELETE FROM issues AS issue
-			  USING boards AS board
+			// Soft, like the single-issue delete. A row removal here cascades
+			// through twelve foreign keys — runs, run_events and attachments
+			// among them — and the attachment cascade never calls the two-phase
+			// delete that removes the object, so every artifact's bytes would be
+			// orphaned in storage. It would also free the issue number for reuse,
+			// and an identifier that names two different issues over time makes
+			// run and audit history ambiguous.
+			`UPDATE issues AS issue
+			    SET deleted_at = $3, updated_at = $3
+			  FROM boards AS board
 			  WHERE issue.id = $1
 			    AND board.id = issue.board_id
-			    AND board.workspace_id = $2`,
+			    AND board.workspace_id = $2
+			    AND issue.deleted_at IS NULL`,
 			issueID,
 			workspaceID,
+			now.UTC(),
 		)
 		if err != nil {
 			return nil, errors.New("batch delete issue")

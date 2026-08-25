@@ -184,7 +184,8 @@ func (repository *Repository) UpdateBoard(
 				ctx,
 				`SELECT EXISTS (
 					SELECT 1 FROM issues
-					 WHERE board_id = $1 AND status::text = ANY($2::text[])
+					 WHERE board_id = $1 AND deleted_at IS NULL
+					   AND status::text = ANY($2::text[])
 				)`,
 				id,
 				blocking,

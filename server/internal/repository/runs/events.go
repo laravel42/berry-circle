@@ -246,6 +246,10 @@ func issueUpdatedEvent(
 		        i.active_run_id,
 		        i.created_by, creator.name, creator.avatar_url,
 		        i.created_at, i.updated_at
+		   -- Deliberately not filtered on i.deleted_at: this builds the
+		   -- payload for an event a run already emitted. A run whose issue was
+		   -- deleted still has a history, and refusing to describe it would
+		   -- drop events rather than hide them.
 		   FROM issues AS i
 		   JOIN boards AS b ON b.id = i.board_id
 		   LEFT JOIN users AS assignee_user

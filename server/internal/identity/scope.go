@@ -40,6 +40,7 @@ func (repository *Repository) IssueScope(
 		`SELECT board.workspace_id, membership.role::text
 		   FROM issues AS issue
 		   JOIN boards AS board ON board.id = issue.board_id
+		    AND issue.deleted_at IS NULL
 		   JOIN workspaces AS workspace
 		     ON workspace.id = board.workspace_id
 		    AND workspace.deleted_at IS NULL
@@ -68,6 +69,7 @@ func (repository *Repository) IssueReferenceScope(
 		`SELECT board.workspace_id, membership.role::text
 		   FROM issues AS issue
 		   JOIN boards AS board ON board.id = issue.board_id
+		    AND issue.deleted_at IS NULL
 		   JOIN workspaces AS workspace
 		     ON workspace.id = board.workspace_id
 		    AND workspace.deleted_at IS NULL

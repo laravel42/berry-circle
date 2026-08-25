@@ -171,7 +171,7 @@ func (repository *Repository) ResolveIssueID(
 		var found uuid.UUID
 		if err := repository.Pool.QueryRow(
 			ctx,
-			`SELECT id FROM issues WHERE id = $1`,
+			`SELECT id FROM issues WHERE id = $1 AND deleted_at IS NULL`,
 			id,
 		).Scan(&found); errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, ErrNotFound
@@ -190,7 +190,8 @@ func (repository *Repository) ResolveIssueID(
 		`SELECT i.id
 		   FROM issues AS i
 		   JOIN boards AS b ON b.id = i.board_id
-		  WHERE lower(b.slug) = lower($1) AND i.number = $2`,
+		  WHERE lower(b.slug) = lower($1) AND i.number = $2
+		    AND i.deleted_at IS NULL`,
 		slug,
 		number,
 	).Scan(&found); errors.Is(err, pgx.ErrNoRows) {

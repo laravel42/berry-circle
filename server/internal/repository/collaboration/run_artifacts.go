@@ -201,6 +201,11 @@ func (repository *Repository) ActivateRunArtifact(
 	var workspaceID uuid.UUID
 	if err := tx.QueryRow(
 		ctx,
+		// Deliberately not filtered on issue.deleted_at: this resolves the
+		// workspace for an upload that already succeeded. Refusing here because
+		// the issue was deleted mid-promotion would strand a pending row that
+		// promises bytes the store already holds, and the artifact is hidden
+		// with its issue regardless.
 		`UPDATE attachments AS attachment
 		    SET state = 'ready', ready_at = $3
 		   FROM issues AS issue, boards AS board

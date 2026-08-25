@@ -135,6 +135,7 @@ func verifyBatchIssueSeams(
 		ctx,
 		workspaceID,
 		[]uuid.UUID{deleteID, missingDeleteID},
+		time.Now().UTC(),
 	)
 	if err != nil {
 		t.Fatalf("BatchDeleteIssues() error = %v", err)

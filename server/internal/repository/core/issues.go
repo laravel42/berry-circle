@@ -30,7 +30,10 @@ const issueProjection = `
 // it in one place means the agent join cannot be forgotten at a fourth site.
 const issueSource = `
 	   FROM issues AS i
-	   JOIN boards AS b ON b.id = i.board_id
+	   -- The live predicate rides on the board join rather than each caller's
+	   -- WHERE. For an inner join the two are equivalent, and putting it here
+	   -- means a query cannot read a deleted issue by forgetting to exclude one.
+	   JOIN boards AS b ON b.id = i.board_id AND i.deleted_at IS NULL
 	   LEFT JOIN users AS assignee_user
 	     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
 	   LEFT JOIN agents AS assignee_agent
@@ -273,7 +276,7 @@ func (repository *Repository) UpdateIssue(
 	var currentStatus string
 	if err := tx.QueryRow(
 		ctx,
-		`SELECT status::text FROM issues WHERE id = $1 FOR UPDATE`,
+		`SELECT status::text FROM issues WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
 		params.IssueID,
 	).Scan(&currentStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
