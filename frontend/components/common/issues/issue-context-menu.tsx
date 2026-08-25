@@ -1,13 +1,3 @@
-import {
-   AlertDialog,
-   AlertDialogAction,
-   AlertDialogCancel,
-   AlertDialogContent,
-   AlertDialogDescription,
-   AlertDialogFooter,
-   AlertDialogHeader,
-   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
    ContextMenuContent,
@@ -44,7 +34,8 @@ import {
    Clipboard,
 } from 'lucide-react';
 import React, { useState } from 'react';
-import { deleteBoardIssue, setIssueProject } from '@/lib/issues';
+import { setIssueProject } from '@/lib/issues';
+import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
 import { useIssuesStore } from '@/store/issues-store';
 import { status } from '@/data/status';
 import { priorities } from '@/data/priorities';
@@ -60,9 +51,6 @@ interface IssueContextMenuProps {
 export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
    const [isSubscribed, setIsSubscribed] = useState(false);
    const [isFavorite, setIsFavorite] = useState(false);
-   const [confirmingDelete, setConfirmingDelete] = useState(false);
-   const [deleting, setDeleting] = useState(false);
-   const [deleteError, setDeleteError] = useState<string | null>(null);
 
    const {
       updateIssueStatus,
@@ -73,32 +61,14 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
       updateIssueProject,
       updateIssue,
       getIssueById,
-      deleteIssue,
    } = useIssuesStore();
    // Resolved once: the delete confirmation names the issue, and the handlers
    // below each look it up for themselves.
    const issue = issueId ? getIssueById(issueId) : undefined;
+   const deletion = useIssueDeletion();
    const projects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const labels = useLabelsStore((state) => state.labels);
-
-   const confirmDelete = async () => {
-      if (!issue) return;
-      setDeleting(true);
-      setDeleteError(null);
-      try {
-         await deleteBoardIssue(issue.identifier);
-         // Removed locally only after the server agreed. Dropping the card
-         // first would show the issue as gone until a refresh brought it back.
-         deleteIssue(issue.id);
-         setConfirmingDelete(false);
-         toast.success(`${issue.identifier} deleted`);
-      } catch {
-         setDeleteError('This issue could not be deleted. It may already be gone.');
-      } finally {
-         setDeleting(false);
-      }
-   };
 
    const handleStatusChange = (statusId: string) => {
       if (!issueId) return;
@@ -394,44 +364,15 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                // The menu closes on select and would unmount the dialog with
                // it, so the default is prevented and the dialog opened instead.
                event.preventDefault();
-               setConfirmingDelete(true);
+               if (issue) deletion.request(issue);
             }}
          >
             <Trash2 className="size-4" /> Delete...
             <ContextMenuShortcut>⌘⌫</ContextMenuShortcut>
          </ContextMenuItem>
 
-         <AlertDialog open={confirmingDelete} onOpenChange={setConfirmingDelete}>
-            <AlertDialogContent>
-               <AlertDialogHeader>
-                  <AlertDialogTitle>
-                     Delete {issue?.identifier ?? 'this issue'}?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                     It will be removed from the board. Its comments, run history
-                     and any files agents produced are kept, and the identifier
-                     is not reused.
-                  </AlertDialogDescription>
-               </AlertDialogHeader>
-               {deleteError ? (
-                  <p className="text-destructive">{deleteError}</p>
-               ) : null}
-               <AlertDialogFooter>
-                  <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                     disabled={deleting}
-                     onClick={(event) => {
-                        // Kept open until the request settles, so a failure is
-                        // visible instead of the dialog closing on an error.
-                        event.preventDefault();
-                        void confirmDelete();
-                     }}
-                  >
-                     {deleting ? 'Deleting…' : 'Delete'}
-                  </AlertDialogAction>
-               </AlertDialogFooter>
-            </AlertDialogContent>
-         </AlertDialog>
+
+         <DeleteIssueDialog deletion={deletion} />
       </ContextMenuContent>
    );
 }

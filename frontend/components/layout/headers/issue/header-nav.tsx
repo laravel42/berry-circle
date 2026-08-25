@@ -1,14 +1,19 @@
 'use client';
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
-import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
+import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
+import {
+   useDetailDrawerClose,
+   useInDetailDrawer,
+} from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getCycleById } from '@/data/cycles';
 import { useIssuesStore } from '@/store/issues-store';
-import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronUp, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback } from 'react';
 
 /**
  * Issue page header: breadcrumb (cycle › identifier + title) and previous /
@@ -18,6 +23,21 @@ export default function HeaderNav() {
    const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
    const { issues } = useIssuesStore();
    const inDrawer = useInDetailDrawer();
+   const closeDrawer = useDetailDrawerClose();
+   const router = useRouter();
+
+   // Whatever is showing the issue has to stop showing it. In the drawer that
+   // means closing; on the full page there is nothing left to render, so it
+   // returns to the list rather than sitting on a deleted issue.
+   const afterDelete = useCallback(() => {
+      if (closeDrawer) {
+         closeDrawer();
+         return;
+      }
+      router.push(`/${orgId}/my-issues`);
+   }, [closeDrawer, router, orgId]);
+
+   const deletion = useIssueDeletion(afterDelete);
 
    const index = issues.findIndex((candidate) => candidate.identifier === issueId);
    const issue = index >= 0 ? issues[index] : undefined;
@@ -58,6 +78,18 @@ export default function HeaderNav() {
             <Button
                variant="ghost"
                size="icon"
+               className="size-6 text-muted-foreground hover:text-destructive"
+               aria-label="Delete issue"
+               disabled={!issue}
+               onClick={() => {
+                  if (issue) deletion.request(issue);
+               }}
+            >
+               <Trash2 className="size-4" />
+            </Button>
+            <Button
+               variant="ghost"
+               size="icon"
                className="size-6"
                disabled={!previousIssue}
                asChild={!!previousIssue}
@@ -89,6 +121,8 @@ export default function HeaderNav() {
                )}
             </Button>
          </div>
+
+         <DeleteIssueDialog deletion={deletion} />
       </div>
    );
 }
