@@ -35,7 +35,7 @@ function IssueDragPreview({ issue }: { issue: Issue }) {
             <span className="text-subtle-foreground">{issue.identifier}</span>
             <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
          </div>
-         <h3 className="mb-2 line-clamp-2">{issue.title}</h3>
+         <h4 className="mb-2 line-clamp-2">{issue.title}</h4>
          <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
             <LabelBadge label={issue.labels} />
             {issue.project && <ProjectBadge project={issue.project} />}
@@ -200,7 +200,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                               if (isDragging) event.preventDefault();
                            }}
                         >
-                           <h3 className="mb-2 line-clamp-2">{issue.title}</h3>
+                           <h4 className="mb-2 line-clamp-2">{issue.title}</h4>
                         </Link>
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
                            {displayProperties.labels && <LabelBadge label={issue.labels} />}
