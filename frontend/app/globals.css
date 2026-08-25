@@ -117,7 +117,7 @@
       purpose -- where `color-mix` is unsupported the declaration degrades to
       its first colour, and an edge that matches the column disappears, where
       one that fell back to white would blaze. */
-   --board-card-line: color-mix(in oklab, var(--board-column-body) 95%, #ffffff);
+   --board-card-line: color-mix(in oklab, var(--board-column-body) 97%, #ffffff);
    /* Circle board column header neutral tint (~6% zinc on container). */
    --board-column-header-neutral: color-mix(in oklab, var(--color-zinc-500) 6%, var(--container));
    --sidebar: var(--brand-base);
