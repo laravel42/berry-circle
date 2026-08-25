@@ -74,16 +74,49 @@ describe("parseOpenFangStream", () => {
     expect(events[0]).toEqual({ type: "raw", event: "heartbeat", data: { beat: 1 } });
   });
 
-  it("stops at done and ignores anything after it", async () => {
+  it("keeps reading after done and returns when the body ends", async () => {
+    // The pinned upstream emits one `done` per model turn on the same
+    // connection; hanging up at the first one lost the agent's final report.
+    const events = await collect([
+      'event: chunk\ndata: {"content":"I will look into it"}\n\n',
+      'event: done\ndata: {"usage":{"input_tokens":10,"output_tokens":1}}\n\n',
+      'event: phase\ndata: {"phase":"tool_loop","detail":null}\n\n',
+      'event: tool_use\ndata: {"tool":"file_read"}\n\n',
+      'event: tool_result\ndata: {"tool":"file_read","input":{}}\n\n',
+      'event: done\ndata: {"usage":{"input_tokens":20,"output_tokens":2}}\n\n',
+      'event: chunk\ndata: {"content":"Final report"}\n\n',
+      'event: done\ndata: {"usage":{"input_tokens":30,"output_tokens":3}}\n\n',
+      'event: phase\ndata: {"phase":"done","detail":null}\n\n',
+    ]);
+    expect(events.map((e) => e.type)).toEqual([
+      "chunk",
+      "done",
+      "phase",
+      "tool_use",
+      "tool_result",
+      "done",
+      "chunk",
+      "done",
+      "phase",
+    ]);
+    expect(events[6]).toEqual({ type: "chunk", content: "Final report" });
+    expect(events[7]).toEqual({ type: "done", usage: { input_tokens: 30, output_tokens: 3 } });
+  });
+
+  it("delivers text that follows a done instead of dropping it", async () => {
+    // A trailing turn that never got its own `done` is still the last thing
+    // the agent said; the consumer decides what to make of it.
     const events = await collect([
       'event: done\ndata: {"usage":{"input_tokens":1,"output_tokens":1}}\n\n',
       'event: chunk\ndata: {"content":"late"}\n\n',
     ]);
-    expect(events).toHaveLength(1);
-    expect(events[0].type).toBe("done");
+    expect(events).toEqual([
+      { type: "done", usage: { input_tokens: 1, output_tokens: 1 } },
+      { type: "chunk", content: "late" },
+    ]);
   });
 
-  it("marks the stream interrupted when it ends before a done event", async () => {
+  it("marks the stream interrupted when it ends before any done event", async () => {
     const stream = parseOpenFangStream(
       streamFromChunks(['event: chunk\ndata: {"content":"partial"}\n\n']),
     );

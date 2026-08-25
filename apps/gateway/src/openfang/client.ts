@@ -174,14 +174,16 @@ export class OpenFangClient {
     try {
       yield* parseOpenFangStream(handle.body);
     } finally {
-      // Release the upstream socket on EVERY exit — normal `done`, an early
-      // consumer `break` (downstream disconnect), or a thrown
-      // `STREAM_INTERRUPTED`. `dispose()` only clears the whole-stream timeout
-      // and abort wiring, so without an explicit cancel the abnormal-exit paths
-      // would leave the `text/event-stream` connection open with no reaper.
-      // `parseOpenFangStream` has already released the reader lock in its own
-      // `finally`, so `cancel()` is safe here and a harmless no-op on the
-      // already-cancelled `done`/EOF paths.
+      // Release the upstream socket on EVERY exit — the body ending after the
+      // last `done`, an early consumer `break` (downstream disconnect), or a
+      // thrown `STREAM_INTERRUPTED`. `dispose()` only clears the whole-stream
+      // timeout and abort wiring, so without an explicit cancel the
+      // abnormal-exit paths would leave the `text/event-stream` connection
+      // open with no reaper. `parseOpenFangStream` reads to EOF and never
+      // cancels at `done` (a turn boundary; the next turn arrives on this
+      // connection), and it has already released the reader lock in its own
+      // `finally`, so `cancel()` is safe here and a harmless no-op on the EOF
+      // path.
       try {
         await handle.body.cancel();
       } catch {

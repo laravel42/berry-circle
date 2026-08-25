@@ -4,15 +4,21 @@
  * `POST /api/agents/{agentId}/message/stream` returns `text/event-stream`. Each
  * frame carries an explicit `event` name and a JSON `data` payload; the pinned
  * stream emits no SSE `id` or retry hints, and non-projectable upstream events
- * arrive as SSE comments (which we drop). Per the consumption contract, the
- * consumer:
+ * arrive as SSE comments (which we drop). This is the compatibility oracle for
+ * the Go adapter (`server/internal/openfang/sse.go`), which is the product
+ * implementation; both follow the consumption contract:
  *   - projects the five known events into a typed union;
  *   - preserves unknown *named* events as `raw` so nothing is silently lost;
  *   - drops comment/keep-alive frames;
- *   - treats malformed JSON, a read error, or EOF before a `done` event as an
+ *   - treats `done` as the end of one model turn, not of the run: the pinned
+ *     upstream emits one per turn on the same connection and starts the next
+ *     turn whenever the agent called a tool, so the body is read to its end
+ *     and nothing is cancelled at `done`;
+ *   - treats malformed JSON, a read error, or EOF before any `done` as an
  *     interruption (`STREAM_INTERRUPTED`) so the caller can persist partial
  *     events and mark the Berry run `interrupted` — never re-dispatching, since
- *     the route has no resume/replay contract.
+ *     the route has no resume/replay contract. EOF after at least one `done`
+ *     is the clean end of the run.
  */
 
 import { z } from "zod";
@@ -46,10 +52,11 @@ interface RawFrame {
 }
 
 /**
- * Consume an OpenFang SSE body, yielding typed events in arrival order. Returns
- * normally once a `done` event has been seen; throws `OpenFangError`
- * (`STREAM_INTERRUPTED`) if the stream ends, errors, or contains malformed JSON
- * before `done`.
+ * Consume an OpenFang SSE body, yielding typed events in arrival order until
+ * the body ends. Returns normally when the body ends after at least one `done`
+ * (each `done` closes a turn; EOF follows the last one); throws `OpenFangError`
+ * (`STREAM_INTERRUPTED`) if the stream ends before any `done`, errors, or
+ * contains malformed JSON.
  */
 export async function* parseOpenFangStream(
   body: ReadableStream<Uint8Array>,
@@ -57,7 +64,10 @@ export async function* parseOpenFangStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let sawDone = false;
+  // Counts `done` events. It decides what the end of the body means: after at
+  // least one turn it is the run finishing, before any it is the connection
+  // dropping mid-work.
+  let turns = 0;
 
   try {
     for (;;) {
@@ -74,7 +84,7 @@ export async function* parseOpenFangStream(
         if (trailing.length > 0) {
           const event = projectFrame(parseFrame(buffer));
           if (event) {
-            if (event.type === "done") sawDone = true;
+            if (event.type === "done") turns++;
             yield event;
           }
         }
@@ -87,12 +97,10 @@ export async function* parseOpenFangStream(
       for (const block of parts) {
         const event = projectFrame(parseFrame(block));
         if (!event) continue;
-        if (event.type === "done") {
-          yield event;
-          // `done` finalizes the run; release the connection and stop.
-          await reader.cancel();
-          return;
-        }
+        // `done` closes a turn; the next turn arrives on this same connection,
+        // so keep reading. Hanging up here left the agent working into a socket
+        // nobody read, and its final report never reached Berry.
+        if (event.type === "done") turns++;
         yield event;
       }
     }
@@ -100,8 +108,8 @@ export async function* parseOpenFangStream(
     reader.releaseLock();
   }
 
-  if (!sawDone) {
-    throw new OpenFangError("STREAM_INTERRUPTED", "OpenFang stream ended before a done event");
+  if (turns === 0) {
+    throw new OpenFangError("STREAM_INTERRUPTED", "OpenFang stream ended before any done event");
   }
 }
 
