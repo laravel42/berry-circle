@@ -158,7 +158,10 @@ services:
       OLLAMA_BASE_URL: "${OLLAMA_BASE_URL:-}"
       OLLAMA_API_KEY: "${OLLAMA_API_KEY:-}"
       # Named by default_model.api_key_env in deploy/openfang/config.toml.
-      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      # BERRY_-prefixed first: a stale OPENROUTER_API_KEY exported in the
+      # launching shell outranks .env for Compose substitution, and has twice
+      # revived a spent key. Nothing exports the namespaced name.
+      OPENROUTER_API_KEY: "${BERRY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}"
     volumes:
       - openfang-data:/data
       # Config as code: the runtime uses the file in the repository rather than
