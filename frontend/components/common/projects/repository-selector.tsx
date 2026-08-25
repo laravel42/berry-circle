@@ -19,19 +19,32 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 /**
- * Chooses the GitHub repository a project delivers into.
+ * Chooses a GitHub repository, over a plain value.
+ *
+ * Split from the project-bound wrapper below because the create dialog has no
+ * project to update yet — it holds a pending choice until the project exists.
+ * Both need the same list, search and failure states, and having two would mean
+ * one of them quietly falling behind.
  *
  * The list is loaded when the picker opens rather than with the page. It costs
  * an upstream call and most people looking at a project are not relinking it,
- * so paying for it on every project view would be a request nobody asked for.
+ * so paying for it on every view would be a request nobody asked for.
  */
-export function RepositorySelector({ project }: { project: Project }) {
-   const updateProject = useProjectsStore((state) => state.updateProject);
+export function RepositoryPicker({
+   value,
+   onSelect,
+   disabled,
+   placeholder = 'Link a repository',
+}: {
+   value?: string;
+   onSelect: (fullName: string | null) => void;
+   disabled?: boolean;
+   placeholder?: string;
+}) {
    const [open, setOpen] = useState(false);
    const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
    const [loading, setLoading] = useState(false);
    const [error, setError] = useState<string | null>(null);
-   const [saving, setSaving] = useState(false);
 
    useEffect(() => {
       if (!open || repositories.length > 0) return;
@@ -61,24 +74,11 @@ export function RepositorySelector({ project }: { project: Project }) {
    }, [open, repositories.length]);
 
    const choose = useCallback(
-      async (fullName: string | null) => {
-         const previous = project.githubRepo;
-         setSaving(true);
-         updateProject(project.id, { githubRepo: fullName ?? undefined });
+      (fullName: string | null) => {
          setOpen(false);
-         try {
-            await setProjectRepository(project.id, fullName);
-            toast.success(fullName ? `Linked to ${fullName}` : 'Repository unlinked');
-         } catch (cause) {
-            updateProject(project.id, { githubRepo: previous });
-            toast.error(
-               cause instanceof BerryApiError ? cause.message : 'That repository could not be saved.'
-            );
-         } finally {
-            setSaving(false);
-         }
+         onSelect(fullName);
       },
-      [project.id, project.githubRepo, updateProject]
+      [onSelect]
    );
 
    return (
@@ -88,15 +88,15 @@ export function RepositorySelector({ project }: { project: Project }) {
                variant="ghost"
                size="sm"
                className="w-full justify-start gap-2 px-1.5"
-               disabled={saving}
+               disabled={disabled}
             >
-               {saving ? (
+               {disabled ? (
                   <Loader2 className="size-4 shrink-0 animate-spin" />
                ) : (
                   <Github className="size-4 shrink-0 text-muted-foreground" />
                )}
-               <span className={project.githubRepo ? 'truncate' : 'truncate text-muted-foreground'}>
-                  {project.githubRepo ?? 'Link a repository'}
+               <span className={value ? 'truncate' : 'truncate text-muted-foreground'}>
+                  {value ?? placeholder}
                </span>
             </Button>
          </PopoverTrigger>
@@ -115,8 +115,8 @@ export function RepositorySelector({ project }: { project: Project }) {
                      <>
                         <CommandEmpty>No repository found.</CommandEmpty>
                         <CommandGroup>
-                           {project.githubRepo ? (
-                              <CommandItem onSelect={() => void choose(null)}>
+                           {value ? (
+                              <CommandItem onSelect={() => choose(null)}>
                                  <X className="size-4" /> Unlink
                               </CommandItem>
                            ) : null}
@@ -124,11 +124,11 @@ export function RepositorySelector({ project }: { project: Project }) {
                               <CommandItem
                                  key={repository.id}
                                  value={repository.fullName}
-                                 onSelect={() => void choose(repository.fullName)}
+                                 onSelect={() => choose(repository.fullName)}
                               >
                                  <Github className="size-4 shrink-0" />
                                  <span className="truncate">{repository.fullName}</span>
-                                 {project.githubRepo === repository.fullName ? (
+                                 {value === repository.fullName ? (
                                     <Check className="ml-auto size-4" />
                                  ) : null}
                               </CommandItem>
@@ -140,5 +140,44 @@ export function RepositorySelector({ project }: { project: Project }) {
             </Command>
          </PopoverContent>
       </Popover>
+   );
+}
+
+/**
+ * The picker bound to an existing project, saving as soon as a choice is made.
+ *
+ * The local change is rolled back if the request fails, because a repository
+ * that looks linked and is not is the failure this whole path exists to avoid.
+ */
+export function RepositorySelector({ project }: { project: Project }) {
+   const updateProject = useProjectsStore((state) => state.updateProject);
+   const [saving, setSaving] = useState(false);
+
+   const save = useCallback(
+      async (fullName: string | null) => {
+         const previous = project.githubRepo;
+         setSaving(true);
+         updateProject(project.id, { githubRepo: fullName ?? undefined });
+         try {
+            await setProjectRepository(project.id, fullName);
+            toast.success(fullName ? `Linked to ${fullName}` : 'Repository unlinked');
+         } catch (cause) {
+            updateProject(project.id, { githubRepo: previous });
+            toast.error(
+               cause instanceof BerryApiError ? cause.message : 'That repository could not be saved.'
+            );
+         } finally {
+            setSaving(false);
+         }
+      },
+      [project.id, project.githubRepo, updateProject]
+   );
+
+   return (
+      <RepositoryPicker
+         value={project.githubRepo}
+         onSelect={(fullName) => void save(fullName)}
+         disabled={saving}
+      />
    );
 }

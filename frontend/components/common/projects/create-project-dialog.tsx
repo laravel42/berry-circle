@@ -3,6 +3,7 @@
 import { BerryMark } from '@/components/brand/berry-mark';
 import { DescriptionTextarea } from '@/components/common/editor/description-textarea';
 import { ProjectDateSelector } from '@/components/common/projects/create-project/date-selector';
+import { RepositoryPicker } from '@/components/common/projects/repository-selector';
 import { ProjectLeadSelector } from '@/components/common/projects/create-project/lead-selector';
 import { ProjectPrioritySelector } from '@/components/common/projects/create-project/priority-selector';
 import { defaultProjectCreateStatus } from '@/components/common/projects/create-project/project-status-options';
@@ -41,6 +42,8 @@ interface ProjectFormState {
    lead: User;
    startDate?: Date;
    targetDate?: Date;
+   /** owner/name, or undefined for a project that delivers nowhere yet. */
+   githubRepo?: string;
 }
 
 function composeDescription(summary: string, description: string): string | undefined {
@@ -104,6 +107,7 @@ export function CreateProjectDialog() {
             priorityId: form.priority.id,
             startDate: toIsoDate(form.startDate),
             targetDate: toIsoDate(form.targetDate),
+            githubRepo: form.githubRepo,
             lead: form.lead,
          });
          addProject({ ...project, lead: form.lead, status: form.status, priority: form.priority });
@@ -201,6 +205,18 @@ export function CreateProjectDialog() {
                         date={form.targetDate}
                         onChange={(targetDate) => setForm({ ...form, targetDate })}
                      />
+                     {/* Held in form state rather than saved on selection: the
+                         project does not exist yet, so there is nothing to link
+                         until it is created. */}
+                     <div className="min-w-44">
+                        <RepositoryPicker
+                           value={form.githubRepo}
+                           placeholder="Repository"
+                           onSelect={(githubRepo) =>
+                              setForm({ ...form, githubRepo: githubRepo ?? undefined })
+                           }
+                        />
+                     </div>
                   </div>
 
                   <label htmlFor="create-project-description" className="sr-only">

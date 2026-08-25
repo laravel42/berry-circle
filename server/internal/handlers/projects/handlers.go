@@ -279,10 +279,52 @@ func (handler *handlers) list(response http.ResponseWriter, request *http.Reques
 	})
 }
 
+// resolveRepository turns a full name into the id GitHub keeps stable, or
+// refuses the request.
+//
+// Shared by create and update because both store the same pair under the same
+// constraint: one path resolving and the other trusting the client is how the
+// two columns end up disagreeing.
+func (handler *handlers) resolveRepository(
+	response http.ResponseWriter,
+	request *http.Request,
+	fullName string,
+) (int64, bool) {
+	if handler.repository == nil {
+		httpapi.WriteError(response, request, http.StatusPreconditionFailed,
+			"INTEGRATIONS_NOT_CONFIGURED",
+			"This deployment cannot resolve GitHub repositories.", nil)
+		return 0, false
+	}
+	user := auth.MustUser(request.Context())
+	workspaceID := uuid.Nil
+	if user.CurrentWorkspaceID != nil {
+		workspaceID = *user.CurrentWorkspaceID
+	}
+	id, err := handler.repository.ResolveRepository(request.Context(), workspaceID, fullName)
+	if err != nil {
+		// Named rather than generic: the two ways this fails — no connection,
+		// and a repository the connection cannot see — are both things a person
+		// can fix, and neither is a server fault.
+		httpapi.WriteError(response, request, http.StatusUnprocessableEntity,
+			"REPOSITORY_UNAVAILABLE",
+			"That repository could not be reached with the connected GitHub account.", nil)
+		return 0, false
+	}
+	return id, true
+}
+
 func (handler *handlers) create(response http.ResponseWriter, request *http.Request) {
 	workspaceID, input, ok := parseCreateProject(response, request)
 	if !ok {
 		return
+	}
+	if input.GitHubRepoFullName != nil {
+		id, resolved := handler.resolveRepository(response, request, *input.GitHubRepoFullName)
+		if !resolved {
+			return
+		}
+		input.GitHubRepoID = &id
 	}
 	user := auth.MustUser(request.Context())
 	project, err := handler.service.Create(request.Context(), user.ID, workspaceID, input)
@@ -317,25 +359,8 @@ func (handler *handlers) update(response http.ResponseWriter, request *http.Requ
 	}
 	user := auth.MustUser(request.Context())
 	if patch.GitHubRepoSet && patch.GitHubRepoFullName != nil {
-		if handler.repository == nil {
-			httpapi.WriteError(response, request, http.StatusPreconditionFailed,
-				"INTEGRATIONS_NOT_CONFIGURED",
-				"This deployment cannot resolve GitHub repositories.", nil)
-			return
-		}
-		workspaceID := uuid.Nil
-		if user.CurrentWorkspaceID != nil {
-			workspaceID = *user.CurrentWorkspaceID
-		}
-		id, err := handler.repository.ResolveRepository(
-			request.Context(), workspaceID, *patch.GitHubRepoFullName)
-		if err != nil {
-			// Named rather than generic: the two ways this fails — no
-			// connection, and a repository the connection cannot see — are both
-			// things a person can fix, and neither is a server fault.
-			httpapi.WriteError(response, request, http.StatusUnprocessableEntity,
-				"REPOSITORY_UNAVAILABLE",
-				"That repository could not be reached with the connected GitHub account.", nil)
+		id, resolved := handler.resolveRepository(response, request, *patch.GitHubRepoFullName)
+		if !resolved {
 			return
 		}
 		patch.GitHubRepoID = &id

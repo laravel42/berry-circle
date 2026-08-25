@@ -122,6 +122,7 @@ export async function createWorkspaceProject(input: {
    startDate?: string;
    targetDate?: string;
    lead: User;
+   githubRepo?: string;
 }): Promise<Project> {
    const body: Record<string, string> = {
       workspaceId: input.workspaceId,
@@ -132,6 +133,7 @@ export async function createWorkspaceProject(input: {
    if (input.description) body.description = input.description;
    if (input.startDate) body.startDate = input.startDate;
    if (input.targetDate) body.targetDate = input.targetDate;
+   if (input.githubRepo) body.githubRepo = input.githubRepo;
 
    const json: unknown = await apiFetch('/api/v1/projects', {
       method: 'POST',

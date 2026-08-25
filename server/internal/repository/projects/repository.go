@@ -187,10 +187,12 @@ func (repository *Repository) Create(
 		    priority,
 		    start_date,
 		    target_date,
+		    github_repo_id,
+		    github_repo_full_name,
 		    created_by,
 		    created_at,
 		    updated_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
 		 RETURNING `+projectProjection,
 		params.ID,
 		params.WorkspaceID,
@@ -200,6 +202,8 @@ func (repository *Repository) Create(
 		params.Priority,
 		params.StartDate,
 		params.TargetDate,
+		params.GitHubRepoID,
+		params.GitHubRepoFullName,
 		params.CreatedBy,
 		params.CreatedAt,
 	))

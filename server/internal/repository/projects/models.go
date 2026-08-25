@@ -120,8 +120,11 @@ type CreateParams struct {
 	Priority    Priority
 	StartDate   *time.Time
 	TargetDate  *time.Time
-	CreatedBy   uuid.UUID
-	CreatedAt   time.Time
+	// Set together or not at all, matching the column constraint.
+	GitHubRepoID       *int64
+	GitHubRepoFullName *string
+	CreatedBy          uuid.UUID
+	CreatedAt          time.Time
 }
 
 // Patch distinguishes omitted nullable fields from explicit null.

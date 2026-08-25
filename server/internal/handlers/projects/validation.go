@@ -16,6 +16,10 @@ import (
 )
 
 type createProjectBody struct {
+	// Only the full name; the id is resolved from GitHub in the handler for the
+	// same reason it is on update — a supplied id could name a repository the
+	// connection cannot see.
+	GitHubRepo  workmanagement.Optional[string]               `json:"githubRepo"`
 	WorkspaceID workmanagement.Optional[string]               `json:"workspaceId"`
 	Name        workmanagement.Optional[string]               `json:"name"`
 	Description workmanagement.Optional[string]               `json:"description"`
@@ -102,17 +106,33 @@ func parseCreateProject(
 			Message: "targetDate must be on or after startDate.",
 		})
 	}
+	var githubRepo *string
+	if body.GitHubRepo.Set && !body.GitHubRepo.Null {
+		name := strings.TrimSpace(body.GitHubRepo.Value)
+		if name != "" {
+			if !githubRepoPattern.MatchString(name) {
+				fields = append(fields, httpapi.FieldError{
+					Path:    "/githubRepo",
+					Code:    "invalid_string",
+					Message: "Repository must be owner/name.",
+				})
+			} else {
+				githubRepo = &name
+			}
+		}
+	}
 	if len(fields) > 0 {
 		workmanagement.WriteValidation(response, request, fields...)
 		return uuid.Nil, projectrepo.CreateParams{}, false
 	}
 	return workspaceID, projectrepo.CreateParams{
-		Name:        name,
-		Description: description,
-		Status:      status,
-		Priority:    priority,
-		StartDate:   startDate,
-		TargetDate:  targetDate,
+		GitHubRepoFullName: githubRepo,
+		Name:               name,
+		Description:        description,
+		Status:             status,
+		Priority:           priority,
+		StartDate:          startDate,
+		TargetDate:         targetDate,
 	}, true
 }
 
