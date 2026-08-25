@@ -13,10 +13,13 @@ import { invalidStateTransition } from "~/http/errors";
  */
 const ALLOWED_TRANSITIONS: Record<ApiIssueStatus, readonly ApiIssueStatus[]> = {
   backlog: ["todo", "cancelled"],
-  todo: ["backlog", "inProgress", "cancelled"],
-  inProgress: ["todo", "inReview", "cancelled"],
-  inReview: ["inProgress", "done", "cancelled"],
+  todo: ["backlog", "inProgress", "blocked", "cancelled"],
+  inProgress: ["todo", "inReview", "blocked", "cancelled"],
+  inReview: ["inProgress", "done", "blocked", "cancelled"],
   done: ["inReview"],
+  // Mirrors the Go server's table (repository/core/issues.go): blocked is a
+  // parking state, so it releases back to the queue or to work in progress.
+  blocked: ["todo", "inProgress", "cancelled"],
   cancelled: ["backlog", "todo"],
 };
 
