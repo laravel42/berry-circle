@@ -85,6 +85,11 @@ services:
       TEMPORAL_HOSTPORT: "${TEMPORAL_HOSTPORT:-temporal:7233}"
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-berry}"
       TEMPORAL_TASK_QUEUE: "${TEMPORAL_TASK_QUEUE:-berry-runs}"
+      # The API is the single process that provisions each workspace's
+      # built-in orchestrator upstream (cmd/api), so it needs the model the
+      # deployment chose. Unset leaves the orchestrator offline.
+      ORCHESTRATOR_PROVIDER: "${ORCHESTRATOR_PROVIDER:-}"
+      ORCHESTRATOR_MODEL: "${ORCHESTRATOR_MODEL:-}"
       INFOBIP_ENABLED: "${INFOBIP_ENABLED:-false}"
       INFOBIP_BASE_URL: "${INFOBIP_BASE_URL:-}"
       INFOBIP_API_KEY: "${INFOBIP_API_KEY:-}"
