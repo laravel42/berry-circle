@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	"github.com/laravel42/berry-circle/server/internal/repository/core"
 	"github.com/laravel42/berry-circle/server/internal/repository/runs"
 )
 
@@ -40,7 +44,8 @@ func TestServiceProjectsSuccessfulStream(t *testing.T) {
 			},
 		}},
 	}
-	service, cancel, hub := newTestService(t, store, runtime, now)
+	comments := &fakeComments{workspaceID: uuid.New()}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
 	defer cancel()
 	defer hub.Close()
 	defer closeService(t, service)
@@ -78,6 +83,429 @@ func TestServiceProjectsSuccessfulStream(t *testing.T) {
 			store.toolCompleted.Load(),
 		)
 	}
+	// The comment is written after success commits, so wait for the worker.
+	closeService(t, service)
+	if turns := store.providerEventsOfType("turn"); len(turns) != 1 ||
+		turns[0].metadata["turn"] != "1" {
+		t.Fatalf("turn events = %#v, want one", turns)
+	}
+	created := comments.snapshot()
+	if len(created) != 1 || created[0].Body != "finished work" ||
+		created[0].AuthorType != "agent" ||
+		created[0].AuthorID != store.dispatch.AgentID ||
+		created[0].IssueID != store.dispatch.IssueID {
+		t.Fatalf("comments = %#v", created)
+	}
+}
+
+// The regression: the pinned upstream sends done after every model turn, so
+// a run must only complete when the body ends. Usage is the sum over turns,
+// the result is the last turn's text, and the report reaches the issue.
+func TestServiceCompletesAtStreamEndAcrossTurns(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	workspaceID := uuid.New()
+	comments := &fakeComments{workspaceID: workspaceID}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "I'll research this systematically."},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 8701, OutputTokens: 432}},
+			{Type: openfang.EventPhase, Phase: "tool_loop"},
+			{Type: openfang.EventToolUse, Tool: "web_search"},
+			{Type: openfang.EventToolResult, Tool: "web_search"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 400000, OutputTokens: 6000}},
+			{Type: openfang.EventPhase, Phase: "tool_loop"},
+			{Type: openfang.EventChunk, Content: "Final report: "},
+			{Type: openfang.EventChunk, Content: "three findings."},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 426313, OutputTokens: 7555}},
+			{Type: openfang.EventPhase, Phase: "done"},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	subscription, err := hub.Subscribe(context.Background(), workspaceID.String())
+	if err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+	defer subscription.Close()
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case success := <-store.successes:
+		if success.Usage.InputTokens != 835014 ||
+			success.Usage.OutputTokens != 13987 ||
+			success.Usage.TotalTokens != 849001 {
+			t.Fatalf("usage = %#v, want the sum over three turns", success.Usage)
+		}
+		if success.Summary == nil || *success.Summary != "Final report: three findings." {
+			t.Fatalf("summary = %#v, want the last turn's text", success.Summary)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	select {
+	case failure := <-store.failures:
+		t.Fatalf("unexpected failure %#v", failure)
+	default:
+	}
+	closeService(t, service)
+
+	turns := store.providerEventsOfType("turn")
+	if len(turns) != 3 ||
+		turns[0].metadata["turn"] != "1" ||
+		turns[0].metadata["inputTokens"] != "8701" ||
+		turns[0].metadata["outputTokens"] != "432" ||
+		turns[2].metadata["turn"] != "3" ||
+		turns[2].metadata["inputTokens"] != "426313" {
+		t.Fatalf("turn events = %#v", turns)
+	}
+	if store.outputCount.Load() != 3 {
+		t.Fatalf("output events = %d, want every chunk", store.outputCount.Load())
+	}
+	created := comments.snapshot()
+	if len(created) != 1 ||
+		created[0].AuthorType != "agent" ||
+		created[0].AuthorID != store.dispatch.AgentID ||
+		created[0].IssueID != store.dispatch.IssueID ||
+		created[0].Body != "Final report: three findings." {
+		t.Fatalf("comments = %#v", created)
+	}
+	select {
+	case event := <-subscription.Events():
+		if event.Type != "comment.created" || event.WorkspaceID != workspaceID.String() {
+			t.Fatalf("realtime event = %#v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the comment.created realtime event")
+	}
+}
+
+func TestServiceFallsBackToLastTurnThatSaidAnything(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "Report body"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+			// A closing turn that only called a tool: no text of its own.
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case success := <-store.successes:
+		if success.Summary == nil || *success.Summary != "Report body" {
+			t.Fatalf("summary = %#v", success.Summary)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	closeService(t, service)
+	if created := comments.snapshot(); len(created) != 1 || created[0].Body != "Report body" {
+		t.Fatalf("comments = %#v", created)
+	}
+}
+
+// The end of the body is the only completion signal, so text that arrives
+// after the last done and is then cut off by EOF is promoted as the result
+// and posted: a drop mid-final-turn reads the same as a clean end. This is
+// the documented trade-off, pinned so a change to it is deliberate.
+func TestServicePromotesTrailingTextAfterLastDone(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "I'll look into it."},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 5, OutputTokens: 1}},
+			{Type: openfang.EventChunk, Content: "Partial final answer"},
+			// No done and no terminal phase: the connection went away here.
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case success := <-store.successes:
+		if success.Summary == nil || *success.Summary != "Partial final answer" {
+			t.Fatalf("summary = %#v, want the trailing text", success.Summary)
+		}
+		if success.Usage.InputTokens != 5 || success.Usage.OutputTokens != 1 {
+			t.Fatalf("usage = %#v, want only the closed turn's usage", success.Usage)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	closeService(t, service)
+	if turns := store.providerEventsOfType("turn"); len(turns) != 1 {
+		t.Fatalf("turn events = %#v, want one for the closed turn only", turns)
+	}
+	created := comments.snapshot()
+	if len(created) != 1 || created[0].Body != "Partial final answer" {
+		t.Fatalf("comments = %#v", created)
+	}
+}
+
+func TestServiceMapsEOFWithoutAnyDoneToInterrupted(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "partial"},
+			{Type: openfang.EventToolUse, Tool: "shell"},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case failure := <-store.failures:
+		if failure.Failure.Code != "STREAM_INTERRUPTED" || !failure.Reconcile {
+			t.Fatalf("failure = %#v", failure)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for interrupted failure")
+	}
+	closeService(t, service)
+	select {
+	case success := <-store.successes:
+		t.Fatalf("unexpected success %#v", success)
+	default:
+	}
+	if created := comments.snapshot(); len(created) != 0 {
+		t.Fatalf("comments = %#v, want none", created)
+	}
+}
+
+func TestServiceCommentFailureDoesNotFailRun(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{err: errors.New("comments unavailable")}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "done work"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case success := <-store.successes:
+		if success.Summary == nil || *success.Summary != "done work" {
+			t.Fatalf("summary = %#v", success.Summary)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	closeService(t, service)
+	if created := comments.snapshot(); len(created) != 1 {
+		t.Fatalf("comment attempts = %d, want 1", len(created))
+	}
+	select {
+	case failure := <-store.failures:
+		t.Fatalf("comment failure reached the run: %#v", failure)
+	default:
+	}
+}
+
+// Cancel sets cancel_requested, stops the agent, and only then marks the run
+// cancelled. The stop ends the body cleanly, so the stream reaches its clean
+// end first; the ledger refuses the success and the run must be left to
+// Cancel: no failure recorded, no partial report posted.
+func TestServiceLeavesRunToCancelWhenCancellationIsInProgress(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	store.completeErr = runs.ErrRunCancelling
+	comments := &fakeComments{workspaceID: uuid.New()}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "partial report"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case <-store.successes:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the success attempt")
+	}
+	closeService(t, service)
+	select {
+	case failure := <-store.failures:
+		t.Fatalf("cancellation in progress was recorded as a failure: %#v", failure)
+	default:
+	}
+	if created := comments.snapshot(); len(created) != 0 {
+		t.Fatalf("comments = %#v, want none while cancelling", created)
+	}
+}
+
+func TestServiceSkipsCommentWhenRunSaidNothing(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case success := <-store.successes:
+		if success.Summary != nil {
+			t.Fatalf("summary = %q, want none", *success.Summary)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	closeService(t, service)
+	if created := comments.snapshot(); len(created) != 0 {
+		t.Fatalf("comments = %#v, want none", created)
+	}
+}
+
+func TestServiceBoundsSummaryButPostsWholeResult(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	// Two bytes per rune, so a naive byte cut would split a character.
+	text := strings.Repeat("é", 4000)
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: text},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case success := <-store.successes:
+		if success.Summary == nil || len(*success.Summary) > maxSummaryBytes ||
+			!utf8.ValidString(*success.Summary) ||
+			!strings.HasPrefix(text, *success.Summary) {
+			t.Fatalf("summary is not a bounded prefix of the result")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	closeService(t, service)
+	if created := comments.snapshot(); len(created) != 1 || created[0].Body != text {
+		t.Fatal("comment body is not the whole result")
+	}
+}
+
+func TestCommentBodyTruncatesOnRuneBoundaryWithNote(t *testing.T) {
+	t.Parallel()
+	text := boundedText{max: commentBodyBytes}
+	text.Append(strings.Repeat("é", commentBodyBytes))
+	value, cut := text.Text()
+	if !cut || len(value) > commentBodyBytes || !utf8.ValidString(value) {
+		t.Fatalf("bounded text len=%d cut=%v valid=%v", len(value), cut, utf8.ValidString(value))
+	}
+	body := commentBody(value, cut)
+	if len(body) > commentBodyBytes || !utf8.ValidString(body) ||
+		!strings.HasSuffix(body, truncationNote) {
+		t.Fatalf("comment body len=%d valid=%v", len(body), utf8.ValidString(body))
+	}
+	if commentBody("fine", false) != "fine" {
+		t.Fatal("an uncut result must pass through untouched")
+	}
+}
+
+func TestBuildMessageTellsTheAgentHowToReport(t *testing.T) {
+	t.Parallel()
+	dispatch := runs.Dispatch{IssueIdentifier: "BERRY-1", IssueTitle: "Research"}
+	message := buildMessage(dispatch)
+	if !strings.Contains(message, "Reporting your result") ||
+		!strings.Contains(message, "output/") ||
+		strings.Contains(message, "Delivering your work") {
+		t.Fatalf("message without repository = %q", message)
+	}
+	dispatch.Repository = "acme/app"
+	message = buildMessage(dispatch)
+	reporting := strings.Index(message, "Reporting your result")
+	delivering := strings.Index(message, "Delivering your work")
+	if reporting < 0 || delivering < 0 || reporting > delivering {
+		t.Fatalf("message with repository = %q", message)
+	}
+}
+
+// The cap cuts from the tail, and the contracts are the tail: a description
+// near its 100,000-character limit must lose its own end, not the contracts.
+func TestBuildMessageKeepsContractsUnderLongDescription(t *testing.T) {
+	t.Parallel()
+	description := strings.Repeat("x", 100000)
+	dispatch := runs.Dispatch{
+		IssueIdentifier:  "BERRY-1",
+		IssueTitle:       "Long one",
+		IssueDescription: &description,
+		Repository:       "acme/app",
+	}
+	message := buildMessage(dispatch)
+	if len(message) > maxPromptBytes {
+		t.Fatalf("message length = %d, over %d", len(message), maxPromptBytes)
+	}
+	if !strings.HasSuffix(message, deliveryContract("acme/app")) ||
+		!strings.Contains(message, "Reporting your result") {
+		t.Fatalf("message tail = %q", message[len(message)-400:])
+	}
+	if !strings.Contains(message, "Description:\nxxxx") {
+		t.Fatalf("description missing from message head = %q", message[:120])
+	}
 }
 
 func TestServiceMapsEOFBeforeDoneToInterruptedWithoutRedispatch(t *testing.T) {
@@ -92,7 +520,7 @@ func TestServiceMapsEOFBeforeDoneToInterruptedWithoutRedispatch(t *testing.T) {
 			finalErr: &openfang.StreamError{Kind: openfang.StreamInterrupted},
 		},
 	}
-	service, cancel, hub := newTestService(t, store, runtime, now)
+	service, cancel, hub := newTestService(t, store, runtime, now, nil)
 	defer cancel()
 	defer hub.Close()
 	defer closeService(t, service)
@@ -135,7 +563,7 @@ func TestServiceCancellationCallsStopOnce(t *testing.T) {
 			RequestID: "upstream-stop",
 		},
 	}
-	service, cancel, hub := newTestService(t, store, runtime, now)
+	service, cancel, hub := newTestService(t, store, runtime, now, nil)
 	defer cancel()
 	defer hub.Close()
 	defer closeService(t, service)
@@ -165,6 +593,7 @@ func newTestService(
 	store *serviceStore,
 	runtime *fakeRuntime,
 	now time.Time,
+	comments CommentStore,
 ) (*Service, context.CancelFunc, *realtime.Hub) {
 	t.Helper()
 	hub, err := realtime.NewHub(8)
@@ -181,6 +610,8 @@ func newTestService(
 		WorkerContext: workerContext,
 		Workers:       1,
 		QueueSize:     4,
+		Comments:      comments,
+		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	})
 	if err != nil {
 		cancel()
@@ -271,16 +702,75 @@ func (stream *fakeStream) Next() (openfang.StreamEvent, error) {
 func (*fakeStream) RequestID() string { return "upstream-dispatch" }
 func (*fakeStream) Close() error      { return nil }
 
+// fakeComments records what a run tried to post and can refuse it.
+type fakeComments struct {
+	mu          sync.Mutex
+	workspaceID uuid.UUID
+	err         error
+	created     []core.CreateCommentParams
+}
+
+func (comments *fakeComments) CreateComment(
+	_ context.Context,
+	params core.CreateCommentParams,
+	eventID uuid.UUID,
+) (core.Comment, core.CommentMutationEvent, error) {
+	comments.mu.Lock()
+	defer comments.mu.Unlock()
+	comments.created = append(comments.created, params)
+	if comments.err != nil {
+		return core.Comment{}, core.CommentMutationEvent{}, comments.err
+	}
+	return core.Comment{
+			ID:      params.ID,
+			IssueID: params.IssueID,
+			Body:    params.Body,
+			Author:  core.ActorRef{Type: params.AuthorType, ID: params.AuthorID},
+		}, core.CommentMutationEvent{
+			ID:          eventID,
+			WorkspaceID: comments.workspaceID,
+			Type:        "comment.created",
+			Payload:     []byte(`{}`),
+			OccurredAt:  params.CreatedAt,
+		}, nil
+}
+
+func (comments *fakeComments) snapshot() []core.CreateCommentParams {
+	comments.mu.Lock()
+	defer comments.mu.Unlock()
+	return append([]core.CreateCommentParams(nil), comments.created...)
+}
+
+type providerEvent struct {
+	eventType string
+	metadata  map[string]string
+}
+
 type serviceStore struct {
-	dispatch      runs.Dispatch
-	failures      chan runs.FailParams
-	successes     chan runs.SuccessParams
-	cancelClaim   runs.CancellationClaim
-	cancelled     bool
-	mu            sync.Mutex
-	outputCount   atomic.Int32
-	toolStarted   atomic.Int32
-	toolCompleted atomic.Int32
+	dispatch  runs.Dispatch
+	failures  chan runs.FailParams
+	successes chan runs.SuccessParams
+	// completeErr is what CompleteSuccess answers after recording the attempt.
+	completeErr    error
+	cancelClaim    runs.CancellationClaim
+	cancelled      bool
+	mu             sync.Mutex
+	providerEvents []providerEvent
+	outputCount    atomic.Int32
+	toolStarted    atomic.Int32
+	toolCompleted  atomic.Int32
+}
+
+func (store *serviceStore) providerEventsOfType(eventType string) []providerEvent {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var matched []providerEvent
+	for _, event := range store.providerEvents {
+		if event.eventType == eventType {
+			matched = append(matched, event)
+		}
+	}
+	return matched
 }
 
 func newServiceStore() *serviceStore {
@@ -359,14 +849,20 @@ func (store *serviceStore) AppendToolCompleted(
 	return store.event(eventID, runID, "run.tool.completed", 4, now), nil
 }
 
-func (*serviceStore) RecordProviderEvent(
-	context.Context,
-	uuid.UUID,
-	uuid.UUID,
-	string,
-	map[string]string,
-	time.Time,
+func (store *serviceStore) RecordProviderEvent(
+	_ context.Context,
+	_ uuid.UUID,
+	_ uuid.UUID,
+	eventType string,
+	metadata map[string]string,
+	_ time.Time,
 ) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.providerEvents = append(store.providerEvents, providerEvent{
+		eventType: eventType,
+		metadata:  metadata,
+	})
 	return nil
 }
 
@@ -375,6 +871,9 @@ func (store *serviceStore) CompleteSuccess(
 	params runs.SuccessParams,
 ) (runs.Run, []runs.Event, error) {
 	store.successes <- params
+	if store.completeErr != nil {
+		return runs.Run{}, nil, store.completeErr
+	}
 	run := store.runningRun(params.RunID, params.CompletedAt)
 	run.Status = runs.StatusSucceeded
 	return run, []runs.Event{

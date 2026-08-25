@@ -256,12 +256,13 @@ func createHandler(
 			return
 		}
 		created, event, err := repository.CreateComment(request.Context(), core.CreateCommentParams{
-			ID:        options.NewID(),
-			IssueID:   issue.ID,
-			AuthorID:  user.ID,
-			Body:      body,
-			ParentID:  parentID,
-			CreatedAt: options.Clock().UTC(),
+			ID:         options.NewID(),
+			IssueID:    issue.ID,
+			AuthorType: "user",
+			AuthorID:   user.ID,
+			Body:       body,
+			ParentID:   parentID,
+			CreatedAt:  options.Clock().UTC(),
 		}, options.NewID())
 		switch {
 		case errors.Is(err, core.ErrInvalidParent):

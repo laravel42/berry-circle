@@ -23,7 +23,9 @@ const (
 	EventUnknown    StreamEventType = "unknown"
 )
 
-// Usage is the per-run cumulative token count reported by done.
+// Usage is the token count one done event reports for the turn it closes.
+// The pinned upstream emits done at the end of every model turn, not once per
+// run, so a run's total is the sum over its done events.
 type Usage struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
@@ -84,8 +86,11 @@ type MessageStream struct {
 	dataLines  []string
 	frameBytes int
 	eof        bool
-	done       bool
-	closeOnce  sync.Once
+	// turns counts done events. It decides what the end of the body means:
+	// after at least one turn it is the run finishing, before any it is the
+	// connection dropping mid-work.
+	turns     int
+	closeOnce sync.Once
 }
 
 func newMessageStream(
@@ -117,17 +122,21 @@ func (stream *MessageStream) RequestID() string {
 	return stream.requestID
 }
 
-// Next returns events in arrival order. Once done was returned, the next call
-// returns io.EOF. Any earlier EOF/read/parse/limit failure is interrupted.
+// Next returns events in arrival order until the body ends.
+//
+// A done event is a turn boundary, not the end of the stream: the pinned
+// upstream keeps the connection open and starts the next model turn on it
+// whenever the previous one called a tool. Hanging up at the first done made
+// Berry record a run as finished while the agent was still working. So the
+// end of the body is the completion signal: it is io.EOF after at least one
+// done, and interrupted before any. Read, parse, and limit failures are
+// interrupted (or their own kind) whatever the turn count.
 func (stream *MessageStream) Next() (StreamEvent, error) {
 	if stream == nil || stream.scanner == nil {
 		return StreamEvent{}, errors.New("runtime stream is not configured")
 	}
-	if stream.done {
-		return StreamEvent{}, io.EOF
-	}
 	if stream.eof {
-		return StreamEvent{}, stream.failure(StreamInterrupted)
+		return StreamEvent{}, stream.finish()
 	}
 	if err := stream.ctx.Err(); err != nil {
 		return StreamEvent{}, stream.contextFailure(err)
@@ -147,17 +156,7 @@ func (stream *MessageStream) Next() (StreamEvent, error) {
 				stream.frameBytes = 0
 				continue
 			}
-			event, err := stream.project()
-			stream.resetFrame()
-			if err != nil {
-				stream.Close()
-				return StreamEvent{}, err
-			}
-			if event.Type == EventDone {
-				stream.done = true
-				stream.Close()
-			}
-			return event, nil
+			return stream.emit()
 		}
 		stream.consumeLine(strings.TrimSuffix(line, "\r"))
 	}
@@ -175,20 +174,32 @@ func (stream *MessageStream) Next() (StreamEvent, error) {
 
 	stream.eof = true
 	if stream.eventName != "" || len(stream.dataLines) > 0 {
-		event, err := stream.project()
-		stream.resetFrame()
-		if err != nil {
-			stream.Close()
-			return StreamEvent{}, err
-		}
-		if event.Type == EventDone {
-			stream.done = true
-			stream.Close()
-		}
-		return event, nil
+		return stream.emit()
 	}
+	return StreamEvent{}, stream.finish()
+}
+
+// emit projects the buffered frame and counts the turn it may close.
+func (stream *MessageStream) emit() (StreamEvent, error) {
+	event, err := stream.project()
+	stream.resetFrame()
+	if err != nil {
+		stream.Close()
+		return StreamEvent{}, err
+	}
+	if event.Type == EventDone {
+		stream.turns++
+	}
+	return event, nil
+}
+
+// finish classifies a body that ended without a read error.
+func (stream *MessageStream) finish() error {
 	stream.Close()
-	return StreamEvent{}, stream.failure(StreamInterrupted)
+	if stream.turns > 0 {
+		return io.EOF
+	}
+	return stream.failure(StreamInterrupted)
 }
 
 // Close releases the response body and timeout wiring. It is idempotent.

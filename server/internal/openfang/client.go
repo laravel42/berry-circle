@@ -236,7 +236,8 @@ func (client *Client) GetAgent(ctx context.Context, agentID uuid.UUID) (AgentDet
 }
 
 // DispatchMessage performs the unsafe POST exactly once and returns a bounded
-// stream reader. EOF before done is surfaced by MessageStream.Next.
+// stream reader. How the body ends (EOF before any done is interrupted) is
+// surfaced by MessageStream.Next.
 func (client *Client) DispatchMessage(
 	ctx context.Context,
 	agentID uuid.UUID,
@@ -547,9 +548,11 @@ func (client *Client) SendAgentMessage(
 	if strings.TrimSpace(request.Message) == "" {
 		return AgentReply{}, errors.New("runtime agent message is required")
 	}
-	// Chat turns are bounded well above a stream: the caller is waiting on a
-	// single HTTP response, not consuming events as they arrive.
-	callCtx, cancel := context.WithTimeout(ctx, client.streamTimeout)
+	// Chat turns are bounded well above a plain request, since the agent may
+	// call tools before it answers, but not by the run stream bound: the
+	// caller is a request handler waiting on one HTTP response, and a run's
+	// hours-long allowance would pin it on a hung upstream.
+	callCtx, cancel := context.WithTimeout(ctx, client.messageTimeout)
 	defer cancel()
 
 	body := map[string]any{"message": request.Message}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -102,6 +103,10 @@ type Options struct {
 	Artifacts ArtifactStore
 	// Code renders repository context into a run's prompt. Optional.
 	Code runadmission.CodeContext
+	// Comments posts a run's final message on its issue. Optional.
+	Comments runadmission.CommentStore
+	// Logger reports side effects a run does not fail on. Optional.
+	Logger *slog.Logger
 }
 
 // Handlers shares one worker service between direct and nested route trees.
@@ -192,6 +197,8 @@ func New(options Options) (*Handlers, error) {
 			Workers:       options.Workers,
 			QueueSize:     options.QueueSize,
 			Code:          options.Code,
+			Comments:      options.Comments,
+			Logger:        options.Logger,
 		})
 		if err != nil {
 			return nil, err

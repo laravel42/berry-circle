@@ -2,6 +2,7 @@ package runs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -12,12 +13,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-func TestConcurrentRunEventSequenceAndSuccessGate(t *testing.T) {
+// runFixture is one running run and the rows it hangs off, seeded by
+// seedRunningRun and removed when the test ends.
+type runFixture struct {
+	pool    *pgxpool.Pool
+	now     time.Time
+	userID  uuid.UUID
+	runID   uuid.UUID
+	issueID uuid.UUID
+}
+
+// seedRunningRun opens the test database and takes one run to running, or
+// skips when no database is configured.
+func seedRunningRun(t *testing.T, ctx context.Context) (*Repository, runFixture) {
+	t.Helper()
 	databaseURL := os.Getenv("BERRY_TEST_DATABASE_URL")
 	if databaseURL == "" {
 		t.Skip("BERRY_TEST_DATABASE_URL is not configured")
 	}
-	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		t.Fatalf("open BERRY_TEST_DATABASE_URL: %v", err)
@@ -152,9 +165,22 @@ func TestConcurrentRunEventSequenceAndSuccessGate(t *testing.T) {
 	); err != nil {
 		t.Fatalf("MarkRunning() error = %v", err)
 	}
+	return repository, runFixture{
+		pool:    pool,
+		now:     now,
+		userID:  userID,
+		runID:   runID,
+		issueID: issueID,
+	}
+}
+
+func TestConcurrentRunEventSequenceAndSuccessGate(t *testing.T) {
+	ctx := context.Background()
+	repository, fixture := seedRunningRun(t, ctx)
+	pool, now, runID, issueID := fixture.pool, fixture.now, fixture.runID, fixture.issueID
 
 	const writers = 16
-	errors := make(chan error, writers)
+	appendErrors := make(chan error, writers)
 	var wait sync.WaitGroup
 	for index := range writers {
 		wait.Add(1)
@@ -168,12 +194,12 @@ func TestConcurrentRunEventSequenceAndSuccessGate(t *testing.T) {
 				fmt.Sprintf("%02d", index),
 				now,
 			)
-			errors <- err
+			appendErrors <- err
 		}(index)
 	}
 	wait.Wait()
-	close(errors)
-	for err := range errors {
+	close(appendErrors)
+	for err := range appendErrors {
 		if err != nil {
 			t.Fatalf("AppendOutput() error = %v", err)
 		}
@@ -234,5 +260,63 @@ func TestConcurrentRunEventSequenceAndSuccessGate(t *testing.T) {
 	}
 	if status != "in_review" || activeRunID != nil {
 		t.Fatalf("issue status=%q activeRunId=%v", status, activeRunID)
+	}
+}
+
+// Cancel records its intent before it stops the agent, and the stop ends the
+// stream cleanly, so the success projection can reach the ledger while the
+// cancellation is still pending. It has to lose: otherwise the run reads as
+// succeeded and the cancellation can never be confirmed.
+func TestCompleteSuccessYieldsToRequestedCancellation(t *testing.T) {
+	ctx := context.Background()
+	repository, fixture := seedRunningRun(t, ctx)
+
+	claim, err := repository.RequestCancellation(ctx, CancelParams{
+		RunID:       fixture.runID,
+		RequestedBy: fixture.userID,
+		RequestedAt: fixture.now.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("RequestCancellation() error = %v", err)
+	}
+	if !claim.ShouldStop {
+		t.Fatalf("claim = %#v, want an upstream stop", claim)
+	}
+
+	_, _, err = repository.CompleteSuccess(ctx, SuccessParams{
+		RunID:            fixture.runID,
+		UsageEventID:     uuid.New(),
+		CompletedEventID: uuid.New(),
+		IssueEventID:     uuid.New(),
+		Usage:            Usage{InputTokens: 1, OutputTokens: 1, TotalTokens: 2},
+		CompletedAt:      fixture.now.Add(2 * time.Minute),
+	})
+	if !errors.Is(err, ErrRunCancelling) {
+		t.Fatalf("CompleteSuccess() error = %v, want ErrRunCancelling", err)
+	}
+
+	run, _, err := repository.MarkCancelled(
+		ctx,
+		fixture.runID,
+		uuid.New(),
+		"upstream-stop",
+		fixture.now.Add(3*time.Minute),
+	)
+	if err != nil {
+		t.Fatalf("MarkCancelled() error = %v", err)
+	}
+	if run.Status != StatusCancelled {
+		t.Fatalf("status = %q, want cancelled", run.Status)
+	}
+	var status string
+	if err := fixture.pool.QueryRow(
+		ctx,
+		`SELECT status::text FROM runs WHERE id = $1`,
+		fixture.runID,
+	).Scan(&status); err != nil {
+		t.Fatalf("read run status: %v", err)
+	}
+	if status != "cancelled" {
+		t.Fatalf("stored status = %q, want cancelled", status)
 	}
 }

@@ -57,11 +57,16 @@ func TestInterruptedDispatchStreamDoesNotRepost(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client, err := New(server.URL, "", server.Client(), slog.New(slog.DiscardHandler))
+	client, err := New(
+		server.URL,
+		"",
+		server.Client(),
+		slog.New(slog.DiscardHandler),
+		WithStreamTimeout(time.Second),
+	)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	client.streamTimeout = time.Second
 	stream, err := client.DispatchMessage(context.Background(), uuid.New(), MessageRequest{
 		Message:   "run",
 		RequestID: "req_dispatch_1234",
@@ -82,6 +87,29 @@ func TestInterruptedDispatchStreamDoesNotRepost(t *testing.T) {
 	}
 	if requests.Load() != 1 {
 		t.Fatalf("request count = %d, want 1", requests.Load())
+	}
+}
+
+// The run bound is wired from orchestration and must cover a whole multi-turn
+// run; the blocking chat call keeps its own, shorter bound regardless.
+func TestWithStreamTimeoutLeavesTheChatBoundAlone(t *testing.T) {
+	t.Parallel()
+	client, err := New(
+		"http://127.0.0.1:1",
+		"",
+		nil,
+		slog.New(slog.DiscardHandler),
+		WithStreamTimeout(2*time.Hour),
+		WithStreamTimeout(0),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if client.streamTimeout != 2*time.Hour {
+		t.Fatalf("streamTimeout = %s, want 2h", client.streamTimeout)
+	}
+	if client.messageTimeout != 15*time.Minute {
+		t.Fatalf("messageTimeout = %s, want 15m", client.messageTimeout)
 	}
 }
 

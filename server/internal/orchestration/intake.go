@@ -102,7 +102,7 @@ func startRuns(ctx workflow.Context, runIDs []string) {
 			// a duplicate start makes that true at the Temporal layer too, so a
 			// replayed tick cannot produce two orchestrations for one ledger row.
 			WorkflowIDReusePolicy: enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-			WorkflowRunTimeout:    DispatchStreamTimeout,
+			WorkflowRunTimeout:    RunOrchestrationTimeout,
 		})
 		futures = append(
 			futures,

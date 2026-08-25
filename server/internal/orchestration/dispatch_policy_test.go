@@ -32,6 +32,22 @@ func TestDispatchIsNeverRetried(t *testing.T) {
 	}
 }
 
+// TestStreamBoundExpiresBeforeTemporalGivesUp pins the order the bounds fire
+// in. The SSE client's close is recorded in the ledger as STREAM_TIMEOUT and
+// the activity returns normally; an activity timed out by Temporal instead
+// fails the orchestration before the promotion and delivery that follow the
+// dispatch.
+func TestStreamBoundExpiresBeforeTemporalGivesUp(t *testing.T) {
+	options := dispatchActivityOptions()
+
+	if options.StartToCloseTimeout <= DispatchStreamTimeout {
+		t.Fatal("dispatch StartToCloseTimeout must exceed DispatchStreamTimeout so the SSE client closes first")
+	}
+	if RunOrchestrationTimeout <= options.StartToCloseTimeout {
+		t.Fatal("RunOrchestrationTimeout must leave room for the activities after the dispatch")
+	}
+}
+
 // TestLedgerActivitiesRetry confirms the safe operations do retry: they are
 // idempotent ledger writes and the durable cancellation claim, where giving up
 // after one transient database error would strand a run.

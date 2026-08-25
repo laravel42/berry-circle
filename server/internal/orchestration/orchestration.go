@@ -40,14 +40,27 @@ func RunWorkflowID(runID string) string {
 	return "run:" + runID
 }
 
-// Timeouts. DispatchStreamTimeout bounds one agent execution end to end; an
-// agent that streams for longer than this is treated as stuck, and the run
-// becomes reconcilable rather than hanging a worker slot forever.
+// Timeouts. DispatchStreamTimeout bounds one agent execution end to end: the
+// SSE client closes a stream still open past it, and the run becomes
+// STREAM_TIMEOUT and reconcilable rather than hanging a worker slot forever.
+//
+// The Temporal bounds sit above it on purpose. The activity context carries
+// its StartToClose deadline from the moment the activity starts, and the SSE
+// client derives its own deadline from that context a little later, so two
+// equal bounds would expire in the wrong order: Temporal would time the
+// activity out first, RunOrchestration would return that failure, and the
+// artifact promotion and delivery after the dispatch would never run. With
+// the gap, the client's close ends the stream, the activity records the
+// timeout in the ledger and returns normally, and the orchestration carries
+// on. RunOrchestrationTimeout then covers the dispatch and every activity
+// after it.
 const (
-	DispatchStreamTimeout = 2 * time.Hour
-	DispatchHeartbeat     = 30 * time.Second
-	LedgerActivityTimeout = 30 * time.Second
-	IntakeActivityTimeout = time.Minute
+	DispatchStreamTimeout   = 2 * time.Hour
+	DispatchActivityTimeout = DispatchStreamTimeout + 5*time.Minute
+	RunOrchestrationTimeout = DispatchActivityTimeout + 10*time.Minute
+	DispatchHeartbeat       = 30 * time.Second
+	LedgerActivityTimeout   = 30 * time.Second
+	IntakeActivityTimeout   = time.Minute
 )
 
 // CancelRequest is the CancelRunSignal payload.

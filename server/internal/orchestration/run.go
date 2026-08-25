@@ -13,7 +13,7 @@ import (
 // activities_test.go for the assertion that guards it.
 func dispatchActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: DispatchStreamTimeout,
+		StartToCloseTimeout: DispatchActivityTimeout,
 		HeartbeatTimeout:    DispatchHeartbeat,
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 1,

@@ -51,7 +51,7 @@ func (dispatcher *TemporalDispatcher) Dispatch(ctx context.Context, runID uuid.U
 			// then interpreted as "already dispatched" below.
 			WorkflowIDReusePolicy:    enums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 			WorkflowIDConflictPolicy: enums.WORKFLOW_ID_CONFLICT_POLICY_FAIL,
-			WorkflowRunTimeout:       DispatchStreamTimeout,
+			WorkflowRunTimeout:       RunOrchestrationTimeout,
 		},
 		RunOrchestrationName,
 		runID.String(),

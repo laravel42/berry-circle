@@ -74,11 +74,37 @@ type Client struct {
 	maxBackoff  time.Duration
 
 	requestTimeout time.Duration
-	streamTimeout  time.Duration
+	// streamTimeout bounds one DispatchMessage body end to end. Since done is
+	// a turn boundary that body spans a whole run, so the run binaries set it
+	// to the orchestration dispatch bound with WithStreamTimeout.
+	streamTimeout time.Duration
+	// messageTimeout bounds the blocking SendAgentMessage call. Kept apart
+	// from streamTimeout so that widening the run bound cannot pin a chat
+	// request handler for hours on a hung upstream.
+	messageTimeout time.Duration
 	chatTimeout    time.Duration
 	maxJSONBytes   int64
 	maxStreamBytes int64
 	maxEventBytes  int
+}
+
+// Option adjusts a Client past the defaults New applies.
+type Option func(*Client)
+
+// WithStreamTimeout sets how long one DispatchMessage stream may stay open.
+//
+// The default is a floor for direct callers. The run binaries pass the
+// orchestration dispatch bound so the SSE client, the Temporal activity, and
+// the docs agree on how long an agent may work: a client-side bound shorter
+// than the activity's hangs up on a run the activity was still prepared to
+// wait for, and the agent's final report is lost. Non-positive values are
+// ignored.
+func WithStreamTimeout(timeout time.Duration) Option {
+	return func(client *Client) {
+		if timeout > 0 {
+			client.streamTimeout = timeout
+		}
+	}
 }
 
 // New constructs an upstream transport.
@@ -86,6 +112,7 @@ func New(
 	baseURL, apiKey string,
 	httpClient *http.Client,
 	logger *slog.Logger,
+	options ...Option,
 ) (*Client, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
@@ -100,7 +127,7 @@ func New(
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Client{
+	client := &Client{
 		baseURL:     parsed,
 		apiKey:      apiKey,
 		httpClient:  httpClient,
@@ -112,11 +139,22 @@ func New(
 
 		requestTimeout: 30 * time.Second,
 		streamTimeout:  15 * time.Minute,
+		messageTimeout: 15 * time.Minute,
 		chatTimeout:    5 * time.Minute,
 		maxJSONBytes:   1024 * 1024,
-		maxStreamBytes: 8 * 1024 * 1024,
+		// A stream body spans every turn of a run, and each chunk or
+		// tool_result input may be 64 KiB, so the old 8 MiB was one hundred
+		// large tool calls. Sized for a run that streams at the rate seen in
+		// practice for the whole dispatch bound. The scanner counts bytes
+		// rather than holding them, so a generous limit costs nothing and
+		// still stops a runaway upstream.
+		maxStreamBytes: 64 * 1024 * 1024,
 		maxEventBytes:  128 * 1024,
-	}, nil
+	}
+	for _, option := range options {
+		option(client)
+	}
+	return client, nil
 }
 
 // NewJSONRequest builds a server-side request relative to the configured base.

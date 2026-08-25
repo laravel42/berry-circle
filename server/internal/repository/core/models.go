@@ -217,12 +217,16 @@ type CommentCursor struct {
 
 // CreateCommentParams contains one authenticated comment write.
 type CreateCommentParams struct {
-	ID        uuid.UUID
-	IssueID   uuid.UUID
-	AuthorID  uuid.UUID
-	Body      string
-	ParentID  *uuid.UUID
-	CreatedAt time.Time
+	ID      uuid.UUID
+	IssueID uuid.UUID
+	// AuthorType is "user" or "agent" (the assignee_type enum). Empty means
+	// "user", which is what every caller was before agents could report on
+	// the work they did.
+	AuthorType string
+	AuthorID   uuid.UUID
+	Body       string
+	ParentID   *uuid.UUID
+	CreatedAt  time.Time
 }
 
 // RevisionConflictError carries the current safe revision for a retry.

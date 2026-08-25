@@ -33,6 +33,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	collaborationrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
+	corerepo "github.com/laravel42/berry-circle/server/internal/repository/core"
 	intakerepo "github.com/laravel42/berry-circle/server/internal/repository/intake"
 	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	runsrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
@@ -141,6 +142,13 @@ func run() int {
 			ResponseHeaderTimeout: 30 * time.Second,
 		}},
 		logger,
+		// One bound for how long an agent may work. The dispatch activity
+		// allows a few minutes beyond it, so this close is what ends an
+		// overlong stream and the ledger records STREAM_TIMEOUT before
+		// Temporal would give the activity up; a shorter client-side limit
+		// would instead hang up on a run the activity was still prepared to
+		// wait for.
+		openfang.WithStreamTimeout(orchestration.DispatchStreamTimeout),
 	)
 	if err != nil {
 		logger.Error("runtime transport setup failed", "error", err)
@@ -155,6 +163,13 @@ func run() int {
 	intakeStore, err := intakerepo.New(pool)
 	if err != nil {
 		logger.Error("intake repository setup failed", "error", err)
+		return 1
+	}
+	// Where a run posts its result: the issue's comments, authored by the
+	// agent, through the same store the comment routes write with.
+	commentStore, err := corerepo.New(pool)
+	if err != nil {
+		logger.Error("comment repository setup failed", "error", err)
 		return 1
 	}
 
@@ -192,6 +207,8 @@ func run() int {
 		Workers:       1,
 		QueueSize:     1,
 		Code:          runCode,
+		Comments:      commentStore,
+		Logger:        logger,
 	})
 	if err != nil {
 		logger.Error("run dispatcher setup failed", "error", err)

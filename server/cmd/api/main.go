@@ -245,6 +245,12 @@ func run() int {
 		cfg.OpenFangAPIKey,
 		upstreamHTTP,
 		logger,
+		// In-process dispatch has no Temporal activity above it, so this is
+		// the only bound on how long an agent may work; with Temporal the
+		// dispatch activity allows a few minutes beyond it, so this close is
+		// what ends an overlong stream and the ledger records it before
+		// Temporal gives the activity up.
+		openfang.WithStreamTimeout(orchestration.DispatchStreamTimeout),
 	)
 	if err != nil {
 		_ = realtimeManager.Close()
@@ -473,9 +479,24 @@ func run() int {
 			}
 		}
 
+		// Issues and comments share one store: a run posts its result as the
+		// agent's comment through it here, and project planning creates
+		// issues through it further down.
+		coreStore, err := corerepo.New(dbPool)
+		if err != nil {
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("core repository setup failed", "error", err)
+			return 1
+		}
+
 		runRoutes, err = runhandlers.New(runhandlers.Options{
 			// Renders the repository an issue belongs to into its prompt.
 			Code: runCode,
+			// Posts the agent's final message on the issue it worked.
+			Comments: coreStore,
+			Logger:   logger,
 			// Lists a run's promoted outputs (ADR-0006).
 			Artifacts:        runArtifactStore,
 			Dispatcher:       runDispatcher,
@@ -721,19 +742,10 @@ func run() int {
 
 		// Decomposing a project needs somewhere to put the issues and someone to
 		// ask. Both are resolved per request from the project itself, so this
-		// only needs the pool and the runtime.
-		issueStore, err := corerepo.New(dbPool)
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("issue store setup failed", "error", err)
-			return 1
-		}
+		// only needs the shared core store and the runtime.
 		issueGenerator := &projectplanning.Service{
 			Projects:   projectplanning.ProjectLookup{Pool: dbPool},
-			Issues:     issueStore,
+			Issues:     coreStore,
 			Agents:     projectplanning.AgentLookup{Pool: dbPool},
 			Runtime:    upstream,
 			Authorizer: identityService,

@@ -13,9 +13,25 @@ import (
 
 const commentProjection = `
 	c.id, c.issue_id, c.body, c.author_type::text, c.author_id,
-	author.name, author.avatar_url, c.parent_id, c.revision,
+	COALESCE(author.name, author_agent.name),
+	COALESCE(author.avatar_url, author_agent.avatar_url),
+	c.parent_id, c.revision,
 	c.resolved_at, c.resolved_by, resolver.name, resolver.avatar_url,
 	c.created_at, c.updated_at`
+
+// commentSource resolves a comment and both kinds of author.
+//
+// Agents author comments too — a run posts its result as one — and a users
+// join alone renders those with a null name, as the literal word "Agent" and
+// no avatar. One shared clause keeps the agent join from being forgotten at
+// either read site.
+const commentSource = `
+	   FROM comments AS c
+	   LEFT JOIN users AS author
+	     ON c.author_type = 'user' AND author.id = c.author_id
+	   LEFT JOIN agents AS author_agent
+	     ON c.author_type = 'agent' AND author_agent.id = c.author_id
+	   LEFT JOIN users AS resolver ON resolver.id = c.resolved_by`
 
 // ListComments returns one over-fetched oldest-first stable page.
 func (repository *Repository) ListComments(
@@ -27,11 +43,7 @@ func (repository *Repository) ListComments(
 	if limit < 1 {
 		return nil, errors.New("list comments: invalid limit")
 	}
-	query := `SELECT ` + commentProjection + `
-		FROM comments AS c
-		LEFT JOIN users AS author
-		  ON c.author_type = 'user' AND author.id = c.author_id
-		LEFT JOIN users AS resolver ON resolver.id = c.resolved_by
+	query := `SELECT ` + commentProjection + commentSource + `
 		WHERE c.issue_id = $1`
 	arguments := []any{issueID}
 	if after != nil {
@@ -76,6 +88,14 @@ func (repository *Repository) CreateComment(
 	params CreateCommentParams,
 	eventID uuid.UUID,
 ) (Comment, CommentMutationEvent, error) {
+	authorType := params.AuthorType
+	if authorType == "" {
+		authorType = "user"
+	}
+	if authorType != "user" && authorType != "agent" {
+		return Comment{}, CommentMutationEvent{}, fmt.Errorf(
+			"create comment: unsupported author type %q", authorType)
+	}
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return Comment{}, CommentMutationEvent{}, fmt.Errorf("begin comment creation: %w", err)
@@ -123,9 +143,10 @@ func (repository *Repository) CreateComment(
 		`INSERT INTO comments (
 			id, issue_id, author_type, author_id, body, parent_id,
 			created_at, updated_at
-		 ) VALUES ($1, $2, 'user', $3, $4, $5, $6, $6)`,
+		 ) VALUES ($1, $2, $3::assignee_type, $4, $5, $6, $7, $7)`,
 		params.ID,
 		params.IssueID,
+		authorType,
 		params.AuthorID,
 		params.Body,
 		params.ParentID,
@@ -269,11 +290,7 @@ func getCommentByID(
 ) (Comment, error) {
 	comment, err := scanComment(queryer.QueryRow(
 		ctx,
-		`SELECT `+commentProjection+`
-		   FROM comments AS c
-		   LEFT JOIN users AS author
-		     ON c.author_type = 'user' AND author.id = c.author_id
-		   LEFT JOIN users AS resolver ON resolver.id = c.resolved_by
+		`SELECT `+commentProjection+commentSource+`
 		  WHERE c.id = $1`,
 		id,
 	))

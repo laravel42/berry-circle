@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	"github.com/laravel42/berry-circle/server/internal/repository/core"
 	"github.com/laravel42/berry-circle/server/internal/repository/runs"
 )
 
@@ -25,6 +29,16 @@ const (
 	defaultQueueSize = 128
 	publicChunkBytes = 16 * 1024
 	maxSummaryBytes  = 5000
+	// maxPromptBytes is the upstream message limit; anything longer is a 413.
+	maxPromptBytes = 64 * 1024
+	// commentBodyBytes bounds the result a run posts on its issue. The row
+	// allows char_length(body) <= 100000 (comments_body_length_ck in
+	// migrations/001_berry_core.up.sql); a byte bound of the same size is
+	// never looser than the character bound, so what fits here fits the row.
+	commentBodyBytes = 100000
+	// truncationNote ends a result that was cut to fit, so nobody mistakes a
+	// cut-off report for a complete one.
+	truncationNote = "\n\n[Truncated by Berry: the full text is in the run's output events.]"
 )
 
 // Store is the complete durable seam used by the coordinator.
@@ -54,6 +68,16 @@ type Dispatcher interface {
 	Dispatch(ctx context.Context, runID uuid.UUID) error
 }
 
+// CommentStore is the one write a run makes outside its own ledger: the
+// agent's final message, posted on the issue as a comment by the agent.
+type CommentStore interface {
+	CreateComment(
+		context.Context,
+		core.CreateCommentParams,
+		uuid.UUID,
+	) (core.Comment, core.CommentMutationEvent, error)
+}
+
 // Options owns worker lifecycle and every external dependency explicitly.
 type Options struct {
 	Store       Store
@@ -69,6 +93,12 @@ type Options struct {
 	QueueSize     int
 	// Code renders repository context into a run's prompt. Optional.
 	Code CodeContext
+	// Comments posts a run's final message on its issue. Optional: without it
+	// the result is still recorded on the run, just not surfaced as a comment.
+	Comments CommentStore
+	// Logger reports side effects a run does not fail on, such as a result
+	// comment that could not be written. Nil selects slog.Default().
+	Logger *slog.Logger
 }
 
 // Service owns a bounded worker queue tied to a caller-owned context.
@@ -83,7 +113,10 @@ type Service struct {
 	dispatcher  Dispatcher
 	// code renders repository context for issues whose project names one.
 	// Optional: without it runs dispatch exactly as they did before.
-	code      CodeContext
+	code CodeContext
+	// comments is where a run's result goes to be read. Optional.
+	comments  CommentStore
+	logger    *slog.Logger
 	jobs      chan uuid.UUID
 	wg        sync.WaitGroup
 	done      chan struct{}
@@ -123,6 +156,10 @@ func New(options Options) (*Service, error) {
 	if options.QueueSize < 1 || options.QueueSize > 100000 {
 		return nil, errors.New("run admission queue size is invalid")
 	}
+	logger := options.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	ctx, cancel := context.WithCancel(options.WorkerContext)
 	service := &Service{
 		store:       options.Store,
@@ -132,6 +169,8 @@ func New(options Options) (*Service, error) {
 		newID:       options.NewID,
 		dispatcher:  options.Dispatcher,
 		code:        options.Code,
+		comments:    options.Comments,
+		logger:      logger,
 		ctx:         ctx,
 		cancel:      cancel,
 		jobs:        make(chan uuid.UUID, options.QueueSize),
@@ -360,20 +399,36 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 	}
 	service.publish(started)
 
+	// The pinned upstream emits done at the end of every model turn and keeps
+	// the connection open for the next one whenever the agent called a tool.
+	// Treating the first done as the end recorded runs as finished seconds in,
+	// with "I'll look into this" as their result, while the agent worked on
+	// for minutes into a socket nobody was reading. So done closes a turn, the
+	// end of the body closes the run, and usage is summed over the turns.
 	var (
-		summary     strings.Builder
+		result      = resultText{turn: boundedText{max: commentBodyBytes}}
+		turns       int
+		usage       runs.Usage
 		toolCounter int
 		openTools   = make(map[string][]string)
 	)
 	for {
 		event, err := stream.Next()
+		if errors.Is(err, io.EOF) && turns > 0 {
+			// Text after the last done never got its boundary. It is still the
+			// most recent thing the agent said, so it counts as a turn.
+			result.EndTurn()
+			text, cut := result.Final()
+			service.complete(ctx, dispatch, usage, text, cut)
+			return
+		}
 		if err != nil {
 			service.failStream(runID, err)
 			return
 		}
 		switch event.Type {
 		case openfang.EventChunk:
-			appendSummary(&summary, event.Content)
+			result.Append(event.Content)
 			for _, chunk := range splitUTF8(event.Content, publicChunkBytes) {
 				persisted, appendErr := service.store.AppendOutput(
 					ctx,
@@ -444,38 +499,104 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 				service.clock().UTC(),
 			)
 		case openfang.EventDone:
-			text := strings.TrimSpace(summary.String())
-			var finalSummary *string
-			if text != "" {
-				finalSummary = &text
-			}
-			usage := runs.Usage{
-				InputTokens:  event.Usage.InputTokens,
-				OutputTokens: event.Usage.OutputTokens,
-				TotalTokens:  event.Usage.InputTokens + event.Usage.OutputTokens,
-			}
-			_, persisted, completeErr := service.store.CompleteSuccess(
+			turns++
+			usage.InputTokens += event.Usage.InputTokens
+			usage.OutputTokens += event.Usage.OutputTokens
+			usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+			result.EndTurn()
+			// The ledger shows where one turn ended and what it cost, which is
+			// what an operator reading a long run needs to see its shape.
+			_ = service.store.RecordProviderEvent(
 				ctx,
-				runs.SuccessParams{
-					RunID:            runID,
-					UsageEventID:     service.newID(),
-					CompletedEventID: service.newID(),
-					IssueEventID:     service.newID(),
-					Usage:            usage,
-					Summary:          finalSummary,
-					CompletedAt:      service.clock().UTC(),
+				runID,
+				service.newID(),
+				"turn",
+				map[string]string{
+					"turn":         strconv.Itoa(turns),
+					"inputTokens":  strconv.FormatInt(event.Usage.InputTokens, 10),
+					"outputTokens": strconv.FormatInt(event.Usage.OutputTokens, 10),
 				},
+				service.clock().UTC(),
 			)
-			if completeErr != nil {
-				service.failProjection(runID, completeErr)
-				return
-			}
-			for _, item := range persisted {
-				service.publish(item)
-			}
-			return
 		}
 	}
+}
+
+// complete commits success and then surfaces the result where people look.
+func (service *Service) complete(
+	ctx context.Context,
+	dispatch runs.Dispatch,
+	usage runs.Usage,
+	text string,
+	cut bool,
+) {
+	var summary *string
+	if text != "" {
+		value := truncateUTF8(text, maxSummaryBytes)
+		summary = &value
+	}
+	_, persisted, err := service.store.CompleteSuccess(
+		ctx,
+		runs.SuccessParams{
+			RunID:            dispatch.RunID,
+			UsageEventID:     service.newID(),
+			CompletedEventID: service.newID(),
+			IssueEventID:     service.newID(),
+			Usage:            usage,
+			Summary:          summary,
+			CompletedAt:      service.clock().UTC(),
+		},
+	)
+	if err != nil {
+		service.failProjection(dispatch.RunID, err)
+		return
+	}
+	for _, item := range persisted {
+		service.publish(item)
+	}
+	if text != "" {
+		service.postResult(dispatch, text, cut)
+	}
+}
+
+// postResult puts the agent's final message on the issue as the agent's own
+// comment, which is where whoever assigned the work will look for it.
+//
+// Best effort by design: the run is already recorded as succeeded and the
+// model call already paid for, so a comment that cannot be written is a
+// missing notification, not a failed run. It is logged and the run stands.
+func (service *Service) postResult(
+	dispatch runs.Dispatch,
+	text string,
+	cut bool,
+) {
+	if service.comments == nil {
+		return
+	}
+	ctx, cancel := service.cleanupContext()
+	defer cancel()
+	_, event, err := service.comments.CreateComment(
+		ctx,
+		core.CreateCommentParams{
+			ID:         service.newID(),
+			IssueID:    dispatch.IssueID,
+			AuthorType: "agent",
+			AuthorID:   dispatch.AgentID,
+			Body:       commentBody(text, cut),
+			CreatedAt:  service.clock().UTC(),
+		},
+		service.newID(),
+	)
+	if err != nil {
+		service.logger.Warn(
+			"run result comment failed",
+			"runId", dispatch.RunID,
+			"issueId", dispatch.IssueID,
+			"error", err,
+		)
+		return
+	}
+	service.publishComment(event)
 }
 
 func (service *Service) failDispatch(runID uuid.UUID, cause error) {
@@ -535,7 +656,10 @@ func (service *Service) failStream(runID uuid.UUID, cause error) {
 }
 
 func (service *Service) failProjection(runID uuid.UUID, cause error) {
-	if errors.Is(cause, runs.ErrRunTerminal) {
+	// A terminal run already has its outcome, and a run whose cancellation is
+	// in progress is about to get one from Cancel. Neither is a projection
+	// failure, and marking either failed would fight the outcome it has.
+	if errors.Is(cause, runs.ErrRunTerminal) || errors.Is(cause, runs.ErrRunCancelling) {
 		return
 	}
 	ctx, cancel := service.cleanupContext()
@@ -574,6 +698,23 @@ func (service *Service) publish(event runs.Event) {
 		WorkspaceID: event.BoardID.String(),
 		Type:        event.Type,
 		Payload:     payload,
+		OccurredAt:  event.OccurredAt,
+	})
+}
+
+// publishComment mirrors what the comment routes do after their commit. Comment
+// events are scoped to the workspace, unlike run events, which ride the board.
+func (service *Service) publishComment(event core.CommentMutationEvent) {
+	if event.ID == uuid.Nil {
+		return
+	}
+	ctx, cancel := service.cleanupContext()
+	defer cancel()
+	_ = service.broadcaster.Publish(ctx, realtime.Event{
+		ID:          event.ID.String(),
+		WorkspaceID: event.WorkspaceID.String(),
+		Type:        event.Type,
+		Payload:     json.RawMessage(event.Payload),
 		OccurredAt:  event.OccurredAt,
 	})
 }
@@ -655,10 +796,39 @@ func buildMessage(dispatch runs.Dispatch) string {
 	if dispatch.CodeContext != "" {
 		builder.WriteString(dispatch.CodeContext)
 	}
+	// The contracts go last so the agent reads them with the task fresh, but
+	// the cap cuts from the tail, so a long description or code context would
+	// silently drop them first. They get their room reserved; the description
+	// gives way instead.
+	contracts := reportingContract()
 	if dispatch.Repository != "" {
-		builder.WriteString(deliveryContract(dispatch.Repository))
+		contracts += deliveryContract(dispatch.Repository)
 	}
-	return truncateUTF8(builder.String(), 64*1024)
+	return truncateUTF8(builder.String(), maxPromptBytes-len(contracts)) + contracts
+}
+
+// reportingContract tells the agent what becomes of its last message.
+//
+// In the prompt because the agent cannot see it otherwise: to the model, a
+// turn that ends with "I'll research this" is a plan it is about to carry out,
+// but Berry records the final message as the run's result and posts it on the
+// issue. A promise in that position is an empty report, and the real findings
+// end up only in a workspace nobody opens.
+//
+// The report itself goes in the message, not in a file: on a repository run
+// everything under output/ is delivered as the pull request, and a stray
+// report.md would land in the repository root.
+func reportingContract() string {
+	return "\n\nReporting your result\n" +
+		"Your final message is recorded as the result of this run and posted on " +
+		"the issue as your comment. End with a complete, self-contained answer: " +
+		"what you found, what you did, and anything the reader needs to know. " +
+		"Do not end on a plan or a promise to do work, and do not rely on " +
+		"anything you said earlier being read. The final message is the report; " +
+		"do not point the reader to a file for it.\n" +
+		"Files you produce beyond it (data, generated documents, code) belong " +
+		"under the output/ directory of your workspace, where Berry can collect " +
+		"them after the run.\n"
 }
 
 // deliveryContract tells the agent how to hand code back.
@@ -680,15 +850,77 @@ func deliveryContract(repository string) string {
 		"against " + repository + " for a human to review. You have no git and no " +
 		"access to the repository yourself, so do not attempt git commands, and do " +
 		"not describe a diff in place of writing the file. Anything written " +
-		"outside output/ is not delivered.\n"
+		"outside output/ is not delivered, and everything inside it is: keep " +
+		"files that do not belong in the repository, such as notes or scratch " +
+		"data, out of output/ and put what they say in your final message.\n"
 }
 
-func appendSummary(builder *strings.Builder, value string) {
-	remaining := maxSummaryBytes - builder.Len()
+// resultText tracks the agent's final message across turns.
+//
+// Each turn's text is kept apart because the final message is what the agent
+// reports with: earlier turns ("I'll look into this") are progress. A turn
+// that says nothing, such as a bare tool call, leaves the result as it was.
+type resultText struct {
+	turn   boundedText
+	result string
+	cut    bool
+}
+
+func (text *resultText) Append(value string) {
+	text.turn.Append(value)
+}
+
+// EndTurn closes the turn in progress, promoting its text to the result when
+// it had any.
+func (text *resultText) EndTurn() {
+	if value, cut := text.turn.Text(); value != "" {
+		text.result, text.cut = value, cut
+	}
+	text.turn.Reset()
+}
+
+// Final is the result and whether it was cut to fit.
+func (text *resultText) Final() (string, bool) {
+	return text.result, text.cut
+}
+
+// boundedText keeps the first max bytes appended to it and remembers whether
+// anything was dropped, so a truncated result can say so.
+type boundedText struct {
+	builder strings.Builder
+	max     int
+	cut     bool
+}
+
+func (text *boundedText) Append(value string) {
+	remaining := text.max - text.builder.Len()
+	if remaining < len(value) {
+		text.cut = true
+	}
 	if remaining <= 0 {
 		return
 	}
-	builder.WriteString(truncateUTF8(value, remaining))
+	text.builder.WriteString(truncateUTF8(value, remaining))
+}
+
+func (text *boundedText) Reset() {
+	text.builder.Reset()
+	text.cut = false
+}
+
+// Text returns what was kept, trimmed, and whether the rest was dropped.
+func (text *boundedText) Text() (string, bool) {
+	return strings.TrimSpace(text.builder.String()), text.cut
+}
+
+// commentBody fits the result to the comment row, ending it with a note when
+// it was cut. The turn buffer already stops at the row limit; the note needs
+// its own room, so a cut result gives up a little more to carry it.
+func commentBody(text string, cut bool) string {
+	if !cut && len(text) <= commentBodyBytes {
+		return text
+	}
+	return truncateUTF8(text, commentBodyBytes-len(truncationNote)) + truncationNote
 }
 
 func truncateUTF8(value string, maxBytes int) string {

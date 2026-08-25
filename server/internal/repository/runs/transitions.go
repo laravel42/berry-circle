@@ -344,6 +344,21 @@ func (repository *Repository) CompleteSuccess(
 	if run.Terminal() {
 		return Run{}, nil, ErrRunTerminal
 	}
+	// A cancellation that was requested but not yet confirmed outranks a
+	// clean stream end. A run stays completable for as long as it streams
+	// now that done is a turn boundary, and the stop call itself ends the
+	// body cleanly, so without this the cancel would race the success commit:
+	// the run would read as succeeded with a cut-off report posted as its
+	// result, and the cancellation could never be confirmed.
+	//
+	// It covers only that ordering. A stop that fails or finds no active run
+	// moves the run to reconciliation_required (MarkCancellationUnconfirmed),
+	// which this guard does not refuse: a body that then ends cleanly is
+	// recorded as success, and the reconciliation marker, not this check, is
+	// what tells an operator the cancellation never confirmed.
+	if run.DispatchState == DispatchCancelRequested {
+		return Run{}, nil, ErrRunCancelling
+	}
 	completedAt := params.CompletedAt.UTC()
 	if _, err := tx.Exec(
 		ctx,

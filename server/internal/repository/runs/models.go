@@ -205,6 +205,7 @@ var (
 	ErrConflict                = errors.New("run state conflict")
 	ErrDispatchAlreadyClaimed  = errors.New("run dispatch already claimed")
 	ErrRunTerminal             = errors.New("run is terminal")
+	ErrRunCancelling           = errors.New("run cancellation is in progress")
 	ErrCancellationUnconfirmed = errors.New("runtime cancellation was not confirmed")
 	ErrCursorExpired           = errors.New("event cursor expired")
 )

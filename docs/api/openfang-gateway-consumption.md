@@ -254,11 +254,25 @@ does not emit SSE `id` fields or retry hints.
 | `tool_use` | `{ "tool": string }` | Open a tool activity; upstream omits tool-use ID and input here |
 | `tool_result` | `{ "tool": string, "input": object }` | Record the tool input; despite the name, no result payload or error flag is emitted |
 | `phase` | `{ "phase": string, "detail": string or null }` | Preserve as a lifecycle event |
-| `done` | `{ "done": true, "usage": { "input_tokens": integer, "output_tokens": integer } }` | Finalize token totals and mark success |
+| `done` | `{ "done": true, "usage": { "input_tokens": integer, "output_tokens": integer } }` | Close one model turn: add its usage to the run totals and record a `turn` provider event. Not the end of the stream |
+
+The pinned stream emits `done` at the end of **every** model turn on the same
+connection, not once per run: an agent that calls a tool produces
+`… → done → phase → tool_use → tool_result → done → …` and the body ends with
+a terminal `phase` of `done` followed by EOF. Berry therefore keeps reading
+after `done`, sums the per-turn usage into the run ledger, and completes the
+run when the body ends after at least one `done`. The text of the final turn
+is the run result: it becomes the run summary, bounded to 5,000 bytes, and
+Berry posts the full text on the issue as a comment authored by the agent, up
+to the 100,000-byte comment limit with a closing note when cut (earlier turns
+are progress, not the result).
+Closing the connection at the first `done` leaves the agent working into a
+socket nobody reads — upstream logs "Stream consumer disconnected — continuing
+tool loop" — and its report never reaches Berry.
 
 Other upstream stream events become SSE comments (`: skip`) and are not
 projectable. The transport sends keep-alive comments. Berry preserves unknown
-named events as raw events, treats malformed JSON or EOF before `done` as
+named events as raw events, treats malformed JSON or EOF before any `done` as
 `interrupted`, and MUST NOT repeat the `POST` automatically because the upstream
 route has no idempotency key, cursor, resume, or replay contract.
 
@@ -350,8 +364,8 @@ No request body or effective query parameters. Response `200`:
 ```
 
 These are cumulative scheduler counters, not per-run input/output/cost totals.
-Berry gets per-run input/output tokens from `done` and stores them in its run
-ledger.
+Berry gets per-turn input/output tokens from each `done` and stores their sum
+in its run ledger.
 
 ### Memory
 
@@ -522,7 +536,16 @@ The upstream surface has no `Idempotency-Key` contract.
 | `429` | Honor `Retry-After` only for safe reads and idempotent memory writes, with bounded attempts and jitter |
 | `500` or network failure on `GET` | Bounded exponential backoff |
 | `500` or ambiguous network failure on create, execute, or stream dispatch | Do not retry automatically; preserve unresolved/interrupted state for reconciliation |
-| Stream EOF before `done` | Persist partial events and mark the Berry run `interrupted` |
+| Stream EOF before any `done` | Persist partial events and mark the Berry run `interrupted` |
+| Stream EOF after at least one `done` | Complete the run: sum per-turn usage, record the final turn's text as the result, post it as the agent's comment |
+| Stream open past the dispatch bound | Close it, keep what arrived, and mark the run `STREAM_TIMEOUT` for reconciliation; never re-`POST`. The bound is `orchestration.DispatchStreamTimeout` (2 h), which both binaries pass to the SSE client (`openfang.WithStreamTimeout`); the Temporal dispatch activity allows a few minutes beyond it so the client's close is what ends the stream and the ledger records it before Temporal times the activity out. It covers the whole multi-turn body, not one turn |
+
+Caveat on the EOF rule: the end of the body is the only completion signal (the
+terminal `phase` of `done` is recorded like any phase but not relied on), so a
+connection dropped between one turn's `done` and the next is indistinguishable
+from a clean end. Such a run is recorded `succeeded` with the text of the last
+turn that said anything as its result. Reading for the terminal phase would
+not close the gap, because the drop can come before it too.
 
 Memory `PUT` is safe to retry because it replaces the value at a deterministic
 key. Agent patch requests are not automatically retried even when their fields
@@ -532,13 +555,15 @@ reconciliation action that understands `404`/missing semantics.
 
 ## Adapter acceptance checks
 
-The gateway contract test suite MUST verify the pinned behavior, including:
+The adapter contract test suites — the Go adapter under
+`server/internal/openfang`, and `apps/gateway/src/openfang` for as long as it
+remains the compatibility oracle — MUST verify the pinned behavior, including:
 
 1. bearer authentication, `x-request-id`, error normalization, and `429` handling;
 2. agent list/detail state casing and agent patch allowlisting;
 3. manifest size/validation failures and kill-versus-uninstall semantics;
-4. incremental SSE delivery for `chunk`, `tool_use`, `tool_result`, `phase`, and `done`;
-5. interrupted-stream handling without automatic re-dispatch;
+4. incremental SSE delivery for `chunk`, `tool_use`, `tool_result`, `phase`, and `done`, across several turns on one connection;
+5. interrupted-stream handling (EOF before any `done`) without automatic re-dispatch;
 6. shared memory namespace behavior despite the `{agentId}` path;
 7. asymmetric workflow write/read step shapes;
 8. the unfiltered workflow-runs defect; and
