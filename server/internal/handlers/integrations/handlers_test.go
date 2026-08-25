@@ -342,18 +342,19 @@ func TestAuthorizeRefusesWhenCallbackURLsAreUnconfigured(t *testing.T) {
 	}
 }
 
-func TestCallbackRejectsStateIssuedToAnotherUser(t *testing.T) {
+func TestCallbackRejectsAStateIssuedForAnotherProvider(t *testing.T) {
 	t.Parallel()
-	// A state that leaked to a different signed-in person must not complete:
-	// otherwise it attaches their provider account to this workspace.
+	// The callback cannot check a session — a browser returning from the
+	// provider has no bearer token — so the state is the whole defence. It is
+	// unguessable, single-use and bound to a provider, and that binding is what
+	// stops a state issued for one flow being spent on another.
 	store := &fakeStore{pending: repo.PendingState{
 		State: oauth.State{
-			ID: uuid.New(), WorkspaceID: testWorkspaceID,
-			UserID:   uuid.MustParse("30000000-0000-4000-8000-000000000003"),
-			Provider: "github", RedirectURI: "https://api.berry.test/cb",
+			ID: uuid.New(), WorkspaceID: testWorkspaceID, UserID: testUserID,
+			Provider: "slack", RedirectURI: "https://api.berry.test/cb",
 		},
 	}}
-	handler := mount(t, store, withSessionUser(testUserID))
+	handler := mount(t, store)
 
 	response := do(t, handler, http.MethodGet,
 		"/connections/github/callback?code=abc&state=xyz", "")
@@ -364,7 +365,51 @@ func TestCallbackRejectsStateIssuedToAnotherUser(t *testing.T) {
 		t.Errorf("Location = %q, want invalid_state", got)
 	}
 	if store.saved != nil {
-		t.Fatal("a connection was saved for a state belonging to someone else")
+		t.Fatal("a connection was saved from another provider's state")
+	}
+}
+
+func TestCallbackNeedsNoSessionToComplete(t *testing.T) {
+	t.Parallel()
+	// The regression this guards: the callback used to sit behind the session
+	// middleware, so the only client that ever calls it — a browser following a
+	// redirect, carrying no Authorization header — got a 401 and the flow could
+	// never finish.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "gho_token"})
+	}))
+	t.Cleanup(server.Close)
+
+	endpoint := oauth.Endpoints()["github"]
+	endpoint.TokenURL = server.URL
+	store := &fakeStore{pending: repo.PendingState{
+		State: oauth.State{
+			ID: uuid.New(), WorkspaceID: testWorkspaceID, UserID: testUserID,
+			Provider: "github", RedirectURI: "https://api.berry.test/cb",
+		},
+	}}
+	handler := mount(t, store, withConfigs(map[string]oauth.Config{
+		"github": {Endpoint: endpoint, ClientID: "gh-id", ClientSecret: "gh-secret"},
+	}))
+
+	// No Authorization header, exactly as a browser would arrive.
+	request := httptest.NewRequest(http.MethodGet,
+		"/connections/github/callback?code=abc&state=xyz", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want a redirect: %s", response.Code, response.Body)
+	}
+	if got := response.Header().Get("Location"); !strings.Contains(got, "status=connected") {
+		t.Errorf("Location = %q, want connected", got)
+	}
+	if store.saved == nil {
+		t.Fatal("the connection was not saved")
+	}
+	if store.saved.WorkspaceID != testWorkspaceID {
+		t.Errorf("workspace = %s, want the one the state names", store.saved.WorkspaceID)
 	}
 }
 

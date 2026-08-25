@@ -97,16 +97,26 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	}
 
 	router := httpapi.NewSubrouter()
-	router.Use(auth.RequireSession(options.Sessions))
-	router.Get("/providers", listProvidersHandler(options))
-	router.Get("/connections", listConnectionsHandler(options))
-	router.Post("/connections/{provider}/authorize", authorizeHandler(options))
+
+	// The callback is reached by a browser returning from the provider, which
+	// cannot present a bearer token — so it authenticates on the state instead.
+	// That is what the state is for: 32 bytes from crypto/rand, stored hashed,
+	// single-use, minutes-long, and bound to the workspace and person who
+	// started the flow. Requiring a session here as well made the route
+	// unreachable by the only client that ever calls it.
 	router.Get("/connections/{provider}/callback", callbackHandler(options))
-	router.Delete("/connections/{provider}", disconnectHandler(options))
-	router.Get("/grants", listGrantsHandler(options))
-	router.Put("/grants", setGrantHandler(options))
-	router.Delete("/grants", revokeGrantHandler(options))
-	router.Get("/audit", listAuditHandler(options))
+
+	router.Group(func(authenticated chi.Router) {
+		authenticated.Use(auth.RequireSession(options.Sessions))
+		authenticated.Get("/providers", listProvidersHandler(options))
+		authenticated.Get("/connections", listConnectionsHandler(options))
+		authenticated.Post("/connections/{provider}/authorize", authorizeHandler(options))
+		authenticated.Delete("/connections/{provider}", disconnectHandler(options))
+		authenticated.Get("/grants", listGrantsHandler(options))
+		authenticated.Put("/grants", setGrantHandler(options))
+		authenticated.Delete("/grants", revokeGrantHandler(options))
+		authenticated.Get("/audit", listAuditHandler(options))
+	})
 	return httpapi.Mount{Prefix: "/api/v1/integrations", Handler: router}, nil
 }
 
@@ -377,11 +387,15 @@ func callbackHandler(options Options) http.HandlerFunc {
 			return
 		}
 
-		// The session must belong to the person who started the flow. Without
-		// this a leaked state could be redeemed by whoever holds it, attaching
-		// someone else's provider account to this workspace.
-		user := auth.MustUser(request.Context())
-		if user.ID != pending.UserID || pending.Provider != provider.ID() {
+		// The state carries the workspace and the person; the provider decides
+		// which flow this code belongs to. Both must agree, so a state issued
+		// for one provider cannot be redeemed against another.
+		//
+		// There is no session to check here. A browser returning from the
+		// provider cannot present a bearer token, and the state is what stands
+		// in for one: unguessable, single-use, expiring, and already consumed
+		// by the time this runs, so a replay finds nothing to redeem.
+		if pending.Provider != provider.ID() {
 			options.redirectResult(response, request, provider.ID(), "invalid_state")
 			return
 		}
