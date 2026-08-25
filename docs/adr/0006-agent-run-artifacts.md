@@ -174,9 +174,20 @@ dispatch. The model call is already paid for and its result already recorded by
 the time it runs, so a promotion failure is a missing file, not a failed run —
 retrying the workflow would repeat the work.
 
-An artifact's content type never resolves to a renderable one. An agent-authored
-file is untrusted content, and serving it as `text/html` or `image/svg+xml`
-would make an artifact a stored cross-site script.
+Everything about that directory is agent-controlled, and the agent is running
+model-authored tool calls, so promotion treats it as untrusted input in two
+ways:
+
+- **Only regular files are promoted, and they are opened `O_NOFOLLOW`.** A
+  symlink is followed on open, so one placed in `output/` would promote whatever
+  it points at in the *worker's* filesystem — its environment, its database URL,
+  its object-storage keys — into a file any workspace member can download. The
+  output directory is resolved through symlinks and re-checked against the
+  volume root for the same reason, since the agent owns every component of that
+  path.
+- **An artifact's content type never resolves to a renderable one.** Serving an
+  agent-authored file as `text/html` or `image/svg+xml` would make an artifact
+  a stored cross-site script.
 
 A deployment without the mount is unaffected: the promoter reports itself
 disabled and the activity is a no-op.
