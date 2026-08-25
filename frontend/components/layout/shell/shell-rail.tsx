@@ -160,6 +160,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                               return (
                                  <li key={route.id}>
                                     <Link
+                                       data-shell-nav
                                        href={`/${orgId}${route.href}`}
                                        aria-current={on ? 'page' : undefined}
                                        className={[
@@ -186,6 +187,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                                     <DropdownMenuTrigger asChild>
                                        <button
                                           type="button"
+                                          data-shell-nav
                                           className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-[var(--shell-text-muted)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)] data-[state=open]:bg-[var(--shell-hover)] data-[state=open]:text-[var(--shell-text)]"
                                        >
                                           <ShellIcon path={MORE_ICON} />

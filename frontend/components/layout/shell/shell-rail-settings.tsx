@@ -55,6 +55,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
                      return (
                         <li key={`${group.label}-${item.name}`}>
                            <Link
+                              data-shell-nav
                               href={href}
                               aria-current={active ? 'page' : undefined}
                               className={link(href, active)}
