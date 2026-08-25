@@ -21,6 +21,11 @@ type accessResource struct {
 	// which is the state that makes the list look mysteriously short: without
 	// an installation a user token reads only public repositories.
 	InstallURL string `json:"installUrl,omitempty"`
+	// Accounts the app is installed on. Installations are per account, so an
+	// app installed on a personal account reaches none of an organisation's
+	// repositories — which looks identical to a broken picker unless the list
+	// says whose repositories it is showing.
+	Accounts []string `json:"accounts,omitempty"`
 }
 
 type repositoryResource struct {
@@ -65,7 +70,31 @@ func listRepositoriesHandler(options Options) http.HandlerFunc {
 		}
 
 		client := github.Client{Token: credential.AccessToken}
-		repositories, err := client.ListRepositories(request.Context(), 100)
+
+		// What the installation grants, not what the person owns. For a GitHub
+		// App those differ, and asking the wrong one returns the user's public
+		// repositories and nothing else — which reads as a broken picker rather
+		// than the wrong question. Falls back when there is no installation,
+		// where /user/repos is all there is.
+		reach, accessErr := client.Access(request.Context())
+		if accessErr != nil {
+			options.logger().Warn("could not read github installation access", "error", accessErr)
+		}
+
+		var repositories []github.Repository
+		if accessErr == nil && len(reach.Installations) > 0 {
+			for _, installation := range reach.Installations {
+				batch, listErr := client.InstallationRepositories(
+					request.Context(), installation.ID, 100)
+				if listErr != nil {
+					err = listErr
+					break
+				}
+				repositories = append(repositories, batch...)
+			}
+		} else {
+			repositories, err = client.ListRepositories(request.Context(), 100)
+		}
 		if errors.Is(err, github.ErrUnauthorized) {
 			// The one failure a person can act on, so it is not flattened into
 			// a generic error: the connection needs re-authorising.
@@ -90,18 +119,21 @@ func listRepositoriesHandler(options Options) http.HandlerFunc {
 				Description:   repository.Description,
 			})
 		}
-		// Asked after the list, and its failure is not the list's failure: a
-		// short list is still useful, and an unexplained short list is the
-		// complaint this answers.
+		// Reported alongside the list so a short one explains itself.
 		access := accessResource{}
-		if reach, err := client.Access(request.Context()); err == nil {
+		if accessErr == nil {
 			access.Installed = len(reach.Installations) > 0
 			access.SelectedOnly = reach.SelectedOnly
 			access.ManageURL = reach.ManageURL
-		} else {
-			options.logger().Warn("could not read github installation access", "error", err)
+			for _, installation := range reach.Installations {
+				if installation.Account.Login != "" {
+					access.Accounts = append(access.Accounts, installation.Account.Login)
+				}
+			}
 		}
-		if !access.Installed && options.GitHubAppSlug != "" {
+		// Offered whether or not it is installed: the account it is missing from
+		// is the common case once it is installed somewhere.
+		if options.GitHubAppSlug != "" {
 			access.InstallURL = "https://github.com/apps/" +
 				options.GitHubAppSlug + "/installations/new"
 		}

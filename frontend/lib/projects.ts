@@ -216,6 +216,7 @@ const accessSchema = z.object({
    installed: z.boolean(),
    manageUrl: z.string().optional(),
    installUrl: z.string().optional(),
+   accounts: z.array(z.string()).optional(),
 });
 
 export type GitHubAccess = z.infer<typeof accessSchema>;

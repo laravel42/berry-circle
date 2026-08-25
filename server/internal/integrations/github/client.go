@@ -227,3 +227,49 @@ func (client Client) Access(ctx context.Context) (Access, error) {
 	}
 	return access, nil
 }
+
+// InstallationRepositories lists what one installation grants this user.
+//
+// Distinct from /user/repos, which answers "what does this person own" filtered
+// by what the app may see. For a GitHub App the authoritative question is what
+// the installation covers, and the two answers differ: a token minted before an
+// installation existed still reads the user's public repositories through the
+// first endpoint while seeing nothing private, which looks like a broken list
+// rather than the wrong question.
+func (client Client) InstallationRepositories(
+	ctx context.Context,
+	installationID int64,
+	limit int,
+) ([]Repository, error) {
+	if limit <= 0 || limit > 300 {
+		limit = 100
+	}
+	const perPage = 100
+	repositories := make([]Repository, 0, limit)
+
+	for page := 1; page <= 3 && len(repositories) < limit; page++ {
+		var payload struct {
+			Repositories []Repository `json:"repositories"`
+		}
+		path := fmt.Sprintf(
+			"/user/installations/%d/repositories?per_page=%d&page=%d",
+			installationID, perPage, page,
+		)
+		if err := client.get(ctx, path, &payload); err != nil {
+			return nil, err
+		}
+		for _, repository := range payload.Repositories {
+			if repository.Archived {
+				continue
+			}
+			repositories = append(repositories, repository)
+			if len(repositories) == limit {
+				break
+			}
+		}
+		if len(payload.Repositories) < perPage {
+			break
+		}
+	}
+	return repositories, nil
+}
