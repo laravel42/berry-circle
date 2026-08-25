@@ -47,7 +47,7 @@ function countBy(issues: Issue[], keyOf: (issue: Issue) => string[]): Map<string
 
 function BreakdownList({ rows }: { rows: BreakdownRow[] }) {
    if (rows.length === 0) {
-      return <p className="text-xs text-muted-foreground px-1 py-3">Nothing to show yet.</p>;
+      return <p className="text-muted-foreground px-1 py-3">Nothing to show yet.</p>;
    }
    return (
       <div className="flex flex-col">
@@ -55,9 +55,9 @@ function BreakdownList({ rows }: { rows: BreakdownRow[] }) {
             <div key={row.key} className="flex items-center justify-between gap-3 py-2">
                <div className="flex items-center gap-2 min-w-0">
                   {row.leading}
-                  <span className="text-sm truncate">{row.label}</span>
+                  <span className="truncate">{row.label}</span>
                </div>
-               <span className="text-sm text-muted-foreground shrink-0">{row.count}</span>
+               <span className="text-muted-foreground shrink-0">{row.count}</span>
             </div>
          ))}
       </div>
@@ -234,15 +234,15 @@ export default function MemberProfile({ member }: { member: User }) {
                      />
                   </div>
                   <div className="min-w-0">
-                     <h2 className="text-base font-semibold truncate">{member.name}</h2>
-                     <p className="text-xs text-muted-foreground truncate">
+                     <h2 className="font-semibold truncate">{member.name}</h2>
+                     <p className="text-muted-foreground truncate">
                         {member.name} · {presenceLabel[member.status]}
                      </p>
                   </div>
                </div>
             </div>
 
-            <div className="px-5 py-4 border-b flex flex-col gap-2.5 text-sm">
+            <div className="px-5 py-4 border-b flex flex-col gap-2.5">
                <div className="flex items-start justify-between gap-4">
                   <span className="text-muted-foreground shrink-0">Email</span>
                   <span className="truncate">{member.email}</span>
@@ -263,13 +263,13 @@ export default function MemberProfile({ member }: { member: User }) {
                   <span className="text-muted-foreground shrink-0 pt-0.5">Projects</span>
                   <div className="flex flex-col items-end gap-1 min-w-0">
                      {memberProjects.slice(0, 4).map((project) => (
-                        <span key={project.id} className="inline-flex items-center gap-1.5 text-xs min-w-0">
+                        <span key={project.id} className="inline-flex items-center gap-1.5 min-w-0">
                            <project.icon className="size-3.5 text-muted-foreground shrink-0" />
                            <span className="truncate max-w-44">{project.name}</span>
                         </span>
                      ))}
                      {memberProjects.length > 4 && (
-                        <span className="text-xs text-muted-foreground">
+                        <span className="text-muted-foreground">
                            +{memberProjects.length - 4} more
                         </span>
                      )}
@@ -280,13 +280,13 @@ export default function MemberProfile({ member }: { member: User }) {
             <div className="px-5 py-4">
                <Tabs defaultValue="labels">
                   <TabsList className="h-8 bg-transparent gap-1 p-0">
-                     <TabsTrigger value="labels" className="text-xs px-2.5 rounded-full">
+                     <TabsTrigger value="labels" className="px-2.5 rounded-full">
                         Labels
                      </TabsTrigger>
-                     <TabsTrigger value="priority" className="text-xs px-2.5 rounded-full">
+                     <TabsTrigger value="priority" className="px-2.5 rounded-full">
                         Priority
                      </TabsTrigger>
-                     <TabsTrigger value="projects" className="text-xs px-2.5 rounded-full">
+                     <TabsTrigger value="projects" className="px-2.5 rounded-full">
                         Projects
                      </TabsTrigger>
                   </TabsList>

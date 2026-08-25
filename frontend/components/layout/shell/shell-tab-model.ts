@@ -18,7 +18,7 @@ const SECTION_LABELS: Record<string, string> = {
    issue: 'issues',
    agents: 'agents',
    members: 'agents',
-   agent: 'agents',
+   runs: 'runtimes',
    project: 'projects',
    initiative: 'initiatives',
    review: 'reviews',
@@ -53,7 +53,7 @@ export function describeRoute(pathname: string, orgId: string): RouteDescriptor 
 
    // A rail destination keeps its rail label, so both surfaces read the same.
    const nav = SHELL_SECTIONS.flatMap((section) => section.routes).find(
-      (route) => route.href === relative,
+      (route) => route.href && route.href === relative,
    );
    if (nav) return { label: nav.label, href: relative };
 

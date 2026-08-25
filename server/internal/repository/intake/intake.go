@@ -134,7 +134,8 @@ func (repository *Repository) Candidates(
 		           issue.created_at
 		      FROM issues AS issue
 		      JOIN boards AS board ON board.id = issue.board_id
-		     WHERE issue.status = 'todo'
+		     WHERE issue.deleted_at IS NULL
+		       AND issue.status = 'todo'
 		       AND issue.active_run_id IS NULL
 		     ORDER BY issue.created_at ASC, issue.id ASC
 		     FOR UPDATE OF issue SKIP LOCKED
@@ -192,7 +193,16 @@ func (repository *Repository) Candidates(
 		         FROM agents AS agent
 		         LEFT JOIN agent_load ON agent_load.agent_id = agent.id
 		        WHERE agent.archived_at IS NULL
-		          AND agent.status = 'available'
+		          -- Eligibility is decided by Berry's own run table, not the
+		          -- runtime's status flag. The runtime reports an agent as
+		          -- inferencing for the duration of its process, not its turn,
+		          -- and leaves the flag set after a run ends — which mapped to
+		          -- 'busy' and made every agent that had ever worked
+		          -- permanently unroutable, including one a person had
+		          -- explicitly assigned. Offline and unknown still exclude,
+		          -- because those mean the agent genuinely cannot be reached.
+		          AND agent.status IN ('available', 'busy')
+		          AND COALESCE(agent_load.active, 0) = 0
 		          AND agent.workspace_id = ready.workspace_id
 		          AND (agent.board_id IS NULL OR agent.board_id = ready.board_id)
 		          AND (
@@ -213,6 +223,12 @@ func (repository *Repository) Candidates(
 		        ORDER BY
 		              -- Real agents before the built-in orchestrator.
 		              agent.protected ASC,
+		              -- An agent that declares nothing before one that declares
+		              -- something only if nothing else separates them. Without
+		              -- this the last tiebreak is the name, and a generalist
+		              -- called "Orchestrator" wins every unlabelled issue in
+		              -- this collation because uppercase sorts before lowercase.
+		              (COALESCE(cardinality(agent.capabilities), 0) = 0) ASC,
 		              -- Then the strongest capability match.
 		              COALESCE(cardinality(ARRAY(
 		                  SELECT unnest(agent.capabilities)

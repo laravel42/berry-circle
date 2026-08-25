@@ -62,7 +62,7 @@ export function InlineText({ text }: { text: string }) {
             index % 2 === 1 ? (
                <code
                   key={index}
-                  className="bg-muted/70 border border-border/60 rounded px-1 py-px text-[0.85em] font-mono"
+                  className="bg-muted/70 border border-border/60 rounded px-1 py-px font-mono"
                >
                   {part}
                </code>
@@ -85,7 +85,7 @@ export function DiffStat({
    className?: string;
 }) {
    return (
-      <span className={cn('inline-flex items-center gap-1 text-xs font-medium', className)}>
+      <span className={cn('inline-flex items-center gap-1 font-medium', className)}>
          <span className="text-emerald-600 dark:text-emerald-400">+{additions}</span>
          {deletions > 0 && <span className="text-red-500">-{deletions}</span>}
       </span>

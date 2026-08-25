@@ -50,6 +50,13 @@ type Attachment struct {
 	State          string
 	CreatedAt      time.Time
 	ReadyAt        *time.Time
+	// UploaderType is "user" or "agent". Uploader resolves against whichever
+	// table this names, so a reader can tell a person's upload from an agent's
+	// output rather than seeing an unattributed file (ADR-0006).
+	UploaderType string
+	// RunID is set when the artifact was produced by a run. Null means it was
+	// uploaded directly.
+	RunID *uuid.UUID
 }
 
 // AttachmentCursor is the oldest-first stable list key.

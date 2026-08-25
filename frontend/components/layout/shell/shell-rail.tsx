@@ -2,13 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { LayoutList } from 'lucide-react';
-import { RiEditLine } from '@remixicon/react';
+import { RiEditLine, RiSettings3Line } from '@remixicon/react';
 import {
    DropdownMenu,
    DropdownMenuContent,
-   DropdownMenuItem,
-   DropdownMenuSeparator,
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CustomizeSidebarDialog } from '@/components/layout/sidebar/customize-sidebar-dialog';
@@ -18,8 +15,9 @@ import {
    resolveOrder,
    useSidebarPrefsStore,
    type SidebarItemKey,
+   type SidebarSection,
 } from '@/store/sidebar-prefs-store';
-import { MORE_ICON, SHELL_SECTIONS, type ShellRouteDef, type ShellRoute } from './shell-routes';
+import { SHELL_SECTIONS, type ShellRouteDef, type ShellRoute } from './shell-routes';
 import { ShellIcon, BerryMark, shellIconButton } from './shell-icon';
 import { WorkspaceMenuItems } from './workspace-menu';
 import { ShellRailSettings } from './shell-rail-settings';
@@ -36,7 +34,7 @@ interface ShellRailProps {
 }
 
 /**
- * The left rail: brand, primary routes, workspace routes, help.
+ * The left rail: brand, primary routes, workspace routes, configure routes, help.
  *
  * Ported from `Berry Prototype.dc.html`. Nav items are links rather than click
  * handlers so middle-click, cmd-click, and "copy link address" behave the way
@@ -60,26 +58,38 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
 
    /**
     * Apply the user's pin preferences to a section, returning what is shown in
-    * the rail and what is tucked behind "more".
+    * the rail.
     */
-   const partition = (routes: ShellRouteDef[]) => {
+   const partition = (routes: ShellRouteDef[], prefsSection?: SidebarSection) => {
       // Narrowing here rather than asserting later keeps prefsKey non-optional
       // for the rest of the function.
       const pinnable = routes.filter((route): route is PinnableRoute => Boolean(route.prefsKey));
-      if (!mounted || pinnable.length === 0)
-         return { shown: routes, hidden: [] as ShellRouteDef[] };
+      if (!mounted || pinnable.length === 0) return routes;
 
       const ordered = resolveOrder(
-         order.workspace,
+         prefsSection ? order[prefsSection] : undefined,
          pinnable.map((route) => route.prefsKey)
       )
          .map((key) => pinnable.find((route) => route.prefsKey === key))
-         .filter((route): route is PinnableRoute => Boolean(route));
+         .filter((route): route is PinnableRoute => Boolean(route))
+         .filter((route) => isSidebarItemVisible(visibility[route.prefsKey], 0));
 
-      return {
-         shown: ordered.filter((route) => isSidebarItemVisible(visibility[route.prefsKey], 0)),
-         hidden: ordered.filter((route) => !isSidebarItemVisible(visibility[route.prefsKey], 0)),
-      };
+      // Placeholders have no prefsKey and always show. Pinnable items keep the
+      // user's order in the slots they occupy; hidden pins drop out.
+      if (pinnable.length === routes.length) return ordered;
+
+      const queue = [...ordered];
+      const shown: ShellRouteDef[] = [];
+      for (const route of routes) {
+         if (!route.prefsKey) {
+            shown.push(route);
+            continue;
+         }
+         if (!isSidebarItemVisible(visibility[route.prefsKey], 0)) continue;
+         const next = queue.shift();
+         if (next) shown.push(next);
+      }
+      return shown;
    };
 
    return (
@@ -96,26 +106,29 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
              chevrons-up-down glyph reads as a switcher everywhere else in the
              product, and settings and log out have no other home. Collapse
              moves to its own control at the foot of the rail. */}
-               <div className="flex items-center gap-1 pr-2.5">
+               <div className="flex items-center gap-1 px-2 pt-3">
                   <DropdownMenu>
                      <DropdownMenuTrigger asChild>
                         <button
                            type="button"
                            aria-label="Workspace menu"
-                           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-3.5 pt-4 pb-3.5 text-left transition-colors hover:bg-[var(--shell-hover)] data-[state=open]:bg-[var(--shell-hover)]"
+                           className="group/ws flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-2.5 py-2.5 text-left transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)] data-[state=open]:bg-[var(--shell-hover)] data-[state=open]:text-[var(--shell-text)]"
                         >
-                           <BerryMark />
-                           <span className="font-display text-[15px] tracking-[-0.01em] text-[var(--shell-text)]">
+                           <BerryMark size={24} />
+                           <span
+                              data-wordmark="md"
+                              className="font-display leading-none tracking-[-0.025em] text-[var(--shell-text)]"
+                           >
                               Berry<span className="text-[var(--shell-accent)]">.</span>
                            </span>
                            <svg
-                              width="13"
-                              height="13"
+                              width="18"
+                              height="18"
                               viewBox="0 0 24 24"
                               fill="none"
                               stroke="currentColor"
                               strokeWidth={1.7}
-                              className="ml-auto text-[var(--shell-text-dim)]"
+                              className="ml-auto text-[var(--shell-text-dim)] transition-colors group-hover/ws:text-[var(--shell-text-muted)] group-data-[state=open]/ws:text-[var(--shell-text-muted)]"
                               aria-hidden="true"
                            >
                               <path d="M8 10l4-4 4 4M8 14l4 4 4-4" />
@@ -138,81 +151,55 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                      onClick={() => openCreateIssue()}
                      aria-label="Create issue"
                      title="Create issue"
-                     className={`mt-[3px] size-7 ${shellIconButton}`}
+                     className={`size-7 ${shellIconButton}`}
                   >
                      <RiEditLine className="size-4" />
                   </button>
                </div>
 
                {SHELL_SECTIONS.map((section) => {
-                  const { shown, hidden } = partition(section.routes);
-                  const pinnable = section.routes.some((route) => route.prefsKey);
+                  const shown = partition(section.routes, section.prefsSection);
                   return (
                      <div key={section.heading ?? 'primary'}>
                         {section.heading ? (
-                           <div className="px-[18px] pt-[18px] pb-[7px] text-xs uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+                           <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
                               {section.heading}
                            </div>
                         ) : null}
                         <ul className="flex flex-col gap-px px-2">
                            {shown.map((route) => {
-                              const on = route.id === active;
+                              const on = Boolean(route.href) && route.id === active;
+                              const className = [
+                                 'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',
+                                 on
+                                    ? 'bg-[var(--shell-surface)] text-[var(--shell-text)]'
+                                    : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
+                              ].join(' ');
+                              const inner = (
+                                 <>
+                                    <ShellIcon path={route.icon} />
+                                    {route.label}
+                                 </>
+                              );
                               return (
                                  <li key={route.id}>
-                                    <Link
-                                       href={`/${orgId}${route.href}`}
-                                       aria-current={on ? 'page' : undefined}
-                                       className={[
-                                          'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',
-                                          on
-                                             ? 'bg-[var(--shell-surface)] text-[var(--shell-text)]'
-                                             : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
-                                       ].join(' ')}
-                                    >
-                                       <ShellIcon path={route.icon} />
-                                       {route.label}
-                                    </Link>
+                                    {route.href ? (
+                                       <Link
+                                          data-shell-nav
+                                          href={`/${orgId}${route.href}`}
+                                          aria-current={on ? 'page' : undefined}
+                                          className={className}
+                                       >
+                                          {inner}
+                                       </Link>
+                                    ) : (
+                                       <span data-shell-nav className={className}>
+                                          {inner}
+                                       </span>
+                                    )}
                                  </li>
                               );
                            })}
-
-                           {/* "more" is a control, not a destination: it lists what is
-                         unpinned and opens the dialog that decides what stays in
-                         the rail. It previously linked to settings, which lost
-                         both behaviours. */}
-                           {pinnable ? (
-                              <li>
-                                 <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                       <button
-                                          type="button"
-                                          className="flex w-full cursor-pointer items-center gap-2.5 rounded px-2.5 py-1.5 text-left text-[var(--shell-text-muted)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)] data-[state=open]:bg-[var(--shell-hover)] data-[state=open]:text-[var(--shell-text)]"
-                                       >
-                                          <ShellIcon path={MORE_ICON} />
-                                          more
-                                       </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent
-                                       className="w-48 rounded-lg"
-                                       side="bottom"
-                                       align="start"
-                                    >
-                                       {hidden.map((route) => (
-                                          <DropdownMenuItem key={route.id} asChild>
-                                             <Link href={`/${orgId}${route.href}`}>
-                                                {route.label}
-                                             </Link>
-                                          </DropdownMenuItem>
-                                       ))}
-                                       {hidden.length > 0 ? <DropdownMenuSeparator /> : null}
-                                       <DropdownMenuItem onClick={() => setCustomizeOpen(true)}>
-                                          <LayoutList className="text-muted-foreground" />
-                                          <span>customize sidebar</span>
-                                       </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                 </DropdownMenu>
-                              </li>
-                           ) : null}
                         </ul>
                      </div>
                   );
@@ -221,19 +208,21 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
          )}
 
          <div className="mt-auto flex items-center gap-1.5 p-3.5">
-            <Link
-               href={`/${orgId}/settings/preferences`}
-               aria-label="Help and settings"
+            <button
+               type="button"
+               onClick={() => setCustomizeOpen(true)}
+               aria-label="Customize sidebar"
+               title="Customize sidebar"
                className={`size-[26px] ${shellIconButton}`}
             >
-               ?
-            </Link>
+               <RiSettings3Line className="size-3.5" />
+            </button>
             <button
                type="button"
                onClick={onToggle}
                aria-label="Collapse sidebar"
                title="Collapse sidebar"
-               className={`size-[26px] ${shellIconButton}`}
+               className={`ml-auto size-[26px] ${shellIconButton}`}
             >
                <svg
                   width="13"

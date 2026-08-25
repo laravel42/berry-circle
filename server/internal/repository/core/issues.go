@@ -15,10 +15,36 @@ import (
 const issueProjection = `
 	i.id, i.board_id, b.slug, i.number, i.title, i.description,
 	i.status::text, i.priority::text, i.sort_order, i.due_date,
-	i.assignee_type::text, i.assignee_id, assignee_user.name, assignee_user.avatar_url,
+	i.assignee_type::text, i.assignee_id,
+	COALESCE(assignee_user.name, assignee_agent.name),
+	COALESCE(assignee_user.avatar_url, assignee_agent.avatar_url),
 	i.active_run_id,
+	project.id, project.name,
 	i.created_by, creator.name, creator.avatar_url,
 	i.created_at, i.updated_at`
+
+// issueSource resolves an issue and both kinds of assignee.
+//
+// Shared rather than repeated: this clause was duplicated at each call site and
+// every copy joined only users, so an issue assigned to an agent came back with
+// a null name and rendered as the literal word "Agent" with no avatar. Keeping
+// it in one place means the agent join cannot be forgotten at a fourth site.
+const issueSource = `
+	   FROM issues AS i
+	   -- The live predicate rides on the board join rather than each caller's
+	   -- WHERE. For an inner join the two are equivalent, and putting it here
+	   -- means a query cannot read a deleted issue by forgetting to exclude one.
+	   JOIN boards AS b ON b.id = i.board_id AND i.deleted_at IS NULL
+	   LEFT JOIN users AS assignee_user
+	     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
+	   LEFT JOIN agents AS assignee_agent
+	     ON i.assignee_type = 'agent' AND assignee_agent.id = i.assignee_id
+	   LEFT JOIN users AS creator ON creator.id = i.created_by
+	   -- An issue belongs to at most one project, and the link table's primary
+	   -- key on issue_id is what guarantees that, so this cannot fan out.
+	   LEFT JOIN issue_project_links AS link ON link.issue_id = i.id
+	   LEFT JOIN projects AS project
+	     ON project.id = link.project_id AND project.deleted_at IS NULL`
 
 var issueIdentifierPattern = regexp.MustCompile(`^(.+)-([1-9][0-9]*)$`)
 
@@ -61,12 +87,7 @@ func (repository *Repository) ListIssues(
 
 	rows, err := repository.Pool.Query(
 		ctx,
-		`SELECT `+issueProjection+`
-		   FROM issues AS i
-		   JOIN boards AS b ON b.id = i.board_id
-		   LEFT JOIN users AS assignee_user
-		     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
-		   LEFT JOIN users AS creator ON creator.id = i.created_by
+		`SELECT `+issueProjection+issueSource+`
 		  WHERE i.board_id = $1
 		    AND (
 				COALESCE(cardinality($2::text[]), 0) = 0 OR
@@ -135,12 +156,7 @@ func (repository *Repository) GetIssue(ctx context.Context, reference string) (I
 	}
 	issue, err := scanIssue(repository.Pool.QueryRow(
 		ctx,
-		`SELECT `+issueProjection+`
-		   FROM issues AS i
-		   JOIN boards AS b ON b.id = i.board_id
-		   LEFT JOIN users AS assignee_user
-		     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
-		   LEFT JOIN users AS creator ON creator.id = i.created_by
+		`SELECT `+issueProjection+issueSource+`
 		  WHERE lower(b.slug) = lower($1) AND i.number = $2`,
 		match[1],
 		number,
@@ -237,6 +253,13 @@ func (repository *Repository) CreateIssue(
 			return Issue{}, classifyWriteError("record issue assignment", err)
 		}
 	}
+	if params.Project != nil {
+		if err := setIssueProject(ctx, tx, params.ID, params.Project, params.CreatedBy); err != nil {
+			return Issue{}, err
+		}
+	}
+	// Read back after linking so the returned issue carries its project, which
+	// is what lets a caller render the new issue without a second request.
 	created, err := getIssueByID(ctx, tx, params.ID, false)
 	if err != nil {
 		return Issue{}, err
@@ -266,7 +289,7 @@ func (repository *Repository) UpdateIssue(
 	var currentStatus string
 	if err := tx.QueryRow(
 		ctx,
-		`SELECT status::text FROM issues WHERE id = $1 FOR UPDATE`,
+		`SELECT status::text FROM issues WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
 		params.IssueID,
 	).Scan(&currentStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -347,6 +370,13 @@ func (repository *Repository) UpdateIssue(
 			return Issue{}, classifyWriteError("record issue assignment", err)
 		}
 	}
+	if params.Patch.ProjectSet {
+		if err := setIssueProject(
+			ctx, tx, params.IssueID, params.Patch.Project, params.AssignedBy,
+		); err != nil {
+			return Issue{}, err
+		}
+	}
 	updated, err := getIssueByID(ctx, tx, params.IssueID, false)
 	if err != nil {
 		return Issue{}, err
@@ -369,12 +399,7 @@ func getIssueByID(
 	}
 	issue, err := scanIssue(queryer.QueryRow(
 		ctx,
-		`SELECT `+issueProjection+`
-		   FROM issues AS i
-		   JOIN boards AS b ON b.id = i.board_id
-		   LEFT JOIN users AS assignee_user
-		     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
-		   LEFT JOIN users AS creator ON creator.id = i.created_by
+		`SELECT `+issueProjection+issueSource+`
 		  WHERE i.id = $1`+lock,
 		id,
 	))
@@ -394,6 +419,8 @@ func scanIssue(row rowScanner) (Issue, error) {
 		createdByID     *uuid.UUID
 		createdByName   *string
 		createdByAvatar *string
+		projectID       *uuid.UUID
+		projectName     *string
 	)
 	if err := row.Scan(
 		&issue.ID,
@@ -411,6 +438,8 @@ func scanIssue(row rowScanner) (Issue, error) {
 		&assigneeName,
 		&assigneeAvatar,
 		&issue.ActiveRunID,
+		&projectID,
+		&projectName,
 		&createdByID,
 		&createdByName,
 		&createdByAvatar,
@@ -424,6 +453,13 @@ func scanIssue(row rowScanner) (Issue, error) {
 	}
 	if createdByID != nil {
 		issue.CreatedBy = actorRef("user", *createdByID, createdByName, createdByAvatar)
+	}
+	if projectID != nil {
+		name := ""
+		if projectName != nil {
+			name = *projectName
+		}
+		issue.Project = &ProjectRef{ID: *projectID, Name: name}
 	}
 	return issue, nil
 }

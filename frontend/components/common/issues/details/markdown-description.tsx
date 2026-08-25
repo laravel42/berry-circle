@@ -19,7 +19,7 @@ export function MarkdownFormattedMirror({ text }: { text: string }) {
    const lines = text.split('\n');
 
    return (
-      <div className="whitespace-pre-wrap break-words text-sm leading-6">
+      <div className="whitespace-pre-wrap break-words leading-6">
          {lines.map((line, index) => (
             <div key={index}>
                <FormattedMirrorLine line={line} />
@@ -34,7 +34,7 @@ export function MarkdownDescription({ text }: { text: string }) {
    const lines = text.split('\n');
 
    return (
-      <div className="text-sm leading-6">
+      <div className="leading-6">
          {lines.map((line, index) => {
             if (!line.trim()) {
                return <div key={index} className="h-2" aria-hidden />;

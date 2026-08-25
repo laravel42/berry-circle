@@ -32,13 +32,13 @@ function FilesPanel({ review }: { review: Review }) {
 
    return (
       <div className="flex flex-col gap-2">
-         <span className="text-sm font-medium">{review.files.length} files changed</span>
+         <span className="font-medium">{review.files.length} files changed</span>
          {categories.map((group) => {
             const additions = group.files.reduce((acc, file) => acc + file.additions, 0);
             const deletions = group.files.reduce((acc, file) => acc + file.deletions, 0);
             return (
                <div key={group.category} className="flex flex-col gap-1">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="font-medium text-foreground">
                         {CATEGORY_LABELS[group.category]}
                      </span>
@@ -49,14 +49,14 @@ function FilesPanel({ review }: { review: Review }) {
                   </div>
                   {group.category === 'implementation' ? (
                      group.files.map((file) => (
-                        <div key={file.name} className="flex items-center gap-1.5 text-xs pl-2">
+                        <div key={file.name} className="flex items-center gap-1.5 pl-2">
                            <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />
                            <span className="font-medium">{file.name}</span>
                            <span className="text-muted-foreground truncate">{file.path}</span>
                         </div>
                      ))
                   ) : (
-                     <span className="text-xs text-muted-foreground pl-2">
+                     <span className="text-muted-foreground pl-2">
                         {group.files.map((file) => file.name).join(', ')}
                      </span>
                   )}
@@ -76,8 +76,8 @@ export function ReviewOverview({ review }: { review: Review }) {
          <div className="flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-8 py-8 flex flex-col gap-6">
                <div className="flex flex-col gap-2">
-                  <h1 className="text-2xl font-semibold leading-snug">{review.title}</h1>
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground font-mono flex-wrap">
+                  <h1 className="font-semibold leading-snug">{review.title}</h1>
+                  <div className="flex items-center gap-1.5 text-muted-foreground font-mono flex-wrap">
                      <PrIcon status={review.status} className="size-3.5" />
                      <span>
                         {review.repo}#{review.prNumber}
@@ -90,12 +90,12 @@ export function ReviewOverview({ review }: { review: Review }) {
                </div>
 
                <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-1 text-sm font-medium">
+                  <div className="flex items-center gap-1 font-medium">
                      Description
                      <ChevronDown className="size-3.5 text-muted-foreground" />
                   </div>
-                  <h2 className="text-lg font-semibold">Summary</h2>
-                  <ul className="flex flex-col gap-2 list-disc pl-5 text-sm leading-relaxed">
+                  <h2 className="font-semibold">Summary</h2>
+                  <ul className="flex flex-col gap-2 list-disc pl-5 leading-relaxed">
                      {review.summary.map((bullet, index) => (
                         <li key={index}>
                            <InlineText text={bullet} />
@@ -105,10 +105,10 @@ export function ReviewOverview({ review }: { review: Review }) {
                </div>
 
                <div className="flex flex-col gap-2">
-                  <h2 className="text-lg font-semibold">Ticket</h2>
+                  <h2 className="font-semibold">Ticket</h2>
                   <Link
                      href={`/${orgId}/issue/${review.resolves.identifier}`}
-                     className="inline-flex items-center gap-2 rounded-md bg-muted/60 border border-border/60 px-2 py-1.5 text-sm hover:bg-muted transition-colors self-start"
+                     className="inline-flex items-center gap-2 rounded-md bg-muted/60 border border-border/60 px-2 py-1.5 hover:bg-muted transition-colors self-start"
                   >
                      <IssueCheckIcon />
                      <span className="font-medium">{review.resolves.identifier}</span>
@@ -117,10 +117,10 @@ export function ReviewOverview({ review }: { review: Review }) {
                </div>
 
                <div className="flex flex-col gap-2">
-                  <h2 className="text-lg font-semibold">Test plan</h2>
+                  <h2 className="font-semibold">Test plan</h2>
                   <div className="flex flex-col gap-1.5">
                      {review.testPlan.map((item, index) => (
-                        <label key={index} className="flex items-start gap-2 text-sm">
+                        <label key={index} className="flex items-start gap-2">
                            <Checkbox checked={item.checked} className="size-4 mt-0.5" />
                            <span>
                               <InlineText text={item.text} />
@@ -131,8 +131,8 @@ export function ReviewOverview({ review }: { review: Review }) {
                </div>
 
                {review.deployment && (
-                  <div className="rounded-lg border overflow-hidden text-sm">
-                     <div className="grid grid-cols-3 gap-2 px-3 py-2 border-b bg-sidebar/50 text-xs text-muted-foreground">
+                  <div className="rounded-lg border overflow-hidden">
+                     <div className="grid grid-cols-3 gap-2 px-3 py-2 border-b bg-sidebar/50 text-muted-foreground">
                         <span>Project</span>
                         <span>Deployment</span>
                         <span>Actions</span>
@@ -157,14 +157,14 @@ export function ReviewOverview({ review }: { review: Review }) {
                   </div>
                )}
 
-               <div className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm text-muted-foreground">
+               <div className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-muted-foreground">
                   <span className="size-5 rounded-full bg-muted inline-block shrink-0" />
                   <span className="flex-1">Leave a reply...</span>
                   <Paperclip className="size-4" />
                   <Send className="size-4" />
                </div>
 
-               <div className="flex items-center gap-2 text-xs text-muted-foreground">
+               <div className="flex items-center gap-2 text-muted-foreground">
                   <GitCommitHorizontal className="size-3.5 shrink-0" />
                   <span className="truncate">
                      Committed via Berry Agent{' '}
@@ -176,22 +176,22 @@ export function ReviewOverview({ review }: { review: Review }) {
 
                {review.reviewNote && (
                   <div className="rounded-lg border p-4 flex flex-col gap-3">
-                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                     <div className="flex items-center gap-2 text-muted-foreground">
                         <span className="size-5 rounded-full bg-muted inline-block" />
                         <span className="font-medium text-foreground">
                            {review.reviewNote.author}
                         </span>
                         {review.reviewNote.timeAgo}
                      </div>
-                     <h3 className="text-base font-semibold">Review results</h3>
-                     <blockquote className="border-l-2 border-emerald-500 pl-3 text-sm leading-relaxed">
+                     <h3 className="font-semibold">Review results</h3>
+                     <blockquote className="border-l-2 border-emerald-500 pl-3 leading-relaxed">
                         {review.reviewNote.verdictLine}
                      </blockquote>
-                     <p className="text-sm text-muted-foreground leading-relaxed">
+                     <p className="text-muted-foreground leading-relaxed">
                         {review.reviewNote.profileLine}
                      </p>
-                     <div className="rounded-md border overflow-hidden text-sm">
-                        <div className="grid grid-cols-5 gap-2 px-3 py-1.5 border-b bg-sidebar/50 text-xs text-muted-foreground">
+                     <div className="rounded-md border overflow-hidden">
+                        <div className="grid grid-cols-5 gap-2 px-3 py-1.5 border-b bg-sidebar/50 text-muted-foreground">
                            <span>Review</span>
                            <span>Verdict</span>
                            <span>Critical</span>
@@ -201,7 +201,7 @@ export function ReviewOverview({ review }: { review: Review }) {
                         {review.reviewNote.rows.map((row) => (
                            <div
                               key={row.review}
-                              className="grid grid-cols-5 gap-2 px-3 py-2 border-b last:border-b-0 text-xs items-start"
+                              className="grid grid-cols-5 gap-2 px-3 py-2 border-b last:border-b-0 items-start"
                            >
                               <span className="font-medium">{row.review}</span>
                               <span>{row.verdict}</span>
@@ -212,7 +212,7 @@ export function ReviewOverview({ review }: { review: Review }) {
                         ))}
                      </div>
                      {review.reviewNote.footer && (
-                        <p className="text-sm text-muted-foreground leading-relaxed">
+                        <p className="text-muted-foreground leading-relaxed">
                            {review.reviewNote.footer}
                         </p>
                      )}
@@ -223,8 +223,8 @@ export function ReviewOverview({ review }: { review: Review }) {
 
          <aside className="hidden lg:flex flex-col w-72 shrink-0 border-l h-full overflow-y-auto p-5 gap-6">
             <div className="flex flex-col gap-2">
-               <span className="text-sm font-medium">Status</span>
-               <span className="inline-flex items-center gap-1.5 text-sm">
+               <span className="font-medium">Status</span>
+               <span className="inline-flex items-center gap-1.5">
                   <PrIcon status={review.status} />
                   {review.status === 'merged'
                      ? 'Merged'
@@ -235,31 +235,31 @@ export function ReviewOverview({ review }: { review: Review }) {
             </div>
             <div className="flex flex-col gap-2">
                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Resolves</span>
+                  <span className="font-medium">Resolves</span>
                   <Plus className="size-3.5 text-muted-foreground" />
                </div>
                <Link
                   href={`/${orgId}/issue/${review.resolves.identifier}`}
-                  className="flex items-center gap-1.5 text-sm hover:opacity-80 min-w-0"
+                  className="flex items-center gap-1.5 hover:opacity-80 min-w-0"
                >
                   <IssueCheckIcon />
                   <span className="truncate">{review.resolves.title}</span>
                </Link>
             </div>
             <div className="flex flex-col gap-2">
-               <span className="text-sm font-medium">Reviewers</span>
-               <button className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors self-start">
+               <span className="font-medium">Reviewers</span>
+               <button className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors self-start">
                   <UserPlus className="size-4" />
                   Add reviewers
                </button>
             </div>
             <div className="flex flex-col gap-2">
-               <span className="text-sm font-medium">Checks</span>
-               <span className="inline-flex items-center gap-1.5 text-sm">
+               <span className="font-medium">Checks</span>
+               <span className="inline-flex items-center gap-1.5">
                   <ChevronRight className="size-3.5 text-muted-foreground" />
                   {review.checksPassed} / {review.checksTotal} passed
                </span>
-               <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+               <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                   <span className="size-3.5 rounded-full border-2 border-muted-foreground/50 inline-block" />
                   gate
                </span>

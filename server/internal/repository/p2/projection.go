@@ -236,6 +236,7 @@ func resolveProjectionIssue(
 		        CASE WHEN issue.assignee_type = 'user' THEN issue.assignee_id END
 		   FROM issues AS issue
 		   JOIN boards AS board ON board.id = issue.board_id
+		    AND issue.deleted_at IS NULL
 		  WHERE issue.id = $1`,
 		issueID,
 	).Scan(

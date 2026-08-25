@@ -9,6 +9,7 @@ import { format, parseISO } from 'date-fns';
 import { ArrowRight, ChevronDown, FileText, PenLine, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { descriptionToBlocks } from '@/lib/description-blocks';
 import { useMemo, useRef } from 'react';
 import { DocumentOutline, getOutlineItems } from './document-outline';
 import { ProjectSidePanel } from './project-side-panel';
@@ -31,10 +32,21 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
 
    const { orgId } = useParams<{ orgId: string }>();
    const scrollRef = useRef<HTMLDivElement>(null);
-   const outlineItems = useMemo(() => getOutlineItems(detail.description), [detail.description]);
+   // The project's own description, which the API has always returned and
+   // nothing rendered: getProjectDetail is a stub that reports every project as
+   // having none. Falls back to it so a real detail source can take over
+   // without this changing again.
+   const descriptionBlocks = useMemo(
+      () =>
+         detail.description.length > 0
+            ? detail.description
+            : descriptionToBlocks(project?.description),
+      [detail.description, project?.description]
+   );
+   const outlineItems = useMemo(() => getOutlineItems(descriptionBlocks), [descriptionBlocks]);
 
    if (!project) {
-      return <div className="p-6 text-sm text-muted-foreground">Loading project…</div>;
+      return <div className="p-6 text-muted-foreground">Loading project…</div>;
    }
 
    return (
@@ -47,11 +59,11 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                   <div className="inline-flex size-10 bg-muted/50 items-center justify-center rounded-md mb-4">
                      <project.icon className="size-6" />
                   </div>
-                  <h1 className="text-3xl font-semibold tracking-tight">{project.name}</h1>
+                  <h1 className="font-semibold tracking-tight">{project.name}</h1>
                   <p className="mt-3 text-muted-foreground leading-relaxed">{detail.summary}</p>
 
                   {/* Inline properties */}
-                  <div className="mt-6 flex flex-col gap-2.5 text-sm">
+                  <div className="mt-6 flex flex-col gap-2.5">
                      <div className="flex items-center gap-3">
                         <span className="w-24 text-muted-foreground shrink-0">Properties</span>
                         <div className="flex items-center gap-3 flex-wrap">
@@ -99,7 +111,7 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                            {project.labels.map((label) => (
                               <span
                                  key={label.id}
-                                 className="inline-flex items-center gap-1 text-xs border rounded-full px-2 py-0.5"
+                                 className="inline-flex items-center gap-1 border rounded-full px-2 py-0.5"
                               >
                                  <span
                                     className="size-2 rounded-full"
@@ -123,7 +135,7 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                                  <a
                                     key={resource.label}
                                     href={resource.url}
-                                    className="inline-flex items-center gap-1.5 text-xs border rounded-md px-2 py-1 hover:bg-accent/50 transition-colors"
+                                    className="inline-flex items-center gap-1.5 border rounded-md px-2 py-1 hover:bg-accent/50 transition-colors"
                                  >
                                     <FileText className="size-3.5 text-muted-foreground" />
                                     {resource.label}
@@ -140,7 +152,7 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                   {/* Update CTA */}
                   <Link
                      href={`/${orgId}/project/${project.id}/activity`}
-                     className="mt-8 flex items-center justify-center gap-2 border rounded-lg py-4 text-sm text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
+                     className="mt-8 flex items-center justify-center gap-2 border rounded-lg py-4 text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors"
                   >
                      <PenLine className="size-4" />
                      Write {detail.updates.length === 0 ? 'first ' : ''}project update
@@ -148,12 +160,12 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
 
                   {/* Description */}
                   <div className="mt-10">
-                     <div className="flex items-center gap-1 text-sm font-medium text-muted-foreground mb-2">
+                     <div className="flex items-center gap-1 font-medium text-muted-foreground mb-2">
                         Description
                         <ChevronDown className="size-3.5" />
                      </div>
                      <div>
-                        <ContentBlocks blocks={detail.description} />
+                        <ContentBlocks blocks={descriptionBlocks} />
                      </div>
                   </div>
                </div>

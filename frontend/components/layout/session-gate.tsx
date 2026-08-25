@@ -11,7 +11,7 @@ function BootScreen() {
       <div className="flex min-h-svh items-center justify-center bg-background">
          <div className="flex items-center gap-2 text-muted-foreground">
             <BerryMark size="md" tone="brand" pulse label="Loading Berry" />
-            <span className="text-sm">Loading Berry</span>
+            <span>Loading Berry</span>
          </div>
       </div>
    );

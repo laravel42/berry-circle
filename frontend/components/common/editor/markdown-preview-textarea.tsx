@@ -130,14 +130,14 @@ export function MarkdownPreviewTextarea({
             onPointerDown={(event) => event.stopPropagation()}
             className={cn(
                'min-h-20 w-full cursor-text rounded-md px-0 py-1 text-left text-foreground outline-none',
-               !value && 'text-sm text-foreground/40',
+               !value && 'text-foreground/40',
                className
             )}
          >
             {value ? (
                <MarkdownDescription text={value} />
             ) : (
-               <span className="text-sm leading-6">{placeholder}</span>
+               <span className="leading-6">{placeholder}</span>
             )}
          </button>
       );
@@ -155,14 +155,14 @@ export function MarkdownPreviewTextarea({
             onBlur={stopEditing}
             placeholder={placeholder}
             className={cn(
-               'min-h-20 w-full resize-y border-none bg-transparent px-0 py-1 text-sm leading-6 text-foreground shadow-none outline-none placeholder:text-foreground/40',
+               'min-h-20 w-full resize-y border-none bg-transparent px-0 py-1 leading-6 text-foreground shadow-none outline-none placeholder:text-foreground/40',
                className
             )}
             {...props}
          />
          {value.trim() ? (
             <div className="mt-2 rounded-sm border border-border/50 bg-muted/20 px-3 py-2">
-               <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+               <p className="mb-1 font-medium uppercase tracking-wide text-muted-foreground">
                   Preview
                </p>
                <MarkdownDescription text={value} />

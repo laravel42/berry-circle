@@ -1,6 +1,5 @@
 'use client';
 
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import { getInitiativeById } from '@/data/initiatives';
 import { ChevronRight, MoreHorizontal, Star } from 'lucide-react';
@@ -24,18 +23,17 @@ export default function Header() {
       <div className="w-full flex flex-col">
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
             <div className="flex items-center gap-2 min-w-0">
-               <SidebarTrigger />
                <Link
                   href={`/${orgId}/initiatives`}
-                  className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  className="font-medium text-muted-foreground hover:text-foreground transition-colors shrink-0"
                >
                   Initiatives
                </Link>
                <ChevronRight className="size-3.5 text-muted-foreground shrink-0" />
-               <span className="inline-flex size-5 items-center justify-center rounded bg-muted/50 text-xs shrink-0">
+               <span className="inline-flex size-5 items-center justify-center rounded bg-muted/50 shrink-0">
                   {initiative.icon}
                </span>
-               <span className="text-sm font-medium truncate">{initiative.name}</span>
+               <span className="font-medium truncate">{initiative.name}</span>
                <Star className="size-3.5 text-muted-foreground shrink-0 ml-1" />
                <MoreHorizontal className="size-3.5 text-muted-foreground shrink-0" />
             </div>
@@ -46,7 +44,7 @@ export default function Header() {
                   key={candidate}
                   onClick={() => setTab(candidate)}
                   className={cn(
-                     'px-2.5 py-1 rounded-md border text-xs font-medium capitalize transition-colors',
+                     'px-2.5 py-1 rounded-md border font-medium capitalize transition-colors',
                      tab === candidate
                         ? 'bg-accent border-transparent'
                         : 'text-muted-foreground hover:bg-accent/50'

@@ -41,8 +41,8 @@ function EmptyQueue() {
       <div className="flex min-h-64 w-full items-center justify-center px-6 py-12">
          <div className="flex max-w-sm flex-col items-center text-center">
             <BerryMark size="lg" tone="neutral" state="hollow" label="Empty issue queue" />
-            <h2 className="mt-5 font-display text-2xl tracking-[-0.025em]">Nothing queued.</h2>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            <h2 className="mt-5 font-display tracking-[-0.025em]">Nothing queued.</h2>
+            <p className="mt-2 leading-relaxed text-muted-foreground">
                Create the first issue, then assign the whole ticket when it is ready to move.
             </p>
             <Button className="mt-6 h-10 px-5" onClick={() => openModal()}>
@@ -81,7 +81,7 @@ function HiddenByFiltersFooter({ hiddenCount }: { hiddenCount: number }) {
    const { clearFilters } = useFilterStore();
 
    return (
-      <div className="flex items-center justify-center gap-3 py-4 text-xs text-muted-foreground">
+      <div className="flex items-center justify-center gap-3 py-4 text-muted-foreground">
          <span>
             <span className="font-medium text-foreground">
                {hiddenCount} {hiddenCount === 1 ? 'issue' : 'issues'}
@@ -109,7 +109,7 @@ function HiddenColumns({ entries }: { entries: GroupEntry[] }) {
          <button
             type="button"
             onClick={() => setOpen((value) => !value)}
-            className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 px-2 py-1.5 font-medium text-muted-foreground hover:text-foreground transition-colors"
          >
             <ChevronDown className={cn('size-3.5 transition-transform', !open && '-rotate-90')} />
             Hidden columns
@@ -123,9 +123,9 @@ function HiddenColumns({ entries }: { entries: GroupEntry[] }) {
                   >
                      <div className="flex items-center gap-2 min-w-0">
                         {entry.group.icon}
-                        <span className="text-sm truncate">{entry.group.name}</span>
+                        <span className="truncate">{entry.group.name}</span>
                      </div>
-                     <span className="text-xs text-muted-foreground whitespace-nowrap">
+                     <span className="text-muted-foreground whitespace-nowrap">
                         {entry.total > 0 ? `0 / ${entry.total}` : '0'}
                      </span>
                   </div>

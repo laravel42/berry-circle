@@ -9,12 +9,12 @@
    --font-mono: var(--font-geist-mono);
    --font-display: var(--font-dm-serif);
    --font-weight-normal: 300;
-   --text-xs: 0.6875rem;
+   --text-xs: 0.75rem;
    --text-xs--line-height: 1rem;
    --text-sm: 0.8125rem;
    --text-sm--line-height: 1.25rem;
    --text-base: 0.875rem;
-   --text-base--line-height: 1.375rem;
+   --text-base--line-height: 1.25rem;
    --text-lg: 1rem;
    --text-lg--line-height: 1.5rem;
    --text-xl: 1.125rem;
@@ -30,7 +30,7 @@
 :root {
    color-scheme: light;
 
-   --brand-void: #111113;
+   --brand-void: #18181B;
    --brand-base: #1a1a1d;
    --brand-ember: #1c1811;
    --brand-thicket: #151917;
@@ -51,10 +51,10 @@
       inverting them with the content theme would make the frame compete with
       what sits inside it. Values come from the prototype verbatim so the
       implementation and the design file cannot drift apart silently. */
-   --shell-rail: #16161a;
+   --shell-rail: #18181b;
    --shell-canvas: #111113;
    --shell-surface: #1a1a1d;
-   --shell-hover: #17171a;
+   --shell-hover: #222226;
    --shell-line: #26262b;
    --shell-line-strong: #3a3a40;
    --shell-text: #f0edea;
@@ -107,7 +107,17 @@
    --chart-4: var(--brand-amber);
    --chart-5: var(--brand-slate);
    --radius: 0.625rem;
-   --board-column-body: color-mix(in oklab, var(--color-zinc-900) 80%, transparent);
+   /* Flat and theme-independent, like the shell: the board's cards are dark in
+      both themes, and the column previously resolved 80% zinc over the page,
+      which put mid-grey behind dark cards in light mode. Stated once here with
+      no `.dark` counterpart, so the two cannot drift. */
+   --board-column-body: #19191d;
+   /* Edge of a card sitting in a board column: the column lifted a step, so it
+      reads as a seam rather than a line of its own. White goes last on
+      purpose -- where `color-mix` is unsupported the declaration degrades to
+      its first colour, and an edge that matches the column disappears, where
+      one that fell back to white would blaze. */
+   --board-card-line: color-mix(in oklab, var(--board-column-body) 97%, #ffffff);
    /* Circle board column header neutral tint (~6% zinc on container). */
    --board-column-header-neutral: color-mix(in oklab, var(--color-zinc-500) 6%, var(--container));
    --sidebar: var(--brand-base);
@@ -163,7 +173,6 @@
    --sidebar-accent-foreground: var(--brand-chalk);
    --sidebar-border: var(--brand-hairline);
    --sidebar-ring: var(--brand-azure);
-   --board-column-body: color-mix(in oklab, var(--color-zinc-900) 80%, transparent);
 }
 
 @theme inline {
@@ -238,12 +247,68 @@
       @apply border-border outline-ring/50;
    }
 
+   /* --- Type scale ---------------------------------------------------------
+      The element decides its size; a utility class never does. h1–h4 step
+      down through the named scale and everything else — h5 and h6 included —
+      sits at text-xs. Because these live in the base layer, any `text-*`
+      utility in a component would silently win, so components are barred from
+      carrying one at all (`no-restricted-syntax` in eslint.config.mjs). That
+      lint rule is what keeps this block the single source of truth rather
+      than merely the default. */
    body {
-      @apply bg-background text-foreground font-sans font-normal text-sm;
+      @apply bg-background text-foreground font-sans text-xs;
       --font-sans: var(--font-geist-mono);
       --font-mono: var(--font-geist-mono);
       --font-display: var(--font-dm-serif);
+      /* 400, not the 300 that `font-normal` resolves to: this weight used to
+         ride along with `.text-xs` (below) on the elements that opted into the
+         small size. Now that text-xs is the body default, the weight it was
+         paired with has to move with it or every label in the app thins out. */
+      font-weight: 400;
       min-height: 100svh;
+   }
+
+   /* Written against the tokens rather than with `@apply`, because `text-base`
+      is not a font size in this project: the palette below defines
+      `--color-base`, and a colour of that name beats the size of the same name
+      when Tailwind resolves `text-*`. `@apply text-base` compiles to
+      `color: var(--brand-base)`. Reading the tokens directly sidesteps the
+      collision here and keeps all four rules in one shape. */
+   h1 {
+      font-size: var(--text-xl);
+      line-height: var(--text-xl--line-height);
+   }
+
+   h2 {
+      font-size: var(--text-lg);
+      line-height: var(--text-lg--line-height);
+   }
+
+   h3 {
+      font-size: var(--text-base);
+      line-height: var(--text-base--line-height);
+   }
+
+   h4 {
+      font-size: var(--text-sm);
+      line-height: var(--text-sm--line-height);
+   }
+
+   /* The one size set outside the scale above. The wordmark is a logo lockup,
+      not running text: the word is drawn to sit against the mark beside it, so
+      it has to scale with the mark and not with the surrounding UI. Kept here
+      rather than inline in the component so the exception stays visible next
+      to the rule it departs from. */
+   [data-wordmark='sm'] {
+      font-size: var(--text-base);
+   }
+
+   [data-wordmark='md'] {
+      font-size: var(--text-2xl);
+   }
+
+   [data-wordmark='lg'] {
+      font-size: var(--text-4xl);
    }
 
    /* Keep the already-compacted sidebar menu on the previous type scale. */
@@ -264,6 +329,24 @@
       --text-3xl--line-height: 2.25rem;
       --text-4xl: 2.25rem;
       --text-4xl--line-height: 2.5rem;
+   }
+
+   /* Rail nav items are how you get around the app, so they sit a step above
+      the text-xs default rather than reading as captions beside their icons.
+      Marked with `data-shell-nav` in shell-rail.tsx and shell-rail-settings.tsx
+      -- the rail is hand-built markup with no shared nav primitive to hang this
+      off, and a structural selector would break the first time a list is
+      rewrapped. Note this is the sidebar in the app: `[data-slot='sidebar']`
+      above belongs to the shadcn sidebar, which the shell does not render, so
+      its overrides do not reach here and the token resolves to the content
+      scale -- 0.8125rem, one step off the 0.75rem default.
+
+      The items size to their content (`py-1.5`, no fixed height), so the type
+      just makes the rail taller. Section headings stay at the default -- they
+      label the groups, they are not destinations. */
+   [data-shell-nav] {
+      font-size: var(--text-sm);
+      line-height: var(--text-sm--line-height);
    }
 
    :where(.text-xs) {
@@ -322,7 +405,9 @@ select {
    -webkit-text-fill-color: var(--foreground);
 }
 
-input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file'])::placeholder,
+input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
+      [type='file']
+   )::placeholder,
 textarea::placeholder {
    color: color-mix(in oklab, var(--foreground) 42%, transparent);
    -webkit-text-fill-color: color-mix(in oklab, var(--foreground) 42%, transparent);

@@ -1,4 +1,10 @@
 import type { Issue } from '@/data/issues';
+import { health, type Project } from '@/data/projects';
+import { priorities } from '@/data/priorities';
+import { status } from '@/data/status';
+import { currentUser } from '@/data/users';
+import { useProjectsStore } from '@/store/projects-store';
+import { Box } from 'lucide-react';
 import { z } from 'zod';
 import { apiFetch } from './api';
 import { actorRefSchema, connectionSchema, newIdempotencyKey } from './api-schemas';
@@ -42,6 +48,7 @@ const issueSchema = z.object({
    dueDate: z.string().nullish(),
    assignee: actorRefSchema.nullish(),
    activeRunId: z.string().nullish(),
+   project: z.object({ id: z.string(), name: z.string() }).nullish(),
    createdBy: actorRefSchema.nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
@@ -124,6 +131,17 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
       sortOrder: apiIssue.sortOrder,
    };
 
+   // The API names the project; the UI type carries the whole record, so the
+   // rest comes from the projects store. A project the store has not loaded
+   // yet still yields a link with its real name — the alternative is an issue
+   // that shows no project until an unrelated fetch happens to land first.
+   if (apiIssue.project) {
+      const known = useProjectsStore
+         .getState()
+         .projects.find((candidate) => candidate.id === apiIssue.project?.id);
+      issue.project = known ?? placeholderProject(apiIssue.project.id, apiIssue.project.name);
+   }
+
    if (apiIssue.dueDate) {
       issue.dueDate = apiIssue.dueDate;
    }
@@ -198,6 +216,7 @@ export async function createBoardIssue(input: {
    statusId: string;
    priorityId: string;
    assignee?: { type: 'user' | 'agent'; id: string };
+   projectId?: string;
 }): Promise<Issue> {
    const body: Record<string, unknown> = {
       boardId: input.boardId,
@@ -210,6 +229,9 @@ export async function createBoardIssue(input: {
    }
    if (input.assignee) {
       body.assignee = input.assignee;
+   }
+   if (input.projectId) {
+      body.projectId = input.projectId;
    }
 
    const json: unknown = await apiFetch('/api/v1/issues', {
@@ -226,4 +248,60 @@ export async function createBoardIssue(input: {
       throw new Error('Created issue could not be displayed');
    }
    return issue;
+}
+
+/**
+ * Delete an issue.
+ *
+ * Unlike the optimistic patch above, a failure is reported rather than
+ * swallowed. Removing the card locally after a delete the server refused would
+ * show the issue as gone until the next refresh brought it back — and a person
+ * who believes something is deleted stops looking for it.
+ */
+export async function deleteBoardIssue(issueRef: string): Promise<void> {
+   await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}`, {
+      method: 'DELETE',
+   });
+}
+
+/**
+ * A project record for one the projects store has not loaded.
+ *
+ * Only the identity is real; everything else is a neutral default. It exists so
+ * a freshly loaded issue can show which project it belongs to without waiting
+ * on a second request, and it is replaced by the real record as soon as the
+ * store has it.
+ */
+function placeholderProject(id: string, name: string): Project {
+   return {
+      id,
+      name,
+      status: status.find((candidate) => candidate.id === 'to-do') ?? status[0],
+      icon: Box,
+      percentComplete: 0,
+      startDate: '',
+      lead: currentUser,
+      priority: priorities.find((candidate) => candidate.id === 'no-priority') ?? priorities[0],
+      health: health.find((candidate) => candidate.id === 'no-update') ?? health[0],
+      teamId: '',
+      labels: [],
+   };
+}
+
+/**
+ * Link an issue to a project, or unlink it with null.
+ *
+ * Not routed through patchBoardIssue because that helper swallows failures on
+ * purpose — an optimistic field reconciles on the next refresh. A project that
+ * silently failed to save is what this whole path was reported for, so the
+ * error is raised and the caller decides.
+ */
+export async function setIssueProject(
+   issueRef: string,
+   projectId: string | null
+): Promise<void> {
+   await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ projectId }),
+   });
 }

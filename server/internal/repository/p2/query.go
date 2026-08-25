@@ -67,6 +67,7 @@ func (repository *Repository) Search(
 				lower(issue.title) AS normalized
 			FROM issues AS issue
 			JOIN boards AS board ON board.id = issue.board_id
+			 AND issue.deleted_at IS NULL
 			WHERE $5::boolean
 			  AND board.workspace_id = $1
 			  AND (
@@ -191,6 +192,7 @@ func (repository *Repository) ListIssueGroups(
 		SELECT ` + keyExpression + ` AS group_key, ` + labelExpression + ` AS group_label
 		FROM issues AS issue
 		JOIN boards AS board ON board.id = issue.board_id
+		 AND issue.deleted_at IS NULL
 		LEFT JOIN users AS assignee_user
 		  ON issue.assignee_type = 'user' AND assignee_user.id = issue.assignee_id
 		LEFT JOIN agents AS assignee_agent
@@ -274,6 +276,7 @@ func (repository *Repository) ListIssueRows(
 			issue.updated_at, ` + keyExpression + ` AS group_key
 		FROM issues AS issue
 		JOIN boards AS board ON board.id = issue.board_id
+		 AND issue.deleted_at IS NULL
 		LEFT JOIN users AS assignee_user
 		  ON issue.assignee_type = 'user' AND assignee_user.id = issue.assignee_id
 		LEFT JOIN agents AS assignee_agent
@@ -352,6 +355,7 @@ func (repository *Repository) ListIssueFacets(
 			       COALESCE(assignee_user.name, assignee_agent.name, 'Unassigned') AS assignee_name
 			FROM issues AS issue
 			JOIN boards AS board ON board.id = issue.board_id
+			 AND issue.deleted_at IS NULL
 			LEFT JOIN users AS assignee_user
 			  ON issue.assignee_type = 'user' AND assignee_user.id = issue.assignee_id
 			LEFT JOIN agents AS assignee_agent

@@ -1,7 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
 import { Project } from '@/data/projects';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
@@ -9,7 +8,6 @@ import { useProjectsFilterStore } from '@/store/projects-filter-store';
 import { useProjectsDisplayStore } from '@/store/projects-display-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, Box } from 'lucide-react';
-import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useMemo } from 'react';
 import { Filter } from '@/components/layout/headers/projects/filter';
 import ProjectsBoard, { type ProjectBoardEntry } from './projects-board';
@@ -27,15 +25,6 @@ export interface ProjectGroup {
    projects: Project[];
 }
 
-const TABS = ['all', 'active'] as const;
-
-const TAB_ITEMS: { label: string; value: (typeof TABS)[number] }[] = [
-   { label: 'All projects', value: 'all' },
-   { label: 'Active projects', value: 'active' },
-];
-
-/** Status categories considered "active" for the Active projects tab. */
-const ACTIVE_CATEGORIES = new Set(['backlog', 'unstarted', 'started']);
 /** Categories hidden by "Show closed projects: Hide closed". */
 const CLOSED_CATEGORIES = new Set(['completed', 'canceled']);
 
@@ -82,15 +71,9 @@ function sortProjects(list: Project[], sort: string, ordering: string): Project[
    return list.slice().sort(compare);
 }
 
-function applyTabScope(list: Project[], tab: string, closedProjects: string): Project[] {
-   let scoped = list.slice();
-   if (tab === 'active') {
-      scoped = scoped.filter((project) => ACTIVE_CATEGORIES.has(project.status.category));
-   }
-   if (closedProjects === 'hide') {
-      scoped = scoped.filter((project) => !CLOSED_CATEGORIES.has(project.status.category));
-   }
-   return scoped;
+function applyClosedFilter(list: Project[], closedProjects: string): Project[] {
+   if (closedProjects !== 'hide') return list.slice();
+   return list.filter((project) => !CLOSED_CATEGORIES.has(project.status.category));
 }
 
 function applyDisplayFilters(list: Project[], filters: { health: string[]; priority: string[] }): Project[] {
@@ -116,16 +99,14 @@ function percentCompleteForProject(
    return Math.round((done / linked.length) * 100);
 }
 
-/** Projects page: tabs, filters, display options, views and insights. */
+/** Projects page: filters, display options, views and insights. */
 export default function Projects() {
    const { filters, sort } = useProjectsFilterStore();
-   const { viewTypes, grouping, ordering, closedProjects, showEmptyGroups } =
+   const { viewType, grouping, ordering, closedProjects, showEmptyGroups } =
       useProjectsDisplayStore();
    const { openPanel, togglePanel } = useRightPanelStore();
    const allProjects = useProjectsStore((state) => state.projects);
    const issues = useIssuesStore((state) => state.issues);
-   const [tab, setTab] = useQueryState('tab', parseAsStringLiteral(TABS).withDefault('all'));
-   const viewType = viewTypes[tab];
 
    const enriched = useMemo(
       () =>
@@ -137,8 +118,8 @@ export default function Projects() {
    );
 
    const scoped = useMemo(
-      () => applyTabScope(enriched, tab, closedProjects),
-      [enriched, tab, closedProjects]
+      () => applyClosedFilter(enriched, closedProjects),
+      [enriched, closedProjects]
    );
 
    const displayed = useMemo(
@@ -192,27 +173,7 @@ export default function Projects() {
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">
          <CreateProjectDialog />
-         <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10 shrink-0">
-            <div className="flex items-center gap-1">
-               {TAB_ITEMS.map((item) => {
-                  const isActive = tab === item.value;
-                  return (
-                     <button
-                        key={item.value}
-                        type="button"
-                        onClick={() => void setTab(item.value === 'all' ? null : item.value)}
-                        className={cn(
-                           'px-2.5 h-7 inline-flex items-center rounded-full border text-xs font-medium transition-colors',
-                           isActive
-                              ? 'bg-accent text-foreground border-border'
-                              : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
-                        )}
-                     >
-                        {item.label}
-                     </button>
-                  );
-               })}
-            </div>
+         <div className="w-full flex justify-end items-center border-b py-1.5 px-6 h-10 shrink-0">
             <div className="flex items-center gap-1">
                <Filter />
                <ProjectsDisplayOptions />
@@ -237,7 +198,7 @@ export default function Projects() {
                      showEmptyGroups={showEmptyGroups}
                   />
                ) : displayed.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
                      No projects match these filters.
                   </div>
                ) : (

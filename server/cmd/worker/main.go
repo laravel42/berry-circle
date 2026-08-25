@@ -23,15 +23,22 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/laravel42/berry-circle/server/internal/artifacts"
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
+	"github.com/laravel42/berry-circle/server/internal/delivery"
+	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	collaborationrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	intakerepo "github.com/laravel42/berry-circle/server/internal/repository/intake"
+	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	runsrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
+	"github.com/laravel42/berry-circle/server/internal/secrets"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
+	"github.com/laravel42/berry-circle/server/internal/storage"
 )
 
 func main() {
@@ -155,6 +162,26 @@ func run() int {
 	// in-process job channel must not also be draining runs. Sharing the
 	// service gives both dispatchers one projection implementation without
 	// giving this process a second scheduler.
+	// Repository context for runs. This is the process that actually dispatches
+	// them — the API builds the same service for its own routes, but every run
+	// admitted by intake comes through here, so wiring only the API left the
+	// context unbuilt on the one path that matters.
+	var runCode runadmission.CodeContext
+	if cfg.IntegrationsEnabled {
+		sealer, sealerErr := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+		if sealerErr != nil {
+			logger.Error("integration sealer setup failed", "error", sealerErr)
+			return 1
+		}
+		credentials, storeErr := integrationrepo.New(pool, sealer)
+		if storeErr != nil {
+			logger.Error("integration repository setup failed", "error", storeErr)
+			return 1
+		}
+		runCode = githubclient.RunContext{Credentials: credentials, Logger: logger}
+		logger.Info("repository context enabled for runs")
+	}
+
 	dispatcher, err := runadmission.New(runadmission.Options{
 		Store:         runStore,
 		OpenFang:      upstream,
@@ -164,6 +191,7 @@ func run() int {
 		WorkerContext: ctx,
 		Workers:       1,
 		QueueSize:     1,
+		Code:          runCode,
 	})
 	if err != nil {
 		logger.Error("run dispatcher setup failed", "error", err)
@@ -189,12 +217,95 @@ func run() int {
 		)
 		return 1
 	}
+	// Artifact promotion (ADR-0006). Both dependencies are optional: without a
+	// mounted runtime volume the promoter reports itself disabled and the
+	// activity is a no-op, which is what a deployment did before this existed.
+	var (
+		promoter     *artifacts.Promoter
+		artifactRuns orchestration.RunArtifactSource
+	)
+	if cfg.RuntimeWorkspaceRoot != "" {
+		artifactStore, err := collaborationrepo.New(pool)
+		if err != nil {
+			logger.Error("collaboration repository setup failed", "error", err)
+			return 1
+		}
+		artifactStorage, err := storage.NewWithContext(ctx, storage.Config{
+			Backend:           cfg.StorageBackend,
+			LocalRoot:         cfg.StorageLocalRoot,
+			MaxBytes:          cfg.StorageMaxBytes,
+			S3Bucket:          cfg.S3Bucket,
+			S3Region:          cfg.S3Region,
+			S3Endpoint:        cfg.S3Endpoint,
+			S3UsePathStyle:    cfg.S3UsePathStyle,
+			S3UsePathStyleSet: cfg.S3UsePathStyleSet,
+			S3AccessKeyID:     cfg.S3AccessKeyID,
+			S3SecretAccessKey: cfg.S3SecretAccessKey,
+			S3SessionToken:    cfg.S3SessionToken,
+		})
+		if err != nil {
+			logger.Error("artifact storage setup failed", "error", err)
+			return 1
+		}
+		promoter = &artifacts.Promoter{
+			Root:     cfg.RuntimeWorkspaceRoot,
+			Store:    artifactStore,
+			Storage:  artifactStorage,
+			MaxBytes: cfg.StorageMaxBytes,
+			Clock:    time.Now,
+			NewID:    uuid.New,
+			Logger:   logger,
+		}
+		artifactRuns = promotableRuns{store: runStore}
+		logger.Info("artifact promotion enabled", "root", cfg.RuntimeWorkspaceRoot)
+
+		// Recover anything an earlier run left behind. In the background: a
+		// worker must start serving whether or not a filesystem sweep succeeds.
+		go func(promoter *artifacts.Promoter, source artifacts.PendingSource) {
+			recovered, err := artifacts.Recover(ctx, promoter, source, time.Now(), logger)
+			if err != nil {
+				logger.Warn("artifact recovery pass failed", "error", err)
+				return
+			}
+			if recovered > 0 {
+				logger.Info("artifact recovery complete", "files", recovered)
+			}
+		}(promoter, artifactRuns.(promotableRuns))
+	}
+
+	// Delivery turns a finished run's output into a pull request. Needs the
+	// same credential the context builder uses and the promoter's file
+	// discovery, so it only exists when both do.
+	var (
+		runDeliveries   orchestration.RunDelivery
+		deliverableRows orchestration.DeliverableRuns
+	)
+	if promoter != nil && runCode != nil {
+		sealer, sealerErr := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+		if sealerErr == nil {
+			credentials, storeErr := integrationrepo.New(pool, sealer)
+			if storeErr == nil {
+				runDeliveries = runDelivery{service: &delivery.Service{
+					Output:    promoter,
+					Publisher: githubclient.Publisher{Credentials: credentials},
+				}}
+				deliverableRows = deliverableRuns{store: runStore}
+				logger.Info("pull request delivery enabled for runs")
+			}
+		}
+	}
+
 	activities, err := orchestration.NewActivities(orchestration.Activities{
-		Intake:  intakeStore,
-		Runs:    dispatcher,
-		ActorID: actorID,
-		Clock:   time.Now,
-		NewID:   uuid.New,
+		Intake:          intakeStore,
+		Runs:            dispatcher,
+		ActorID:         actorID,
+		Clock:           time.Now,
+		NewID:           uuid.New,
+		Artifacts:       promoter,
+		ArtifactRuns:    artifactRuns,
+		Delivery:        runDeliveries,
+		DeliverableRuns: deliverableRows,
+		Logger:          logger,
 	})
 	if err != nil {
 		logger.Error("orchestration activities setup failed", "error", err)
@@ -287,4 +398,101 @@ func closeValkey(client *cache.Client) {
 	if client != nil {
 		_ = client.Close()
 	}
+}
+
+// promotableRuns adapts the run repository to the orchestration interface.
+//
+// The two describe the same row and differ only in which package owns the type,
+// which is what keeps orchestration free of a repository import.
+type promotableRuns struct {
+	store *runsrepo.Repository
+}
+
+func (adapter promotableRuns) RunsAwaitingPromotion(
+	ctx context.Context,
+	since time.Time,
+	limit int,
+) ([]uuid.UUID, error) {
+	return adapter.store.RunsAwaitingPromotion(ctx, since, limit)
+}
+
+// PromotableRunContext reports whether a run is one whose output may be
+// published, and the window its files must fall in. The boolean separates "not
+// eligible" from "could not be read", so a failed run is skipped quietly while
+// a broken lookup is logged.
+func (adapter promotableRuns) PromotableRunContext(
+	ctx context.Context,
+	runID uuid.UUID,
+) (artifacts.RunContext, bool, error) {
+	row, err := adapter.store.PromotableRun(ctx, runID)
+	if err != nil {
+		return artifacts.RunContext{}, false, err
+	}
+	if !row.Succeeded {
+		return artifacts.RunContext{}, false, nil
+	}
+	return artifacts.RunContext{
+		RunID:       runID,
+		AgentSlug:   row.AgentSlug,
+		StartedAt:   row.StartedAt,
+		CompletedAt: row.CompletedAt,
+	}, true, nil
+}
+
+func (adapter promotableRuns) PromotableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (orchestration.PromotableRun, error) {
+	row, err := adapter.store.PromotableRun(ctx, runID)
+	if err != nil {
+		return orchestration.PromotableRun{}, err
+	}
+	return orchestration.PromotableRun{
+		AgentSlug:   row.AgentSlug,
+		StartedAt:   row.StartedAt,
+		CompletedAt: row.CompletedAt,
+		Succeeded:   row.Succeeded,
+	}, nil
+}
+
+// deliverableRuns adapts the run repository to the orchestration interface.
+type deliverableRuns struct {
+	store *runsrepo.Repository
+}
+
+func (adapter deliverableRuns) DeliverableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (orchestration.DeliverableRun, error) {
+	row, err := adapter.store.DeliverableRun(ctx, runID)
+	if err != nil {
+		return orchestration.DeliverableRun{}, err
+	}
+	return orchestration.DeliverableRun{
+		WorkspaceID:     row.WorkspaceID,
+		Repository:      row.Repository,
+		AgentSlug:       row.AgentSlug,
+		IssueIdentifier: row.IssueIdentifier,
+		IssueTitle:      row.IssueTitle,
+		StartedAt:       row.StartedAt,
+		CompletedAt:     row.CompletedAt,
+		Succeeded:       row.Succeeded,
+	}, nil
+}
+
+// runDelivery adapts the delivery service, returning the pull request URL.
+type runDelivery struct {
+	service *delivery.Service
+}
+
+func (adapter runDelivery) Deliver(
+	ctx context.Context,
+	run delivery.Run,
+	window artifacts.RunContext,
+) (string, error) {
+	pull, err := adapter.service.Deliver(ctx, run, window)
+	if err != nil {
+		return "", err
+	}
+	return pull.HTMLURL, nil
 }

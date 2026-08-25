@@ -612,8 +612,16 @@ func parseCommentID(
 func serializeAttachment(attachment repository.Attachment) attachmentResource {
 	var uploader *actorResource
 	if attachment.Uploader != nil {
+		// Taken from the row, not assumed. An agent's artifact is listed by the
+		// same query as a person's upload (ADR-0006), so hardcoding the kind
+		// here reported every agent's output as human-authored — which is
+		// exactly the attribution the uploader pair exists to preserve.
+		kind := attachment.UploaderType
+		if kind == "" {
+			kind = "user"
+		}
 		uploader = &actorResource{
-			Type:      "user",
+			Type:      kind,
 			ID:        attachment.Uploader.ID,
 			Name:      attachment.Uploader.Name,
 			AvatarURL: attachment.Uploader.AvatarURL,

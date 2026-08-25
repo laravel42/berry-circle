@@ -1,22 +1,21 @@
 'use client';
 
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { CreateProjectButton } from '@/components/common/projects/create-project-button';
-import { useProjectsStore } from '@/store/projects-store';
 
 export default function HeaderNav() {
-   const count = useProjectsStore((state) => state.projects.length);
-
    return (
-      <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
-         <div className="flex items-center gap-2">
-            <SidebarTrigger className="" />
-            <div className="flex items-center gap-1">
-               <span className="text-sm font-medium">Projects</span>
-               <span className="text-xs bg-accent rounded-md px-1.5 py-1">{count}</span>
+      <div className="flex h-auto w-full flex-col gap-2 border-b px-6 py-3">
+         <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+               <span className="font-medium">Projects</span>
+               <p className="mt-1 max-w-2xl text-muted-foreground">
+                  Group related issues into a shared plan with status, health, and a target
+                  date.{' '}
+                  <a href="" className="text-foreground underline-offset-2 hover:underline">
+                     Learn more
+                  </a>
+               </p>
             </div>
-         </div>
-         <div className="flex items-center gap-2">
             <CreateProjectButton />
          </div>
       </div>

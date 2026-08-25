@@ -30,6 +30,7 @@ import (
 	conversationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/conversations"
 	eventhandlers "github.com/laravel42/berry-circle/server/internal/handlers/events"
 	identityhandlers "github.com/laravel42/berry-circle/server/internal/handlers/identity"
+	integrationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/integrations"
 	"github.com/laravel42/berry-circle/server/internal/handlers/issues"
 	p2handlers "github.com/laravel42/berry-circle/server/internal/handlers/p2"
 	platformhandlers "github.com/laravel42/berry-circle/server/internal/handlers/platform"
@@ -41,6 +42,10 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/handlers/subscribers"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
+	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
+	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
+	"github.com/laravel42/berry-circle/server/internal/integrations/oauth"
+	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/modelcatalog"
 	"github.com/laravel42/berry-circle/server/internal/observability"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
@@ -50,9 +55,13 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	collabrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	conversationrepo "github.com/laravel42/berry-circle/server/internal/repository/conversations"
+	corerepo "github.com/laravel42/berry-circle/server/internal/repository/core"
+	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 	projectrepo "github.com/laravel42/berry-circle/server/internal/repository/projects"
+	"github.com/laravel42/berry-circle/server/internal/secrets"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
+	"github.com/laravel42/berry-circle/server/internal/service/projectplanning"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
 	"github.com/laravel42/berry-circle/server/internal/storage"
 	temporalclient "go.temporal.io/sdk/client"
@@ -419,7 +428,56 @@ func run() int {
 			}
 		}
 
+		// The attachments ledger, which also indexes what a run produced.
+		runArtifactStore, err := collabrepo.New(dbPool)
+		if err != nil {
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("run artifact store setup failed", "error", err)
+			return 1
+		}
+
+		// Built once here and shared with the integration routes below: the
+		// repository picker and the project link open the same credential, and
+		// two stores would mean two sealers to keep in step.
+		var integrationCredentials *integrationrepo.Repository
+		if cfg.IntegrationsEnabled {
+			sealer, err := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration sealer setup failed", "error", err)
+				return 1
+			}
+			integrationCredentials, err = integrationrepo.New(dbPool, sealer)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration repository setup failed", "error", err)
+				return 1
+			}
+		}
+
+		// Repository context for runs, when integrations are configured. Nil
+		// otherwise, and runs dispatch exactly as they did before.
+		var runCode runadmission.CodeContext
+		if integrationCredentials != nil {
+			runCode = githubclient.RunContext{
+				Credentials: integrationCredentials,
+				Logger:      logger,
+			}
+		}
+
 		runRoutes, err = runhandlers.New(runhandlers.Options{
+			// Renders the repository an issue belongs to into its prompt.
+			Code: runCode,
+			// Lists a run's promoted outputs (ADR-0006).
+			Artifacts:        runArtifactStore,
 			Dispatcher:       runDispatcher,
 			Pool:             dbPool,
 			Sessions:         authenticator,
@@ -653,7 +711,39 @@ func run() int {
 			logger.Error("catalog route setup failed", "error", err)
 			return 1
 		}
+		// Resolving a repository needs the workspace's GitHub credential, which
+		// only exists when integrations are configured. Nil otherwise, and
+		// linking is refused rather than stored half resolved.
+		var repositoryResolver projects.RepositoryResolver
+		if integrationCredentials != nil {
+			repositoryResolver = githubclient.Resolver{Credentials: integrationCredentials}
+		}
+
+		// Decomposing a project needs somewhere to put the issues and someone to
+		// ask. Both are resolved per request from the project itself, so this
+		// only needs the pool and the runtime.
+		issueStore, err := corerepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("issue store setup failed", "error", err)
+			return 1
+		}
+		issueGenerator := &projectplanning.Service{
+			Projects:   projectplanning.ProjectLookup{Pool: dbPool},
+			Issues:     issueStore,
+			Agents:     projectplanning.AgentLookup{Pool: dbPool},
+			Runtime:    upstream,
+			Authorizer: identityService,
+			Clock:      time.Now,
+			NewID:      uuid.New,
+		}
+
 		projectMount, err := projects.NewMount(projects.Options{
+			Generator:        issueGenerator,
+			Repositories:     repositoryResolver,
 			Pool:             dbPool,
 			Sessions:         authenticator,
 			Authorization:    identityService,
@@ -777,6 +867,47 @@ func run() int {
 			logger.Error("comment route setup failed", "error", err)
 			return 1
 		}
+		// Integrations are mounted only when a sealing key is configured. The
+		// same reasoning as the channel webhook below: a deployment that cannot
+		// encrypt provider credentials must not expose the routes that collect
+		// them.
+		var integrationMounts []httpapi.Mount
+		if cfg.IntegrationsEnabled {
+			integrationStore := integrationCredentials
+			providerRegistry := integrationcore.NewRegistry()
+			for _, provider := range providers.All() {
+				if err := providerRegistry.Register(provider); err != nil {
+					closeRunRoutes(runRoutes, logger)
+					_ = realtimeManager.Close()
+					closeValkey(valkeyClient)
+					closeDatabase(dbPool)
+					logger.Error("integration provider registration failed", "error", err)
+					return 1
+				}
+			}
+			integrationMount, err := integrationhandlers.NewMount(integrationhandlers.Options{
+				Store:           integrationStore,
+				Credentials:     integrationStore,
+				Sessions:        authenticator,
+				Authorization:   identityService,
+				Clock:           time.Now,
+				Registry:        providerRegistry,
+				Configs:         oauth.LoadConfigs(providerScopes(providerRegistry)),
+				GitHubAppSlug:   cfg.GitHubAppSlug,
+				CallbackBaseURL: cfg.IntegrationCallbackBaseURL,
+				ReturnAllowlist: cfg.IntegrationRedirectAllowlist,
+				Logger:          logger,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration route setup failed", "error", err)
+				return 1
+			}
+			integrationMounts = append(integrationMounts, integrationMount)
+		}
 		productMounts := []httpapi.Mount{
 			authMount,
 			boardMount,
@@ -790,6 +921,7 @@ func run() int {
 			catalogMount,
 			projectMount,
 		}
+		productMounts = append(productMounts, integrationMounts...)
 		// The inbound channel webhook is mounted only when Infobip is
 		// configured. An unconfigured deployment must not expose a public
 		// endpoint that creates messages attributed to users.
@@ -959,4 +1091,16 @@ func (validator projectPinValidator) ProjectExists(
 		return false, err
 	}
 	return true, nil
+}
+
+// providerScopes lets the OAuth loader ask the registry what to request,
+// so the scopes a provider declares and the scopes Berry asks for cannot drift.
+func providerScopes(registry *integrationcore.Registry) func(string) []string {
+	return func(id string) []string {
+		provider, ok := registry.Get(id)
+		if !ok {
+			return nil
+		}
+		return provider.Scopes()
+	}
 }

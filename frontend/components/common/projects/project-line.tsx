@@ -39,7 +39,7 @@ export default function ProjectLine({ project }: ProjectLineProps) {
    const issueCount = useMemo(() => countIssues(issues, project.id), [issues, project.id]);
 
    return (
-      <div className="w-full flex items-center py-3 px-6 border-b hover:bg-sidebar/50 border-muted-foreground/5 text-sm">
+      <div className="w-full flex items-center py-3 px-6 border-b hover:bg-sidebar/50 border-muted-foreground/5">
          <div className="flex-1 min-w-0 flex items-center gap-2">
             <div className="relative">
                <div className="inline-flex size-6 bg-muted/50 items-center justify-center rounded shrink-0">
@@ -58,7 +58,7 @@ export default function ProjectLine({ project }: ProjectLineProps) {
                project.labels.map((label) => (
                   <span
                      key={label.id}
-                     className="hidden lg:inline-flex items-center gap-1 text-[11px] border rounded-full px-1.5 py-px text-muted-foreground shrink-0"
+                     className="hidden lg:inline-flex items-center gap-1 border rounded-full px-1.5 py-px text-muted-foreground shrink-0"
                   >
                      <span
                         className="size-1.5 rounded-full"
@@ -111,7 +111,7 @@ export default function ProjectLine({ project }: ProjectLineProps) {
             </div>
          )}
          {displayProperties.issues && (
-            <div className="hidden xl:block w-[60px] shrink-0 text-muted-foreground text-xs pl-2.5">
+            <div className="hidden xl:block w-[60px] shrink-0 text-muted-foreground pl-2.5">
                {issueCount}
             </div>
          )}

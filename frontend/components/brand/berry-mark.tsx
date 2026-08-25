@@ -105,9 +105,9 @@ export function BerryMark({
 }
 
 const wordmarkSizes = {
-   sm: { mark: 'sm' as const, text: 'text-base' },
-   md: { mark: 'md' as const, text: 'text-2xl' },
-   lg: { mark: 'lg' as const, text: 'text-4xl' },
+   sm: { mark: 'sm' as const },
+   md: { mark: 'md' as const },
+   lg: { mark: 'lg' as const },
 };
 
 interface BerryWordmarkProps {
@@ -121,11 +121,14 @@ export function BerryWordmark({ className, size = 'md' }: BerryWordmarkProps) {
    return (
       <span className={cn('inline-flex items-center gap-2', className)} aria-label="Berry">
          <BerryMark size={sizing.mark} />
+         {/* The word is drawn to the mark beside it, so its size comes from
+             `size` rather than from the type scale. Sized by attribute in
+             app/globals.css: the lockup is the one sanctioned exception, and it
+             is easier to keep honest sitting next to the rule it departs from
+             than as a lone text-* utility out here. */}
          <span
-            className={cn(
-               'font-display leading-none tracking-[-0.025em] text-foreground',
-               sizing.text
-            )}
+            data-wordmark={size}
+            className="font-display leading-none tracking-[-0.025em] text-foreground"
          >
             Berry<span className="text-berry">.</span>
          </span>

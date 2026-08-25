@@ -157,7 +157,7 @@ function OutOfViewIndicator({
          type="button"
          onClick={() => onJump(left)}
          className={cn(
-            'sticky z-[6] flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap pointer-events-auto',
+            'sticky z-[6] flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap pointer-events-auto',
             !isPast && 'ml-auto'
          )}
          style={isPast ? { left: listOffset + 16 } : { right: 16 }}
@@ -191,7 +191,7 @@ function TimelineBar({
             type="button"
             onClick={() => onSelect(project.id)}
             className={cn(
-               'absolute top-1 h-7 flex items-center gap-1.5 rounded-md border bg-accent/40 hover:bg-accent px-2.5 text-xs transition-colors overflow-hidden',
+               'absolute top-1 h-7 flex items-center gap-1.5 rounded-md border bg-accent/40 hover:bg-accent px-2.5 transition-colors overflow-hidden',
                selected && 'border-dashed border-violet-500 bg-accent'
             )}
             style={{ left, width }}
@@ -342,12 +342,12 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
             <button
                type="button"
                onClick={scrollToToday}
-               className="h-7 px-2.5 rounded-md border bg-container text-xs font-medium hover:bg-accent transition-colors shadow-xs"
+               className="h-7 px-2.5 rounded-md border bg-container font-medium hover:bg-accent transition-colors shadow-xs"
             >
                Today
             </button>
             <DropdownMenu>
-               <DropdownMenuTrigger className="h-7 px-2.5 rounded-md border bg-container text-xs font-medium hover:bg-accent transition-colors shadow-xs inline-flex items-center gap-1 outline-none">
+               <DropdownMenuTrigger className="h-7 px-2.5 rounded-md border bg-container font-medium hover:bg-accent transition-colors shadow-xs inline-flex items-center gap-1 outline-none">
                   {ZOOM_LEVELS.find((level) => level.id === zoom)!.label}
                   <ChevronDown className="size-3 text-muted-foreground" />
                </DropdownMenuTrigger>
@@ -356,11 +356,11 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
                      <DropdownMenuItem
                         key={level.id}
                         onClick={() => setZoomLevel(level.id)}
-                        className="flex items-center gap-2 text-sm"
+                        className="flex items-center gap-2"
                      >
                         <span className="flex-1">{level.label}</span>
                         {zoom === level.id && <Check className="size-3.5" />}
-                        <span className="text-xs text-muted-foreground">{level.shortcut}</span>
+                        <span className="text-muted-foreground">{level.shortcut}</span>
                      </DropdownMenuItem>
                   ))}
                </DropdownMenuContent>
@@ -376,7 +376,7 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
                         <div
                            key={month.key}
                            style={{ width: monthWidth }}
-                           className="shrink-0 px-2 pt-1.5 pb-0.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap overflow-hidden"
+                           className="shrink-0 px-2 pt-1.5 pb-0.5 font-medium text-muted-foreground uppercase tracking-wide whitespace-nowrap overflow-hidden"
                         >
                            {month.label}
                         </div>
@@ -400,7 +400,7 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
                         return (
                            <span
                               key={date.time}
-                              className="absolute top-0 -translate-x-1/2 text-[10px] text-muted-foreground/80 whitespace-nowrap"
+                              className="absolute top-0 -translate-x-1/2 text-muted-foreground/80 whitespace-nowrap"
                               style={{ left }}
                            >
                               {showWeekNumbers ? `W${date.week}` : date.day}
@@ -410,7 +410,7 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
                      {/* Today pill, pinned to the scale */}
                      {todayOffset !== null && (
                         <span
-                           className="absolute -top-0.5 -translate-x-1/2 text-[10px] font-semibold bg-violet-500 text-white rounded-full px-1.5 py-px uppercase whitespace-nowrap pointer-events-none z-10"
+                           className="absolute -top-0.5 -translate-x-1/2 font-semibold bg-violet-500 text-white rounded-full px-1.5 py-px uppercase whitespace-nowrap pointer-events-none z-10"
                            style={{ left: todayOffset }}
                         >
                            {todayLabel}
@@ -442,12 +442,10 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
                <div className="relative z-[5] pb-8">
                   {groups.map((group) => (
                      <div key={group.id}>
-                        <div className="sticky left-0 flex items-center gap-2 px-4 h-9 text-sm font-medium bg-[color-mix(in_oklab,var(--accent)_30%,var(--container))] border-y border-border/40 w-screen max-w-full">
+                        <div className="sticky left-0 flex items-center gap-2 px-4 h-9 font-medium bg-[color-mix(in_oklab,var(--accent)_30%,var(--container))] border-y border-border/40 w-screen max-w-full">
                            {group.icon && <span>{group.icon}</span>}
                            {group.name}
-                           <span className="text-xs text-muted-foreground">
-                              {group.projects.length}
-                           </span>
+                           <span className="text-muted-foreground">{group.projects.length}</span>
                            <button className="ml-auto text-muted-foreground hover:text-foreground transition-colors">
                               <Plus className="size-3.5" />
                            </button>
@@ -466,7 +464,7 @@ export default function ProjectsTimeline({ groups }: ProjectsTimelineProps) {
                                     }
                                  />
                                  {showProjectList && (
-                                    <div className="sticky left-0 z-10 flex items-center gap-1.5 w-56 shrink-0 px-4 h-9 bg-container/95 backdrop-blur-sm text-xs border-r border-border/40">
+                                    <div className="sticky left-0 z-10 flex items-center gap-1.5 w-56 shrink-0 px-4 h-9 bg-container/95 backdrop-blur-sm border-r border-border/40">
                                        <span className="inline-flex size-5 bg-muted/50 items-center justify-center rounded shrink-0">
                                           <project.icon className="size-3" />
                                        </span>

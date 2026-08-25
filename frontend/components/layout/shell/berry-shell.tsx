@@ -103,7 +103,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    }, [tabs, activeTabId, handleNew, handleClose, handleActivate]);
 
    return (
-      <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono text-sm font-light text-[var(--shell-text)]">
+      <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono font-light text-[var(--shell-text)]">
          {railOpen ? (
             <ShellRail
                orgId={orgId}
@@ -134,7 +134,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
             </button>
          )}
 
-         <div className="relative flex min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
+         <div className="relative flex h-[100vh] max-h-[100vh] min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
             <ShellTabs
                tabs={tabs}
                activeTabId={activeTabId}

@@ -21,6 +21,7 @@ const projectSchema = z.object({
    priority: z.string(),
    startDate: z.string().nullish(),
    targetDate: z.string().nullish(),
+   githubRepo: z.string().nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -60,6 +61,12 @@ export function toUiProject(apiProject: ApiProject, lead: User): Project | undef
    };
    if (apiProject.targetDate) {
       project.targetDate = apiProject.targetDate;
+   }
+   if (apiProject.githubRepo) {
+      project.githubRepo = apiProject.githubRepo;
+   }
+   if (apiProject.description) {
+      project.description = apiProject.description;
    }
    return project;
 }
@@ -118,6 +125,7 @@ export async function createWorkspaceProject(input: {
    startDate?: string;
    targetDate?: string;
    lead: User;
+   githubRepo?: string;
 }): Promise<Project> {
    const body: Record<string, string> = {
       workspaceId: input.workspaceId,
@@ -128,6 +136,7 @@ export async function createWorkspaceProject(input: {
    if (input.description) body.description = input.description;
    if (input.startDate) body.startDate = input.startDate;
    if (input.targetDate) body.targetDate = input.targetDate;
+   if (input.githubRepo) body.githubRepo = input.githubRepo;
 
    const json: unknown = await apiFetch('/api/v1/projects', {
       method: 'POST',
@@ -175,4 +184,98 @@ export async function patchWorkspaceProject(
    } catch {
       return undefined;
    }
+}
+
+/**
+ * Delete a project.
+ *
+ * Unlike patchWorkspaceProject above, a failure is raised rather than
+ * swallowed. That helper returns undefined so an optimistic field can
+ * reconcile on the next load; a delete cannot borrow that, because showing a
+ * project as gone when it is not means someone stops looking for it.
+ */
+export async function deleteWorkspaceProject(projectId: string): Promise<void> {
+   await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: 'DELETE',
+   });
+}
+
+const repositorySchema = z.object({
+   id: z.number(),
+   fullName: z.string(),
+   name: z.string(),
+   private: z.boolean(),
+   defaultBranch: z.string(),
+   description: z.string().optional(),
+});
+
+export type GitHubRepository = z.infer<typeof repositorySchema>;
+
+const accessSchema = z.object({
+   selectedOnly: z.boolean(),
+   installed: z.boolean(),
+   manageUrl: z.string().optional(),
+   installUrl: z.string().optional(),
+   accounts: z.array(z.string()).optional(),
+});
+
+export type GitHubAccess = z.infer<typeof accessSchema>;
+
+export interface RepositoryChoices {
+   repositories: GitHubRepository[];
+   access: GitHubAccess;
+}
+
+/**
+ * Repositories the workspace's GitHub connection can see.
+ *
+ * Errors are raised rather than swallowed: an empty picker and a picker that
+ * could not load look identical, and the fixes are opposite — connect GitHub
+ * versus try again.
+ */
+export async function loadGitHubRepositories(): Promise<RepositoryChoices> {
+   const json: unknown = await apiFetch('/api/v1/integrations/github/repositories');
+   const parsed = z
+      .object({ repositories: z.array(repositorySchema), access: accessSchema })
+      .safeParse(json);
+   if (!parsed.success) throw new Error('Repository list was not recognized');
+   return { repositories: parsed.data.repositories, access: parsed.data.access };
+}
+
+/** Link a project to a repository, or unlink it with null. */
+export async function setProjectRepository(
+   projectId: string,
+   fullName: string | null
+): Promise<void> {
+   await apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ githubRepo: fullName }),
+   });
+}
+
+const generatedIssueSchema = z.object({
+   id: z.string(),
+   identifier: z.string(),
+   title: z.string(),
+   priority: z.string(),
+});
+
+export type GeneratedIssue = z.infer<typeof generatedIssueSchema>;
+
+/**
+ * Ask an agent to decompose a project into issues.
+ *
+ * Slow by nature — it is a model call the person is waiting on — and errors are
+ * raised rather than swallowed, because the two failures worth telling apart
+ * are "no agent could answer" and "the answer was unusable", and both are
+ * things the person can act on.
+ */
+export async function generateProjectIssues(projectId: string): Promise<GeneratedIssue[]> {
+   const json: unknown = await apiFetch(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/generated-issues`,
+      { method: 'POST' }
+   );
+   const parsed = z.object({ issues: z.array(generatedIssueSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Generated issues were not recognized');
+   return parsed.data.issues;
 }

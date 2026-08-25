@@ -78,10 +78,29 @@ type Options struct {
 	NewID            func() uuid.UUID
 	IdempotencyStore httpapi.IdempotencyStore
 	Service          API
+	// Repositories resolves a GitHub repository when a project is linked to
+	// one. Optional: without it, linking is refused rather than stored half
+	// resolved.
+	Repositories RepositoryResolver
+	// Generator decomposes a project into issues. Optional: without a runtime
+	// the route refuses rather than pretending to think.
+	Generator IssueGenerator
+}
+
+// RepositoryResolver turns a repository's full name into the id GitHub keeps
+// stable across renames.
+//
+// The id is resolved rather than accepted from the client: a caller-supplied id
+// could name a repository the connection cannot see, and the stored pair would
+// then disagree about which repository the project delivers into.
+type RepositoryResolver interface {
+	ResolveRepository(ctx context.Context, workspaceID uuid.UUID, fullName string) (int64, error)
 }
 
 type handlers struct {
-	service API
+	service    API
+	repository RepositoryResolver
+	generator  IssueGenerator
 }
 
 // NewMount validates dependencies and builds the project subtree.
@@ -118,7 +137,11 @@ func NewMount(options Options) (httpapi.Mount, error) {
 		}
 		service = built
 	}
-	target := &handlers{service: service}
+	target := &handlers{
+		service:    service,
+		repository: options.Repositories,
+		generator:  options.Generator,
+	}
 	idempotent := func(next http.HandlerFunc) http.HandlerFunc {
 		return workmanagement.RequireIdempotency(
 			options.IdempotencyStore,
@@ -133,6 +156,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Get("/{projectId}", target.get)
 	router.Patch("/{projectId}", target.update)
 	router.Delete("/{projectId}", target.delete)
+	router.Post("/{projectId}/generated-issues", target.generateIssues)
 	router.Get("/{projectId}/resources", target.listResources)
 	router.Post("/{projectId}/resources", idempotent(target.createResource))
 	router.Patch("/{projectId}/resources/{resourceId}", target.updateResource)
@@ -158,6 +182,7 @@ type projectResource struct {
 	Priority    projectrepo.Priority `json:"priority"`
 	StartDate   *string              `json:"startDate"`
 	TargetDate  *string              `json:"targetDate"`
+	GitHubRepo  *string              `json:"githubRepo"`
 	CreatedAt   string               `json:"createdAt"`
 	UpdatedAt   string               `json:"updatedAt"`
 }
@@ -263,10 +288,52 @@ func (handler *handlers) list(response http.ResponseWriter, request *http.Reques
 	})
 }
 
+// resolveRepository turns a full name into the id GitHub keeps stable, or
+// refuses the request.
+//
+// Shared by create and update because both store the same pair under the same
+// constraint: one path resolving and the other trusting the client is how the
+// two columns end up disagreeing.
+func (handler *handlers) resolveRepository(
+	response http.ResponseWriter,
+	request *http.Request,
+	fullName string,
+) (int64, bool) {
+	if handler.repository == nil {
+		httpapi.WriteError(response, request, http.StatusPreconditionFailed,
+			"INTEGRATIONS_NOT_CONFIGURED",
+			"This deployment cannot resolve GitHub repositories.", nil)
+		return 0, false
+	}
+	user := auth.MustUser(request.Context())
+	workspaceID := uuid.Nil
+	if user.CurrentWorkspaceID != nil {
+		workspaceID = *user.CurrentWorkspaceID
+	}
+	id, err := handler.repository.ResolveRepository(request.Context(), workspaceID, fullName)
+	if err != nil {
+		// Named rather than generic: the two ways this fails — no connection,
+		// and a repository the connection cannot see — are both things a person
+		// can fix, and neither is a server fault.
+		httpapi.WriteError(response, request, http.StatusUnprocessableEntity,
+			"REPOSITORY_UNAVAILABLE",
+			"That repository could not be reached with the connected GitHub account.", nil)
+		return 0, false
+	}
+	return id, true
+}
+
 func (handler *handlers) create(response http.ResponseWriter, request *http.Request) {
 	workspaceID, input, ok := parseCreateProject(response, request)
 	if !ok {
 		return
+	}
+	if input.GitHubRepoFullName != nil {
+		id, resolved := handler.resolveRepository(response, request, *input.GitHubRepoFullName)
+		if !resolved {
+			return
+		}
+		input.GitHubRepoID = &id
 	}
 	user := auth.MustUser(request.Context())
 	project, err := handler.service.Create(request.Context(), user.ID, workspaceID, input)
@@ -300,6 +367,13 @@ func (handler *handlers) update(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	user := auth.MustUser(request.Context())
+	if patch.GitHubRepoSet && patch.GitHubRepoFullName != nil {
+		id, resolved := handler.resolveRepository(response, request, *patch.GitHubRepoFullName)
+		if !resolved {
+			return
+		}
+		patch.GitHubRepoID = &id
+	}
 	project, err := handler.service.Update(request.Context(), user.ID, projectID, patch)
 	if !writeServiceError(response, request, err, "Project") {
 		return
@@ -604,6 +678,7 @@ func serializeProject(project projectrepo.Project) projectResource {
 		Priority:    project.Priority,
 		StartDate:   formatDate(project.StartDate),
 		TargetDate:  formatDate(project.TargetDate),
+		GitHubRepo:  project.GitHubRepoFullName,
 		CreatedAt:   project.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:   project.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}

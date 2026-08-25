@@ -1,14 +1,15 @@
 'use client';
 
 import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
-import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
+import { IssueActionsMenu } from '@/components/common/issues/issue-actions-menu';
+import { useDetailDrawerClose } from '@/components/layout/detail-drawer-context';
 import { Button } from '@/components/ui/button';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { getCycleById } from '@/data/cycles';
 import { useIssuesStore } from '@/store/issues-store';
 import { ChevronDown, ChevronRight, ChevronUp } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback } from 'react';
 
 /**
  * Issue page header: breadcrumb (cycle › identifier + title) and previous /
@@ -17,7 +18,19 @@ import { useParams } from 'next/navigation';
 export default function HeaderNav() {
    const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
    const { issues } = useIssuesStore();
-   const inDrawer = useInDetailDrawer();
+   const closeDrawer = useDetailDrawerClose();
+   const router = useRouter();
+
+   // Whatever is showing the issue has to stop showing it. In the drawer that
+   // means closing; on the full page there is nothing left to render, so it
+   // returns to the list rather than sitting on a deleted issue.
+   const afterDelete = useCallback(() => {
+      if (closeDrawer) {
+         closeDrawer();
+         return;
+      }
+      router.push(`/${orgId}/my-issues`);
+   }, [closeDrawer, router, orgId]);
 
    const index = issues.findIndex((candidate) => candidate.identifier === issueId);
    const issue = index >= 0 ? issues[index] : undefined;
@@ -29,10 +42,9 @@ export default function HeaderNav() {
    return (
       <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10 gap-4">
          <div className="flex items-center gap-2 min-w-0">
-            {!inDrawer && <SidebarTrigger />}
             {cycle && (
                <>
-                  <span className="hidden sm:flex items-center gap-1.5 shrink-0 text-sm text-muted-foreground">
+                  <span className="hidden sm:flex items-center gap-1.5 shrink-0 text-muted-foreground">
                      <CyclePlayIcon className="size-3.5" />
                      {cycle.name}
                   </span>
@@ -40,18 +52,24 @@ export default function HeaderNav() {
                </>
             )}
             {issue && (
-               <span className="text-sm min-w-0 truncate">
-                  <span className="font-medium text-muted-foreground mr-1.5">
-                     {issue.identifier}
+               <>
+                  <span className="min-w-0 truncate">
+                     <span className="font-medium text-muted-foreground mr-1.5">
+                        {issue.identifier}
+                     </span>
+                     <span className="font-medium">{issue.title}</span>
                   </span>
-                  <span className="font-medium">{issue.title}</span>
-               </span>
+                  {/* Beside the title rather than in the navigation group on
+                      the right: these act on the issue being read, while the
+                      chevrons move between issues. */}
+                  <IssueActionsMenu issue={issue} onDeleted={afterDelete} />
+               </>
             )}
          </div>
 
          <div className="flex items-center gap-1 shrink-0">
             {index >= 0 && (
-               <span className="text-xs text-muted-foreground mr-1">
+               <span className="text-muted-foreground mr-1">
                   {index + 1} / {issues.length}
                </span>
             )}

@@ -89,7 +89,7 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
                      key={key}
                      onClick={() => setTab(key)}
                      className={cn(
-                        'px-2.5 py-1 rounded-full border text-xs font-medium transition-colors',
+                        'px-2.5 py-1 rounded-full border font-medium transition-colors',
                         tab === key
                            ? 'bg-accent border-transparent'
                            : 'text-muted-foreground hover:bg-accent/50'
@@ -111,7 +111,7 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
             {rows.map((row) => (
                <div
                   key={row.key}
-                  className="flex items-center gap-2 px-1.5 py-1.5 rounded-md hover:bg-accent/40 text-sm"
+                  className="flex items-center gap-2 px-1.5 py-1.5 rounded-md hover:bg-accent/40"
                >
                   {row.color && (
                      <span
@@ -120,11 +120,11 @@ export function BreakdownPanel({ issues }: { issues: Issue[] }) {
                      />
                   )}
                   <span className="flex-1 truncate">{row.label}</span>
-                  <span className="text-muted-foreground text-xs">{row.count}</span>
+                  <span className="text-muted-foreground">{row.count}</span>
                </div>
             ))}
             {rows.length === 0 && (
-               <span className="text-sm text-muted-foreground py-6 text-center">No data</span>
+               <span className="text-muted-foreground py-6 text-center">No data</span>
             )}
          </div>
       </div>

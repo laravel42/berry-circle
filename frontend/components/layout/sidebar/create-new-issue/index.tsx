@@ -23,7 +23,7 @@ import { AssigneeSelector } from './assignee-selector';
 import { ProjectSelector } from './project-selector';
 import { LabelSelector } from './label-selector';
 import { rankFromSortOrder } from '@/lib/issues';
-import { ISSUE_IDENTIFIER_PREFIX, WORKSPACE_NAME } from '@/lib/config';
+import { WORKSPACE_NAME } from '@/lib/config';
 import { BerryApiError } from '@/lib/api';
 import { createBoardIssue } from '@/lib/issues';
 import { DialogTitle } from '@radix-ui/react-dialog';
@@ -35,25 +35,16 @@ export function CreateNewIssue() {
    const boardId = useSessionStore((state) => state.boardId);
    const [pending, setPending] = useState(false);
 
-   const generateUniqueIdentifier = useCallback(() => {
-      const identifiers = getAllIssues().map((issue) => issue.identifier);
-      let identifier = Math.floor(Math.random() * 999)
-         .toString()
-         .padStart(3, '0');
-      while (identifiers.includes(`${ISSUE_IDENTIFIER_PREFIX}-${identifier}`)) {
-         identifier = Math.floor(Math.random() * 999)
-            .toString()
-            .padStart(3, '0');
-      }
-      return identifier;
-   }, [getAllIssues]);
 
    const createDefaultData = useCallback(() => {
-      const identifier = generateUniqueIdentifier();
       const sortOrder = (getAllIssues().length + 1) * 1000;
       return {
          id: uuidv4(),
-         identifier: `${ISSUE_IDENTIFIER_PREFIX}-${identifier}`,
+         // Blank until the server assigns one. The identifier comes from the
+         // board's slug and the next number on that board, neither of which the
+         // client knows — inventing one here produced a code that matched
+         // nothing once the issue was actually created.
+         identifier: '',
          title: '',
          description: '',
          status: defaultStatus || status.find((s) => s.id === 'to-do')!,
@@ -67,7 +58,7 @@ export function CreateNewIssue() {
          sortOrder,
          rank: rankFromSortOrder(sortOrder),
       };
-   }, [defaultStatus, generateUniqueIdentifier, getAllIssues]);
+   }, [defaultStatus, getAllIssues]);
 
    const [addIssueForm, setAddIssueForm] = useState<Issue>(createDefaultData());
 
@@ -99,12 +90,12 @@ export function CreateNewIssue() {
                        type: addIssueForm.assignee.role === 'Application' ? 'agent' : 'user',
                        id: addIssueForm.assignee.id,
                     },
+            projectId: addIssueForm.project?.id,
          });
          addIssue({
             ...created,
             assignee: addIssueForm.assignee,
             labels: addIssueForm.labels,
-            project: addIssueForm.project,
          });
          toast.success('Issue created');
          if (!createMore) {
@@ -144,20 +135,20 @@ export function CreateNewIssue() {
 
             <div className="px-4 pb-0 space-y-3 w-full">
                <Input
-                  className="h-auto border-none bg-transparent px-0 text-2xl font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:font-normal placeholder:leading-4"
+                  className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:font-normal placeholder:leading-4"
                   placeholder="Issue title"
                   value={addIssueForm.title}
                   onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}
                />
 
                <MarkdownTextarea
-                  className="min-h-16 resize-none border-none bg-transparent px-0 text-[12px] text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:leading-4"
+                  className="min-h-16 resize-none border-none bg-transparent px-0 text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:leading-4"
                   placeholder="Add description..."
                   value={addIssueForm.description}
                   onChange={(description) => setAddIssueForm({ ...addIssueForm, description })}
                />
 
-               <div className="w-full flex items-center justify-start gap-1.5 flex-wrap [&_[data-slot=popover-trigger]]:text-[12px]">
+               <div className="w-full flex items-center justify-start gap-1.5 flex-wrap">
                   <StatusSelector
                      status={addIssueForm.status}
                      onChange={(newStatus) =>
@@ -198,9 +189,7 @@ export function CreateNewIssue() {
                         checked={createMore}
                         onCheckedChange={setCreateMore}
                      />
-                     <Label htmlFor="create-more" className="text-[12px]">
-                        Create more
-                     </Label>
+                     <Label htmlFor="create-more">Create more</Label>
                   </div>
                </div>
                <Button

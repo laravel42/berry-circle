@@ -238,6 +238,7 @@ func lockIssueForAdmission(
 			   FROM issues AS i
 			   JOIN boards AS b ON b.id = i.board_id
 			  WHERE `+where+` AND b.workspace_id = $3
+			    AND i.deleted_at IS NULL
 			  FOR UPDATE OF i`,
 			argument,
 			number,
@@ -270,6 +271,7 @@ func lockIssueForAdmission(
 		   FROM issues AS i
 		   JOIN boards AS b ON b.id = i.board_id
 		  WHERE `+where+` AND b.workspace_id = $2
+		    AND i.deleted_at IS NULL
 		  FOR UPDATE OF i`,
 		argument,
 		workspaceID,

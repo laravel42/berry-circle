@@ -33,7 +33,7 @@ export const inboxItems = [
       icon: FolderKanban,
    },
    {
-      name: 'runs',
+      name: 'runtimes',
       url: `/${ORG}/runs`,
       icon: Activity,
    },

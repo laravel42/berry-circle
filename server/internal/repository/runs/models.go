@@ -149,8 +149,17 @@ type Dispatch struct {
 	IssueTitle       string
 	IssueDescription *string
 	Instructions     *string
-	RequestID        string
-	TraceParent      string
+	// Repository the issue's project delivers into, as owner/name. Empty when
+	// the issue belongs to no project, or its project names no repository.
+	Repository string
+	// WorkspaceID is needed to open the credential that reads the repository.
+	WorkspaceID uuid.UUID
+	// CodeContext is the rendered repository context, filled in by the
+	// dispatcher rather than the query: building it costs upstream calls, and a
+	// claim that never dispatches should not pay for them.
+	CodeContext string
+	RequestID   string
+	TraceParent string
 }
 
 // CancellationClaim serializes stop intent and proves whether this caller owns

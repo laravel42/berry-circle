@@ -75,8 +75,8 @@ export function ThemePreferences() {
                         <span className="absolute right-1.5 bottom-1.5 size-1.5 bg-berry" />
                      </span>
                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium">{candidate.label}</span>
-                        <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+                        <span className="block font-medium">{candidate.label}</span>
+                        <span className="mt-0.5 block leading-relaxed text-muted-foreground">
                            {candidate.description}
                         </span>
                      </span>

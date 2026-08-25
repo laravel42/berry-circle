@@ -22,6 +22,8 @@ const projectProjection = `
 	project.priority,
 	project.start_date,
 	project.target_date,
+	project.github_repo_id,
+	project.github_repo_full_name,
 	project.created_by,
 	project.created_at,
 	project.updated_at`
@@ -185,10 +187,12 @@ func (repository *Repository) Create(
 		    priority,
 		    start_date,
 		    target_date,
+		    github_repo_id,
+		    github_repo_full_name,
 		    created_by,
 		    created_at,
 		    updated_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
 		 RETURNING `+projectProjection,
 		params.ID,
 		params.WorkspaceID,
@@ -198,6 +202,8 @@ func (repository *Repository) Create(
 		params.Priority,
 		params.StartDate,
 		params.TargetDate,
+		params.GitHubRepoID,
+		params.GitHubRepoFullName,
 		params.CreatedBy,
 		params.CreatedAt,
 	))
@@ -223,7 +229,14 @@ func (repository *Repository) Update(
 		        priority = CASE WHEN $9 THEN $10::text ELSE project.priority END,
 		        start_date = CASE WHEN $11 THEN $12::date ELSE project.start_date END,
 		        target_date = CASE WHEN $13 THEN $14::date ELSE project.target_date END,
-		        updated_at = $15
+		        -- Both columns move together or neither does, which is what the
+		        -- pair constraint requires: a project carrying half a reference
+		        -- looks linked and cannot be used.
+		        github_repo_id =
+		            CASE WHEN $15 THEN $16::bigint ELSE project.github_repo_id END,
+		        github_repo_full_name =
+		            CASE WHEN $15 THEN $17::text ELSE project.github_repo_full_name END,
+		        updated_at = $18
 		  WHERE project.workspace_id = $1
 		    AND project.id = $2
 		    AND project.deleted_at IS NULL
@@ -242,6 +255,9 @@ func (repository *Repository) Update(
 		patch.StartDate,
 		patch.TargetDateSet,
 		patch.TargetDate,
+		patch.GitHubRepoSet,
+		patch.GitHubRepoID,
+		patch.GitHubRepoFullName,
 		updatedAt,
 	))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -550,6 +566,8 @@ func scanProjectRow(row pgx.Row) (Project, error) {
 		&project.Priority,
 		&project.StartDate,
 		&project.TargetDate,
+		&project.GitHubRepoID,
+		&project.GitHubRepoFullName,
 		&project.CreatedBy,
 		&project.CreatedAt,
 		&project.UpdatedAt,
@@ -568,6 +586,8 @@ func scanProjectRows(rows pgx.Rows) (Project, error) {
 		&project.Priority,
 		&project.StartDate,
 		&project.TargetDate,
+		&project.GitHubRepoID,
+		&project.GitHubRepoFullName,
 		&project.CreatedBy,
 		&project.CreatedAt,
 		&project.UpdatedAt,

@@ -98,6 +98,10 @@ type Options struct {
 	Retention     time.Duration
 	Heartbeat     time.Duration
 	PollInterval  time.Duration
+	// Artifacts lists what a run produced (ADR-0006). Optional.
+	Artifacts ArtifactStore
+	// Code renders repository context into a run's prompt. Optional.
+	Code runadmission.CodeContext
 }
 
 // Handlers shares one worker service between direct and nested route trees.
@@ -113,6 +117,10 @@ type Handlers struct {
 	retention     time.Duration
 	heartbeat     time.Duration
 	pollInterval  time.Duration
+	// artifacts lists a run's outputs. Optional: a deployment without it
+	// answers an empty list rather than 404, so the route's shape does not
+	// depend on whether promotion is configured.
+	artifacts ArtifactStore
 }
 
 // New constructs one lifecycle-owned run handler set.
@@ -183,6 +191,7 @@ func New(options Options) (*Handlers, error) {
 			WorkerContext: options.WorkerContext,
 			Workers:       options.Workers,
 			QueueSize:     options.QueueSize,
+			Code:          options.Code,
 		})
 		if err != nil {
 			return nil, err
@@ -201,6 +210,7 @@ func New(options Options) (*Handlers, error) {
 		retention:     retention,
 		heartbeat:     heartbeat,
 		pollInterval:  poll,
+		artifacts:     options.Artifacts,
 	}, nil
 }
 
@@ -211,6 +221,7 @@ func (handlers *Handlers) Mount() httpapi.Mount {
 	router.Get("/{runId}", handlers.get)
 	router.Post("/{runId}/cancel", handlers.cancel)
 	router.Get("/{runId}/events", handlers.streamRunEvents)
+	router.Get("/{runId}/artifacts", handlers.listRunArtifacts)
 	return httpapi.Mount{Prefix: "/api/v1/runs", Handler: router}
 }
 

@@ -32,7 +32,7 @@ export default function ProjectIssues({ projectId }: ProjectIssuesProps) {
    const displayedIssues = useMemo(() => applyIssueFilters(issues, filters), [issues, filters]);
 
    if (!project) {
-      return <div className="p-6 text-sm text-muted-foreground">Loading project…</div>;
+      return <div className="p-6 text-muted-foreground">Loading project…</div>;
    }
 
    return (

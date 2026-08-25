@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -170,7 +171,7 @@ func (repository *Repository) ResolveIssueID(
 		var found uuid.UUID
 		if err := repository.Pool.QueryRow(
 			ctx,
-			`SELECT id FROM issues WHERE id = $1`,
+			`SELECT id FROM issues WHERE id = $1 AND deleted_at IS NULL`,
 			id,
 		).Scan(&found); errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, ErrNotFound
@@ -189,7 +190,8 @@ func (repository *Repository) ResolveIssueID(
 		`SELECT i.id
 		   FROM issues AS i
 		   JOIN boards AS b ON b.id = i.board_id
-		  WHERE lower(b.slug) = lower($1) AND i.number = $2`,
+		  WHERE lower(b.slug) = lower($1) AND i.number = $2
+		    AND i.deleted_at IS NULL`,
 		slug,
 		number,
 	).Scan(&found); errors.Is(err, pgx.ErrNoRows) {
@@ -313,4 +315,156 @@ func wrap(operation string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+// PromotableRunRow is what artifact promotion needs to know about a run.
+type PromotableRunRow struct {
+	AgentSlug   string
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Succeeded   bool
+}
+
+// PromotableRun resolves a run to the runtime workspace holding its output.
+//
+// The agent's name is what identifies that workspace, because the runtime keys
+// its directories by name rather than by the id Berry uses everywhere else.
+func (repository *Repository) PromotableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (PromotableRunRow, error) {
+	var (
+		row         PromotableRunRow
+		status      string
+		startedAt   *time.Time
+		completedAt *time.Time
+	)
+	if err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT agent.name, run.status::text, run.started_at, run.completed_at
+		   FROM runs AS run
+		   JOIN agents AS agent ON agent.id = run.agent_id
+		  WHERE run.id = $1`,
+		runID,
+	).Scan(&row.AgentSlug, &status, &startedAt, &completedAt); err != nil {
+		return PromotableRunRow{}, fmt.Errorf("load promotable run: %w", err)
+	}
+	row.Succeeded = status == "succeeded"
+	if startedAt != nil {
+		row.StartedAt = *startedAt
+	}
+	if completedAt != nil {
+		row.CompletedAt = *completedAt
+	}
+	return row, nil
+}
+
+// RunsAwaitingPromotion lists recent successful runs that produced no
+// artifacts, newest first.
+//
+// Promotion happens when a run finishes, which leaves nothing to recover a run
+// whose promotion never ran — the worker was down, object storage was briefly
+// unavailable, or the run predates the feature. Without this the outputs of
+// such a run are orphaned permanently: the files sit in the runtime's scratch
+// space and no later run will ever claim them, because each run only promotes
+// files from its own window.
+//
+// Bounded by time and count so a worker start does not walk the entire history.
+func (repository *Repository) RunsAwaitingPromotion(
+	ctx context.Context,
+	since time.Time,
+	limit int,
+) ([]uuid.UUID, error) {
+	if limit < 1 || limit > 200 {
+		limit = 50
+	}
+	rows, err := repository.Pool.Query(
+		ctx,
+		`SELECT run.id
+		   FROM runs AS run
+		  WHERE run.status = 'succeeded'
+		    AND run.completed_at IS NOT NULL
+		    AND run.completed_at >= $1
+		    AND NOT EXISTS (
+		        SELECT 1 FROM attachments AS attachment
+		         WHERE attachment.run_id = run.id
+		    )
+		  ORDER BY run.completed_at DESC
+		  LIMIT $2`,
+		since.UTC(), limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list runs awaiting promotion: %w", err)
+	}
+	defer rows.Close()
+
+	ids := make([]uuid.UUID, 0, limit)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan run awaiting promotion: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+// DeliverableRunRow is what delivery needs to know about a finished run.
+type DeliverableRunRow struct {
+	WorkspaceID     uuid.UUID
+	Repository      string
+	AgentSlug       string
+	IssueIdentifier string
+	IssueTitle      string
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	Succeeded       bool
+}
+
+// DeliverableRun resolves a run to the repository its work belongs in.
+//
+// The repository is reached through the issue's project, so a run on an issue
+// in no project — or a project naming no repository — resolves with an empty
+// one and delivers nothing.
+func (repository *Repository) DeliverableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (DeliverableRunRow, error) {
+	var (
+		row         DeliverableRunRow
+		status      string
+		boardSlug   string
+		number      int32
+		startedAt   *time.Time
+		completedAt *time.Time
+	)
+	if err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT board.workspace_id,
+		        COALESCE(project.github_repo_full_name, ''),
+		        agent.name, board.slug, issue.number, issue.title,
+		        run.status::text, run.started_at, run.completed_at
+		   FROM runs AS run
+		   JOIN issues AS issue ON issue.id = run.issue_id
+		   JOIN boards AS board ON board.id = run.board_id
+		   JOIN agents AS agent ON agent.id = run.agent_id
+		   LEFT JOIN issue_project_links AS link ON link.issue_id = issue.id
+		   LEFT JOIN projects AS project
+		     ON project.id = link.project_id AND project.deleted_at IS NULL
+		  WHERE run.id = $1`,
+		runID,
+	).Scan(&row.WorkspaceID, &row.Repository, &row.AgentSlug,
+		&boardSlug, &number, &row.IssueTitle,
+		&status, &startedAt, &completedAt); err != nil {
+		return DeliverableRunRow{}, fmt.Errorf("load deliverable run: %w", err)
+	}
+	row.IssueIdentifier = fmt.Sprintf("%s-%d", strings.ToUpper(boardSlug), number)
+	row.Succeeded = status == "succeeded"
+	if startedAt != nil {
+		row.StartedAt = *startedAt
+	}
+	if completedAt != nil {
+		row.CompletedAt = *completedAt
+	}
+	return row, nil
 }

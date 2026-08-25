@@ -95,7 +95,7 @@ export function LabelSelector({ selectedLabels, onChange }: LabelSelectorProps) 
                                     <span>{label.name}</span>
                                  </div>
                                  {isSelected && <CheckIcon size={16} className="ml-auto" />}
-                                 <span className="text-muted-foreground text-xs">
+                                 <span className="text-muted-foreground">
                                     {filterByLabel(label.id).length}
                                  </span>
                               </CommandItem>

@@ -52,7 +52,7 @@ type Store interface {
 	ListIssueRows(context.Context, uuid.UUID, p2repo.IssueFilter, string, string, *p2repo.IssueRowCursor, int) ([]p2repo.IssueRow, error)
 	ListIssueFacets(context.Context, uuid.UUID, p2repo.IssueFilter) ([]p2repo.FacetCount, error)
 	BatchUpdateIssues(context.Context, uuid.UUID, []uuid.UUID, p2repo.BatchIssuePatch, time.Time) ([]p2repo.BatchResult, error)
-	BatchDeleteIssues(context.Context, uuid.UUID, []uuid.UUID) ([]p2repo.BatchResult, error)
+	BatchDeleteIssues(context.Context, uuid.UUID, []uuid.UUID, time.Time) ([]p2repo.BatchResult, error)
 }
 
 type Options struct {
@@ -458,7 +458,7 @@ func (service *Service) BatchDeleteIssues(
 	if err := service.authorize(ctx, userID, workspaceID, identity.PermissionWrite); err != nil {
 		return nil, err
 	}
-	return service.store.BatchDeleteIssues(ctx, workspaceID, ids)
+	return service.store.BatchDeleteIssues(ctx, workspaceID, ids, service.clock().UTC())
 }
 
 var (

@@ -29,7 +29,7 @@ interface IssuePropertiesPanelProps {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
    return (
       <div>
-         <h3 className="mb-2 text-xs text-subtle-foreground">{title.toLowerCase()}</h3>
+         <h3 className="mb-2 text-subtle-foreground">{title.toLowerCase()}</h3>
          {children}
       </div>
    );
@@ -74,17 +74,21 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
             <div className="flex flex-col gap-1.5">
                <div className="flex items-center gap-1.5 -ml-1.5">
                   <StatusSelector status={issue.status} issueId={issue.id} />
-                  <span className="text-xs">{issue.status.name}</span>
+                  <span>{issue.status.name}</span>
                </div>
                <div className="flex items-center gap-1.5 -ml-1.5">
                   <PrioritySelector priority={issue.priority} issueId={issue.id} />
-                  <span className="text-xs">{issue.priority.name}</span>
+                  <span>{issue.priority.name}</span>
                </div>
                <div className="flex items-center gap-2 mt-0.5">
                   <AssigneeUser user={issue.assignee} issueId={issue.id} />
-                  <span className="text-xs">{issue.assignee ? issue.assignee.name : 'Assign'}</span>
+                  <span>{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                </div>
-               {agents.length > 0 ? (
+               {/* Not offered in the drawer. Starting a run navigates to the
+                   runs view, which closes the drawer and drops the person out
+                   of whatever they were looking at when they peeked in. The
+                   full issue page still has it. */}
+               {!inDrawer && agents.length > 0 ? (
                   <Button
                      className="mt-2 w-fit"
                      size="sm"
@@ -98,7 +102,7 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                {cycle && (
                   <div className="flex items-center gap-2 mt-0.5">
                      <CyclePlayIcon className="size-4" />
-                     <span className="text-sm">{cycle.name}</span>
+                     <span>{cycle.name}</span>
                   </div>
                )}
             </div>
@@ -122,12 +126,12 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
 
          {issue.project && (
             <Section title="Project">
-               <div className="flex items-center gap-2 text-sm">
+               <div className="flex items-center gap-2">
                   <issue.project.icon className="size-4 text-muted-foreground shrink-0" />
                   <span className="truncate">{issue.project.name}</span>
                </div>
                {detail.milestone && (
-                  <div className="flex items-center gap-2 text-sm mt-1.5 pl-6 text-muted-foreground">
+                  <div className="flex items-center gap-2 mt-1.5 pl-6 text-muted-foreground">
                      <span className="size-2 shrink-0 rotate-45 border border-status-warning" />
                      <span className="truncate">{detail.milestone}</span>
                   </div>
@@ -162,7 +166,7 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
             <Section title="Diffs">
                <div className="flex flex-col gap-1">
                   {detail.prLinks.map((pr) => (
-                     <div key={pr.id} className="flex items-center gap-2 text-sm min-w-0">
+                     <div key={pr.id} className="flex items-center gap-2 min-w-0">
                         <GitPullRequestArrow
                            className={
                               'size-3.5 shrink-0 ' +
@@ -171,7 +175,7 @@ export function IssuePropertiesPanel({ issue, detail }: IssuePropertiesPanelProp
                         />
                         <span className="text-muted-foreground shrink-0">{pr.id}</span>
                         <span className="truncate">{pr.title}</span>
-                        <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-accent text-muted-foreground">
+                        <span className="ml-auto shrink-0 uppercase tracking-wide px-1.5 py-0.5 rounded bg-accent text-muted-foreground">
                            {pr.status}
                         </span>
                      </div>

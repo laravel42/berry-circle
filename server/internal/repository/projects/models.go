@@ -87,9 +87,14 @@ type Project struct {
 	Priority    Priority
 	StartDate   *time.Time
 	TargetDate  *time.Time
-	CreatedBy   *uuid.UUID
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	// GitHubRepo is the repository this project delivers into, if any. The id
+	// is authoritative — GitHub keeps it across renames — and the full name is
+	// a refreshable cache of what people read and what REST paths need.
+	GitHubRepoID       *int64
+	GitHubRepoFullName *string
+	CreatedBy          *uuid.UUID
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
 }
 
 // Cursor is the descending stable project-list key.
@@ -115,8 +120,11 @@ type CreateParams struct {
 	Priority    Priority
 	StartDate   *time.Time
 	TargetDate  *time.Time
-	CreatedBy   uuid.UUID
-	CreatedAt   time.Time
+	// Set together or not at all, matching the column constraint.
+	GitHubRepoID       *int64
+	GitHubRepoFullName *string
+	CreatedBy          uuid.UUID
+	CreatedAt          time.Time
 }
 
 // Patch distinguishes omitted nullable fields from explicit null.
@@ -130,6 +138,11 @@ type Patch struct {
 	StartDate      *time.Time
 	TargetDateSet  bool
 	TargetDate     *time.Time
+	// GitHubRepoSet distinguishes "leave the link alone" from "unlink", the
+	// same way the date fields do.
+	GitHubRepoSet      bool
+	GitHubRepoID       *int64
+	GitHubRepoFullName *string
 }
 
 // Resource is one active external pointer attached to a project.

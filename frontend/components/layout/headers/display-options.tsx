@@ -95,7 +95,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                   <button
                      onClick={() => setViewType('list')}
                      className={cn(
-                        'flex items-center justify-center gap-1.5 h-8 rounded text-xs font-medium transition-colors',
+                        'flex items-center justify-center gap-1.5 h-8 rounded font-medium transition-colors',
                         viewType === 'list' ? 'bg-background shadow-sm' : 'text-muted-foreground'
                      )}
                   >
@@ -105,7 +105,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                   <button
                      onClick={() => setViewType('grid')}
                      className={cn(
-                        'flex items-center justify-center gap-1.5 h-8 rounded text-xs font-medium transition-colors',
+                        'flex items-center justify-center gap-1.5 h-8 rounded font-medium transition-colors',
                         viewType === 'grid' ? 'bg-background shadow-sm' : 'text-muted-foreground'
                      )}
                   >
@@ -118,17 +118,17 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
             {/* Grouping & ordering */}
             <div className="px-3 pb-3 flex flex-col gap-2.5">
                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
                      <ArrowUpDown className="size-3.5" />
                      Grouping
                   </span>
                   <Select value={grouping} onValueChange={(v) => setGrouping(v as GroupingKey)}>
-                     <SelectTrigger className="h-7 w-36 text-xs">
+                     <SelectTrigger className="h-7 w-36">
                         <SelectValue />
                      </SelectTrigger>
                      <SelectContent>
                         {GROUPINGS.map((option) => (
-                           <SelectItem key={option.value} value={option.value} className="text-xs">
+                           <SelectItem key={option.value} value={option.value}>
                               {option.label}
                            </SelectItem>
                         ))}
@@ -137,31 +137,29 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                </div>
 
                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground pl-5">Sub-grouping</span>
+                  <span className="text-muted-foreground pl-5">Sub-grouping</span>
                   <Select value="none" disabled>
-                     <SelectTrigger className="h-7 w-36 text-xs">
+                     <SelectTrigger className="h-7 w-36">
                         <SelectValue placeholder="No grouping" />
                      </SelectTrigger>
                      <SelectContent>
-                        <SelectItem value="none" className="text-xs">
-                           No grouping
-                        </SelectItem>
+                        <SelectItem value="none">No grouping</SelectItem>
                      </SelectContent>
                   </Select>
                </div>
 
                <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
                      <ArrowUpNarrowWide className="size-3.5" />
                      Ordering
                   </span>
                   <Select value={ordering} onValueChange={(v) => setOrdering(v as OrderingKey)}>
-                     <SelectTrigger className="h-7 w-36 text-xs">
+                     <SelectTrigger className="h-7 w-36">
                         <SelectValue />
                      </SelectTrigger>
                      <SelectContent>
                         {ORDERINGS.map((option) => (
-                           <SelectItem key={option.value} value={option.value} className="text-xs">
+                           <SelectItem key={option.value} value={option.value}>
                               {option.label}
                            </SelectItem>
                         ))}
@@ -172,7 +170,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                <div className="flex items-center justify-between">
                   <Label
                      htmlFor="order-completed-recency"
-                     className="text-xs text-muted-foreground font-normal"
+                     className="text-muted-foreground font-normal"
                   >
                      Order completed by recency
                   </Label>
@@ -186,30 +184,23 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
 
             <div className="border-t px-3 py-3 flex flex-col gap-2.5">
                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">Completed issues</span>
+                  <span className="text-muted-foreground">Completed issues</span>
                   <Select
                      value={completedIssues}
                      onValueChange={(v) => setCompletedIssues(v as CompletedIssuesFilter)}
                   >
-                     <SelectTrigger className="h-7 w-36 text-xs">
+                     <SelectTrigger className="h-7 w-36">
                         <SelectValue />
                      </SelectTrigger>
                      <SelectContent>
-                        <SelectItem value="all" className="text-xs">
-                           All
-                        </SelectItem>
-                        <SelectItem value="none" className="text-xs">
-                           None
-                        </SelectItem>
+                        <SelectItem value="all">All</SelectItem>
+                        <SelectItem value="none">None</SelectItem>
                      </SelectContent>
                   </Select>
                </div>
 
                <div className="flex items-center justify-between">
-                  <Label
-                     htmlFor="show-sub-issues"
-                     className="text-xs text-muted-foreground font-normal"
-                  >
+                  <Label htmlFor="show-sub-issues" className="text-muted-foreground font-normal">
                      Show sub-issues
                   </Label>
                   <Switch
@@ -221,12 +212,9 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
             </div>
 
             <div className="border-t px-3 py-3 flex flex-col gap-2.5">
-               <span className="text-xs font-medium">List options</span>
+               <span className="font-medium">List options</span>
                <div className="flex items-center justify-between">
-                  <Label
-                     htmlFor="show-empty-groups"
-                     className="text-xs text-muted-foreground font-normal"
-                  >
+                  <Label htmlFor="show-empty-groups" className="text-muted-foreground font-normal">
                      Show empty groups
                   </Label>
                   <Switch
@@ -236,14 +224,14 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                   />
                </div>
 
-               <span className="text-xs text-muted-foreground mt-1">Display properties</span>
+               <span className="text-muted-foreground mt-1">Display properties</span>
                <div className="flex flex-wrap gap-1.5">
                   {DISPLAY_PROPERTIES.map((property) => (
                      <button
                         key={property.key}
                         onClick={() => toggleDisplayProperty(property.key)}
                         className={cn(
-                           'px-2 h-6 rounded-md text-xs border transition-colors',
+                           'px-2 h-6 rounded-md border transition-colors',
                            displayProperties[property.key]
                               ? 'bg-accent border-border text-foreground'
                               : 'border-transparent bg-accent/40 text-muted-foreground hover:text-foreground'
@@ -258,11 +246,11 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
             <div className="border-t px-3 py-2.5 flex items-center justify-between">
                <button
                   onClick={resetDisplaySettings}
-                  className="text-xs text-muted-foreground hover:text-foreground"
+                  className="text-muted-foreground hover:text-foreground"
                >
                   Reset
                </button>
-               <button className="text-xs text-indigo-500 dark:text-indigo-400 hover:underline">
+               <button className="text-indigo-500 dark:text-indigo-400 hover:underline">
                   Set default for everyone
                </button>
             </div>

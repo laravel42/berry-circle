@@ -25,7 +25,6 @@ import {
 } from 'lucide-react';
 import NotificationPreview from './issue-preview';
 import IssueLine from './issue-line';
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ChevronLeft } from 'lucide-react';
 
@@ -81,8 +80,7 @@ export default function Inbox() {
       <>
          <div className="flex items-center justify-between px-4 h-10 border-b border-border">
             <div className="flex items-center gap-2">
-               <SidebarTrigger className="inline-flex lg:hidden" />
-               <h2 className="text-lg font-semibold">Inbox</h2>
+               <h2 className="font-semibold">Inbox</h2>
                <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                      <Button variant="ghost" size="xs">
@@ -143,9 +141,7 @@ export default function Inbox() {
 
                      <div className="p-2 space-y-3">
                         <div className="flex items-center justify-between">
-                           <Label htmlFor="show-snoozed" className="text-sm">
-                              Show snoozed
-                           </Label>
+                           <Label htmlFor="show-snoozed">Show snoozed</Label>
                            <Switch
                               id="show-snoozed"
                               checked={showSnoozed}
@@ -153,9 +149,7 @@ export default function Inbox() {
                            />
                         </div>
                         <div className="flex items-center justify-between">
-                           <Label htmlFor="show-read" className="text-sm">
-                              Show read
-                           </Label>
+                           <Label htmlFor="show-read">Show read</Label>
                            <Switch
                               id="show-read"
                               checked={showRead}
@@ -163,9 +157,7 @@ export default function Inbox() {
                            />
                         </div>
                         <div className="flex items-center justify-between">
-                           <Label htmlFor="show-unread-first" className="text-sm">
-                              Show unread first
-                           </Label>
+                           <Label htmlFor="show-unread-first">Show unread first</Label>
                            <Switch
                               id="show-unread-first"
                               checked={showUnreadFirst}
@@ -179,15 +171,11 @@ export default function Inbox() {
                      <DropdownMenuLabel>Display properties</DropdownMenuLabel>
                      <div className="p-2 space-y-3">
                         <div className="flex items-center justify-between">
-                           <Label htmlFor="show-id" className="text-sm">
-                              ID
-                           </Label>
+                           <Label htmlFor="show-id">ID</Label>
                            <Switch id="show-id" checked={showId} onCheckedChange={setShowId} />
                         </div>
                         <div className="flex items-center justify-between">
-                           <Label htmlFor="show-status-icon" className="text-sm">
-                              Status and icon
-                           </Label>
+                           <Label htmlFor="show-status-icon">Status and icon</Label>
                            <Switch
                               id="show-status-icon"
                               checked={showStatusIcon}
@@ -219,7 +207,7 @@ export default function Inbox() {
          <div className="flex flex-col h-full w-full">
             <button
                onClick={() => setSelectedNotification(undefined)}
-               className="flex items-center gap-1 px-4 h-10 border-b border-border text-sm text-muted-foreground hover:text-foreground shrink-0"
+               className="flex items-center gap-1 px-4 h-10 border-b border-border text-muted-foreground hover:text-foreground shrink-0"
             >
                <ChevronLeft className="size-4" />
                Inbox

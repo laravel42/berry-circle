@@ -84,7 +84,7 @@ function InitiativesFilter() {
             <Button size="xs" variant="ghost" className="relative">
                <ListFilter className="size-4" />
                {count > 0 && (
-                  <span className="absolute -top-1 -right-1 size-4 rounded-full bg-primary text-primary-foreground text-[9px] inline-flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 size-4 rounded-full bg-primary text-primary-foreground inline-flex items-center justify-center">
                      {count}
                   </span>
                )}
@@ -164,7 +164,7 @@ function InitiativesFilter() {
                            >
                               <Avatar className="size-4">
                                  <AvatarImage src={user.avatarUrl} alt={user.name} />
-                                 <AvatarFallback className="text-[8px]">
+                                 <AvatarFallback>
                                     {user.name[0]}
                                  </AvatarFallback>
                               </Avatar>
@@ -228,12 +228,12 @@ function InitiativesDisplayOptions() {
          </PopoverTrigger>
          <PopoverContent align="end" className="w-80 p-3 flex flex-col gap-3">
             <div className="flex items-center justify-between">
-               <span className="text-xs text-muted-foreground">Grouping</span>
+               <span className="text-muted-foreground">Grouping</span>
                <Select
                   value={grouping}
                   onValueChange={(value) => setGrouping(value as typeof grouping)}
                >
-                  <SelectTrigger className="w-36 h-7 text-xs">
+                  <SelectTrigger className="w-36 h-7">
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -243,12 +243,12 @@ function InitiativesDisplayOptions() {
                </Select>
             </div>
             <div className="flex items-center justify-between">
-               <span className="text-xs text-muted-foreground">Ordering</span>
+               <span className="text-muted-foreground">Ordering</span>
                <Select
                   value={ordering}
                   onValueChange={(value) => setOrdering(value as typeof ordering)}
                >
-                  <SelectTrigger className="w-36 h-7 text-xs">
+                  <SelectTrigger className="w-36 h-7">
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -259,14 +259,14 @@ function InitiativesDisplayOptions() {
                </Select>
             </div>
             <div className="flex flex-col gap-2">
-               <span className="text-xs text-muted-foreground">Display properties</span>
+               <span className="text-muted-foreground">Display properties</span>
                <div className="flex flex-wrap gap-1.5">
                   {PROPERTY_CHIPS.map(({ key, label }) => (
                      <button
                         key={key}
                         onClick={() => toggleProperty(key)}
                         className={cn(
-                           'px-2 py-0.5 rounded-md border text-xs transition-colors',
+                           'px-2 py-0.5 rounded-md border transition-colors',
                            displayProperties[key]
                               ? 'bg-accent border-transparent'
                               : 'text-muted-foreground hover:bg-accent/50'
@@ -302,7 +302,7 @@ function ActiveProjectDots({ initiative }: { initiative: Initiative }) {
    return (
       <span className="flex items-center gap-2">
          {[...byHealth.entries()].map(([healthId, count]) => (
-            <span key={healthId} className="inline-flex items-center gap-1 text-xs">
+            <span key={healthId} className="inline-flex items-center gap-1">
                <span
                   className="size-2 rounded-full"
                   style={{ backgroundColor: ACTIVE_DOT_COLORS[healthId] ?? '#95a2b3' }}
@@ -330,21 +330,21 @@ function InitiativeRow({
    return (
       <Link
          href={`/${orgId}/initiative/${initiative.id}`}
-         className="flex items-center gap-2 px-6 py-2 border-b border-border/50 hover:bg-sidebar/50 transition-colors text-sm"
+         className="flex items-center gap-2 px-6 py-2 border-b border-border/50 hover:bg-sidebar/50 transition-colors"
       >
-         <span className="inline-flex size-6 items-center justify-center rounded bg-muted/50 text-sm shrink-0">
+         <span className="inline-flex size-6 items-center justify-center rounded bg-muted/50 shrink-0">
             {initiative.icon}
          </span>
          <span className="flex flex-col min-w-0 flex-1">
             <span className="font-medium truncate">{initiative.name}</span>
             {displayProperties.description && initiative.description && (
-               <span className="text-xs text-muted-foreground truncate">
+               <span className="text-muted-foreground truncate">
                   {initiative.description}
                </span>
             )}
          </span>
          {showStatus && displayProperties.status && (
-            <span className="hidden md:flex items-center gap-1.5 w-28 shrink-0 text-xs">
+            <span className="hidden md:flex items-center gap-1.5 w-28 shrink-0">
                <InitiativeStatusIcon status={initiative.status} />
                {INITIATIVE_STATUS_META[initiative.status].label}
             </span>
@@ -359,7 +359,7 @@ function InitiativeRow({
                {initiative.owner ? (
                   <Avatar className="size-5">
                      <AvatarImage src={initiative.owner.avatarUrl} alt={initiative.owner.name} />
-                     <AvatarFallback className="text-[9px]">
+                     <AvatarFallback>
                         {initiative.owner.name[0]}
                      </AvatarFallback>
                   </Avatar>
@@ -369,18 +369,18 @@ function InitiativeRow({
             </span>
          )}
          {displayProperties.target && (
-            <span className="hidden md:block w-20 shrink-0 text-xs text-muted-foreground">
+            <span className="hidden md:block w-20 shrink-0 text-muted-foreground">
                {initiative.target ?? '—'}
             </span>
          )}
          {displayProperties.projects && (
-            <span className="hidden md:flex items-center gap-1 w-16 shrink-0 text-xs text-muted-foreground">
+            <span className="hidden md:flex items-center gap-1 w-16 shrink-0 text-muted-foreground">
                <BadgeCheck className="size-3.5 text-violet-400" />
                {completed} / {projects.length}
             </span>
          )}
          {displayProperties.health && (
-            <span className="hidden xl:flex items-center gap-1.5 w-28 shrink-0 text-xs text-muted-foreground">
+            <span className="hidden xl:flex items-center gap-1.5 w-28 shrink-0 text-muted-foreground">
                <span
                   className={cn(
                      'size-3.5 rounded-full border-2 shrink-0',
@@ -458,7 +458,7 @@ export default function Initiatives() {
                         key={item.value}
                         onClick={() => setTab(item.value)}
                         className={cn(
-                           'px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
+                           'px-2.5 py-1 rounded-md border font-medium transition-colors',
                            tab === item.value
                               ? 'bg-accent border-transparent'
                               : 'text-muted-foreground hover:bg-accent/50'
@@ -481,7 +481,7 @@ export default function Initiatives() {
                </div>
             </div>
 
-            <div className="flex items-center gap-2 px-6 py-1.5 text-xs text-muted-foreground border-b">
+            <div className="flex items-center gap-2 px-6 py-1.5 text-muted-foreground border-b">
                <span className="flex-1">Name</span>
                {showStatus && displayProperties.status && (
                   <span className="hidden md:block w-28 shrink-0">Status</span>
@@ -509,10 +509,10 @@ export default function Initiatives() {
             {groups
                ? groups.map((group) => (
                     <div key={group.statusId}>
-                       <div className="flex items-center gap-2 px-6 h-9 text-sm font-medium bg-[color-mix(in_oklab,var(--accent)_30%,var(--container))] border-b border-border/40">
+                       <div className="flex items-center gap-2 px-6 h-9 font-medium bg-[color-mix(in_oklab,var(--accent)_30%,var(--container))] border-b border-border/40">
                           <InitiativeStatusIcon status={group.statusId} />
                           {INITIATIVE_STATUS_META[group.statusId].label}
-                          <span className="text-xs text-muted-foreground">
+                          <span className="text-muted-foreground">
                              {group.items.length}
                           </span>
                        </div>

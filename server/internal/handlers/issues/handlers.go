@@ -165,6 +165,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	}
 	router.Get("/{issueRef}", getHandler(repository, options.Authorization))
 	router.Patch("/{issueRef}", updateHandler(repository, options))
+	router.Delete("/{issueRef}", deleteHandler(repository, options))
 	return httpapi.Mount{Prefix: "/api/v1/issues", Handler: router}, nil
 }
 
@@ -178,21 +179,22 @@ func Mounts(options Options) []httpapi.Mount {
 }
 
 type issueResource struct {
-	ID          uuid.UUID      `json:"id"`
-	BoardID     uuid.UUID      `json:"boardId"`
-	Number      int32          `json:"number"`
-	Identifier  string         `json:"identifier"`
-	Title       string         `json:"title"`
-	Description *string        `json:"description"`
-	Status      string         `json:"status"`
-	Priority    string         `json:"priority"`
-	SortOrder   int32          `json:"sortOrder"`
-	DueDate     *string        `json:"dueDate"`
-	Assignee    *core.ActorRef `json:"assignee"`
-	ActiveRunID *uuid.UUID     `json:"activeRunId"`
-	CreatedBy   *core.ActorRef `json:"createdBy"`
-	CreatedAt   string         `json:"createdAt"`
-	UpdatedAt   string         `json:"updatedAt"`
+	ID          uuid.UUID        `json:"id"`
+	BoardID     uuid.UUID        `json:"boardId"`
+	Number      int32            `json:"number"`
+	Identifier  string           `json:"identifier"`
+	Title       string           `json:"title"`
+	Description *string          `json:"description"`
+	Status      string           `json:"status"`
+	Priority    string           `json:"priority"`
+	SortOrder   int32            `json:"sortOrder"`
+	DueDate     *string          `json:"dueDate"`
+	Assignee    *core.ActorRef   `json:"assignee"`
+	ActiveRunID *uuid.UUID       `json:"activeRunId"`
+	Project     *core.ProjectRef `json:"project"`
+	CreatedBy   *core.ActorRef   `json:"createdBy"`
+	CreatedAt   string           `json:"createdAt"`
+	UpdatedAt   string           `json:"updatedAt"`
 }
 
 type issuePageInfo struct {
@@ -324,6 +326,7 @@ func createHandler(
 			SortOrder:    input.SortOrder,
 			DueDate:      input.DueDate,
 			Assignee:     input.Assignee,
+			Project:      input.Project,
 			CreatedBy:    user.ID,
 			CreatedAt:    options.Clock().UTC(),
 		})
@@ -435,6 +438,16 @@ func updateHandler(
 		switch {
 		case errors.As(err, &transition):
 			writeTransition(response, request, transition.From, transition.To)
+			return
+		case errors.Is(err, core.ErrProjectNotFound):
+			httpapi.WriteError(
+				response,
+				request,
+				http.StatusUnprocessableEntity,
+				"PROJECT_NOT_FOUND",
+				"That project does not exist in this workspace.",
+				nil,
+			)
 			return
 		case errors.Is(err, core.ErrNotFound):
 			httpapi.WriteError(
@@ -559,6 +572,7 @@ func serializeIssue(issue core.Issue) issueResource {
 		DueDate:     dueDate,
 		Assignee:    issue.Assignee,
 		ActiveRunID: issue.ActiveRunID,
+		Project:     issue.Project,
 		CreatedBy:   issue.CreatedBy,
 		CreatedAt:   issue.CreatedAt.UTC().Format(time.RFC3339Nano),
 		UpdatedAt:   issue.UpdatedAt.UTC().Format(time.RFC3339Nano),

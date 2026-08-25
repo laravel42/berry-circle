@@ -34,8 +34,8 @@ const formatDay = (iso?: string) => (iso ? format(parseISO(iso), 'MMM do') : 'â€
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
    return (
       <div className="flex items-center gap-4 min-h-8">
-         <span className="text-sm text-muted-foreground w-24 shrink-0">{label}</span>
-         <div className="flex items-center gap-1.5 text-sm min-w-0">{children}</div>
+         <span className="text-muted-foreground w-24 shrink-0">{label}</span>
+         <div className="flex items-center gap-1.5 min-w-0">{children}</div>
       </div>
    );
 }
@@ -122,7 +122,7 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
          {/* Properties */}
          <Card>
             <div className="flex items-center justify-between mb-1.5">
-               <h3 className="text-sm font-medium">Properties</h3>
+               <h3 className="font-medium">Properties</h3>
                <button className="text-muted-foreground hover:text-foreground transition-colors">
                   <Plus className="size-3.5" />
                </button>
@@ -210,7 +210,7 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
                      {project.labels.map((label) => (
                         <span
                            key={label.id}
-                           className="inline-flex items-center gap-1 text-xs border rounded-full px-2 py-0.5"
+                           className="inline-flex items-center gap-1 border rounded-full px-2 py-0.5"
                         >
                            <span
                               className="size-2 rounded-full"
@@ -227,23 +227,20 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
          {/* Milestones */}
          <Card>
             <div className="flex items-center justify-between mb-2">
-               <h3 className="text-sm font-medium">Milestones</h3>
+               <h3 className="font-medium">Milestones</h3>
                <button className="text-muted-foreground hover:text-foreground transition-colors">
                   <Plus className="size-3.5" />
                </button>
             </div>
             {detail.milestones.length === 0 ? (
-               <p className="text-xs text-muted-foreground">
+               <p className="text-muted-foreground">
                   Add milestones to organize work within your project and break it into more
                   granular stages. <span className="text-foreground/70 underline">Learn more</span>
                </p>
             ) : (
                <div className="flex flex-col gap-1.5">
                   {detail.milestones.map((milestone) => (
-                     <div
-                        key={milestone.id}
-                        className="flex items-center justify-between gap-2 text-sm"
-                     >
+                     <div key={milestone.id} className="flex items-center justify-between gap-2">
                         <span
                            className={
                               milestone.completed
@@ -253,7 +250,7 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
                         >
                            {milestone.name}
                         </span>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        <span className="text-muted-foreground whitespace-nowrap">
                            {formatDay(milestone.targetDate)}
                         </span>
                      </div>
@@ -264,28 +261,28 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
 
          {/* Progress */}
          <Card>
-            <h3 className="text-sm font-medium mb-3">Progress</h3>
+            <h3 className="font-medium mb-3">Progress</h3>
             <div className="grid grid-cols-3 gap-2 mb-2">
                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="size-2 rounded-[2px] bg-[#8f9299]" />
                      Scope
                   </div>
-                  <span className="text-sm font-medium">{issues.length}</span>
+                  <span className="font-medium">{issues.length}</span>
                </div>
                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="size-2 rounded-[2px] bg-[#facc15]" />
                      Started
                   </div>
-                  <span className="text-sm font-medium">{started}</span>
+                  <span className="font-medium">{started}</span>
                </div>
                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="size-2 rounded-[2px] bg-[#6771c5]" />
                      Completed
                   </div>
-                  <span className="text-sm font-medium">{completed}</span>
+                  <span className="font-medium">{completed}</span>
                </div>
             </div>
             <ProjectProgressChart

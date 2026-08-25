@@ -39,7 +39,7 @@ export default function MemberLine({ user }: MemberLineProps) {
    return (
       <Link
          href={`/${orgId}/profiles/${user.id}`}
-         className="w-full flex items-center py-2.5 px-6 border-b hover:bg-sidebar/50 border-muted-foreground/5 text-sm last:border-b-0"
+         className="w-full flex items-center py-2.5 px-6 border-b hover:bg-sidebar/50 border-muted-foreground/5 last:border-b-0"
       >
          {/* Name */}
          <div className="flex-1 min-w-0 flex items-center gap-2.5">
@@ -51,18 +51,18 @@ export default function MemberLine({ user }: MemberLineProps) {
                <span className="font-medium truncate w-full">
                   {showEmailAsName ? user.email : displayNameOf(user)}
                </span>
-               <span className="text-xs text-muted-foreground truncate w-full">{user.name}</span>
+               <span className="text-muted-foreground truncate w-full">{user.name}</span>
             </div>
          </div>
 
          {/* Status (role) */}
          <div className="w-[110px] shrink-0">
             {isApplication ? (
-               <span className="text-xs text-muted-foreground">Application</span>
+               <span className="text-muted-foreground">Application</span>
             ) : (
                <span
                   className={cn(
-                     'inline-flex items-center text-xs border rounded-md px-1.5 py-0.5',
+                     'inline-flex items-center border rounded-md px-1.5 py-0.5',
                      user.role === 'Admin'
                         ? 'text-indigo-500 dark:text-indigo-400 border-indigo-500/30 bg-indigo-500/5'
                         : 'text-muted-foreground'
@@ -74,12 +74,12 @@ export default function MemberLine({ user }: MemberLineProps) {
          </div>
 
          {/* Joined */}
-         <div className="hidden lg:block w-[100px] shrink-0 text-xs text-muted-foreground">
+         <div className="hidden lg:block w-[100px] shrink-0 text-muted-foreground">
             {joinedLabel(user.joinedDate)}
          </div>
 
          {/* Last seen (Linear only shows currently-online members) */}
-         <div className="hidden sm:flex w-[90px] shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+         <div className="hidden sm:flex w-[90px] shrink-0 items-center gap-1.5 text-muted-foreground">
             {user.status === 'online' && !isApplication && (
                <>
                   <span className="size-1.5 rounded-full bg-[#00cc66]" />

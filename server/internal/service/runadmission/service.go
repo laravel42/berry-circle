@@ -67,6 +67,8 @@ type Options struct {
 	WorkerContext context.Context
 	Workers       int
 	QueueSize     int
+	// Code renders repository context into a run's prompt. Optional.
+	Code CodeContext
 }
 
 // Service owns a bounded worker queue tied to a caller-owned context.
@@ -79,10 +81,13 @@ type Service struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	dispatcher  Dispatcher
-	jobs        chan uuid.UUID
-	wg          sync.WaitGroup
-	done        chan struct{}
-	closeOnce   sync.Once
+	// code renders repository context for issues whose project names one.
+	// Optional: without it runs dispatch exactly as they did before.
+	code      CodeContext
+	jobs      chan uuid.UUID
+	wg        sync.WaitGroup
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // New starts a bounded worker pool. Close or cancellation of WorkerContext
@@ -126,6 +131,7 @@ func New(options Options) (*Service, error) {
 		clock:       options.Clock,
 		newID:       options.NewID,
 		dispatcher:  options.Dispatcher,
+		code:        options.Code,
 		ctx:         ctx,
 		cancel:      cancel,
 		jobs:        make(chan uuid.UUID, options.QueueSize),
@@ -302,6 +308,19 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 	if err != nil {
 		return
 	}
+	// Fetched here rather than in the claim query: it costs upstream calls, and
+	// a claim that never reaches dispatch should not pay for them. Best effort
+	// throughout — a run whose context could not be built still happens, with a
+	// worse-informed agent rather than no agent.
+	if service.code != nil && dispatch.Repository != "" {
+		description := ""
+		if dispatch.IssueDescription != nil {
+			description = *dispatch.IssueDescription
+		}
+		dispatch.CodeContext = service.code.Build(
+			ctx, dispatch.WorkspaceID, dispatch.Repository, dispatch.IssueTitle, description)
+	}
+
 	message := buildMessage(dispatch)
 	senderID := "berry-run:" + runID.String()
 	senderName := "Berry Gateway"
@@ -610,6 +629,15 @@ func mapDispatchFailure(err error) (runs.Failure, bool) {
 	}
 }
 
+// CodeContext renders the repository an issue belongs to, for the prompt.
+//
+// The workspace is a parameter rather than fixed at construction: one service
+// dispatches for every workspace, and a credential opened for the wrong one
+// would read a repository this issue has no claim to.
+type CodeContext interface {
+	Build(ctx context.Context, workspaceID uuid.UUID, repository, title, description string) string
+}
+
 func buildMessage(dispatch runs.Dispatch) string {
 	var builder strings.Builder
 	builder.WriteString("Berry issue ")
@@ -624,7 +652,35 @@ func buildMessage(dispatch runs.Dispatch) string {
 		builder.WriteString("\n\nRun instructions:\n")
 		builder.WriteString(*dispatch.Instructions)
 	}
+	if dispatch.CodeContext != "" {
+		builder.WriteString(dispatch.CodeContext)
+	}
+	if dispatch.Repository != "" {
+		builder.WriteString(deliveryContract(dispatch.Repository))
+	}
 	return truncateUTF8(builder.String(), 64*1024)
+}
+
+// deliveryContract tells the agent how to hand code back.
+//
+// Spelled out in the prompt because the runtime gives it no way to discover
+// this: there is no git binary, no credential and no network path to the
+// repository, so an agent left to work it out describes the change it would
+// make instead of writing it. What it writes into output/ is what Berry
+// commits, and nothing else it does reaches the repository.
+func deliveryContract(repository string) string {
+	return "\n\nDelivering your work\n" +
+		"Write every file you want committed into the output/ directory of your " +
+		"workspace, at the path it should have in the repository: a change to " +
+		"src/api/handler.go goes to output/src/api/handler.go.\n" +
+		"Write each file's complete new contents. Berry commits the file as you " +
+		"wrote it rather than applying a patch, so a partial file replaces the " +
+		"whole one. Files you leave alone are untouched.\n" +
+		"When you finish, Berry collects those files and opens a pull request " +
+		"against " + repository + " for a human to review. You have no git and no " +
+		"access to the repository yourself, so do not attempt git commands, and do " +
+		"not describe a diff in place of writing the file. Anything written " +
+		"outside output/ is not delivered.\n"
 }
 
 func appendSummary(builder *strings.Builder, value string) {

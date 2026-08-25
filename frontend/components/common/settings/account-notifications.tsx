@@ -45,7 +45,7 @@ export default function AccountNotifications() {
             title="Updates from Berry"
             description="Subscribe to product announcements and important changes from the Berry team"
          >
-            <h3 className="text-sm font-medium mt-2">Changelog</h3>
+            <h3 className="font-medium mt-2">Changelog</h3>
             <SettingsCard>
                <SettingsRow
                   title="Show updates in sidebar"
@@ -59,7 +59,7 @@ export default function AccountNotifications() {
                />
             </SettingsCard>
 
-            <h3 className="text-sm font-medium mt-2">Marketing</h3>
+            <h3 className="font-medium mt-2">Marketing</h3>
             <SettingsCard>
                <SettingsRow
                   title="Marketing and onboarding"
@@ -68,7 +68,7 @@ export default function AccountNotifications() {
                />
             </SettingsCard>
 
-            <h3 className="text-sm font-medium mt-2">Other updates</h3>
+            <h3 className="font-medium mt-2">Other updates</h3>
             <SettingsCard>
                <SettingsRow
                   title="Invite accepted"

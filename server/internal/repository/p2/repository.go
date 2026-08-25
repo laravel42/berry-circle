@@ -666,6 +666,7 @@ func (repository *Repository) IssuePinTargetExists(
 		`SELECT EXISTS (
 			SELECT 1 FROM issues AS issue
 			JOIN boards AS board ON board.id = issue.board_id
+			 AND issue.deleted_at IS NULL
 			WHERE issue.id = $2 AND board.workspace_id = $1
 		)`,
 		workspaceID,

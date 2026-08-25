@@ -25,6 +25,7 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 | [0003](0003-pin-openfang-by-commit.md) | Pin and validate the OpenFang integration by commit | Accepted | 2026-08-22 |
 | [0004](0004-go-product-server.md) | Adopt a Go product server | Accepted | 2026-08-22 |
 | [0005](0005-temporal-run-orchestration.md) | Adopt Temporal for run orchestration | Proposed | 2026-08-23 |
+| [0006](0006-agent-run-artifacts.md) | Store agent run artifacts in object storage, indexed as attachments | Accepted | 2026-08-24 |
 
 ## Adding a record
 

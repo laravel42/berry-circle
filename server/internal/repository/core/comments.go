@@ -87,7 +87,7 @@ func (repository *Repository) CreateComment(
 	var lockedIssue uuid.UUID
 	if err := tx.QueryRow(
 		ctx,
-		`SELECT id FROM issues WHERE id = $1 FOR KEY SHARE`,
+		`SELECT id FROM issues WHERE id = $1 AND deleted_at IS NULL FOR KEY SHARE`,
 		params.IssueID,
 	).Scan(&lockedIssue); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -367,7 +367,7 @@ func persistCommentOutbox(
 		`SELECT board.workspace_id
 		   FROM issues AS issue
 		   JOIN boards AS board ON board.id = issue.board_id
-		  WHERE issue.id = $1`,
+		  WHERE issue.id = $1 AND issue.deleted_at IS NULL`,
 		comment.IssueID,
 	).Scan(&workspaceID); err != nil {
 		return CommentMutationEvent{}, fmt.Errorf("resolve comment event workspace: %w", err)

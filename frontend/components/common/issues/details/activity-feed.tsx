@@ -4,12 +4,17 @@ import { BerryMark } from '@/components/brand/berry-mark';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActivityItem } from '@/data/issue-details';
+import type { User } from '@/data/users';
 import { commentToActivityItem, createIssueComment, loadIssueComments } from '@/lib/comments';
+import { listIssueRuns, runToActivityItems, runTimestamp } from '@/lib/runs';
+import { loadWorkspaceAgents } from '@/lib/agents';
+import { useAgentsStore } from '@/store/agents-store';
 import { useSessionStore } from '@/store/session-store';
 import { toUiUser } from '@/lib/catalog';
 import { cn } from '@/lib/utils';
 import {
    Ban,
+   Bot,
    CircleDot,
    GitPullRequestArrow,
    Link2,
@@ -33,11 +38,12 @@ const EVENT_ICONS: Record<string, ReactNode> = {
    unblocked: <Unlock className="size-3.5" />,
    related: <Link2 className="size-3.5" />,
    pr: <GitPullRequestArrow className="size-3.5" />,
+   run: <Bot className="size-3.5" />,
 };
 
 function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) {
    return (
-      <div className="flex items-center gap-2.5 text-sm text-muted-foreground py-1.5">
+      <div className="flex items-center gap-2.5 text-muted-foreground py-1.5">
          <span className="flex size-5 shrink-0 items-center justify-center bg-accent">
             {item.actor.role === 'Application' ? (
                <BerryMark size="sm" tone="working" label={`${item.actor.name}, agent`} />
@@ -48,7 +54,7 @@ function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) 
          <span className="min-w-0 truncate">
             <span className="text-foreground/90 font-medium">{item.actor.name}</span> {item.text}
          </span>
-         <span className="shrink-0 text-xs">· {item.timeAgo}</span>
+         <span className="shrink-0">· {item.timeAgo}</span>
       </div>
    );
 }
@@ -77,13 +83,13 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
                   <AvatarFallback>{item.actor.name[0]}</AvatarFallback>
                </Avatar>
             )}
-            <span className="text-sm font-medium">{item.actor.name}</span>
-            <span className={cn('text-xs text-muted-foreground', isAgent && 'text-ash')}>
+            <span className="font-medium">{item.actor.name}</span>
+            <span className={cn('text-muted-foreground', isAgent && 'text-ash')}>
                {item.timeAgo}
             </span>
          </div>
          <div
-            className={cn('text-sm [&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}
+            className={cn('[&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}
          >
             <ContentBlocks blocks={item.body} />
          </div>
@@ -92,7 +98,7 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
                <span
                   key={reaction.emoji}
                   className={cn(
-                     'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5 text-xs',
+                     'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5',
                      isAgent && 'border-white/10 bg-white/5 text-ash'
                   )}
                >
@@ -107,11 +113,45 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
    );
 }
 
-export function useIssueActivity(issueRef: string) {
+export function useIssueActivity(issueRef: string, issueId?: string) {
    const [items, setItems] = useState<ActivityItem[]>([]);
    const [draft, setDraft] = useState('');
    const [submitting, setSubmitting] = useState(false);
    const sessionUser = useSessionStore((state) => state.user);
+   const agents = useAgentsStore((state) => state.agents);
+   const hydrateAgents = useAgentsStore((state) => state.hydrateAgents);
+
+   // The agents store is filled by the agents page, which a person reading an
+   // issue has usually never opened. Without this the feed would name every
+   // agent "Agent" — the same blank the assignee bug produced.
+   useEffect(() => {
+      if (agents.length > 0) return;
+      let cancelled = false;
+      void loadWorkspaceAgents()
+         .then((loaded) => {
+            if (!cancelled) hydrateAgents(loaded, null);
+         })
+         .catch(() => undefined);
+      return () => {
+         cancelled = true;
+      };
+   }, [agents.length, hydrateAgents]);
+
+   // Runs carry an agent id and nothing else, so the name comes from the store.
+   // An agent the store has not loaded still gets a row — an unnamed actor is
+   // better than a missing entry in an audit trail.
+   const agentActor = useCallback(
+      (agentId: string): User => {
+         const agent = agents.find((candidate) => candidate.id === agentId);
+         return toUiUser({
+            id: agentId,
+            name: agent?.name ?? 'Agent',
+            avatarUrl: agent?.avatarUrl ?? '',
+            type: 'agent',
+         });
+      },
+      [agents],
+   );
 
    useEffect(() => {
       if (!issueRef) {
@@ -119,15 +159,33 @@ export function useIssueActivity(issueRef: string) {
          return;
       }
       let cancelled = false;
-      void loadIssueComments(issueRef).then((comments) => {
-         if (!cancelled) {
-            setItems(comments.map(commentToActivityItem));
-         }
+      // Comments and runs are two halves of the same story: what people said
+      // and what agents did. Fetched together and merged by time, so an agent's
+      // work appears in the thread rather than nowhere.
+      void Promise.all([
+         loadIssueComments(issueRef),
+         listIssueRuns(issueId ?? issueRef).catch(() => []),
+      ]).then(([comments, runs]) => {
+         if (cancelled) return;
+         const commentItems = comments.map((comment) => ({
+            item: commentToActivityItem(comment),
+            at: comment.createdAt,
+         }));
+         const runItems = runs.flatMap((run) =>
+            runToActivityItems(run, agentActor(run.agentId)).map((item) => ({
+               item,
+               at: runTimestamp(run),
+            })),
+         );
+         const merged = [...commentItems, ...runItems].sort((left, right) =>
+            left.at.localeCompare(right.at),
+         );
+         setItems(merged.map((entry) => entry.item));
       });
       return () => {
          cancelled = true;
       };
-   }, [issueRef]);
+   }, [issueRef, issueId, agentActor]);
 
    const submitComment = useCallback(() => {
       const text = draft.trim();
@@ -210,8 +268,8 @@ export function ActivityFeedList({ items }: { items: ActivityItem[] }) {
    return (
       <div className="mt-4 border-t border-border/60 pt-4">
          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-base font-medium">activity</h2>
-            <button className="text-xs text-muted-foreground hover:text-foreground">
+            <h2 className="font-medium">activity</h2>
+            <button className="text-muted-foreground hover:text-foreground">
                subscribe
             </button>
          </div>
@@ -258,7 +316,7 @@ export function ActivityCommentComposer({
             onPointerDown={(event) => event.stopPropagation()}
             placeholder="leave a comment…"
             rows={2}
-            className="w-full resize-none bg-transparent text-foreground outline-none text-sm placeholder:text-foreground/40"
+            className="w-full resize-none bg-transparent text-foreground outline-none placeholder:text-foreground/40"
          />
          <div className="flex items-center justify-between">
             <Plus className="size-4 text-muted-foreground" />

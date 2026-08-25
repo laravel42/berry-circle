@@ -48,10 +48,10 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
       return (
          <div className="flex flex-col items-center justify-center h-full p-8 text-center">
             <NotificationBox className="w-16 h-16 mb-4 text-muted-foreground/50" />
-            <h3 className="text-lg font-semibold text-muted-foreground mb-2">
+            <h3 className="font-semibold text-muted-foreground mb-2">
                {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
             </h3>
-            <p className="text-sm text-muted-foreground max-w-sm">
+            <p className="text-muted-foreground max-w-sm">
                Select a notification from the list to view its details and take action.
             </p>
          </div>
@@ -69,7 +69,7 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
          <div className="flex items-center justify-between px-4 h-10 border-b border-border shrink-0">
             <div className="flex items-center gap-2 min-w-0">
                <displayIssue.status.icon />
-               <span className="text-sm font-medium truncate">{displayIssue.identifier}</span>
+               <span className="font-medium truncate">{displayIssue.identifier}</span>
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -105,15 +105,13 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                               src={notification.user.avatarUrl}
                               alt={notification.user.name}
                            />
-                           <AvatarFallback className="text-xs">
-                              {notification.user.name[0]}
-                           </AvatarFallback>
+                           <AvatarFallback>{notification.user.name[0]}</AvatarFallback>
                         </Avatar>
                         <div className="absolute -bottom-1 -right-1 size-4 rounded-full bg-accent border border-background flex items-center justify-center">
                            {getNotificationIcon(notification.type, 'size-2.5')}
                         </div>
                      </div>
-                     <div className="min-w-0 text-sm">
+                     <div className="min-w-0">
                         <span className="font-medium">{notification.user.name}</span>{' '}
                         <span className="text-muted-foreground">
                            · {relativeTime(notification.timestamp)}
@@ -122,12 +120,12 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                      </div>
                   </div>
 
-                  <h3 className="text-2xl font-semibold text-foreground text-balance">
+                  <h3 className="font-semibold text-foreground text-balance">
                      {displayIssue.title}
                   </h3>
 
                   {/* Properties row */}
-                  <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-4 text-sm xl:hidden">
+                  <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-4 xl:hidden">
                      <span className="flex items-center gap-1.5">
                         <displayIssue.status.icon />
                         {displayIssue.status.name}
@@ -143,9 +141,7 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                                  src={displayIssue.assignee.avatarUrl}
                                  alt={displayIssue.assignee.name}
                               />
-                              <AvatarFallback className="text-[9px]">
-                                 {displayIssue.assignee.name[0]}
-                              </AvatarFallback>
+                              <AvatarFallback>{displayIssue.assignee.name[0]}</AvatarFallback>
                            </Avatar>
                            {displayIssue.assignee.name}
                         </span>
@@ -161,7 +157,7 @@ export default function IssuePreview({ notification, onMarkAsRead }: IssuePrevie
                   {/* Comment composer */}
                   <div className="relative w-full flex flex-col mt-10">
                      <Textarea
-                        className="w-full rounded-lg border px-4 py-3 text-sm text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-accent pb-14 resize-none"
+                        className="w-full rounded-lg border px-4 py-3 text-foreground placeholder:text-foreground/40 focus:outline-none focus:ring-2 focus:ring-accent pb-14 resize-none"
                         placeholder="Leave a comment..."
                         rows={3}
                      />

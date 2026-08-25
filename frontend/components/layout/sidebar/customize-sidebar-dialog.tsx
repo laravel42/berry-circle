@@ -18,17 +18,21 @@ import {
 } from '@/store/sidebar-prefs-store';
 import {
    Activity,
+   BarChart3,
    Box,
    Check,
    ChevronDown,
    FolderKanban,
-   GitPullRequestArrow,
+   GitPullRequest,
    GripVertical,
    Inbox,
    LucideIcon,
+   MessageSquare,
+   RefreshCw,
    Sparkles,
+   Video,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState, type PointerEvent } from 'react';
 
 interface ItemConfig {
    key: SidebarItemKey;
@@ -39,14 +43,21 @@ interface ItemConfig {
 }
 
 export const PERSONAL_ITEMS: ItemConfig[] = [
-   { key: 'my-issues', label: 'issues', icon: FolderKanban },
-   { key: 'agent', label: 'runs', icon: Activity },
-   { key: 'reviews', label: 'reviews', icon: GitPullRequestArrow, badged: true },
    { key: 'inbox', label: 'inbox', icon: Inbox, badged: true },
+   { key: 'reviews', label: 'reviews', icon: GitPullRequest },
+   { key: 'chat', label: 'chat', icon: MessageSquare },
+   { key: 'meetings', label: 'meetings', icon: Video },
 ];
 
 export const WORKSPACE_ITEMS: ItemConfig[] = [
+   { key: 'my-issues', label: 'issues', icon: FolderKanban },
+   { key: 'autopilot', label: 'autopilot', icon: RefreshCw },
+   { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'projects', label: 'projects', icon: Box },
+];
+
+export const CONFIGURE_ITEMS: ItemConfig[] = [
+   { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
 ];
 
@@ -67,7 +78,7 @@ function VisibilityDropdown({
 }) {
    return (
       <DropdownMenu>
-         <DropdownMenuTrigger className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors outline-none">
+         <DropdownMenuTrigger className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors outline-none">
             {VISIBILITY_LABELS[value]}
             <ChevronDown className="size-3.5" />
          </DropdownMenuTrigger>
@@ -83,13 +94,29 @@ function VisibilityDropdown({
    );
 }
 
-/** One section (Personal / Workspace): rows reorderable by dragging the grip. */
+/** Insertion marker: a single red rule on the boundary between items. */
+function DropZone({ show }: { show: boolean }) {
+   return (
+      <div
+         aria-hidden={!show}
+         className={cn(
+            'pointer-events-none relative z-10 h-0',
+            show ? 'opacity-100' : 'opacity-0'
+         )}
+      >
+         <div className="absolute inset-x-0 -top-px h-0.5 bg-[var(--shell-accent)]" />
+      </div>
+   );
+}
+
+/** One section (Personal / Workspace / Configure): rows reorderable by dragging the grip. */
 function ItemSection({ section, items }: { section: SidebarSection; items: ItemConfig[] }) {
    const { visibility, order, setVisibility, moveItem } = useSidebarPrefsStore();
    const [dragIndex, setDragIndex] = useState<number | null>(null);
-   const [overIndex, setOverIndex] = useState<number | null>(null);
-   /** Only start a drag when it was initiated from the grip handle. */
-   const dragFromGrip = useRef(false);
+   const [insertAt, setInsertAt] = useState<number | null>(null);
+   const listRef = useRef<HTMLDivElement>(null);
+   const fromRef = useRef<number | null>(null);
+   const insertRef = useRef<number | null>(null);
 
    const orderedKeys = resolveOrder(
       order[section],
@@ -100,81 +127,122 @@ function ItemSection({ section, items }: { section: SidebarSection; items: ItemC
       .filter((item): item is ItemConfig => Boolean(item));
 
    const resetDrag = () => {
+      fromRef.current = null;
+      insertRef.current = null;
       setDragIndex(null);
-      setOverIndex(null);
-      dragFromGrip.current = false;
+      setInsertAt(null);
    };
 
+   // Native HTML5 drag-and-drop does not fire drop inside a transformed
+   // Radix dialog, so reorder is pointer-driven from the grip instead.
+   // Midpoint hit-testing yields an insertion slot (0..length), not a row.
+   const slotFromY = (clientY: number) => {
+      const root = listRef.current;
+      if (!root) return null;
+      const rows = root.querySelectorAll<HTMLElement>('[data-reorder-row]');
+      for (let i = 0; i < rows.length; i++) {
+         const rect = rows[i].getBoundingClientRect();
+         if (clientY < rect.top + rect.height / 2) return i;
+      }
+      return rows.length;
+   };
+
+   const isNoopSlot = (from: number, slot: number) => slot === from || slot === from + 1;
+
+   const onGripPointerDown = (index: number) => (event: PointerEvent<HTMLSpanElement>) => {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      fromRef.current = index;
+      insertRef.current = index;
+      setDragIndex(index);
+      setInsertAt(index);
+   };
+
+   const onGripPointerMove = (event: PointerEvent<HTMLSpanElement>) => {
+      if (fromRef.current === null) return;
+      const next = slotFromY(event.clientY);
+      if (next === null || next === insertRef.current) return;
+      insertRef.current = next;
+      setInsertAt(next);
+   };
+
+   const onGripPointerUp = () => {
+      const from = fromRef.current;
+      const slot = insertRef.current;
+      if (from !== null && slot !== null && !isNoopSlot(from, slot)) {
+         moveItem(section, from, from < slot ? slot - 1 : slot);
+      }
+      resetDrag();
+   };
+
+   const dragging = dragIndex !== null;
+   const dropSlot =
+      dragging && insertAt !== null && !isNoopSlot(dragIndex, insertAt) ? insertAt : null;
+   const liveLabel =
+      dropSlot === null || dragIndex === null
+         ? undefined
+         : dropSlot === 0
+           ? `Drop ${ordered[dragIndex].label} at the start`
+           : dropSlot === ordered.length
+             ? `Drop ${ordered[dragIndex].label} at the end`
+             : `Drop ${ordered[dragIndex].label} before ${ordered[dropSlot].label}`;
+
    return (
-      <div className="rounded-lg border divide-y divide-border/60">
+      <div
+         ref={listRef}
+         className={cn('rounded-lg border', dragging && 'cursor-grabbing select-none')}
+      >
+         <div className="sr-only" aria-live="polite">
+            {liveLabel}
+         </div>
          {ordered.map((item, index) => {
             const current = visibility[item.key] ?? 'always';
             const options: SidebarVisibility[] = item.badged
                ? ['always', 'badged', 'never']
                : ['always', 'never'];
             return (
-               <div
-                  key={item.key}
-                  draggable
-                  onDragStart={(event) => {
-                     if (!dragFromGrip.current) {
-                        event.preventDefault();
-                        return;
-                     }
-                     event.dataTransfer.effectAllowed = 'move';
-                     setDragIndex(index);
-                  }}
-                  onDragOver={(event) => {
-                     event.preventDefault();
-                     if (dragIndex !== null) setOverIndex(index);
-                  }}
-                  onDrop={(event) => {
-                     event.preventDefault();
-                     if (dragIndex !== null && dragIndex !== index) {
-                        moveItem(section, dragIndex, index);
-                     }
-                     resetDrag();
-                  }}
-                  onDragEnd={resetDrag}
-                  className={cn(
-                     'flex items-center gap-2 px-3 py-2.5 transition-colors',
-                     dragIndex === index && 'opacity-40',
-                     overIndex === index &&
-                        dragIndex !== null &&
-                        dragIndex !== index &&
-                        'bg-accent/50'
-                  )}
-               >
-                  <span
-                     onMouseDown={() => (dragFromGrip.current = true)}
-                     onMouseUp={() => (dragFromGrip.current = false)}
-                     className="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground shrink-0"
-                     aria-label={`Reorder ${item.label}`}
-                  >
-                     <GripVertical className="size-3.5" />
-                  </span>
-                  <item.icon
+               <Fragment key={item.key}>
+                  <DropZone show={dropSlot === index} />
+                  <div
+                     data-reorder-row
                      className={cn(
-                        'size-4 shrink-0',
-                        current === 'never' && 'text-muted-foreground/50'
-                     )}
-                  />
-                  <span
-                     className={cn(
-                        'flex-1 text-sm',
-                        current === 'never' && 'text-muted-foreground/60'
+                        'flex items-center gap-2 px-3 py-2.5',
+                        index < ordered.length - 1 && 'border-b border-border/60',
+                        dragIndex === index && 'opacity-40 ring-1 ring-inset ring-[var(--shell-accent)]'
                      )}
                   >
-                     {item.label}
-                  </span>
-                  <VisibilityDropdown
-                     value={current}
-                     options={options}
-                     onChange={(value) => setVisibility(item.key, value)}
-                  />
-               </div>
+                     <span
+                        data-reorder-handle
+                        onPointerDown={onGripPointerDown(index)}
+                        onPointerMove={onGripPointerMove}
+                        onPointerUp={onGripPointerUp}
+                        onPointerCancel={resetDrag}
+                        className="cursor-grab touch-none active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground shrink-0 [&_svg]:pointer-events-none"
+                        aria-label={`Reorder ${item.label}`}
+                     >
+                        <GripVertical className="size-3.5" />
+                     </span>
+                     <item.icon
+                        className={cn(
+                           'size-4 shrink-0',
+                           current === 'never' && 'text-muted-foreground/50'
+                        )}
+                     />
+                     <span
+                        className={cn('flex-1', current === 'never' && 'text-muted-foreground/60')}
+                     >
+                        {item.label}
+                     </span>
+                     <VisibilityDropdown
+                        value={current}
+                        options={options}
+                        onChange={(value) => setVisibility(item.key, value)}
+                     />
+                  </div>
+               </Fragment>
             );
          })}
+         <DropZone show={dropSlot === ordered.length} />
       </div>
    );
 }
@@ -193,15 +261,15 @@ export function CustomizeSidebarDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
          <DialogContent className="sm:max-w-md p-0 gap-0">
             <DialogHeader className="px-5 pt-5 pb-3">
-               <DialogTitle className="text-base">Customize sidebar</DialogTitle>
+               <DialogTitle>Customize sidebar</DialogTitle>
             </DialogHeader>
             <div className="px-5 pb-5 flex flex-col gap-5 overflow-y-auto max-h-[70vh]">
                <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-                  <span className="text-sm">Default badge style</span>
+                  <span>Default badge style</span>
                   <DropdownMenu>
-                     <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors outline-none">
+                     <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors outline-none">
                         {badgeStyle === 'count' ? (
-                           <span className="text-xs bg-accent rounded px-1">1</span>
+                           <span className="bg-accent rounded px-1">1</span>
                         ) : (
                            <span className="size-1.5 rounded-full bg-muted-foreground inline-block" />
                         )}
@@ -220,13 +288,18 @@ export function CustomizeSidebarDialog({
                </div>
 
                <div className="flex flex-col gap-2">
-                  <span className="text-sm font-medium">Personal</span>
+                  <span className="font-medium">Personal</span>
                   <ItemSection section="personal" items={PERSONAL_ITEMS} />
                </div>
 
                <div className="flex flex-col gap-2">
-                  <span className="text-sm font-medium">Workspace</span>
+                  <span className="font-medium">Workspace</span>
                   <ItemSection section="workspace" items={WORKSPACE_ITEMS} />
+               </div>
+
+               <div className="flex flex-col gap-2">
+                  <span className="font-medium">Configure</span>
+                  <ItemSection section="configure" items={CONFIGURE_ITEMS} />
                </div>
             </div>
          </DialogContent>

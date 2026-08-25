@@ -1,6 +1,5 @@
 'use client';
 
-import { SidebarTrigger } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
 import {
    createdReviews,
@@ -51,13 +50,13 @@ function ReviewRow({
       <Link
          href={`/${orgId}/review/${review.id}`}
          className={cn(
-            'flex items-center gap-2 px-4 py-2 text-sm border-b border-border/40 transition-colors',
+            'flex items-center gap-2 px-4 py-2 border-b border-border/40 transition-colors',
             selected ? 'bg-accent/60' : 'hover:bg-sidebar/50'
          )}
       >
          <PrIcon status={review.status} />
          <span className="flex-1 truncate">{review.title}</span>
-         <span className="text-xs text-muted-foreground shrink-0">{review.timeAgo}</span>
+         <span className="text-muted-foreground shrink-0">{review.timeAgo}</span>
       </Link>
    );
 }
@@ -79,7 +78,7 @@ function ReviewGroup({
             type="button"
             onClick={() => setOpen((value) => !value)}
             aria-expanded={open}
-            className="w-full flex items-center gap-1.5 px-4 py-1.5 text-xs font-medium bg-[color-mix(in_oklab,var(--accent)_30%,var(--container))] border-b border-border/40 cursor-pointer select-none"
+            className="w-full flex items-center gap-1.5 px-4 py-1.5 font-medium bg-[color-mix(in_oklab,var(--accent)_30%,var(--container))] border-b border-border/40 cursor-pointer select-none"
          >
             {label}
             <svg
@@ -137,8 +136,7 @@ export default function Reviews({
          <div className="w-[420px] max-w-[45%] shrink-0 border-r h-full flex flex-col bg-container">
             <div className="flex items-center justify-between px-4 py-1.5 h-10 border-b shrink-0">
                <div className="flex items-center gap-2">
-                  <SidebarTrigger />
-                  <span className="text-sm font-medium">Reviews</span>
+                  <span className="font-medium">Reviews</span>
                </div>
                <div className="flex items-center gap-2 text-muted-foreground">
                   <ListFilter className="size-4" />
@@ -149,7 +147,7 @@ export default function Reviews({
                <Link
                   href={`/${orgId}/reviews`}
                   className={cn(
-                     'px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
+                     'px-2.5 py-1 rounded-md border font-medium transition-colors',
                      listTab === 'for-you'
                         ? 'bg-accent border-transparent'
                         : 'text-muted-foreground hover:bg-accent/50'
@@ -160,7 +158,7 @@ export default function Reviews({
                <Link
                   href={`/${orgId}/reviews/created`}
                   className={cn(
-                     'px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
+                     'px-2.5 py-1 rounded-md border font-medium transition-colors',
                      listTab === 'created'
                         ? 'bg-accent border-transparent'
                         : 'text-muted-foreground hover:bg-accent/50'
@@ -191,7 +189,7 @@ export default function Reviews({
             ) : (
                <div className="h-full flex flex-col items-center justify-center gap-4 text-muted-foreground">
                   <EmptySketch />
-                  <span className="text-sm">{source.length} reviews</span>
+                  <span>{source.length} reviews</span>
                </div>
             )}
          </div>

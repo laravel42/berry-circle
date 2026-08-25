@@ -1,8 +1,50 @@
 import React from 'react';
 
+import { cn } from '@/lib/utils';
+
 interface IconProps extends React.SVGProps<SVGSVGElement> {
    className?: string;
 }
+
+/**
+ * Colour by urgency tier, from the semantic status tokens rather than raw brand
+ * values, so the tiers follow the palette in both themes.
+ *
+ * Only the top two tiers take an alert colour. If every tier were coloured
+ * nothing would stand out, and the icons already encode the lower tiers through
+ * the height and opacity of their bars — the colour reinforces that ordering
+ * rather than competing with it.
+ *
+ * The remaining three descend by opacity on one colour rather than by picking
+ * three greys. The palette's neutrals do not order consistently: muted is
+ * #5d5a5a on light and ash on dark, while status-neutral is slate in both, so
+ * muted reads as the more prominent of the pair against either background and a
+ * ladder built from them inverts at the bottom. Alpha on a single token
+ * descends by construction, whichever theme is active.
+ *
+ * Medium deliberately does not use foreground. At roughly 16:1 against either
+ * background it would be the highest-contrast thing on the row — louder than
+ * urgent — which is the opposite of what a tier scale should say.
+ *
+ * The alpha range is tighter than it looks like it should be because the
+ * faintest step still has to clear 3:1 against both backgrounds. A priority
+ * icon is the only thing stating the tier in a dense row, so it is meaningful
+ * non-text content rather than decoration, and fading it further would put the
+ * lowest tiers below the floor.
+ *
+ * Applied after the caller's className, deliberately. A priority icon's colour
+ * states how urgent the issue is, which is meaning rather than decoration, and
+ * most call sites passed text-muted-foreground only because there was no colour
+ * to show. Ordering it last means every site is correct without being edited,
+ * and a new one cannot forget.
+ */
+const tone = {
+   urgent: 'text-status-danger',
+   high: 'text-status-warning',
+   medium: 'text-muted-foreground',
+   low: 'text-muted-foreground/85',
+   none: 'text-muted-foreground/70',
+} as const;
 
 const NoPriorityIcon = ({ className, ...props }: IconProps) => (
    <svg
@@ -10,7 +52,7 @@ const NoPriorityIcon = ({ className, ...props }: IconProps) => (
       height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
-      className={className}
+      className={cn(className, tone.none)}
       aria-label="No Priority"
       role="img"
       focusable="false"
@@ -29,7 +71,7 @@ const UrgentPriorityIcon = ({ className, ...props }: IconProps) => (
       height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
-      className={className}
+      className={cn(className, tone.urgent)}
       aria-label="Urgent Priority"
       role="img"
       focusable="false"
@@ -46,7 +88,7 @@ const HighPriorityIcon = ({ className, ...props }: IconProps) => (
       height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
-      className={className}
+      className={cn(className, tone.high)}
       aria-label="High Priority"
       role="img"
       focusable="false"
@@ -65,7 +107,7 @@ const MediumPriorityIcon = ({ className, ...props }: IconProps) => (
       height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
-      className={className}
+      className={cn(className, tone.medium)}
       aria-label="Medium Priority"
       role="img"
       focusable="false"
@@ -84,7 +126,7 @@ const LowPriorityIcon = ({ className, ...props }: IconProps) => (
       height="16"
       viewBox="0 0 16 16"
       fill="currentColor"
-      className={className}
+      className={cn(className, tone.low)}
       aria-label="Low Priority"
       role="img"
       focusable="false"
