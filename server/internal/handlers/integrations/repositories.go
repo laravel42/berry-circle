@@ -10,6 +10,19 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/integrations/github"
 )
 
+// accessResource explains the shape of the list, not just its contents.
+type accessResource struct {
+	// SelectedOnly means the app is limited to chosen repositories, which is
+	// why a repository created after installing does not appear.
+	SelectedOnly bool   `json:"selectedOnly"`
+	ManageURL    string `json:"manageUrl,omitempty"`
+	Installed    bool   `json:"installed"`
+	// InstallURL is where to install the app. Offered when it is not installed,
+	// which is the state that makes the list look mysteriously short: without
+	// an installation a user token reads only public repositories.
+	InstallURL string `json:"installUrl,omitempty"`
+}
+
 type repositoryResource struct {
 	ID            int64  `json:"id"`
 	FullName      string `json:"fullName"`
@@ -77,7 +90,23 @@ func listRepositoriesHandler(options Options) http.HandlerFunc {
 				Description:   repository.Description,
 			})
 		}
+		// Asked after the list, and its failure is not the list's failure: a
+		// short list is still useful, and an unexplained short list is the
+		// complaint this answers.
+		access := accessResource{}
+		if reach, err := client.Access(request.Context()); err == nil {
+			access.Installed = len(reach.Installations) > 0
+			access.SelectedOnly = reach.SelectedOnly
+			access.ManageURL = reach.ManageURL
+		} else {
+			options.logger().Warn("could not read github installation access", "error", err)
+		}
+		if !access.Installed && options.GitHubAppSlug != "" {
+			access.InstallURL = "https://github.com/apps/" +
+				options.GitHubAppSlug + "/installations/new"
+		}
+
 		httpapi.WriteJSON(response, http.StatusOK,
-			map[string]any{"repositories": resources})
+			map[string]any{"repositories": resources, "access": access})
 	}
 }

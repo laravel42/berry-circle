@@ -108,6 +108,10 @@ type Config struct {
 	IntegrationEncryptionKey     string
 	IntegrationCallbackBaseURL   string
 	IntegrationRedirectAllowlist []string
+	// GitHubAppSlug builds the app's install link. Without an installation a
+	// user-to-server token reads only public repositories, and the install link
+	// is the fix — so the slug is worth carrying just to be able to show it.
+	GitHubAppSlug string
 }
 
 // Load reads and validates an environment map. Errors identify fields without
@@ -369,6 +373,7 @@ func Load(env map[string]string) (Config, error) {
 	// generated default: a key that appeared on its own would differ between
 	// restarts and strand every token already stored under the previous one.
 	cfg.RuntimeWorkspaceRoot = strings.TrimSpace(env["RUNTIME_WORKSPACE_ROOT"])
+	cfg.GitHubAppSlug = strings.TrimSpace(env["GITHUB_APP_SLUG"])
 
 	cfg.IntegrationEncryptionKey = strings.TrimSpace(env["INTEGRATION_ENCRYPTION_KEY"])
 	cfg.IntegrationCallbackBaseURL = strings.TrimSpace(env["INTEGRATION_CALLBACK_BASE_URL"])

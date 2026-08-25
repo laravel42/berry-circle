@@ -211,6 +211,20 @@ const repositorySchema = z.object({
 
 export type GitHubRepository = z.infer<typeof repositorySchema>;
 
+const accessSchema = z.object({
+   selectedOnly: z.boolean(),
+   installed: z.boolean(),
+   manageUrl: z.string().optional(),
+   installUrl: z.string().optional(),
+});
+
+export type GitHubAccess = z.infer<typeof accessSchema>;
+
+export interface RepositoryChoices {
+   repositories: GitHubRepository[];
+   access: GitHubAccess;
+}
+
 /**
  * Repositories the workspace's GitHub connection can see.
  *
@@ -218,11 +232,13 @@ export type GitHubRepository = z.infer<typeof repositorySchema>;
  * could not load look identical, and the fixes are opposite — connect GitHub
  * versus try again.
  */
-export async function loadGitHubRepositories(): Promise<GitHubRepository[]> {
+export async function loadGitHubRepositories(): Promise<RepositoryChoices> {
    const json: unknown = await apiFetch('/api/v1/integrations/github/repositories');
-   const parsed = z.object({ repositories: z.array(repositorySchema) }).safeParse(json);
+   const parsed = z
+      .object({ repositories: z.array(repositorySchema), access: accessSchema })
+      .safeParse(json);
    if (!parsed.success) throw new Error('Repository list was not recognized');
-   return parsed.data.repositories;
+   return { repositories: parsed.data.repositories, access: parsed.data.access };
 }
 
 /** Link a project to a repository, or unlink it with null. */

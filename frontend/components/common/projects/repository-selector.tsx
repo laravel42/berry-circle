@@ -12,7 +12,12 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { Project } from '@/data/projects';
 import { BerryApiError } from '@/lib/api';
-import { loadGitHubRepositories, setProjectRepository, type GitHubRepository } from '@/lib/projects';
+import {
+   loadGitHubRepositories,
+   setProjectRepository,
+   type GitHubAccess,
+   type GitHubRepository,
+} from '@/lib/projects';
 import { useProjectsStore } from '@/store/projects-store';
 import { Check, Github, Loader2, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
@@ -43,6 +48,7 @@ export function RepositoryPicker({
 }) {
    const [open, setOpen] = useState(false);
    const [repositories, setRepositories] = useState<GitHubRepository[]>([]);
+   const [access, setAccess] = useState<GitHubAccess | null>(null);
    const [loading, setLoading] = useState(false);
    const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +59,9 @@ export function RepositoryPicker({
       setError(null);
       loadGitHubRepositories()
          .then((loaded) => {
-            if (!cancelled) setRepositories(loaded);
+            if (cancelled) return;
+            setRepositories(loaded.repositories);
+            setAccess(loaded.access);
          })
          .catch((cause: unknown) => {
             if (cancelled) return;
@@ -137,6 +145,36 @@ export function RepositoryPicker({
                      </>
                   )}
                </CommandList>
+               {/* A short list is the common confusion here, and the reason is
+                   not guessable: without an installation the app reads only
+                   public repositories, so a private one simply never appears. */}
+               {access && !access.installed && access.installUrl ? (
+                  <div className="border-t px-3 py-2 text-muted-foreground">
+                     Only public repositories are visible.{' '}
+                     <a
+                        href={access.installUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-foreground underline underline-offset-2"
+                     >
+                        Install the app
+                     </a>{' '}
+                     to reach private ones.
+                  </div>
+               ) : access?.selectedOnly && access.manageUrl ? (
+                  <div className="border-t px-3 py-2 text-muted-foreground">
+                     Showing only the repositories this app was given.{' '}
+                     <a
+                        href={access.manageUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-foreground underline underline-offset-2"
+                     >
+                        Manage access
+                     </a>
+                     .
+                  </div>
+               ) : null}
             </Command>
          </PopoverContent>
       </Popover>

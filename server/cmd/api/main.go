@@ -856,6 +856,7 @@ func run() int {
 				Clock:           time.Now,
 				Registry:        providerRegistry,
 				Configs:         oauth.LoadConfigs(providerScopes(providerRegistry)),
+				GitHubAppSlug:   cfg.GitHubAppSlug,
 				CallbackBaseURL: cfg.IntegrationCallbackBaseURL,
 				ReturnAllowlist: cfg.IntegrationRedirectAllowlist,
 				Logger:          logger,

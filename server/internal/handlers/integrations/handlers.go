@@ -81,6 +81,9 @@ type Options struct {
 	// tool calls do not come through here; those remain MCP's job.
 	Credentials CredentialStore
 
+	// GitHubAppSlug builds the app's install link for the repository picker.
+	GitHubAppSlug string
+
 	CallbackBaseURL string
 	// ReturnAllowlist is where the browser may be sent after a flow finishes.
 	// Empty refuses every flow rather than defaulting somewhere convenient.

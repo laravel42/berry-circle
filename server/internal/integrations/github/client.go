@@ -181,3 +181,49 @@ func (client Client) get(ctx context.Context, path string, into any) error {
 	}
 	return nil
 }
+
+// Installation is one place the GitHub App has been installed.
+type Installation struct {
+	ID                  int64  `json:"id"`
+	RepositorySelection string `json:"repository_selection"`
+	HTMLURL             string `json:"html_url"`
+	Account             struct {
+		Login string `json:"login"`
+	} `json:"account"`
+}
+
+// Access describes what the connection can actually reach.
+//
+// A GitHub App sees only the repositories its installation covers, which is
+// usually a chosen subset and never updates itself when a new repository is
+// created. The repository list is therefore short for a reason the person
+// looking at it cannot guess, so the reason travels with the list.
+type Access struct {
+	Installations []Installation
+	// SelectedOnly is true when every installation is limited to chosen
+	// repositories, which is the case that surprises people.
+	SelectedOnly bool
+	// ManageURL is where to widen it. Empty when there is no installation at
+	// all, which is a different problem with a different fix.
+	ManageURL string
+}
+
+// Access lists the app installations this credential can see.
+func (client Client) Access(ctx context.Context) (Access, error) {
+	var payload struct {
+		Installations []Installation `json:"installations"`
+	}
+	if err := client.get(ctx, "/user/installations?per_page=100", &payload); err != nil {
+		return Access{}, err
+	}
+	access := Access{Installations: payload.Installations, SelectedOnly: len(payload.Installations) > 0}
+	for _, installation := range payload.Installations {
+		if installation.RepositorySelection != "selected" {
+			access.SelectedOnly = false
+		}
+		if access.ManageURL == "" {
+			access.ManageURL = installation.HTMLURL
+		}
+	}
+	return access, nil
+}
