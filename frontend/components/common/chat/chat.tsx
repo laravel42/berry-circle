@@ -144,7 +144,7 @@ export function Chat() {
                   disabled={!conversationId || pending}
                   placeholder={agent ? `message ${agent.name}…` : 'pick an agent to start'}
                   aria-label="Message"
-                  className="min-w-0 flex-1 bg-transparent text-[var(--shell-text)] outline-none placeholder:text-[var(--shell-text-dim)] disabled:cursor-not-allowed"
+                  className="min-w-0 flex-1 bg-transparent text-[var(--shell-text)] outline-none [--input-color:var(--shell-text)] [--placeholder-color:var(--shell-text-dim)] placeholder:text-[var(--shell-text-dim)] disabled:cursor-not-allowed"
                />
                <button
                   type="submit"

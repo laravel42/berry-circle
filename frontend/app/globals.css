@@ -72,6 +72,8 @@
 
    --background: #f4f2ec;
    --foreground: var(--brand-void);
+   /* Default placeholder colour; see the unlayered input rules below. */
+   --placeholder-default: color-mix(in oklab, var(--foreground) 40%, transparent);
    --container: #fdfcf8;
    --card: #fdfcf8;
    --card-foreground: var(--brand-void);
@@ -415,21 +417,31 @@
  * Unlayered so typed text stays --foreground. Layered placeholder utilities
  * also set -webkit-text-fill-color on the control, which WebKit then uses
  * for the caret value on transparent fields.
+ *
+ * Being unlayered, these beat every text-* utility on a control, which is
+ * wrong for a field living on the always-dark shell (chat) where --foreground
+ * follows the page theme. Such a field opts out by setting --input-color and
+ * --placeholder-color on itself; the defaults keep the page behaviour.
+ *
+ * The default mix lives in --placeholder-default rather than inline: the CSS
+ * minifier adds a plain-colour fallback beside any color-mix() it sees, and
+ * because var() declarations cannot be rejected at parse time that fallback
+ * out-cascades the mix in every browser, leaving placeholders at 100%.
  */
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
 textarea,
 select {
-   color: var(--foreground);
-   caret-color: var(--foreground);
-   -webkit-text-fill-color: var(--foreground);
+   color: var(--input-color, var(--foreground));
+   caret-color: var(--input-color, var(--foreground));
+   -webkit-text-fill-color: var(--input-color, var(--foreground));
 }
 
 input:not([type='checkbox']):not([type='radio']):not([type='range']):not(
       [type='file']
    )::placeholder,
 textarea::placeholder {
-   color: color-mix(in oklab, var(--foreground) 42%, transparent);
-   -webkit-text-fill-color: color-mix(in oklab, var(--foreground) 42%, transparent);
+   color: var(--placeholder-color, var(--placeholder-default));
+   -webkit-text-fill-color: var(--placeholder-color, var(--placeholder-default));
 }
 
 input::-webkit-search-cancel-button {
