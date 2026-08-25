@@ -14,7 +14,7 @@
    --text-sm: 0.8125rem;
    --text-sm--line-height: 1.25rem;
    --text-base: 0.875rem;
-   --text-base--line-height: 1.375rem;
+   --text-base--line-height: 1.25rem;
    --text-lg: 1rem;
    --text-lg--line-height: 1.5rem;
    --text-xl: 1.125rem;
@@ -30,7 +30,7 @@
 :root {
    color-scheme: light;
 
-   --brand-void: #111113;
+   --brand-void: #18181B;
    --brand-base: #1a1a1d;
    --brand-ember: #1c1811;
    --brand-thicket: #151917;
@@ -51,7 +51,7 @@
       inverting them with the content theme would make the frame compete with
       what sits inside it. Values come from the prototype verbatim so the
       implementation and the design file cannot drift apart silently. */
-   --shell-rail: #16161a;
+   --shell-rail: #171717;
    --shell-canvas: #111113;
    --shell-surface: #1a1a1d;
    --shell-hover: #17171a;
