@@ -14,6 +14,7 @@ package github
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -272,4 +273,87 @@ func (client Client) InstallationRepositories(
 		}
 	}
 	return repositories, nil
+}
+
+// TreeEntry is one path in a repository's tree.
+type TreeEntry struct {
+	Path string `json:"path"`
+	Type string `json:"type"`
+	Size int64  `json:"size"`
+}
+
+// Tree lists every file path at a ref, in one request.
+//
+// Recursive because the alternative is a request per directory, and the tree is
+// what tells an agent where anything lives. GitHub truncates very large trees
+// rather than paginating them; a truncated tree is still the most useful thing
+// available, so it is returned rather than refused.
+func (client Client) Tree(ctx context.Context, fullName, ref string) ([]TreeEntry, bool, error) {
+	owner, name, ok := splitFullName(fullName)
+	if !ok {
+		return nil, false, fmt.Errorf("github: %q is not owner/name", fullName)
+	}
+	var payload struct {
+		Tree      []TreeEntry `json:"tree"`
+		Truncated bool        `json:"truncated"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/git/trees/%s?recursive=1",
+		owner, name, url.PathEscape(ref))
+	if err := client.get(ctx, path, &payload); err != nil {
+		return nil, false, err
+	}
+	files := make([]TreeEntry, 0, len(payload.Tree))
+	for _, entry := range payload.Tree {
+		if entry.Type == "blob" {
+			files = append(files, entry)
+		}
+	}
+	return files, payload.Truncated, nil
+}
+
+// maxFileBytes bounds one file read. A file larger than this is nearly always
+// generated, vendored or data, and none of those help an agent understand code.
+const maxFileBytes = 96 * 1024
+
+// File reads one file's contents at a ref.
+func (client Client) File(ctx context.Context, fullName, ref, path string) (string, error) {
+	owner, name, ok := splitFullName(fullName)
+	if !ok {
+		return "", fmt.Errorf("github: %q is not owner/name", fullName)
+	}
+	if strings.Contains(path, "..") {
+		return "", fmt.Errorf("github: %q is not a repository path", path)
+	}
+	var payload struct {
+		Content  string `json:"content"`
+		Encoding string `json:"encoding"`
+		Size     int64  `json:"size"`
+	}
+	request := fmt.Sprintf("/repos/%s/%s/contents/%s?ref=%s",
+		owner, name, pathEscape(path), url.QueryEscape(ref))
+	if err := client.get(ctx, request, &payload); err != nil {
+		return "", err
+	}
+	if payload.Size > maxFileBytes {
+		return "", fmt.Errorf("github: %s is %d bytes", path, payload.Size)
+	}
+	if payload.Encoding != "base64" {
+		return "", fmt.Errorf("github: %s came back %s-encoded", path, payload.Encoding)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(payload.Content, "\n", ""))
+	if err != nil {
+		return "", fmt.Errorf("github: decode %s: %w", path, err)
+	}
+	return string(decoded), nil
+}
+
+// pathEscape escapes each segment but keeps the separators, which the contents
+// API needs: escaping the whole path would turn a/b into a%2Fb and address a
+// file that does not exist.
+func pathEscape(path string) string {
+	parts := strings.Split(path, "/")
+	for index, part := range parts {
+		parts[index] = url.PathEscape(part)
+	}
+	return strings.Join(parts, "/")
 }

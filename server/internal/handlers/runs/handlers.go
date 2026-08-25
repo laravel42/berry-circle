@@ -100,6 +100,8 @@ type Options struct {
 	PollInterval  time.Duration
 	// Artifacts lists what a run produced (ADR-0006). Optional.
 	Artifacts ArtifactStore
+	// Code renders repository context into a run's prompt. Optional.
+	Code runadmission.CodeContext
 }
 
 // Handlers shares one worker service between direct and nested route trees.
@@ -189,6 +191,7 @@ func New(options Options) (*Handlers, error) {
 			WorkerContext: options.WorkerContext,
 			Workers:       options.Workers,
 			QueueSize:     options.QueueSize,
+			Code:          options.Code,
 		})
 		if err != nil {
 			return nil, err

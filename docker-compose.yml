@@ -244,6 +244,14 @@ services:
       # directories sit one level down under workspaces/. Promotion is off
       # when unset, so a deployment without the mount is unaffected.
       RUNTIME_WORKSPACE_ROOT: "${RUNTIME_WORKSPACE_ROOT:-/runtime-workspaces/workspaces}"
+      # The worker dispatches every run admitted by intake, so it needs the
+      # same credential access the API has to build repository context.
+      INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-}"
+      # Not used here — the worker serves no OAuth routes — but the shared
+      # config refuses to start with a key and no callback URLs, and that
+      # early failure is worth keeping for the process that does serve them.
+      INTEGRATION_CALLBACK_BASE_URL: "${INTEGRATION_CALLBACK_BASE_URL:-}"
+      INTEGRATION_REDIRECT_ALLOWLIST: "${INTEGRATION_REDIRECT_ALLOWLIST:-}"
       # Artifact promotion writes a finished run's output to the same
       # object store the API serves attachments from, so the worker needs
       # the identical storage configuration (ADR-0006).

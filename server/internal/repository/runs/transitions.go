@@ -62,10 +62,19 @@ func (repository *Repository) ClaimDispatch(
 		`SELECT r.id, r.issue_id, r.board_id, r.agent_id,
 		        r.upstream_agent_id::uuid,
 		        b.slug, i.number, i.title, i.description,
-		        r.instructions, r.request_id, r.traceparent
+		        r.instructions, r.request_id, r.traceparent,
+		        b.workspace_id,
+		        COALESCE(project.github_repo_full_name, '')
 		   FROM runs AS r
 		   JOIN issues AS i ON i.id = r.issue_id
 		   JOIN boards AS b ON b.id = r.board_id
+		   -- The repository the work belongs in, reached through the issue's
+		   -- project. Left joins throughout: an issue in no project, or a
+		   -- project naming no repository, still dispatches — it just carries
+		   -- no code context.
+		   LEFT JOIN issue_project_links AS link ON link.issue_id = i.id
+		   LEFT JOIN projects AS project
+		     ON project.id = link.project_id AND project.deleted_at IS NULL
 		  WHERE r.id = $1`,
 		runID,
 	).Scan(
@@ -81,6 +90,8 @@ func (repository *Repository) ClaimDispatch(
 		&instructions,
 		&requestID,
 		&traceparent,
+		&result.WorkspaceID,
+		&result.Repository,
 	); err != nil {
 		return Dispatch{}, errors.New("load dispatch context")
 	}

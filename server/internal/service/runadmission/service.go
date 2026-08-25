@@ -67,6 +67,8 @@ type Options struct {
 	WorkerContext context.Context
 	Workers       int
 	QueueSize     int
+	// Code renders repository context into a run's prompt. Optional.
+	Code CodeContext
 }
 
 // Service owns a bounded worker queue tied to a caller-owned context.
@@ -79,10 +81,13 @@ type Service struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	dispatcher  Dispatcher
-	jobs        chan uuid.UUID
-	wg          sync.WaitGroup
-	done        chan struct{}
-	closeOnce   sync.Once
+	// code renders repository context for issues whose project names one.
+	// Optional: without it runs dispatch exactly as they did before.
+	code      CodeContext
+	jobs      chan uuid.UUID
+	wg        sync.WaitGroup
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // New starts a bounded worker pool. Close or cancellation of WorkerContext
@@ -126,6 +131,7 @@ func New(options Options) (*Service, error) {
 		clock:       options.Clock,
 		newID:       options.NewID,
 		dispatcher:  options.Dispatcher,
+		code:        options.Code,
 		ctx:         ctx,
 		cancel:      cancel,
 		jobs:        make(chan uuid.UUID, options.QueueSize),
@@ -302,6 +308,19 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 	if err != nil {
 		return
 	}
+	// Fetched here rather than in the claim query: it costs upstream calls, and
+	// a claim that never reaches dispatch should not pay for them. Best effort
+	// throughout — a run whose context could not be built still happens, with a
+	// worse-informed agent rather than no agent.
+	if service.code != nil && dispatch.Repository != "" {
+		description := ""
+		if dispatch.IssueDescription != nil {
+			description = *dispatch.IssueDescription
+		}
+		dispatch.CodeContext = service.code.Build(
+			ctx, dispatch.WorkspaceID, dispatch.Repository, dispatch.IssueTitle, description)
+	}
+
 	message := buildMessage(dispatch)
 	senderID := "berry-run:" + runID.String()
 	senderName := "Berry Gateway"
@@ -610,6 +629,15 @@ func mapDispatchFailure(err error) (runs.Failure, bool) {
 	}
 }
 
+// CodeContext renders the repository an issue belongs to, for the prompt.
+//
+// The workspace is a parameter rather than fixed at construction: one service
+// dispatches for every workspace, and a credential opened for the wrong one
+// would read a repository this issue has no claim to.
+type CodeContext interface {
+	Build(ctx context.Context, workspaceID uuid.UUID, repository, title, description string) string
+}
+
 func buildMessage(dispatch runs.Dispatch) string {
 	var builder strings.Builder
 	builder.WriteString("Berry issue ")
@@ -623,6 +651,9 @@ func buildMessage(dispatch runs.Dispatch) string {
 	if dispatch.Instructions != nil && *dispatch.Instructions != "" {
 		builder.WriteString("\n\nRun instructions:\n")
 		builder.WriteString(*dispatch.Instructions)
+	}
+	if dispatch.CodeContext != "" {
+		builder.WriteString(dispatch.CodeContext)
 	}
 	return truncateUTF8(builder.String(), 64*1024)
 }

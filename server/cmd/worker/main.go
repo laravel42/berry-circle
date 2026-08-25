@@ -27,12 +27,15 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
+	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	collaborationrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	intakerepo "github.com/laravel42/berry-circle/server/internal/repository/intake"
+	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	runsrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
+	"github.com/laravel42/berry-circle/server/internal/secrets"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
 	"github.com/laravel42/berry-circle/server/internal/storage"
 )
@@ -158,6 +161,26 @@ func run() int {
 	// in-process job channel must not also be draining runs. Sharing the
 	// service gives both dispatchers one projection implementation without
 	// giving this process a second scheduler.
+	// Repository context for runs. This is the process that actually dispatches
+	// them — the API builds the same service for its own routes, but every run
+	// admitted by intake comes through here, so wiring only the API left the
+	// context unbuilt on the one path that matters.
+	var runCode runadmission.CodeContext
+	if cfg.IntegrationsEnabled {
+		sealer, sealerErr := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+		if sealerErr != nil {
+			logger.Error("integration sealer setup failed", "error", sealerErr)
+			return 1
+		}
+		credentials, storeErr := integrationrepo.New(pool, sealer)
+		if storeErr != nil {
+			logger.Error("integration repository setup failed", "error", storeErr)
+			return 1
+		}
+		runCode = githubclient.RunContext{Credentials: credentials, Logger: logger}
+		logger.Info("repository context enabled for runs")
+	}
+
 	dispatcher, err := runadmission.New(runadmission.Options{
 		Store:         runStore,
 		OpenFang:      upstream,
@@ -167,6 +190,7 @@ func run() int {
 		WorkerContext: ctx,
 		Workers:       1,
 		QueueSize:     1,
+		Code:          runCode,
 	})
 	if err != nil {
 		logger.Error("run dispatcher setup failed", "error", err)

@@ -438,7 +438,44 @@ func run() int {
 			return 1
 		}
 
+		// Built once here and shared with the integration routes below: the
+		// repository picker and the project link open the same credential, and
+		// two stores would mean two sealers to keep in step.
+		var integrationCredentials *integrationrepo.Repository
+		if cfg.IntegrationsEnabled {
+			sealer, err := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration sealer setup failed", "error", err)
+				return 1
+			}
+			integrationCredentials, err = integrationrepo.New(dbPool, sealer)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration repository setup failed", "error", err)
+				return 1
+			}
+		}
+
+		// Repository context for runs, when integrations are configured. Nil
+		// otherwise, and runs dispatch exactly as they did before.
+		var runCode runadmission.CodeContext
+		if integrationCredentials != nil {
+			runCode = githubclient.RunContext{
+				Credentials: integrationCredentials,
+				Logger:      logger,
+			}
+		}
+
 		runRoutes, err = runhandlers.New(runhandlers.Options{
+			// Renders the repository an issue belongs to into its prompt.
+			Code: runCode,
 			// Lists a run's promoted outputs (ADR-0006).
 			Artifacts:        runArtifactStore,
 			Dispatcher:       runDispatcher,
@@ -674,31 +711,6 @@ func run() int {
 			logger.Error("catalog route setup failed", "error", err)
 			return 1
 		}
-		// Built once here and shared with the integration routes below: the
-		// repository picker and the project link open the same credential, and
-		// two stores would mean two sealers to keep in step.
-		var integrationCredentials *integrationrepo.Repository
-		if cfg.IntegrationsEnabled {
-			sealer, err := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("integration sealer setup failed", "error", err)
-				return 1
-			}
-			integrationCredentials, err = integrationrepo.New(dbPool, sealer)
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("integration repository setup failed", "error", err)
-				return 1
-			}
-		}
-
 		// Resolving a repository needs the workspace's GitHub credential, which
 		// only exists when integrations are configured. Nil otherwise, and
 		// linking is refused rather than stored half resolved.
