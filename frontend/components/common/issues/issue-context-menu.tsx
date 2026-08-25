@@ -44,7 +44,7 @@ import {
    Clipboard,
 } from 'lucide-react';
 import React, { useState } from 'react';
-import { deleteBoardIssue } from '@/lib/issues';
+import { deleteBoardIssue, setIssueProject } from '@/lib/issues';
 import { useIssuesStore } from '@/store/issues-store';
 import { status } from '@/data/status';
 import { priorities } from '@/data/priorities';
@@ -144,10 +144,19 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
    };
 
    const handleProjectChange = (projectId: string | null) => {
-      if (!issueId) return;
+      if (!issueId || !issue) return;
       const newProject = projectId ? projects.find((p) => p.id === projectId) : undefined;
+      const previous = issue.project;
       updateIssueProject(issueId, newProject);
       toast.success(newProject ? `Project set to ${newProject.name}` : 'Project removed');
+
+      // Persisted, not just shown. The link lives in its own table rather than
+      // a column on the issue, and until this call existed the change was
+      // local only and disappeared on the next load.
+      void setIssueProject(issue.identifier, projectId).catch(() => {
+         updateIssueProject(issueId, previous);
+         toast.error('That project could not be saved.');
+      });
    };
 
    const handleSetDueDate = () => {
