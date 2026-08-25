@@ -34,15 +34,19 @@ type Usage struct {
 // StreamEvent contains one validated upstream event. Raw is bounded and is
 // populated only for unknown named events; callers must not expose it directly.
 type StreamEvent struct {
-	Type      StreamEventType
-	Content   string
-	Tool      string
-	Input     json.RawMessage
-	Phase     string
-	Detail    *string
-	Usage     Usage
-	EventName string
-	Raw       json.RawMessage
+	Type    StreamEventType
+	Content string
+	Tool    string
+	Input   json.RawMessage
+	// InputDropped marks a tool_result whose input was over the bound. The
+	// event still arrives — the run must go on — but nothing can be read from
+	// it; a file written that way is left to the post-run sweep.
+	InputDropped bool
+	Phase        string
+	Detail       *string
+	Usage        Usage
+	EventName    string
+	Raw          json.RawMessage
 }
 
 // StreamErrorKind classifies stream failures without exposing raw payloads.
@@ -54,6 +58,10 @@ const (
 	StreamLimit       StreamErrorKind = "limit_exceeded"
 	StreamTimeout     StreamErrorKind = "timeout"
 )
+
+// maxToolInputBytes bounds one tool_result input. Sized for a file_write of a
+// whole deliverable; the transport's per-frame limit is set above it.
+const maxToolInputBytes = 4 * 1024 * 1024
 
 // ErrStreamInterrupted is matched for every non-successful stream ending.
 var ErrStreamInterrupted = errors.New("runtime stream interrupted")
@@ -276,8 +284,15 @@ func (stream *MessageStream) project() (StreamEvent, error) {
 		if len(value.Input) == 0 {
 			value.Input = json.RawMessage("{}")
 		}
-		if len(value.Input) > 64*1024 || !json.Valid(value.Input) {
+		if !json.Valid(value.Input) {
 			return StreamEvent{}, stream.failure(StreamMalformed)
+		}
+		// A file_write carries the whole file as its input, so a report-sized
+		// write is a legitimately large event. Over the bound the input is
+		// dropped rather than the stream failed: an oversized deliverable is
+		// no reason to lose the run that produced it.
+		if len(value.Input) > maxToolInputBytes {
+			return StreamEvent{Type: EventToolResult, Tool: value.Tool, InputDropped: true}, nil
 		}
 		return StreamEvent{
 			Type:  EventToolResult,

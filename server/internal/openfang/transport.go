@@ -149,7 +149,10 @@ func New(
 		// rather than holding them, so a generous limit costs nothing and
 		// still stops a runaway upstream.
 		maxStreamBytes: 64 * 1024 * 1024,
-		maxEventBytes:  128 * 1024,
+		// One frame must hold a tool_result input, and file_write inputs carry
+		// whole files (maxToolInputBytes), so the frame limit sits above that
+		// bound with room for the envelope.
+		maxEventBytes: (4*1024 + 64) * 1024,
 	}
 	for _, option := range options {
 		option(client)

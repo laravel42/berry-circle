@@ -101,6 +101,8 @@ type Options struct {
 	PollInterval  time.Duration
 	// Artifacts lists what a run produced (ADR-0006). Optional.
 	Artifacts ArtifactStore
+	// ArtifactSink attaches files an agent writes during a run. Optional.
+	ArtifactSink runadmission.ArtifactSink
 	// Code renders repository context into a run's prompt. Optional.
 	Code runadmission.CodeContext
 	// Comments posts a run's final message on its issue. Optional.
@@ -199,6 +201,7 @@ func New(options Options) (*Handlers, error) {
 			Code:          options.Code,
 			Comments:      options.Comments,
 			Logger:        options.Logger,
+			Artifacts:     options.ArtifactSink,
 		})
 		if err != nil {
 			return nil, err

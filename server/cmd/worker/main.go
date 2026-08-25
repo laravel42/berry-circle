@@ -274,6 +274,9 @@ func run() int {
 			Logger:   logger,
 		}
 		artifactRuns = promotableRuns{store: runStore}
+		// Files the agent writes reach the issue from the stream as well, so a
+		// write the runtime dropped still lands.
+		dispatcher.SetArtifacts(promoter)
 		logger.Info("artifact promotion enabled", "root", cfg.RuntimeWorkspaceRoot)
 
 		// Recover anything an earlier run left behind. In the background: a

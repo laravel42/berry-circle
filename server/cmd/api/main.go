@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/laravel42/berry-circle/server/internal/artifacts"
 	coreauth "github.com/laravel42/berry-circle/server/internal/auth"
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
@@ -498,7 +499,17 @@ func run() int {
 			Comments: coreStore,
 			Logger:   logger,
 			// Lists a run's promoted outputs (ADR-0006).
-			Artifacts:        runArtifactStore,
+			Artifacts: runArtifactStore,
+			// Attaches files the agent writes during a run, from the stream:
+			// the in-process dispatcher has no runtime volume to sweep.
+			ArtifactSink: &artifacts.Promoter{
+				Store:    runArtifactStore,
+				Storage:  storageBackend,
+				MaxBytes: cfg.StorageMaxBytes,
+				Clock:    time.Now,
+				NewID:    uuid.New,
+				Logger:   logger,
+			},
 			Dispatcher:       runDispatcher,
 			Pool:             dbPool,
 			Sessions:         authenticator,

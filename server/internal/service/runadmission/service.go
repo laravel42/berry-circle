@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/laravel42/berry-circle/server/internal/artifacts"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
@@ -78,6 +80,13 @@ type CommentStore interface {
 	) (core.Comment, core.CommentMutationEvent, error)
 }
 
+// ArtifactSink publishes bytes the stream carried for a file the agent wrote.
+// The post-run sweep only sees what reached the runtime's disk; this is the
+// path for content that never did.
+type ArtifactSink interface {
+	PromoteContent(context.Context, artifacts.RunContext, string, []byte) error
+}
+
 // Options owns worker lifecycle and every external dependency explicitly.
 type Options struct {
 	Store       Store
@@ -99,6 +108,10 @@ type Options struct {
 	// Logger reports side effects a run does not fail on, such as a result
 	// comment that could not be written. Nil selects slog.Default().
 	Logger *slog.Logger
+	// Artifacts attaches files the agent wrote through file_write under
+	// output/, straight from the stream. Optional: without it those files
+	// reach the issue only if the post-run sweep finds them on disk.
+	Artifacts ArtifactSink
 }
 
 // Service owns a bounded worker queue tied to a caller-owned context.
@@ -116,6 +129,7 @@ type Service struct {
 	code CodeContext
 	// comments is where a run's result goes to be read. Optional.
 	comments  CommentStore
+	artifacts ArtifactSink
 	logger    *slog.Logger
 	jobs      chan uuid.UUID
 	wg        sync.WaitGroup
@@ -170,6 +184,7 @@ func New(options Options) (*Service, error) {
 		dispatcher:  options.Dispatcher,
 		code:        options.Code,
 		comments:    options.Comments,
+		artifacts:   options.Artifacts,
 		logger:      logger,
 		ctx:         ctx,
 		cancel:      cancel,
@@ -411,6 +426,13 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 		usage       runs.Usage
 		toolCounter int
 		openTools   = make(map[string][]string)
+		// completed is the runtime's own word that the loop finished: the
+		// terminal phase event it emits right before closing the body. A loop
+		// that failed mid-way (a provider refusal, a truncated tool call it
+		// gave up on) closes the body without it, and that run must not be
+		// recorded as succeeded with whatever partial text it had.
+		completed    bool
+		runtimeError bool
 	)
 	for {
 		event, err := stream.Next()
@@ -418,6 +440,10 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 			// Text after the last done never got its boundary. It is still the
 			// most recent thing the agent said, so it counts as a turn.
 			result.EndTurn()
+			if !completed || runtimeError {
+				service.failIncomplete(dispatch, usage, turns)
+				return
+			}
 			text, cut := result.Final()
 			service.complete(ctx, dispatch, usage, text, cut)
 			return
@@ -480,7 +506,11 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 				return
 			}
 			service.publish(persisted)
+			service.captureFile(ctx, dispatch, event)
 		case openfang.EventPhase:
+			if event.Phase == terminalPhase {
+				completed = true
+			}
 			_ = service.store.RecordProviderEvent(
 				ctx,
 				runID,
@@ -490,6 +520,9 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 				service.clock().UTC(),
 			)
 		case openfang.EventUnknown:
+			if event.EventName == "error" {
+				runtimeError = true
+			}
 			_ = service.store.RecordProviderEvent(
 				ctx,
 				runID,
@@ -559,6 +592,15 @@ func (service *Service) complete(
 	}
 }
 
+// SetArtifacts installs the artifact sink after construction. The worker only
+// knows whether promotion is configured once its storage is up, which happens
+// after the dispatcher exists and before any run is claimed.
+func (service *Service) SetArtifacts(sink ArtifactSink) {
+	if service != nil {
+		service.artifacts = sink
+	}
+}
+
 // postResult puts the agent's final message on the issue as the agent's own
 // comment, which is where whoever assigned the work will look for it.
 //
@@ -616,6 +658,96 @@ func (service *Service) failDispatch(runID uuid.UUID, cause error) {
 	if err == nil {
 		service.publish(event)
 	}
+}
+
+// terminalPhase is the phase the runtime reports when its agent loop has
+// genuinely finished; it precedes the end of the body on every clean run.
+const terminalPhase = "done"
+
+// outputPrefix is where the run prompt tells the agent to put deliverables,
+// and the only place a file_write is captured from: anything else the agent
+// writes is scratch.
+const outputPrefix = "output/"
+
+// failIncomplete records a run whose body ended after real work but without
+// the runtime saying the loop completed. The usage is kept as a provider event
+// so the tokens are not lost from the ledger even though the run failed.
+func (service *Service) failIncomplete(dispatch runs.Dispatch, usage runs.Usage, turns int) {
+	ctx, cancel := service.cleanupContext()
+	defer cancel()
+	_ = service.store.RecordProviderEvent(
+		ctx,
+		dispatch.RunID,
+		service.newID(),
+		"usage",
+		map[string]string{
+			"turns":        strconv.Itoa(turns),
+			"inputTokens":  strconv.FormatInt(usage.InputTokens, 10),
+			"outputTokens": strconv.FormatInt(usage.OutputTokens, 10),
+		},
+		service.clock().UTC(),
+	)
+	_, event, err := service.store.Fail(
+		ctx,
+		runs.FailParams{
+			RunID:   dispatch.RunID,
+			EventID: service.newID(),
+			Failure: runs.Failure{
+				Code:      "RUN_INCOMPLETE",
+				Message:   "The runtime ended the run before the agent finished.",
+				Retryable: false,
+			},
+			FailedAt:  service.clock().UTC(),
+			Reconcile: true,
+		},
+	)
+	if err == nil {
+		service.publish(event)
+	}
+}
+
+// captureFile attaches the content of a file_write under output/ as a run
+// artifact. Best effort: a file that cannot be attached is logged, and the run
+// goes on — the post-run sweep may still find it on disk.
+func (service *Service) captureFile(
+	ctx context.Context,
+	dispatch runs.Dispatch,
+	event openfang.StreamEvent,
+) {
+	if service.artifacts == nil || event.Tool != "file_write" {
+		return
+	}
+	if event.InputDropped || len(event.Input) == 0 {
+		service.logger.Info("file write too large to capture from the stream",
+			"runId", dispatch.RunID)
+		return
+	}
+	var input struct {
+		Path    string `json:"path"`
+		Content string `json:"content"`
+	}
+	if err := json.Unmarshal(event.Input, &input); err != nil || input.Path == "" {
+		return
+	}
+	cleaned := path.Clean(strings.TrimSpace(input.Path))
+	if !strings.HasPrefix(cleaned, outputPrefix) || input.Content == "" {
+		return
+	}
+	name := strings.TrimPrefix(cleaned, outputPrefix)
+	now := service.clock().UTC()
+	err := service.artifacts.PromoteContent(
+		ctx,
+		artifacts.RunContext{RunID: dispatch.RunID, StartedAt: now, CompletedAt: now},
+		name,
+		[]byte(input.Content),
+	)
+	if err != nil {
+		service.logger.Warn("could not attach a file the agent wrote",
+			"runId", dispatch.RunID, "file", name, "error", err)
+		return
+	}
+	service.logger.Info("attached a file the agent wrote",
+		"runId", dispatch.RunID, "file", name, "bytes", len(input.Content))
 }
 
 func (service *Service) failStream(runID uuid.UUID, cause error) {
@@ -861,27 +993,41 @@ func deliveryContract(repository string) string {
 // reports with: earlier turns ("I'll look into this") are progress. A turn
 // that says nothing, such as a bare tool call, leaves the result as it was.
 type resultText struct {
-	turn   boundedText
-	result string
-	cut    bool
+	turn boundedText
+	// last is the most recent turn that said anything; substantive the most
+	// recent that said enough to be a report. The agent's closing line after a
+	// long answer is usually a sign-off ("I'll write that to a file"), and
+	// recording it as the result lost the answer it followed.
+	last, substantive string
+	lastCut, subCut   bool
 }
+
+// substantiveResultBytes separates an answer from a remark. A report is
+// hundreds of bytes at the least; a sign-off or a "looking into it" is not.
+const substantiveResultBytes = 400
 
 func (text *resultText) Append(value string) {
 	text.turn.Append(value)
 }
 
-// EndTurn closes the turn in progress, promoting its text to the result when
-// it had any.
+// EndTurn closes the turn in progress, remembering its text when it had any.
 func (text *resultText) EndTurn() {
 	if value, cut := text.turn.Text(); value != "" {
-		text.result, text.cut = value, cut
+		text.last, text.lastCut = value, cut
+		if len(value) >= substantiveResultBytes {
+			text.substantive, text.subCut = value, cut
+		}
 	}
 	text.turn.Reset()
 }
 
-// Final is the result and whether it was cut to fit.
+// Final is the result and whether it was cut to fit: the last substantive
+// turn, or the last turn that said anything when nothing was substantive.
 func (text *resultText) Final() (string, bool) {
-	return text.result, text.cut
+	if text.substantive != "" {
+		return text.substantive, text.subCut
+	}
+	return text.last, text.lastCut
 }
 
 // boundedText keeps the first max bytes appended to it and remembers whether

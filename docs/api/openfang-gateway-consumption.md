@@ -252,7 +252,7 @@ does not emit SSE `id` fields or retry hints.
 |---|---|---|
 | `chunk` | `{ "content": string, "done": false }` | Append text in arrival order |
 | `tool_use` | `{ "tool": string }` | Open a tool activity; upstream omits tool-use ID and input here |
-| `tool_result` | `{ "tool": string, "input": object }` | Record the tool input; despite the name, no result payload or error flag is emitted |
+| `tool_result` | `{ "tool": string, "input": object }` | Record the tool input; despite the name, no result payload or error flag is emitted. Inputs up to 4 MiB are kept; a larger input is dropped from the event rather than failing the stream. A `file_write` whose `path` is under `output/` is attached to the run as an artifact straight from its `content` |
 | `phase` | `{ "phase": string, "detail": string or null }` | Preserve as a lifecycle event |
 | `done` | `{ "done": true, "usage": { "input_tokens": integer, "output_tokens": integer } }` | Close one model turn: add its usage to the run totals and record a `turn` provider event. Not the end of the stream |
 
@@ -537,7 +537,8 @@ The upstream surface has no `Idempotency-Key` contract.
 | `500` or network failure on `GET` | Bounded exponential backoff |
 | `500` or ambiguous network failure on create, execute, or stream dispatch | Do not retry automatically; preserve unresolved/interrupted state for reconciliation |
 | Stream EOF before any `done` | Persist partial events and mark the Berry run `interrupted` |
-| Stream EOF after at least one `done` | Complete the run: sum per-turn usage, record the final turn's text as the result, post it as the agent's comment |
+| Stream EOF after at least one `done` and after the terminal `phase` event `{"phase":"done"}` | Complete the run: sum per-turn usage, record the last substantive turn's text (or the last turn that said anything) as the result, post it as the agent's comment |
+| Stream EOF after at least one `done` but without the terminal `phase` event | The runtime's loop ended without finishing (a provider refusal, a truncated tool call it gave up on): fail the run as `RUN_INCOMPLETE`, keep the summed usage, post no result |
 | Stream open past the dispatch bound | Close it, keep what arrived, and mark the run `STREAM_TIMEOUT` for reconciliation; never re-`POST`. The bound is `orchestration.DispatchStreamTimeout` (2 h), which both binaries pass to the SSE client (`openfang.WithStreamTimeout`); the Temporal dispatch activity allows a few minutes beyond it so the client's close is what ends the stream and the ledger records it before Temporal times the activity out. It covers the whole multi-turn body, not one turn |
 
 Caveat on the EOF rule: the end of the body is the only completion signal (the

@@ -3,6 +3,7 @@ package runadmission
 import (
 	"context"
 	"errors"
+	"github.com/laravel42/berry-circle/server/internal/artifacts"
 	"io"
 	"log/slog"
 	"strings"
@@ -42,6 +43,7 @@ func TestServiceProjectsSuccessfulStream(t *testing.T) {
 					OutputTokens: 5,
 				},
 			},
+			{Type: openfang.EventPhase, Phase: "done"},
 		}},
 	}
 	comments := &fakeComments{workspaceID: uuid.New()}
@@ -192,6 +194,7 @@ func TestServiceFallsBackToLastTurnThatSaidAnything(t *testing.T) {
 	runtime := &fakeRuntime{
 		stream: &fakeStream{events: []openfang.StreamEvent{
 			{Type: openfang.EventChunk, Content: "Report body"},
+			{Type: openfang.EventPhase, Phase: "done"},
 			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
 			// A closing turn that only called a tool: no text of its own.
 			{Type: openfang.EventToolUse, Tool: "file_write"},
@@ -225,16 +228,20 @@ func TestServiceFallsBackToLastTurnThatSaidAnything(t *testing.T) {
 // after the last done and is then cut off by EOF is promoted as the result
 // and posted: a drop mid-final-turn reads the same as a clean end. This is
 // the documented trade-off, pinned so a change to it is deliberate.
-func TestServicePromotesTrailingTextAfterLastDone(t *testing.T) {
+func TestServiceKeepsTheSubstantiveTurnOverAClosingRemark(t *testing.T) {
 	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
 	store := newServiceStore()
 	comments := &fakeComments{workspaceID: uuid.New()}
+	report := strings.Repeat("Finding: a verified submission channel. ", 12)
 	runtime := &fakeRuntime{
 		stream: &fakeStream{events: []openfang.StreamEvent{
 			{Type: openfang.EventChunk, Content: "I'll look into it."},
 			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 5, OutputTokens: 1}},
-			{Type: openfang.EventChunk, Content: "Partial final answer"},
-			// No done and no terminal phase: the connection went away here.
+			{Type: openfang.EventChunk, Content: report},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 50, OutputTokens: 20}},
+			// The sign-off after the answer must not replace the answer.
+			{Type: openfang.EventChunk, Content: "I'll write that to a file now."},
+			{Type: openfang.EventPhase, Phase: "done"},
 		}},
 	}
 	service, cancel, hub := newTestService(t, store, runtime, now, comments)
@@ -247,22 +254,146 @@ func TestServicePromotesTrailingTextAfterLastDone(t *testing.T) {
 	}
 	select {
 	case success := <-store.successes:
-		if success.Summary == nil || *success.Summary != "Partial final answer" {
-			t.Fatalf("summary = %#v, want the trailing text", success.Summary)
+		if success.Summary == nil || *success.Summary != strings.TrimSpace(report) {
+			t.Fatalf("summary = %#v, want the substantive turn", success.Summary)
 		}
-		if success.Usage.InputTokens != 5 || success.Usage.OutputTokens != 1 {
-			t.Fatalf("usage = %#v, want only the closed turn's usage", success.Usage)
+		if success.Usage.InputTokens != 55 || success.Usage.OutputTokens != 21 {
+			t.Fatalf("usage = %#v, want the closed turns' usage", success.Usage)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for success")
 	}
 	closeService(t, service)
-	if turns := store.providerEventsOfType("turn"); len(turns) != 1 {
-		t.Fatalf("turn events = %#v, want one for the closed turn only", turns)
-	}
 	created := comments.snapshot()
-	if len(created) != 1 || created[0].Body != "Partial final answer" {
+	if len(created) != 1 || created[0].Body != strings.TrimSpace(report) {
 		t.Fatalf("comments = %#v", created)
+	}
+}
+
+func TestServiceEndWithoutTerminalPhaseIsIncomplete(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventChunk, Content: "I'll research this."},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 8858, OutputTokens: 662}},
+			{Type: openfang.EventPhase, Phase: "tool_use"},
+			{Type: openfang.EventToolUse, Tool: "web_search"},
+			{Type: openfang.EventToolResult, Tool: "web_search"},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 114388, OutputTokens: 584}},
+			{Type: openfang.EventPhase, Phase: "thinking"},
+			// The body ends here: the provider refused the next call and the
+			// runtime closed the stream without its terminal phase.
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case failure := <-store.failures:
+		if failure.Failure.Code != "RUN_INCOMPLETE" || !failure.Reconcile || failure.Failure.Retryable {
+			t.Fatalf("failure = %#v, want RUN_INCOMPLETE flagged for reconciliation", failure)
+		}
+	case success := <-store.successes:
+		t.Fatalf("unexpected success %#v", success)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the failure")
+	}
+	closeService(t, service)
+	usage := store.providerEventsOfType("usage")
+	if len(usage) != 1 || usage[0].metadata["inputTokens"] != "123246" ||
+		usage[0].metadata["outputTokens"] != "1246" || usage[0].metadata["turns"] != "2" {
+		t.Fatalf("usage events = %#v, want the summed tokens kept", usage)
+	}
+	if created := comments.snapshot(); len(created) != 0 {
+		t.Fatalf("comments = %#v, want none for an incomplete run", created)
+	}
+}
+
+func TestServiceCapturesFileWritesUnderOutputAsArtifacts(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	sink := &fakeArtifacts{}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write",
+				Input: []byte(`{"path":"output/report.md","content":"# Report\n\nfourteen channels"}`)},
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write",
+				Input: []byte(`{"path":"notes/scratch.txt","content":"not a deliverable"}`)},
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write", InputDropped: true},
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write",
+				Input: []byte(`{"path":"output/../secrets.txt","content":"x"}`)},
+			{Type: openfang.EventChunk, Content: "Done."},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 10, OutputTokens: 2}},
+			{Type: openfang.EventPhase, Phase: "done"},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	service.SetArtifacts(sink)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case <-store.successes:
+	case failure := <-store.failures:
+		t.Fatalf("unexpected failure %#v", failure)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
+	}
+	closeService(t, service)
+	files := sink.snapshot()
+	if len(files) != 1 || files[0].name != "report.md" ||
+		string(files[0].content) != "# Report\n\nfourteen channels" ||
+		files[0].run != store.dispatch.RunID {
+		t.Fatalf("captured files = %#v, want only the file under output/", files)
+	}
+}
+
+func TestServiceArtifactFailureDoesNotFailRun(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+	store := newServiceStore()
+	comments := &fakeComments{workspaceID: uuid.New()}
+	sink := &fakeArtifacts{err: errors.New("storage is down")}
+	runtime := &fakeRuntime{
+		stream: &fakeStream{events: []openfang.StreamEvent{
+			{Type: openfang.EventToolUse, Tool: "file_write"},
+			{Type: openfang.EventToolResult, Tool: "file_write",
+				Input: []byte(`{"path":"output/a.txt","content":"a"}`)},
+			{Type: openfang.EventChunk, Content: "Done."},
+			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
+			{Type: openfang.EventPhase, Phase: "done"},
+		}},
+	}
+	service, cancel, hub := newTestService(t, store, runtime, now, comments)
+	service.SetArtifacts(sink)
+	defer cancel()
+	defer hub.Close()
+	defer closeService(t, service)
+
+	if err := service.Queue(store.dispatch.RunID); err != nil {
+		t.Fatalf("Queue() error = %v", err)
+	}
+	select {
+	case <-store.successes:
+	case failure := <-store.failures:
+		t.Fatalf("run failed on an artifact error: %#v", failure)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for success")
 	}
 }
 
@@ -310,6 +441,7 @@ func TestServiceCommentFailureDoesNotFailRun(t *testing.T) {
 	runtime := &fakeRuntime{
 		stream: &fakeStream{events: []openfang.StreamEvent{
 			{Type: openfang.EventChunk, Content: "done work"},
+			{Type: openfang.EventPhase, Phase: "done"},
 			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
 		}},
 	}
@@ -352,6 +484,7 @@ func TestServiceLeavesRunToCancelWhenCancellationIsInProgress(t *testing.T) {
 	runtime := &fakeRuntime{
 		stream: &fakeStream{events: []openfang.StreamEvent{
 			{Type: openfang.EventChunk, Content: "partial report"},
+			{Type: openfang.EventPhase, Phase: "done"},
 			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
 		}},
 	}
@@ -387,6 +520,7 @@ func TestServiceSkipsCommentWhenRunSaidNothing(t *testing.T) {
 		stream: &fakeStream{events: []openfang.StreamEvent{
 			{Type: openfang.EventToolUse, Tool: "file_write"},
 			{Type: openfang.EventToolResult, Tool: "file_write"},
+			{Type: openfang.EventPhase, Phase: "done"},
 			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
 		}},
 	}
@@ -421,6 +555,7 @@ func TestServiceBoundsSummaryButPostsWholeResult(t *testing.T) {
 	runtime := &fakeRuntime{
 		stream: &fakeStream{events: []openfang.StreamEvent{
 			{Type: openfang.EventChunk, Content: text},
+			{Type: openfang.EventPhase, Phase: "done"},
 			{Type: openfang.EventDone, Usage: openfang.Usage{InputTokens: 1, OutputTokens: 1}},
 		}},
 	}
@@ -739,6 +874,40 @@ func (comments *fakeComments) snapshot() []core.CreateCommentParams {
 	comments.mu.Lock()
 	defer comments.mu.Unlock()
 	return append([]core.CreateCommentParams(nil), comments.created...)
+}
+
+// fakeArtifacts records what a run tried to attach and can refuse it.
+type fakeArtifacts struct {
+	mu    sync.Mutex
+	err   error
+	files []capturedFile
+}
+
+type capturedFile struct {
+	run     uuid.UUID
+	name    string
+	content []byte
+}
+
+func (sink *fakeArtifacts) PromoteContent(
+	_ context.Context,
+	run artifacts.RunContext,
+	name string,
+	content []byte,
+) error {
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if sink.err != nil {
+		return sink.err
+	}
+	sink.files = append(sink.files, capturedFile{run: run.RunID, name: name, content: append([]byte(nil), content...)})
+	return nil
+}
+
+func (sink *fakeArtifacts) snapshot() []capturedFile {
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	return append([]capturedFile(nil), sink.files...)
 }
 
 type providerEvent struct {

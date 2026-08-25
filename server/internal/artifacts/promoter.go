@@ -9,6 +9,7 @@
 package artifacts
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -85,6 +86,91 @@ type Promoter struct {
 func (promoter *Promoter) Enabled() bool {
 	return promoter != nil && strings.TrimSpace(promoter.Root) != "" &&
 		promoter.Store != nil && promoter.Storage != nil
+}
+
+// ContentEnabled reports whether in-memory content can be promoted. Unlike
+// Enabled it needs no runtime volume: the bytes arrive on the stream.
+func (promoter *Promoter) ContentEnabled() bool {
+	return promoter != nil && promoter.Store != nil && promoter.Storage != nil
+}
+
+// PromoteContent publishes bytes captured from the run's stream as one
+// artifact, named as the post-run sweep would name the same file so the
+// sweep's existing-name check keeps it from being attached twice.
+//
+// The runtime writes a file_write's content to the agent's workspace, but a
+// truncated call or a runtime that drops the write leaves nothing on disk
+// (PLATFORM-5, 2026-08-25). The stream still carried the bytes, and this is
+// how they reach the issue anyway.
+func (promoter *Promoter) PromoteContent(
+	ctx context.Context,
+	run RunContext,
+	name string,
+	content []byte,
+) error {
+	if !promoter.ContentEnabled() {
+		return errors.New("artifacts: content promotion is not configured")
+	}
+	if run.RunID == uuid.Nil {
+		return errors.New("artifacts: run id is required")
+	}
+	cleaned, err := artifactName(name)
+	if err != nil {
+		return err
+	}
+	if len(content) == 0 {
+		return fmt.Errorf("artifacts: %s is empty", cleaned)
+	}
+	if promoter.MaxBytes > 0 && int64(len(content)) > promoter.MaxBytes {
+		return fmt.Errorf("artifacts: %s exceeds the artifact size limit", cleaned)
+	}
+	checksum := sha256.Sum256(content)
+	artifact, err := promoter.ReserveRunArtifact(ctx, collaboration.ReserveRunArtifactParams{
+		ID:             promoter.newID(),
+		RunID:          run.RunID,
+		FileName:       cleaned,
+		ContentType:    contentTypeFor(cleaned),
+		SizeBytes:      int64(len(content)),
+		ChecksumSHA256: checksum,
+		CreatedAt:      promoter.now(),
+	})
+	if err != nil {
+		return fmt.Errorf("reserve %s: %w", cleaned, err)
+	}
+	if _, err := promoter.Storage.Put(ctx, artifact.StorageKey, bytes.NewReader(content)); err != nil {
+		if abortErr := promoter.AbortRunArtifact(ctx, run.RunID, artifact.ID); abortErr != nil {
+			promoter.logger().Warn("could not abort a failed artifact reservation",
+				"runId", run.RunID, "attachmentId", artifact.ID, "error", abortErr)
+		}
+		return fmt.Errorf("store %s: %w", cleaned, err)
+	}
+	if _, _, err := promoter.ActivateRunArtifact(
+		ctx, run.RunID, artifact.ID, promoter.newID(), promoter.now(),
+	); err != nil {
+		return fmt.Errorf("activate %s: %w", cleaned, err)
+	}
+	return nil
+}
+
+// artifactName accepts the relative path a file has under output/ and refuses
+// anything that could escape it or hide inside it. Nested paths keep their
+// slashes: they are the file's identity, not a location on this filesystem.
+func artifactName(name string) (string, error) {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" || strings.HasPrefix(trimmed, "/") || strings.Contains(trimmed, "\\") {
+		return "", errors.New("artifacts: file name must be a relative path")
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(trimmed))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") ||
+		strings.Contains(cleaned, "/../") {
+		return "", errors.New("artifacts: file name must stay inside output/")
+	}
+	for _, part := range strings.Split(cleaned, "/") {
+		if strings.HasPrefix(part, ".") {
+			return "", errors.New("artifacts: hidden files are not deliverables")
+		}
+	}
+	return cleaned, nil
 }
 
 // Result summarises one promotion, for logging and tests.

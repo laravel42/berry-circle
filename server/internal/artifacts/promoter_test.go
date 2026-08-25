@@ -579,3 +579,63 @@ func TestOutputWillNotWalkOutOfTheWorkspaceThroughASymlinkedDirectory(t *testing
 		}
 	}
 }
+
+func TestPromoteContentAttachesStreamedBytesWithoutARuntimeVolume(t *testing.T) {
+	store := &fakeStore{}
+	backend := newFakeStorage()
+	promoter := newPromoter("", store, backend)
+	if promoter.Enabled() {
+		t.Fatal("Enabled() = true without a runtime root")
+	}
+	if !promoter.ContentEnabled() {
+		t.Fatal("ContentEnabled() = false with a store and storage")
+	}
+	run := runContext("researcher")
+	content := []byte("# Report\n\nfourteen verified channels")
+	if err := promoter.PromoteContent(context.Background(), run, "../report.md", content); err == nil {
+		t.Fatal("PromoteContent() accepted a path that escapes output/")
+	}
+	if err := promoter.PromoteContent(context.Background(), run, ".hidden/report.md", content); err == nil {
+		t.Fatal("PromoteContent() accepted a hidden path")
+	}
+	if err := promoter.PromoteContent(context.Background(), run, "notes/report.md", content); err != nil {
+		t.Fatalf("PromoteContent() error = %v", err)
+	}
+	if len(store.reserved) != 1 || store.reserved[0].FileName != "notes/report.md" ||
+		store.reserved[0].RunID != run.RunID || store.reserved[0].SizeBytes != int64(len(content)) ||
+		store.reserved[0].ContentType != contentTypeFor("report.md") {
+		t.Fatalf("reserved = %#v", store.reserved)
+	}
+	if len(store.activated) != 1 || len(store.aborted) != 0 {
+		t.Fatalf("activated = %v aborted = %v, want one activation", store.activated, store.aborted)
+	}
+	if len(backend.objects) != 1 {
+		t.Fatalf("objects = %d, want the content stored once", len(backend.objects))
+	}
+	for _, stored := range backend.objects {
+		if string(stored) != string(content) {
+			t.Fatalf("stored bytes = %q", stored)
+		}
+	}
+	if err := promoter.PromoteContent(context.Background(), run, "empty.md", nil); err == nil {
+		t.Fatal("PromoteContent() accepted empty content")
+	}
+	big := make([]byte, promoter.MaxBytes+1)
+	if err := promoter.PromoteContent(context.Background(), run, "big.bin", big); err == nil {
+		t.Fatal("PromoteContent() accepted content over MaxBytes")
+	}
+}
+
+func TestPromoteContentAbortsTheReservationWhenStorageFails(t *testing.T) {
+	store := &fakeStore{}
+	backend := newFakeStorage()
+	backend.putErr = errors.New("bucket unavailable")
+	promoter := newPromoter("", store, backend)
+	err := promoter.PromoteContent(context.Background(), runContext("researcher"), "report.md", []byte("x"))
+	if err == nil {
+		t.Fatal("PromoteContent() succeeded with failing storage")
+	}
+	if len(store.reserved) != 1 || len(store.aborted) != 1 || len(store.activated) != 0 {
+		t.Fatalf("reserved=%d aborted=%d activated=%d, want the reservation aborted", len(store.reserved), len(store.aborted), len(store.activated))
+	}
+}

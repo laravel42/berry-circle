@@ -221,3 +221,31 @@ func testMessageStream(body string, maxTotal int64, maxEvent int) *MessageStream
 		maxEvent,
 	)
 }
+
+func TestMessageStreamDropsOversizedToolInputWithoutFailing(t *testing.T) {
+	big := strings.Repeat("x", maxToolInputBytes+1)
+	body := strings.Join([]string{
+		"event: tool_use\ndata: {\"tool\":\"file_write\"}\n\n",
+		"event: tool_result\ndata: {\"tool\":\"file_write\",\"input\":{\"path\":\"output/big.md\",\"content\":\"" + big + "\"}}\n\n",
+		"event: done\ndata: {\"done\":true,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}\n\n",
+		"event: phase\ndata: {\"phase\":\"done\",\"detail\":null}\n\n",
+	}, "")
+	stream := testMessageStream(body, 16*1024*1024, (4*1024+64)*1024)
+	defer stream.Close()
+
+	var got []StreamEvent
+	for {
+		event, err := stream.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Next() error = %v, want the oversized input dropped rather than a failed stream", err)
+		}
+		got = append(got, event)
+	}
+	if len(got) != 4 || got[1].Type != EventToolResult || got[1].Tool != "file_write" ||
+		!got[1].InputDropped || got[1].Input != nil {
+		t.Fatalf("events = %#v, want the tool_result kept with its input dropped", got)
+	}
+}
