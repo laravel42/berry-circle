@@ -6,11 +6,14 @@ import { Status } from '@/data/status';
 import { User } from '@/data/users';
 import {
    assigneeToApi,
+   describePatchFailure,
+   type IssuePatchBody,
    patchBoardIssue,
    rankFromSortOrder,
    sortOrderBetween,
 } from '@/lib/issues';
 import { apiPriorityFromUi, apiStatusFromUi } from '@/lib/catalog';
+import { toast } from 'sonner';
 import { create } from 'zustand';
 
 interface FilterOptions {
@@ -73,6 +76,30 @@ interface IssuesState {
 
    // Utility functions
    getIssueById: (id: string) => Issue | undefined;
+}
+
+/**
+ * Optimistic write: apply locally, send the patch, and on refusal put the
+ * previous values back and say why. The revert matters as much as the toast —
+ * a card left showing a status the server rejected is a lie until refresh.
+ */
+function commitPatch(
+   get: () => IssuesState,
+   issueId: string,
+   optimistic: Partial<Issue>,
+   patch: IssuePatchBody
+): void {
+   const current = get().getIssueById(issueId);
+   if (!current) return;
+   const previous: Partial<Issue> = {};
+   for (const key of Object.keys(optimistic) as (keyof Issue)[]) {
+      Object.assign(previous, { [key]: current[key] });
+   }
+   get().updateIssue(issueId, optimistic);
+   void patchBoardIssue(issueId, patch).catch((error: unknown) => {
+      get().updateIssue(issueId, previous);
+      toast.error(describePatchFailure(error));
+   });
 }
 
 export const useIssuesStore = create<IssuesState>((set, get) => ({
@@ -228,8 +255,7 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
 
    // Status management
    updateIssueStatus: (issueId: string, newStatus: Status) => {
-      get().updateIssue(issueId, { status: newStatus });
-      void patchBoardIssue(issueId, { status: apiStatusFromUi(newStatus.id) });
+      commitPatch(get, issueId, { status: newStatus }, { status: apiStatusFromUi(newStatus.id) });
    },
 
    moveIssue: (issueId, { targetStatus, insertBeforeId }) => {
@@ -264,34 +290,40 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
       const newRank = rankFromSortOrder(newSortOrder);
       const statusChanged = status.id !== issue.status.id;
 
-      get().updateIssue(issueId, {
-         rank: newRank,
-         sortOrder: newSortOrder,
-         ...(statusChanged ? { status } : {}),
-      });
-
       const patch: { sortOrder: number; status?: string } = { sortOrder: newSortOrder };
       if (statusChanged) {
          patch.status = apiStatusFromUi(status.id);
       }
-      void patchBoardIssue(issueId, patch);
+      commitPatch(
+         get,
+         issueId,
+         { rank: newRank, sortOrder: newSortOrder, ...(statusChanged ? { status } : {}) },
+         patch
+      );
    },
 
    // Priority management
    updateIssuePriority: (issueId: string, newPriority: Priority) => {
-      get().updateIssue(issueId, { priority: newPriority });
-      void patchBoardIssue(issueId, { priority: apiPriorityFromUi(newPriority.id) });
+      commitPatch(
+         get,
+         issueId,
+         { priority: newPriority },
+         { priority: apiPriorityFromUi(newPriority.id) }
+      );
    },
 
    // Assignee management
    updateIssueAssignee: (issueId: string, newAssignee: User | null) => {
-      get().updateIssue(issueId, { assignee: newAssignee });
-      void patchBoardIssue(issueId, { assignee: assigneeToApi(newAssignee) });
+      commitPatch(
+         get,
+         issueId,
+         { assignee: newAssignee },
+         { assignee: assigneeToApi(newAssignee) }
+      );
    },
 
    updateIssueDescription: (issueId: string, description: string) => {
-      get().updateIssue(issueId, { description });
-      void patchBoardIssue(issueId, { description: description || null });
+      commitPatch(get, issueId, { description }, { description: description || null });
    },
 
    // Labels management

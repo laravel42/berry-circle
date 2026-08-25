@@ -6,7 +6,7 @@ import { currentUser } from '@/data/users';
 import { useProjectsStore } from '@/store/projects-store';
 import { Box } from 'lucide-react';
 import { z } from 'zod';
-import { apiFetch } from './api';
+import { apiFetch, BerryApiError } from './api';
 import { actorRefSchema, connectionSchema, newIdempotencyKey } from './api-schemas';
 import type { User } from '@/data/users';
 import {
@@ -89,15 +89,35 @@ export type IssuePatchBody = {
    assignee?: { type: 'user' | 'agent'; id: string } | null;
 };
 
+/**
+ * Rejects on failure so an optimistic update can be reverted. It used to
+ * swallow errors, which left a card showing a status the server had refused
+ * (a 409 on an illegal transition) until the next refresh.
+ */
 export async function patchBoardIssue(issueId: string, patch: IssuePatchBody): Promise<void> {
-   try {
-      await apiFetch(`/api/v1/issues/${issueId}`, {
-         method: 'PATCH',
-         body: JSON.stringify(patch),
-      });
-   } catch {
-      // Optimistic updates; failed PATCH leaves local state until refresh.
+   await apiFetch(`/api/v1/issues/${issueId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+   });
+}
+
+/**
+ * Human wording for a refused patch. The transition error carries the wire
+ * statuses it refused, which read better as the board's own labels.
+ */
+export function describePatchFailure(error: unknown): string {
+   if (error instanceof BerryApiError) {
+      if (error.code === 'INVALID_STATE_TRANSITION') {
+         const details = error.details as { from?: string; to?: string } | null;
+         if (details?.from && details?.to) {
+            const from = uiStatusFromApi(details.from)?.name ?? details.from;
+            const to = uiStatusFromApi(details.to)?.name ?? details.to;
+            return `Can't move from ${from} to ${to}.`;
+         }
+      }
+      return error.message;
    }
+   return 'The change could not be saved.';
 }
 
 export async function getBoardIssue(issueRef: string): Promise<Issue | undefined> {
