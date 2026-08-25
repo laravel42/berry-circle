@@ -21,7 +21,7 @@ const AGENT_FEATURES = [
    {
       icon: <RefreshCcw className="size-4" />,
       title: 'Loops',
-      description: 'Automated agent workflows that run on a schedule or when an issue is updated',
+      description: 'Automated agent workflows that run on a schedule or when a task is updated',
    },
    {
       icon: <Sparkles className="size-4" />,
@@ -33,7 +33,7 @@ const AGENT_FEATURES = [
       icon: <Radar className="size-4" />,
       title: 'Triage Intelligence',
       description:
-         'Find related issues and infer properties like team, project, labels, and assignee',
+         'Find related tasks and infer properties like team, project, labels, and assignee',
    },
 ];
 
@@ -56,7 +56,7 @@ export default function AiAgents() {
 
          <SettingsSection
             title="Berry Agent"
-            description="Create issues and answer questions about your workspace"
+            description="Create tasks and answer questions about your workspace"
          >
             <SettingsCard>
                {AGENT_FEATURES.map((feature) => (
@@ -97,7 +97,7 @@ export default function AiAgents() {
                <SettingsRow
                   icon={<RiSlackFill className="size-4" />}
                   title="Slack"
-                  description="Settings and additional guidance for creating issues from Slack messages"
+                  description="Settings and additional guidance for creating tasks from Slack messages"
                   trailing={<span>Enabled</span>}
                   chevron
                   onClick={() => {}}
@@ -105,7 +105,7 @@ export default function AiAgents() {
                <SettingsRow
                   icon={<MessageCircleQuestion className="size-4" />}
                   title="Asks for Slack"
-                  description="Settings and issue templates for creating issues from Asks for Slack"
+                  description="Settings and task templates for creating tasks from Asks for Slack"
                   trailing={<span>Enabled</span>}
                   chevron
                   onClick={() => {}}

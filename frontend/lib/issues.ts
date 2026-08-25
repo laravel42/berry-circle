@@ -241,11 +241,11 @@ export async function createBoardIssue(input: {
    });
    const parsed = issueSchema.safeParse(json);
    if (!parsed.success) {
-      throw new Error('Create issue response was not recognized');
+      throw new Error('Create task response was not recognized');
    }
    const issue = toUiIssue(parsed.data);
    if (!issue) {
-      throw new Error('Created issue could not be displayed');
+      throw new Error('Created task could not be displayed');
    }
    return issue;
 }

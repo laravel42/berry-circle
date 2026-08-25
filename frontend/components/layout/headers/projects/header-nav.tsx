@@ -9,7 +9,7 @@ export default function HeaderNav() {
             <div className="min-w-0">
                <span className="font-medium">Projects</span>
                <p className="mt-1 max-w-2xl text-muted-foreground">
-                  Group related issues into a shared plan with status, health, and a target
+                  Group related tasks into a shared plan with status, health, and a target
                   date.{' '}
                   <a href="" className="text-foreground underline-offset-2 hover:underline">
                      Learn more

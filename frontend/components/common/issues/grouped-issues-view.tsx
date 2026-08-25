@@ -40,13 +40,13 @@ function EmptyQueue() {
    return (
       <div className="flex min-h-64 w-full items-center justify-center px-6 py-12">
          <div className="flex max-w-sm flex-col items-center text-center">
-            <BerryMark size="lg" tone="neutral" state="hollow" label="Empty issue queue" />
+            <BerryMark size="lg" tone="neutral" state="hollow" label="Empty task queue" />
             <h2 className="mt-5 font-display tracking-[-0.025em]">Nothing queued.</h2>
             <p className="mt-2 leading-relaxed text-muted-foreground">
-               Create the first issue, then assign the whole ticket when it is ready to move.
+               Create the first task, then assign the whole ticket when it is ready to move.
             </p>
             <Button className="mt-6 h-10 px-5" onClick={() => openModal()}>
-               create issue
+               create task
             </Button>
          </div>
       </div>
@@ -234,7 +234,7 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
                   {
                      group: {
                         id: 'all',
-                        name: 'All issues',
+                        name: 'All tasks',
                         color: '#8f9299',
                         icon: <Box className="size-4 text-muted-foreground" />,
                      },

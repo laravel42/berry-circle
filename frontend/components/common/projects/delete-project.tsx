@@ -98,7 +98,7 @@ export function DeleteProjectDialog({ deletion }: { deletion: ProjectDeletion })
                <AlertDialogDescription>
                   {deletion.linkedIssues > 0
                      ? `${deletion.linkedIssues} ${
-                          deletion.linkedIssues === 1 ? 'issue stays' : 'issues stay'
+                          deletion.linkedIssues === 1 ? 'task stays' : 'tasks stay'
                        } on the board without a project. Nothing else is removed.`
                      : 'It will be removed from the projects list. Nothing else is removed.'}
                </AlertDialogDescription>

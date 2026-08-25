@@ -51,7 +51,7 @@ export const PERSONAL_ITEMS: ItemConfig[] = [
 
 export const WORKSPACE_ITEMS: ItemConfig[] = [
    { key: 'my-issues', label: 'issues', icon: FolderKanban },
-   { key: 'autopilot', label: 'autopilot', icon: RefreshCw },
+   { key: 'autopilot', label: 'automations', icon: RefreshCw },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'projects', label: 'projects', icon: Box },
 ];

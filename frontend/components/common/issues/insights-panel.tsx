@@ -89,7 +89,7 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
          <div className="flex items-center justify-between px-4 pt-4 pb-2 shrink-0">
             <div className="flex items-baseline gap-1.5">
                <span className="font-semibold">{issues.length}</span>
-               <span className="text-muted-foreground">issues</span>
+               <span className="text-muted-foreground">tasks</span>
             </div>
             <Button variant="ghost" size="icon" className="size-7" onClick={closePanel}>
                <X className="size-4" />
@@ -105,7 +105,7 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
                      <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                     <SelectItem value="issue-count">Issue count</SelectItem>
+                     <SelectItem value="issue-count">Task count</SelectItem>
                   </SelectContent>
                </Select>
             </div>
@@ -182,7 +182,7 @@ export function InsightsPanel({ issues }: InsightsPanelProps) {
                <thead className="sticky top-0 bg-container z-10">
                   <tr className="text-left text-muted-foreground">
                      <th className="font-medium px-4 py-2">Status</th>
-                     <th className="font-medium px-3 py-2 text-right">Issue count</th>
+                     <th className="font-medium px-3 py-2 text-right">Task count</th>
                      {priorities.map((priority) => {
                         const Icon = priority.icon;
                         return (

@@ -54,7 +54,7 @@ export const settingsNav: SettingsNavGroup[] = [
          { name: 'agents', url: '/settings/ai', icon: Sparkles },
          { name: 'agent personalization', url: '/settings/agent-personalization', icon: Bot },
          { name: 'code & reviews', url: '/settings/code-and-reviews', icon: Code },
-         { name: 'issue labels', url: '/settings/issue-labels', icon: Tag },
+         { name: 'task labels', url: '/settings/issue-labels', icon: Tag },
          { name: 'integrations', url: '/settings/integrations', icon: Blocks },
       ],
    },

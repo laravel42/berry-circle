@@ -18,7 +18,7 @@ function HeaderNav() {
       <div className="flex h-auto w-full flex-col gap-2 border-b px-6 py-3">
          <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-               <span className="font-medium">Issues</span>
+               <span className="font-medium">Tasks</span>
                <p className="mt-1 max-w-2xl text-muted-foreground">
                   Work starts here. Assign to a human or an agent, then track it through
                   review.{' '}

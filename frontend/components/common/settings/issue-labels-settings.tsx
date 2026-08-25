@@ -33,7 +33,7 @@ export default function IssueLabelsSettings() {
    return (
       <div className="w-full overflow-y-auto h-full">
          <div className="max-w-5xl mx-auto px-6 py-10 pb-20">
-            <h1 className="font-medium mb-6">Issue labels</h1>
+            <h1 className="font-medium mb-6">Task labels</h1>
 
             <div className="flex items-center justify-between gap-3 mb-6">
                <div className="flex items-center gap-2">
@@ -56,7 +56,7 @@ export default function IssueLabelsSettings() {
             {/* Header */}
             <div className="flex items-center px-2 py-1.5 text-muted-foreground border-b">
                <div className="flex-1 min-w-0">Name ↓</div>
-               <div className="w-[70px]">Issues</div>
+               <div className="w-[70px]">Tasks</div>
             </div>
 
             {rows.map((label) => (

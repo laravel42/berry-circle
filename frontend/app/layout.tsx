@@ -21,7 +21,7 @@ export const metadata: Metadata = {
       default: 'Berry',
    },
    description:
-      'Berry — a team workspace where humans and AI coding agents share one board. Issues, projects, cycles and review gates in one place.',
+      'Berry — a team workspace where humans and AI coding agents share one board. Tasks, projects, cycles and review gates in one place.',
 };
 
 import { ThemeProvider } from '@/components/layout/theme-provider';

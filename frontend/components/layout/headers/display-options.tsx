@@ -184,7 +184,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
 
             <div className="border-t px-3 py-3 flex flex-col gap-2.5">
                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">Completed issues</span>
+                  <span className="text-muted-foreground">Completed tasks</span>
                   <Select
                      value={completedIssues}
                      onValueChange={(v) => setCompletedIssues(v as CompletedIssuesFilter)}
@@ -201,7 +201,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
 
                <div className="flex items-center justify-between">
                   <Label htmlFor="show-sub-issues" className="text-muted-foreground font-normal">
-                     Show sub-issues
+                     Show sub-tasks
                   </Label>
                   <Switch
                      id="show-sub-issues"

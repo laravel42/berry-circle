@@ -43,7 +43,7 @@ export default function Notifications() {
                         htmlFor="team-issue-added"
                         className="text-muted-foreground cursor-pointer flex-1"
                      >
-                        An issue is added to the team
+                        A task is added to the team
                      </label>
                      <Checkbox
                         id="team-issue-added"
@@ -57,7 +57,7 @@ export default function Notifications() {
                         htmlFor="issue-completed"
                         className="text-muted-foreground cursor-pointer flex-1"
                      >
-                        An issue is marked completed or canceled
+                        A task is marked completed or canceled
                      </label>
                      <Checkbox
                         id="issue-completed"
@@ -71,7 +71,7 @@ export default function Notifications() {
                         htmlFor="issue-triage"
                         className="text-muted-foreground cursor-pointer flex-1"
                      >
-                        An issue is added to the triage queue
+                        A task is added to the triage queue
                      </label>
                      <Checkbox
                         id="issue-triage"

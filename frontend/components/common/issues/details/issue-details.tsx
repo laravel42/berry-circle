@@ -49,13 +49,13 @@ export default function IssueDetails() {
    if (!issue) {
       return (
          <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <BerryMark size="lg" tone="neutral" state="crossed" label="Issue unavailable" />
-            <h1 className="mt-5 font-display tracking-[-0.025em]">Issue unavailable.</h1>
+            <BerryMark size="lg" tone="neutral" state="crossed" label="Task unavailable" />
+            <h1 className="mt-5 font-display tracking-[-0.025em]">Task unavailable.</h1>
             <p className="mt-2 max-w-sm leading-relaxed text-muted-foreground">
                {issueId} is not in this workspace. Return to the queue and choose another issue.
             </p>
             <Button variant="outline" className="mt-6" asChild>
-               <Link href={`/${orgId ?? WORKSPACE_SLUG}/my-issues`}>back to issues</Link>
+               <Link href={`/${orgId ?? WORKSPACE_SLUG}/my-issues`}>back to tasks</Link>
             </Button>
          </div>
       );
@@ -141,7 +141,7 @@ export default function IssueDetails() {
                         ) : (
                            <button className="flex items-center gap-1.5 rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50">
                               <Plus className="size-4" />
-                              add sub-issues
+                              add sub-tasks
                            </button>
                         )}
                      </div>

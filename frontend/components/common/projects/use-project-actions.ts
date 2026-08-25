@@ -102,7 +102,7 @@ export function useProjectActions(projectId?: string) {
       addLink: notYetImplemented('Link added'),
       addDocument: notYetImplemented('Document added'),
       makeCopy: notYetImplemented('Project copied'),
-      createIssue: notYetImplemented('Issue created in this project'),
+      createIssue: notYetImplemented('Task created in this project'),
       remindMe: notYetImplemented('Reminder set'),
       showHistory: notYetImplemented('Project history is not available yet'),
    };

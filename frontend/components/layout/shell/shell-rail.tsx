@@ -149,8 +149,8 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                   <button
                      type="button"
                      onClick={() => openCreateIssue()}
-                     aria-label="Create issue"
-                     title="Create issue"
+                     aria-label="Create task"
+                     title="Create task"
                      className={`size-7 ${shellIconButton}`}
                   >
                      <RiEditLine className="size-4" />

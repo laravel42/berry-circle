@@ -65,7 +65,7 @@ export function useIssueDeletion(onDeleted?: () => void): IssueDeletion {
          setTarget(undefined);
          onDeleted?.();
       } catch {
-         setError('This issue could not be deleted. It may already be gone.');
+         setError('This task could not be deleted. It may already be gone.');
       } finally {
          setDeleting(false);
       }
@@ -86,7 +86,7 @@ export function DeleteIssueDialog({ deletion }: { deletion: IssueDeletion }) {
          <AlertDialogContent>
             <AlertDialogHeader>
                <AlertDialogTitle>
-                  Delete {deletion.target?.identifier ?? 'this issue'}?
+                  Delete {deletion.target?.identifier ?? 'this task'}?
                </AlertDialogTitle>
                <AlertDialogDescription>
                   It will be removed from the board. Its comments, run history and any files

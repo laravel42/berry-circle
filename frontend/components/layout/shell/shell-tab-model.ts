@@ -14,8 +14,8 @@ export interface RouteDescriptor {
 
 /** Section labels that differ from their path segment, per the prototype. */
 const SECTION_LABELS: Record<string, string> = {
-   'my-issues': 'issues',
-   issue: 'issues',
+   'my-issues': 'tasks',
+   issue: 'tasks',
    agents: 'agents',
    members: 'agents',
    runs: 'runtimes',

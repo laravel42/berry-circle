@@ -45,7 +45,7 @@ export default function AccountConnections() {
                <SettingsRow
                   icon={<NotionLogo className="size-4" />}
                   title="Notion"
-                  description="Preview issues, projects, and views within Notion"
+                  description="Preview tasks, projects, and views within Notion"
                   trailing={<ConnectTrailing />}
                />
             </SettingsCard>

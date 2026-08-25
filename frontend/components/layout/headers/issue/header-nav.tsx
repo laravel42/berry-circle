@@ -83,7 +83,7 @@ export default function HeaderNav() {
                {previousIssue ? (
                   <Link
                      href={`/${orgId}/issue/${previousIssue.identifier}`}
-                     aria-label="Previous issue"
+                     aria-label="Previous task"
                   >
                      <ChevronUp className="size-4" />
                   </Link>
@@ -99,7 +99,7 @@ export default function HeaderNav() {
                asChild={!!nextIssue}
             >
                {nextIssue ? (
-                  <Link href={`/${orgId}/issue/${nextIssue.identifier}`} aria-label="Next issue">
+                  <Link href={`/${orgId}/issue/${nextIssue.identifier}`} aria-label="Next task">
                      <ChevronDown className="size-4" />
                   </Link>
                ) : (

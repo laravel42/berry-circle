@@ -25,7 +25,7 @@ export default function ProjectsList({ groups }: { groups: ProjectGroup[] }) {
                <div className="hidden xl:block w-[110px] shrink-0 pl-2.5">Target date</div>
             )}
             {displayProperties.issues && (
-               <div className="hidden xl:block w-[60px] shrink-0 pl-2.5">Issues</div>
+               <div className="hidden xl:block w-[60px] shrink-0 pl-2.5">Tasks</div>
             )}
             {displayProperties.status && <div className="w-[90px] shrink-0 pl-2">Status</div>}
          </div>

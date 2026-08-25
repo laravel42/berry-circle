@@ -17,7 +17,7 @@ export default function Preferences() {
                <SettingsRow
                   title="Default home view"
                   description="Select which view to display when launching the app"
-                  trailing={<SelectMenu options={['Runtimes (default)', 'Inbox', 'Issues']} />}
+                  trailing={<SelectMenu options={['Runtimes (default)', 'Inbox', 'Tasks']} />}
                />
                <SettingsRow
                   title="Display names"
@@ -86,12 +86,12 @@ export default function Preferences() {
             <SettingsCard>
                <SettingsRow
                   title="Auto-assign to self"
-                  description="When creating new issues, always assign them to yourself by default"
+                  description="When creating new tasks, always assign them to yourself by default"
                   trailing={<Switch defaultChecked />}
                />
                <SettingsRow
                   title="On move to started status, assign to yourself"
-                  description="When you move an unassigned issue to started, it will be automatically assigned to you"
+                  description="When you move an unassigned task to started, it will be automatically assigned to you"
                   trailing={<Switch defaultChecked />}
                />
             </SettingsCard>

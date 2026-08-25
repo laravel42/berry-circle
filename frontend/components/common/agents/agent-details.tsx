@@ -333,7 +333,7 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                                              <div className="min-w-0 flex-1">
                                                 <p className="truncate font-medium">
                                                    {issue?.identifier ?? run.issueId.slice(0, 8)}{' '}
-                                                   {issue?.title ?? 'Untitled issue'}
+                                                   {issue?.title ?? 'Untitled task'}
                                                 </p>
                                                 <p className="capitalize text-muted-foreground">
                                                    {run.status}

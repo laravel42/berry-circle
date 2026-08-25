@@ -146,23 +146,23 @@ export default function AccountCodeReviews() {
             <SettingsCard>
                <SettingsRow
                   title="Configure coding tools"
-                  description="Configure the external coding tools you can open issues in"
+                  description="Configure the external coding tools you can open tasks in"
                   trailing={<ChevronRight className="size-4" />}
                   onClick={() => {}}
                />
                <SettingsRow
                   title="Git attachment format"
-                  description="The format of GitHub/GitLab attachments on issues"
+                  description="The format of GitHub/GitLab attachments on tasks"
                   trailing={<SelectMenu options={['Title', 'URL', 'Compact']} />}
                />
                <SettingsRow
-                  title="On git branch copy, move issue to started status"
-                  description="After copying the git branch name, issue status is moved to the team's first started workflow status. Hold ⌥ to disable."
+                  title="On git branch copy, move task to started status"
+                  description="After copying the git branch name, task status is moved to the team's first started workflow status. Hold ⌥ to disable."
                   trailing={<Switch defaultChecked />}
                />
                <SettingsRow
-                  title="On open in coding tool, move issue to started status"
-                  description="After opening an issue in a coding tool or copying as prompt, issue status is moved to the team's first started workflow status. Hold ⌥ to disable."
+                  title="On open in coding tool, move task to started status"
+                  description="After opening a task in a coding tool or copying as prompt, task status is moved to the team's first started workflow status. Hold ⌥ to disable."
                   trailing={<Switch defaultChecked />}
                />
             </SettingsCard>

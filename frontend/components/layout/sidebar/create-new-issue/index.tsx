@@ -104,13 +104,13 @@ export function CreateNewIssue() {
             assignee: addIssueForm.assignee,
             labels: addIssueForm.labels,
          });
-         toast.success('Issue created');
+         toast.success('Task created');
          if (!createMore) {
             closeModal();
          }
          setAddIssueForm(createDefaultData());
       } catch (error) {
-         toast.error(error instanceof BerryApiError ? error.message : 'Could not create issue');
+         toast.error(error instanceof BerryApiError ? error.message : 'Could not create task');
       } finally {
          setPending(false);
       }
@@ -123,7 +123,7 @@ export function CreateNewIssue() {
                className="size-8 shrink-0"
                variant="secondary"
                size="icon"
-               aria-label="Create issue"
+               aria-label="Create task"
             >
                <RiEditLine />
             </Button>
@@ -135,16 +135,16 @@ export function CreateNewIssue() {
             {/* Same header as the create-project dialog: the workspace crumb
                 says where the thing lands, the close button is the only chrome. */}
             <DialogHeader className="px-4 pt-4 pb-0">
-               <DialogTitle className="sr-only">New issue</DialogTitle>
+               <DialogTitle className="sr-only">New task</DialogTitle>
                <DialogDescription className="sr-only">
-                  Give the issue a title, set its properties, and add an optional description.
+                  Give the task a title, set its properties, and add an optional description.
                </DialogDescription>
                <div className="flex items-center justify-between gap-3">
                   <div className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                      <BerryMark size="sm" />
                      <span className="font-medium text-foreground">{WORKSPACE_NAME}</span>
                      <ChevronRight className="size-3.5 shrink-0" />
-                     <span className="truncate">New issue</span>
+                     <span className="truncate">New task</span>
                   </div>
                   <Button
                      type="button"
@@ -163,7 +163,7 @@ export function CreateNewIssue() {
                <Input
                   data-heading="h1"
                   className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:font-normal"
-                  placeholder="Issue title"
+                  placeholder="Task title"
                   value={addIssueForm.title}
                   onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}
                />
@@ -227,7 +227,7 @@ export function CreateNewIssue() {
                      void createIssue();
                   }}
                >
-                  {pending ? 'Creating…' : 'Create issue'}
+                  {pending ? 'Creating…' : 'Create task'}
                </Button>
             </div>
          </DialogContent>

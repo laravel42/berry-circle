@@ -131,7 +131,7 @@ export function useIssueActions(issueId?: string) {
 
    const toggleSubscribed = useCallback(() => {
       setIsSubscribed((previous) => {
-         toast.success(previous ? 'Unsubscribed from issue' : 'Subscribed to issue');
+         toast.success(previous ? 'Unsubscribed from task' : 'Subscribed to task');
          return !previous;
       });
    }, []);
@@ -172,10 +172,10 @@ export function useIssueActions(issueId?: string) {
       toggleFavorite,
       addLink: notYetImplemented('Link added'),
       addDocument: notYetImplemented('Document added'),
-      makeCopy: notYetImplemented('Issue copied'),
-      createRelated: notYetImplemented('Related issue created'),
+      makeCopy: notYetImplemented('Task copied'),
+      createRelated: notYetImplemented('Related task created'),
       markAs: (kind: string) => notYetImplemented(`Marked as ${kind}`)(),
-      move: notYetImplemented('Issue moved'),
+      move: notYetImplemented('Task moved'),
       remindMe: notYetImplemented('Reminder set'),
       showDescriptionHistory: notYetImplemented('Description history is not available yet'),
    };

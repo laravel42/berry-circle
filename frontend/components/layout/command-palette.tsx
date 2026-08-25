@@ -214,7 +214,7 @@ export function CommandPalette() {
                            tabIndex={-1}
                            onClick={() => setContextCleared(true)}
                            className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                           aria-label="Clear issue context"
+                           aria-label="Clear task context"
                         >
                            ⌫
                         </button>
@@ -227,7 +227,7 @@ export function CommandPalette() {
 
                   {route === 'root' && issue && (
                      <>
-                        <CommandGroup heading="Issue">
+                        <CommandGroup heading="Task">
                            <CommandItem
                               onSelect={() => {
                                  setRoute('assign');
@@ -321,19 +321,19 @@ export function CommandPalette() {
                            </CommandItem>
                         </CommandGroup>
                         <CommandGroup heading="Copy">
-                           <CommandItem onSelect={() => copy('Issue ID', issue.identifier)}>
+                           <CommandItem onSelect={() => copy('Task ID', issue.identifier)}>
                               <Clipboard className="text-muted-foreground" />
-                              Copy issue ID
+                              Copy task ID
                               <Keys keys={['⌘', '.']} />
                            </CommandItem>
-                           <CommandItem onSelect={() => copy('Issue URL', issueUrl)}>
+                           <CommandItem onSelect={() => copy('Task URL', issueUrl)}>
                               <Link2 className="text-muted-foreground" />
-                              Copy issue URL
+                              Copy task URL
                               <Keys keys={['⌘', '⇧', ',']} />
                            </CommandItem>
-                           <CommandItem onSelect={() => copy('Issue title', issue.title)}>
+                           <CommandItem onSelect={() => copy('Task title', issue.title)}>
                               <Type className="text-muted-foreground" />
-                              Copy issue title
+                              Copy task title
                               <Keys keys={['⌘', '⇧', "'"]} />
                            </CommandItem>
                            <CommandItem
@@ -352,18 +352,18 @@ export function CommandPalette() {
                               onSelect={() => copy('Description', issue.description || issue.title)}
                            >
                               <FileText className="text-muted-foreground" />
-                              Copy issue description as Markdown
+                              Copy task description as Markdown
                            </CommandItem>
                            <CommandItem
                               onSelect={() =>
                                  copy(
-                                    'Issue content',
+                                    'Task content',
                                     `# ${issue.identifier}: ${issue.title}\n\n${issue.description || ''}\n\n- Status: ${issue.status.name}\n- Priority: ${issue.priority.name}\n- Assignee: ${issue.assignee?.name ?? 'Unassigned'}`
                                  )
                               }
                            >
                               <ClipboardType className="text-muted-foreground" />
-                              Copy issue content as Markdown
+                              Copy task content as Markdown
                               <Keys keys={['⌘', '⌥', 'C']} />
                            </CommandItem>
                            <CommandItem onSelect={() => copy('Branch name', branchName)}>
@@ -375,7 +375,7 @@ export function CommandPalette() {
                               onSelect={() =>
                                  copy(
                                     'Prompt',
-                                    `Work on the following issue.\n\nIssue ${issue.identifier}: ${issue.title}\n${issue.description || ''}\nStatus: ${issue.status.name} — Priority: ${issue.priority.name}`
+                                    `Work on the following task.\n\nTask ${issue.identifier}: ${issue.title}\n${issue.description || ''}\nStatus: ${issue.status.name} — Priority: ${issue.priority.name}`
                                  )
                               }
                            >
@@ -397,7 +397,7 @@ export function CommandPalette() {
                               }}
                            >
                               <SquarePen className="text-muted-foreground" />
-                              Create new issue
+                              Create new task
                               <Keys keys={['C']} />
                            </CommandItem>
                         </CommandGroup>

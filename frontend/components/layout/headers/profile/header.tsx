@@ -87,7 +87,7 @@ function HeaderSearch() {
                ref={searchInputRef}
                value={searchQuery}
                onChange={(event) => setSearchQuery(event.target.value)}
-               placeholder="Search issues..."
+               placeholder="Search tasks..."
                className="pl-8 h-7"
                onKeyDown={(event) => {
                   if (event.key === 'Escape') {

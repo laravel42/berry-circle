@@ -15,7 +15,7 @@ import { useCallback } from 'react';
 const PROJECT_TABS = [
    { label: 'Overview', segment: 'overview' },
    { label: 'Activity', segment: 'activity' },
-   { label: 'Issues', segment: 'issues' },
+   { label: 'Tasks', segment: 'issues' },
 ];
 
 function ProjectTabs({ projectId }: { projectId: string }) {

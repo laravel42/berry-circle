@@ -9,7 +9,7 @@ export interface PlaceholderConfig {
 export const PLACEHOLDER_SECTIONS: Record<string, PlaceholderConfig> = {
    slas: {
       title: 'SLAs',
-      description: 'Automatically apply deadlines to issues based on their properties',
+      description: 'Automatically apply deadlines to tasks based on their properties',
       actionLabel: 'New SLA',
       emptyLabel: 'No SLAs',
    },
@@ -57,7 +57,7 @@ export const PLACEHOLDER_SECTIONS: Record<string, PlaceholderConfig> = {
    },
    asks: {
       title: 'Asks',
-      description: 'Turn requests into actionable issues',
+      description: 'Turn requests into actionable tasks',
       actionLabel: 'New Ask',
       emptyLabel: 'No asks',
    },

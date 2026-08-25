@@ -27,7 +27,7 @@ export function IssueDescriptionEditor({ issueId, description }: IssueDescriptio
                updateIssueDescription(issueId, markdown);
             }}
             placeholder="Add description…"
-            aria-label="Issue description"
+            aria-label="Task description"
          />
       </div>
    );

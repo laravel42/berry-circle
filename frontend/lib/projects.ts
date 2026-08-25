@@ -276,6 +276,6 @@ export async function generateProjectIssues(projectId: string): Promise<Generate
       { method: 'POST' }
    );
    const parsed = z.object({ issues: z.array(generatedIssueSchema) }).safeParse(json);
-   if (!parsed.success) throw new Error('Generated issues were not recognized');
+   if (!parsed.success) throw new Error('Generated tasks were not recognized');
    return parsed.data.issues;
 }

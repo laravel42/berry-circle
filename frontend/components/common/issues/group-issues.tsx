@@ -79,7 +79,7 @@ function GroupHeaderBar({
          className={cn(isViewTypeGrid ? 'size-5' : 'size-6')}
          size="icon"
          variant="ghost"
-         aria-label={`Create issue in ${group.name}`}
+         aria-label={`Create task in ${group.name}`}
          onClick={(event) => {
             event.stopPropagation();
             openModal(group.status);

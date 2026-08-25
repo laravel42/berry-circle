@@ -36,12 +36,12 @@ export function GenerateIssuesButton({ project }: { project: Project }) {
          }
          toast.success(
             created.length === 1
-               ? '1 issue generated'
-               : `${created.length} issues generated`
+               ? '1 task generated'
+               : `${created.length} tasks generated`
          );
       } catch (cause) {
          toast.error(
-            cause instanceof BerryApiError ? cause.message : 'Issues could not be generated.'
+            cause instanceof BerryApiError ? cause.message : 'Tasks could not be generated.'
          );
       } finally {
          setWorking(false);
@@ -61,7 +61,7 @@ export function GenerateIssuesButton({ project }: { project: Project }) {
          ) : (
             <Sparkles className="size-4" />
          )}
-         {working ? 'Generating…' : 'Generate issues'}
+         {working ? 'Generating…' : 'Generate tasks'}
       </Button>
    );
 }

@@ -73,7 +73,7 @@ export default function Inbox() {
    };
 
    const handleDeleteCompletedIssues = () => {
-      console.log('Delete notifications for completed issues');
+      console.log('Delete notifications for completed tasks');
    };
 
    const listPane = (
@@ -98,7 +98,7 @@ export default function Inbox() {
                      </DropdownMenuItem>
                      <DropdownMenuItem onClick={handleDeleteCompletedIssues}>
                         <Archive className="w-4 h-4 mr-2" />
-                        Delete notifications for completed issues
+                        Delete notifications for completed tasks
                      </DropdownMenuItem>
                   </DropdownMenuContent>
                </DropdownMenu>

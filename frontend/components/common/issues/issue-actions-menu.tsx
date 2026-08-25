@@ -58,7 +58,7 @@ export function IssueActionsMenu({
                   variant="ghost"
                   size="icon"
                   className="size-6 text-muted-foreground"
-                  aria-label="Issue actions"
+                  aria-label="Task actions"
                >
                   <MoreHorizontal className="size-4" />
                </Button>

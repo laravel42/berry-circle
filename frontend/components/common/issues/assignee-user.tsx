@@ -142,7 +142,7 @@ export function AssigneeUser({ user, issueId, placeholderForAgents = false }: As
          <DropdownMenuTrigger asChild>
             <button
                className="relative w-fit rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-               aria-label={currentAssignee ? `Assigned to ${currentAssignee.name}` : 'Assign issue'}
+               aria-label={currentAssignee ? `Assigned to ${currentAssignee.name}` : 'Assign task'}
             >
                {renderAvatar()}
                {currentAssignee && currentAssignee.role !== 'Application' ? (

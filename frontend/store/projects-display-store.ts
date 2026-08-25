@@ -27,7 +27,7 @@ export const PROJECT_DISPLAY_PROPERTIES: { key: ProjectDisplayPropertyKey; label
    { key: 'lead', label: 'Lead' },
    { key: 'members', label: 'Members' },
    { key: 'targetDate', label: 'Target date' },
-   { key: 'issues', label: 'Issues' },
+   { key: 'issues', label: 'Tasks' },
    { key: 'labels', label: 'Labels' },
 ];
 
