@@ -23,15 +23,18 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"
 
+	"github.com/laravel42/berry-circle/server/internal/artifacts"
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	collaborationrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	intakerepo "github.com/laravel42/berry-circle/server/internal/repository/intake"
 	runsrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
+	"github.com/laravel42/berry-circle/server/internal/storage"
 )
 
 func main() {
@@ -189,12 +192,57 @@ func run() int {
 		)
 		return 1
 	}
+	// Artifact promotion (ADR-0006). Both dependencies are optional: without a
+	// mounted runtime volume the promoter reports itself disabled and the
+	// activity is a no-op, which is what a deployment did before this existed.
+	var (
+		promoter     *artifacts.Promoter
+		artifactRuns orchestration.RunArtifactSource
+	)
+	if cfg.RuntimeWorkspaceRoot != "" {
+		artifactStore, err := collaborationrepo.New(pool)
+		if err != nil {
+			logger.Error("collaboration repository setup failed", "error", err)
+			return 1
+		}
+		artifactStorage, err := storage.NewWithContext(ctx, storage.Config{
+			Backend:           cfg.StorageBackend,
+			LocalRoot:         cfg.StorageLocalRoot,
+			MaxBytes:          cfg.StorageMaxBytes,
+			S3Bucket:          cfg.S3Bucket,
+			S3Region:          cfg.S3Region,
+			S3Endpoint:        cfg.S3Endpoint,
+			S3UsePathStyle:    cfg.S3UsePathStyle,
+			S3UsePathStyleSet: cfg.S3UsePathStyleSet,
+			S3AccessKeyID:     cfg.S3AccessKeyID,
+			S3SecretAccessKey: cfg.S3SecretAccessKey,
+			S3SessionToken:    cfg.S3SessionToken,
+		})
+		if err != nil {
+			logger.Error("artifact storage setup failed", "error", err)
+			return 1
+		}
+		promoter = &artifacts.Promoter{
+			Root:     cfg.RuntimeWorkspaceRoot,
+			Store:    artifactStore,
+			Storage:  artifactStorage,
+			MaxBytes: cfg.StorageMaxBytes,
+			Clock:    time.Now,
+			NewID:    uuid.New,
+			Logger:   logger,
+		}
+		artifactRuns = promotableRuns{store: runStore}
+		logger.Info("artifact promotion enabled", "root", cfg.RuntimeWorkspaceRoot)
+	}
+
 	activities, err := orchestration.NewActivities(orchestration.Activities{
-		Intake:  intakeStore,
-		Runs:    dispatcher,
-		ActorID: actorID,
-		Clock:   time.Now,
-		NewID:   uuid.New,
+		Intake:       intakeStore,
+		Runs:         dispatcher,
+		ActorID:      actorID,
+		Clock:        time.Now,
+		NewID:        uuid.New,
+		Artifacts:    promoter,
+		ArtifactRuns: artifactRuns,
 	})
 	if err != nil {
 		logger.Error("orchestration activities setup failed", "error", err)
@@ -287,4 +335,28 @@ func closeValkey(client *cache.Client) {
 	if client != nil {
 		_ = client.Close()
 	}
+}
+
+// promotableRuns adapts the run repository to the orchestration interface.
+//
+// The two describe the same row and differ only in which package owns the type,
+// which is what keeps orchestration free of a repository import.
+type promotableRuns struct {
+	store *runsrepo.Repository
+}
+
+func (adapter promotableRuns) PromotableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (orchestration.PromotableRun, error) {
+	row, err := adapter.store.PromotableRun(ctx, runID)
+	if err != nil {
+		return orchestration.PromotableRun{}, err
+	}
+	return orchestration.PromotableRun{
+		AgentSlug:   row.AgentSlug,
+		StartedAt:   row.StartedAt,
+		CompletedAt: row.CompletedAt,
+		Succeeded:   row.Succeeded,
+	}, nil
 }

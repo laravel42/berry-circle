@@ -22,7 +22,7 @@ export default function AgentLine({ agent, runCount, highlightYou = false }: Age
    return (
       <Link
          href={`/${orgId}/agents/${agent.id}`}
-         className="flex w-full items-center border-b border-muted-foreground/5 px-6 py-3 text-sm last:border-b-0 hover:bg-sidebar/50"
+         className="flex w-full items-center border-b border-muted-foreground/5 px-6 py-3 last:border-b-0 hover:bg-sidebar/50"
       >
          <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/40">
@@ -30,21 +30,21 @@ export default function AgentLine({ agent, runCount, highlightYou = false }: Age
             </span>
             <div className="min-w-0 overflow-hidden">
                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-[11px] font-medium leading-none">{agent.name}</span>
+                  <span className="truncate font-medium leading-none">{agent.name}</span>
                   {highlightYou ? (
-                     <span className="shrink-0 rounded border border-border px-1.5 py-px text-[10px] uppercase tracking-wide text-muted-foreground">
+                     <span className="shrink-0 rounded border border-border px-1.5 py-px uppercase tracking-wide text-muted-foreground">
                         You
                      </span>
                   ) : null}
                </div>
                {agent.description ? (
-                  <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{agent.description}</p>
+                  <p className="mt-0.5 line-clamp-2 text-muted-foreground">{agent.description}</p>
                ) : null}
             </div>
          </div>
 
          <div className="w-[110px] shrink-0">
-            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                <span
                   className={cn(
                      'size-1.5 rounded-full',
@@ -58,15 +58,15 @@ export default function AgentLine({ agent, runCount, highlightYou = false }: Age
             </span>
          </div>
 
-         <div className="hidden w-[100px] shrink-0 text-xs text-muted-foreground lg:block">Workspace</div>
+         <div className="hidden w-[100px] shrink-0 text-muted-foreground lg:block">Workspace</div>
 
-         <div className="hidden w-[150px] shrink-0 truncate text-xs text-muted-foreground xl:block">
+         <div className="hidden w-[150px] shrink-0 truncate text-muted-foreground xl:block">
             Berry
          </div>
 
-         <div className="hidden w-[110px] shrink-0 text-xs text-muted-foreground sm:block">{lastActive}</div>
+         <div className="hidden w-[110px] shrink-0 text-muted-foreground sm:block">{lastActive}</div>
 
-         <div className="w-[56px] shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+         <div className="w-[56px] shrink-0 text-right tabular-nums text-muted-foreground">
             {runCount}
          </div>
       </Link>

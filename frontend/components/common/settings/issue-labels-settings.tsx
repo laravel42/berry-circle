@@ -33,7 +33,7 @@ export default function IssueLabelsSettings() {
    return (
       <div className="w-full overflow-y-auto h-full">
          <div className="max-w-5xl mx-auto px-6 py-10 pb-20">
-            <h1 className="text-2xl font-medium mb-6">Issue labels</h1>
+            <h1 className="font-medium mb-6">Issue labels</h1>
 
             <div className="flex items-center justify-between gap-3 mb-6">
                <div className="flex items-center gap-2">
@@ -54,7 +54,7 @@ export default function IssueLabelsSettings() {
             </div>
 
             {/* Header */}
-            <div className="flex items-center px-2 py-1.5 text-xs text-muted-foreground border-b">
+            <div className="flex items-center px-2 py-1.5 text-muted-foreground border-b">
                <div className="flex-1 min-w-0">Name ↓</div>
                <div className="w-[70px]">Issues</div>
             </div>
@@ -62,7 +62,7 @@ export default function IssueLabelsSettings() {
             {rows.map((label) => (
                <div
                   key={label.id}
-                  className="flex items-center px-2 py-2.5 text-sm border-b border-muted-foreground/5 hover:bg-sidebar/50"
+                  className="flex items-center px-2 py-2.5 border-b border-muted-foreground/5 hover:bg-sidebar/50"
                >
                   <div className="flex-1 min-w-0 flex items-center gap-2.5">
                      <span
@@ -71,13 +71,13 @@ export default function IssueLabelsSettings() {
                      />
                      <span className="truncate">{label.name}</span>
                   </div>
-                  <div className="w-[70px] text-xs text-muted-foreground">
+                  <div className="w-[70px] text-muted-foreground">
                      {label.issues > 0 && formatCount(label.issues)}
                   </div>
                </div>
             ))}
             {rows.length === 0 && (
-               <p className="text-sm text-muted-foreground py-6">No labels match your filter.</p>
+               <p className="text-muted-foreground py-6">No labels match your filter.</p>
             )}
          </div>
       </div>

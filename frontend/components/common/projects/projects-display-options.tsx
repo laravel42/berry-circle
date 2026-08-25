@@ -48,7 +48,7 @@ const ORDERINGS: { value: ProjectsOrdering; label: string }[] = [
 function OptionRow({ label, children }: { label: React.ReactNode; children: React.ReactNode }) {
    return (
       <div className="flex items-center justify-between gap-3 min-h-8">
-         <span className="text-sm">{label}</span>
+         <span>{label}</span>
          {children}
       </div>
    );
@@ -98,7 +98,7 @@ export function ProjectsDisplayOptions() {
                         type="button"
                         onClick={() => setViewType(tab, view.value)}
                         className={cn(
-                           'flex items-center justify-center gap-1.5 h-9 rounded-full border text-sm transition-colors',
+                           'flex items-center justify-center gap-1.5 h-9 rounded-full border transition-colors',
                            viewType === view.value
                               ? 'bg-accent text-foreground border-border font-medium'
                               : 'border-border/60 text-muted-foreground hover:text-foreground hover:bg-accent/40'
@@ -124,7 +124,7 @@ export function ProjectsDisplayOptions() {
                         value={grouping}
                         onValueChange={(value) => setGrouping(value as ProjectsGrouping)}
                      >
-                        <SelectTrigger className="h-8 w-36 text-xs">
+                        <SelectTrigger className="h-8 w-36">
                            <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -148,7 +148,7 @@ export function ProjectsDisplayOptions() {
                         value={ordering}
                         onValueChange={(value) => setOrdering(value as ProjectsOrdering)}
                      >
-                        <SelectTrigger className="h-8 w-36 text-xs">
+                        <SelectTrigger className="h-8 w-36">
                            <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -169,7 +169,7 @@ export function ProjectsDisplayOptions() {
                      value={closedProjects}
                      onValueChange={(value) => setClosedProjects(value as 'all' | 'hide')}
                   >
-                     <SelectTrigger className="h-8 w-36 text-xs">
+                     <SelectTrigger className="h-8 w-36">
                         <SelectValue />
                      </SelectTrigger>
                      <SelectContent>
@@ -183,7 +183,7 @@ export function ProjectsDisplayOptions() {
 
                {/* Per-view options */}
                <div className="flex flex-col gap-1.5">
-                  <span className="text-sm font-medium">
+                  <span className="font-medium">
                      {viewType === 'timeline'
                         ? 'Timeline options'
                         : viewType === 'board'
@@ -215,7 +215,7 @@ export function ProjectsDisplayOptions() {
 
                {/* Display properties */}
                <div className="flex flex-col gap-2">
-                  <span className="text-sm text-muted-foreground">Display properties</span>
+                  <span className="text-muted-foreground">Display properties</span>
                   <div className="flex flex-wrap gap-1.5">
                      {PROJECT_DISPLAY_PROPERTIES.map((property) => {
                         const enabled = displayProperties[property.key];
@@ -225,7 +225,7 @@ export function ProjectsDisplayOptions() {
                               type="button"
                               onClick={() => toggleDisplayProperty(property.key)}
                               className={cn(
-                                 'px-2.5 h-7 rounded-full border text-xs transition-colors',
+                                 'px-2.5 h-7 rounded-full border transition-colors',
                                  enabled
                                     ? 'bg-accent text-foreground border-border'
                                     : 'border-border/60 text-muted-foreground hover:text-foreground'
@@ -243,11 +243,11 @@ export function ProjectsDisplayOptions() {
                <button
                   type="button"
                   onClick={resetDisplaySettings}
-                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  className="text-muted-foreground hover:text-foreground transition-colors"
                >
                   Reset
                </button>
-               <button className="text-sm text-indigo-500 dark:text-indigo-400 hover:underline">
+               <button className="text-indigo-500 dark:text-indigo-400 hover:underline">
                   Set default for everyone
                </button>
             </div>

@@ -79,7 +79,7 @@ export function DescriptionTextarea({
          // events; without this, selecting text moves the panel.
          onPointerDown={(event) => event.stopPropagation()}
          className={cn(
-            'field-sizing-content min-h-24 w-full resize-none bg-transparent px-0 py-1 text-sm leading-6 outline-none',
+            'field-sizing-content min-h-24 w-full resize-none bg-transparent px-0 py-1 leading-6 outline-none',
             'placeholder:text-muted-foreground',
             readOnly && 'cursor-default',
             className

@@ -32,7 +32,7 @@ export function ReviewDetail({
 
    if (!review) {
       return (
-         <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+         <div className="h-full flex items-center justify-center text-muted-foreground">
             Review not found
          </div>
       );
@@ -46,11 +46,11 @@ export function ReviewDetail({
                className="flex items-center gap-1.5 shrink-0 hover:opacity-80"
             >
                <IssueCheckIcon />
-               <span className="text-sm font-medium">{review.resolves.identifier}</span>
+               <span className="font-medium">{review.resolves.identifier}</span>
             </Link>
-            <span className="text-muted-foreground text-xs shrink-0">›</span>
+            <span className="text-muted-foreground shrink-0">›</span>
             <PrIcon status={review.status} />
-            <span className="text-sm font-medium truncate">{review.title}</span>
+            <span className="font-medium truncate">{review.title}</span>
             <DiffStat additions={review.additions} deletions={review.deletions} />
             <span className="flex-1" />
             <Star className="size-3.5 text-muted-foreground shrink-0" />
@@ -64,7 +64,7 @@ export function ReviewDetail({
                      key={tab.key}
                      href={`/${orgId}/review/${review.id}${tab.path}`}
                      className={cn(
-                        'px-2.5 py-1 rounded-md border text-xs font-medium transition-colors',
+                        'px-2.5 py-1 rounded-md border font-medium transition-colors',
                         section === tab.key
                            ? 'bg-accent border-transparent'
                            : 'text-muted-foreground hover:bg-accent/50'

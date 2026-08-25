@@ -139,15 +139,9 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
    return (
       <section className="flex flex-col gap-2">
          <div className="flex items-baseline gap-2">
-            <h3 className="text-sm font-medium text-foreground">Model</h3>
-            <p className="text-[11px] text-muted-foreground">
-               The LLM this agent runs every task on.
-            </p>
-            <span
-               className="ml-auto text-[11px] text-muted-foreground"
-               role="status"
-               aria-live="polite"
-            >
+            <h3 className="font-medium text-foreground">Model</h3>
+            <p className="text-muted-foreground">The LLM this agent runs every task on.</p>
+            <span className="ml-auto text-muted-foreground" role="status" aria-live="polite">
                {state === 'saving' ? 'Switching…' : null}
                {state === 'saved' ? 'Saved' : null}
             </span>
@@ -161,7 +155,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                   aria-expanded={open}
                   aria-label="Model"
                   disabled={state === 'saving' || models.length === 0}
-                  className="w-full justify-between border-border/70 bg-transparent px-3 py-2 text-sm font-normal"
+                  className="w-full justify-between border-border/70 bg-transparent px-3 py-2 font-normal"
                >
                   <span className="truncate">
                      {selected
@@ -200,8 +194,8 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                                        )}
                                     />
                                     <span className="flex min-w-0 flex-col">
-                                       <span className="truncate text-xs">{item.displayName}</span>
-                                       <span className="text-[11px] text-muted-foreground">
+                                       <span className="truncate">{item.displayName}</span>
+                                       <span className="text-muted-foreground">
                                           {money(item.inputCostPerM)}/{money(item.outputCostPerM)}{' '}
                                           per M · {compact(item.contextWindow)} ctx
                                           {item.supportsTools ? ' · tools' : ''}
@@ -218,7 +212,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
          </Popover>
 
          {selected ? (
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-muted-foreground">
                {selected.tier} · {compact(selected.contextWindow)} context ·{' '}
                {money(selected.inputCostPerM)} in / {money(selected.outputCostPerM)} out per million
                {selected.supportsTools ? ' · tools' : ''}
@@ -227,7 +221,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
          ) : null}
 
          {state === 'error' && message ? (
-            <p className="text-[11px] text-destructive" role="alert">
+            <p className="text-destructive" role="alert">
                {message}. The agent still runs on its previous model.
             </p>
          ) : null}

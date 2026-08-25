@@ -30,7 +30,7 @@ function ProjectTabs({ projectId }: { projectId: string }) {
                   href={href}
                   aria-current={isActive ? 'page' : undefined}
                   className={cn(
-                     'px-2.5 h-7 inline-flex items-center rounded-full border text-xs font-medium transition-colors',
+                     'px-2.5 h-7 inline-flex items-center rounded-full border font-medium transition-colors',
                      isActive
                         ? 'bg-accent text-foreground border-border'
                         : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -74,7 +74,7 @@ export default function Header({ projectId }: { projectId: string }) {
    const project = useProject(projectId);
    if (!project) {
       return (
-         <div className="w-full flex items-center border-b py-1.5 px-6 h-10 text-sm text-muted-foreground">
+         <div className="w-full flex items-center border-b py-1.5 px-6 h-10 text-muted-foreground">
             Loading project…
          </div>
       );
@@ -84,8 +84,8 @@ export default function Header({ projectId }: { projectId: string }) {
       <>
          <div className="w-full flex justify-between items-center border-b py-1.5 px-6 h-10">
             <div className="flex items-center gap-2 min-w-0">
-               <SidebarTrigger className="" />
-               <div className="flex items-center gap-1.5 text-sm min-w-0">
+               <SidebarTrigger />
+               <div className="flex items-center gap-1.5 min-w-0">
                   <Link
                      href={`/${orgId}/projects`}
                      className="text-muted-foreground hover:text-foreground transition-colors"

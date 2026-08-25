@@ -104,7 +104,7 @@ export default function Agents() {
 
    return (
       <div className="w-full">
-         <div className="sticky top-0 z-10 flex items-center border-b bg-container px-6 py-1.5 text-sm text-muted-foreground">
+         <div className="sticky top-0 z-10 flex items-center border-b bg-container px-6 py-1.5 text-muted-foreground">
             <div className="min-w-0 flex-1">Agent</div>
             <div className="w-[110px] shrink-0">Status</div>
             <div className="hidden w-[100px] shrink-0 lg:block">Access</div>
@@ -117,11 +117,11 @@ export default function Agents() {
          </div>
 
          {loading ? (
-            <div className="px-6 py-10 text-sm text-muted-foreground">Loading agents…</div>
+            <div className="px-6 py-10 text-muted-foreground">Loading agents…</div>
          ) : storedError ? (
-            <div className="px-6 py-10 text-sm text-muted-foreground">{storedError}</div>
+            <div className="px-6 py-10 text-muted-foreground">{storedError}</div>
          ) : displayed.length === 0 ? (
-            <div className="px-6 py-10 text-sm text-muted-foreground">
+            <div className="px-6 py-10 text-muted-foreground">
                {tab === 'archived'
                   ? 'No archived agents yet.'
                   : search.trim()

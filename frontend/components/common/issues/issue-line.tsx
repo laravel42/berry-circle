@@ -41,7 +41,7 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                      <PrioritySelector priority={issue.priority} issueId={issue.id} />
                   )}
                   {displayProperties.id && (
-                     <span className="mr-1 hidden w-[72px] shrink-0 truncate text-xs text-subtle-foreground sm:inline-block">
+                     <span className="mr-1 hidden w-[72px] shrink-0 truncate text-subtle-foreground sm:inline-block">
                         {issue.identifier}
                      </span>
                   )}
@@ -53,7 +53,7 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                   href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}
                   className="mr-1 ml-1 flex min-w-0 items-center justify-start rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
                >
-                  <span className="truncate text-xs font-normal">{issue.title}</span>
+                  <span className="truncate font-normal">{issue.title}</span>
                </Link>
                <div className="flex items-center justify-end gap-2 ml-auto sm:w-fit">
                   <div className="w-3 shrink-0"></div>
@@ -64,17 +64,17 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                      )}
                   </div>
                   {cycle && (
-                     <span className="text-xs text-muted-foreground border border-border rounded-md px-1.5 py-0.5 shrink-0 hidden lg:inline-block">
+                     <span className="text-muted-foreground border border-border rounded-md px-1.5 py-0.5 shrink-0 hidden lg:inline-block">
                         {cycle.name}
                      </span>
                   )}
                   {displayProperties.dueDate && issue.dueDate && (
-                     <span className="hidden shrink-0 text-xs text-status-warning sm:inline-block">
+                     <span className="hidden shrink-0 text-status-warning sm:inline-block">
                         due {format(new Date(issue.dueDate), 'MMM dd')}
                      </span>
                   )}
                   {displayProperties.created && (
-                     <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline-block">
+                     <span className="text-muted-foreground shrink-0 hidden sm:inline-block">
                         {format(new Date(issue.createdAt), 'MMM dd')}
                      </span>
                   )}

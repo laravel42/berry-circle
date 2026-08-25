@@ -192,7 +192,16 @@ func (repository *Repository) Candidates(
 		         FROM agents AS agent
 		         LEFT JOIN agent_load ON agent_load.agent_id = agent.id
 		        WHERE agent.archived_at IS NULL
-		          AND agent.status = 'available'
+		          -- Eligibility is decided by Berry's own run table, not the
+		          -- runtime's status flag. The runtime reports an agent as
+		          -- inferencing for the duration of its process, not its turn,
+		          -- and leaves the flag set after a run ends — which mapped to
+		          -- 'busy' and made every agent that had ever worked
+		          -- permanently unroutable, including one a person had
+		          -- explicitly assigned. Offline and unknown still exclude,
+		          -- because those mean the agent genuinely cannot be reached.
+		          AND agent.status IN ('available', 'busy')
+		          AND COALESCE(agent_load.active, 0) = 0
 		          AND agent.workspace_id = ready.workspace_id
 		          AND (agent.board_id IS NULL OR agent.board_id = ready.board_id)
 		          AND (

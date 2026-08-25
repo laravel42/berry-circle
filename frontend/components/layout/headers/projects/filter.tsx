@@ -39,7 +39,7 @@ export function Filter() {
                <ListFilter className="size-4" />
                <span className="hidden sm:inline ml-1">Filter</span>
                {getActiveFiltersCount() > 0 && (
-                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground text-[10px] rounded-full size-4 flex items-center justify-center">
+                  <span className="absolute -top-1 -right-1 bg-primary text-primary-foreground rounded-full size-4 flex items-center justify-center">
                      {getActiveFiltersCount()}
                   </span>
                )}
@@ -60,7 +60,7 @@ export function Filter() {
                            </span>
                            <div className="flex items-center">
                               {filters.health.length > 0 && (
-                                 <span className="text-xs text-muted-foreground mr-1">
+                                 <span className="text-muted-foreground mr-1">
                                     {filters.health.length}
                                  </span>
                               )}
@@ -77,7 +77,7 @@ export function Filter() {
                            </span>
                            <div className="flex items-center">
                               {filters.priority.length > 0 && (
-                                 <span className="text-xs text-muted-foreground mr-1">
+                                 <span className="text-muted-foreground mr-1">
                                     {filters.priority.length}
                                  </span>
                               )}

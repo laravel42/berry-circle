@@ -71,7 +71,7 @@ export function DocumentOutline({
       <div className="group absolute right-1.5 top-1/2 -translate-y-1/2 z-10 hidden md:flex items-center">
          {/* Hover panel */}
          <div className="absolute right-full mr-2 w-72 max-h-[65vh] overflow-y-auto rounded-lg border bg-container shadow-lg p-2 opacity-0 translate-x-1 pointer-events-none transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0 group-hover:pointer-events-auto">
-            <div className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium">
+            <div className="flex items-center gap-2 px-2 py-1.5 font-medium">
                <AlignLeft className="size-4 text-muted-foreground" />
                Description
             </div>
@@ -80,7 +80,7 @@ export function DocumentOutline({
                   key={item.id}
                   onClick={() => jump(item.id)}
                   className={cn(
-                     'w-full text-left px-2 py-1 rounded-md text-sm truncate transition-colors hover:bg-accent/50',
+                     'w-full text-left px-2 py-1 rounded-md truncate transition-colors hover:bg-accent/50',
                      item.level > 1 && 'pl-6',
                      activeId === item.id
                         ? 'text-foreground font-medium'

@@ -64,7 +64,7 @@ export function LeadSelector({ lead, members, onLeadChange }: LeadSelectorProps)
                                  />
                                  <AvatarFallback>{selectedUser.name.charAt(0)}</AvatarFallback>
                               </Avatar>
-                              <span className="text-xs hidden md:inline">{selectedUser.name}</span>
+                              <span className="hidden md:inline">{selectedUser.name}</span>
                            </>
                         );
                      }
@@ -89,7 +89,7 @@ export function LeadSelector({ lead, members, onLeadChange }: LeadSelectorProps)
                                     <AvatarImage src={user.avatarUrl} alt={user.name} />
                                     <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
                                  </Avatar>
-                                 <span className="text-xs">{user.name}</span>
+                                 <span>{user.name}</span>
                               </div>
                               {value === user.id && <CheckIcon size={14} className="ml-auto" />}
                            </CommandItem>

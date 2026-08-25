@@ -35,13 +35,13 @@ export default function Notifications() {
          </PopoverTrigger>
          <PopoverContent className="w-80 p-0" align="end">
             <div className="px-4 pt-3 pb-3">
-               <h3 className="text-sm font-medium mb-3">Inbox notifications</h3>
+               <h3 className="font-medium mb-3">Inbox notifications</h3>
 
                <div className="space-y-4">
                   <div className="flex items-center justify-between">
                      <label
                         htmlFor="team-issue-added"
-                        className="text-xs text-muted-foreground cursor-pointer flex-1"
+                        className="text-muted-foreground cursor-pointer flex-1"
                      >
                         An issue is added to the team
                      </label>
@@ -55,7 +55,7 @@ export default function Notifications() {
                   <div className="flex items-center justify-between">
                      <label
                         htmlFor="issue-completed"
-                        className="text-xs text-muted-foreground cursor-pointer flex-1"
+                        className="text-muted-foreground cursor-pointer flex-1"
                      >
                         An issue is marked completed or canceled
                      </label>
@@ -69,7 +69,7 @@ export default function Notifications() {
                   <div className="flex items-center justify-between">
                      <label
                         htmlFor="issue-triage"
-                        className="text-xs text-muted-foreground cursor-pointer flex-1"
+                        className="text-muted-foreground cursor-pointer flex-1"
                      >
                         An issue is added to the triage queue
                      </label>
@@ -85,7 +85,7 @@ export default function Notifications() {
             <div className="border-t py-2 px-4 flex items-center justify-between">
                <div className="flex items-center gap-2">
                   <RiSlackLine className="size-4" />
-                  <span className="text-xs font-medium">Slack notifications</span>
+                  <span className="font-medium">Slack notifications</span>
                </div>
                <Button size="xs" variant="outline">
                   Configure

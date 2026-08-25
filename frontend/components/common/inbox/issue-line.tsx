@@ -53,7 +53,7 @@ export default function IssueLine({
             <div className="relative flex-shrink-0">
                <Avatar className="size-8">
                   <AvatarImage src={notification.user.avatarUrl} alt={notification.user.name} />
-                  <AvatarFallback className="text-xs">
+                  <AvatarFallback>
                      {notification.user.name
                         .split(' ')
                         .map((n) => n[0])
@@ -74,7 +74,7 @@ export default function IssueLine({
                   {showId && (
                      <span
                         className={cn(
-                           'text-sm font-medium text-muted-foreground shrink-0',
+                           'font-medium text-muted-foreground shrink-0',
                            notification.read && 'opacity-50'
                         )}
                      >
@@ -84,7 +84,7 @@ export default function IssueLine({
 
                   <h4
                      className={cn(
-                        'text-sm font-medium text-foreground line-clamp-1 flex-grow',
+                        'font-medium text-foreground line-clamp-1 flex-grow',
                         notification.read && 'opacity-50'
                      )}
                   >
@@ -102,10 +102,8 @@ export default function IssueLine({
                      notification.read && 'opacity-50'
                   )}
                >
-                  <p className="text-sm text-muted-foreground line-clamp-1">
-                     {notification.content}
-                  </p>
-                  <span className="text-xs text-muted-foreground shrink-0">
+                  <p className="text-muted-foreground line-clamp-1">{notification.content}</p>
+                  <span className="text-muted-foreground shrink-0">
                      {relativeTime(notification.timestamp)}
                   </span>
                </div>

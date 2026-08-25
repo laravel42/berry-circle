@@ -89,7 +89,7 @@ export function InitiativeProgressPanel({ initiative }: { initiative: Initiative
 
    return (
       <div className="flex flex-col gap-3">
-         <span className="text-sm font-medium">Progress</span>
+         <span className="font-medium">Progress</span>
          <div className="h-44 -mx-2">
             <ResponsiveContainer width="100%" height="100%">
                <AreaChart data={series} margin={{ top: 4, right: 4, bottom: 0, left: 4 }}>
@@ -150,7 +150,7 @@ export function InitiativeProgressPanel({ initiative }: { initiative: Initiative
                   key={key}
                   onClick={() => setTab(key)}
                   className={cn(
-                     'px-2.5 py-1 rounded-full border text-xs font-medium transition-colors',
+                     'px-2.5 py-1 rounded-full border font-medium transition-colors',
                      tab === key
                         ? 'bg-accent border-transparent'
                         : 'text-muted-foreground hover:bg-accent/50'
@@ -162,11 +162,11 @@ export function InitiativeProgressPanel({ initiative }: { initiative: Initiative
          </div>
          <div className="flex flex-col gap-1">
             {rows.map((row) => (
-               <div key={row.key} className="flex items-center gap-2 text-sm py-1">
+               <div key={row.key} className="flex items-center gap-2 py-1">
                   {'avatarUrl' in row && row.avatarUrl ? (
                      <Avatar className="size-5">
                         <AvatarImage src={row.avatarUrl} alt={row.label} />
-                        <AvatarFallback className="text-[9px]">{row.label[0]}</AvatarFallback>
+                        <AvatarFallback>{row.label[0]}</AvatarFallback>
                      </Avatar>
                   ) : 'color' in row && row.color ? (
                      <span
@@ -174,10 +174,10 @@ export function InitiativeProgressPanel({ initiative }: { initiative: Initiative
                         style={{ backgroundColor: row.color }}
                      />
                   ) : (
-                     <span className="text-sm">{row.icon}</span>
+                     <span>{row.icon}</span>
                   )}
                   <span className="flex-1 truncate">{row.label}</span>
-                  <span className="text-muted-foreground text-xs">{row.count}</span>
+                  <span className="text-muted-foreground">{row.count}</span>
                </div>
             ))}
          </div>

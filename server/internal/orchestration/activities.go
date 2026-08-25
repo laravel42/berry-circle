@@ -40,6 +40,11 @@ type Activities struct {
 	ActorID uuid.UUID
 	Clock   func() time.Time
 	NewID   func() uuid.UUID
+	// Artifacts and ArtifactRuns publish what a run produced. Both optional:
+	// a deployment without the runtime volume mounted simply does not promote,
+	// which is what it did before ADR-0006 rather than a failure.
+	Artifacts    ArtifactPromoter
+	ArtifactRuns RunArtifactSource
 }
 
 // NewActivities validates dependencies up front so a misconfigured worker

@@ -10,19 +10,19 @@ import { DiffStat } from './review-shared';
 export function DiffView({ diff }: { diff: FileDiff }) {
    return (
       <div className="rounded-lg border overflow-hidden bg-container">
-         <div className="flex items-center gap-2 px-3 py-2 border-b bg-sidebar/50 text-sm">
+         <div className="flex items-center gap-2 px-3 py-2 border-b bg-sidebar/50">
             <FileCode2 className="size-4 text-muted-foreground shrink-0" />
             <span className="font-medium">{diff.name}</span>
-            <span className="text-xs text-muted-foreground truncate">{diff.path}/</span>
+            <span className="text-muted-foreground truncate">{diff.path}/</span>
             <span className="flex-1" />
             <DiffStat additions={diff.additions} deletions={diff.deletions} />
-            <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+            <label className="inline-flex items-center gap-1.5 text-muted-foreground cursor-pointer">
                <Checkbox className="size-3.5" />
                Reviewed
             </label>
             <MoreHorizontal className="size-4 text-muted-foreground" />
          </div>
-         <div className="font-mono text-xs leading-5 overflow-x-auto">
+         <div className="font-mono leading-5 overflow-x-auto">
             {diff.lines.map((line, index) => {
                if (line.type === 'skip') {
                   return (

@@ -84,7 +84,7 @@ export function PrioritySelector({ priority, issueId }: PrioritySelectorProps) {
                                  {item.name}
                               </div>
                               {value === item.id && <CheckIcon size={16} className="ml-auto" />}
-                              <span className="text-muted-foreground text-xs">
+                              <span className="text-muted-foreground">
                                  {filterByPriority(item.id).length}
                               </span>
                            </CommandItem>

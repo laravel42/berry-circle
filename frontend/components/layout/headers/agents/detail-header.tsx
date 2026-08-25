@@ -16,7 +16,7 @@ export default function AgentDetailHeader({ agentName }: AgentDetailHeaderProps)
    return (
       <div className="flex h-10 w-full items-center gap-2 border-b px-6 py-1.5">
          <SidebarTrigger />
-         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1 text-[11px]">
+         <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1">
             <Link
                href={`/${orgId}/agents`}
                className="text-muted-foreground transition-colors hover:text-foreground"

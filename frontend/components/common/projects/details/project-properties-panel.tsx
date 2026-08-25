@@ -62,7 +62,7 @@ function BreakdownList({
    panelFilter: ReturnType<typeof usePanelFilter>;
 }) {
    if (rows.length === 0) {
-      return <p className="text-xs text-muted-foreground px-1 py-3">Nothing to show yet.</p>;
+      return <p className="text-muted-foreground px-1 py-3">Nothing to show yet.</p>;
    }
    return (
       <div className="flex flex-col">
@@ -81,9 +81,9 @@ function BreakdownList({
                >
                   <div className="flex items-center gap-2 min-w-0">
                      {row.leading}
-                     <span className="text-sm truncate">{row.label}</span>
+                     <span className="truncate">{row.label}</span>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2 shrink-0 text-muted-foreground">
                      <CapacityRing value={row.completedPercent} color="#6771c5" />
                      <span className="whitespace-nowrap">
                         {row.completedPercent}% of {row.total}
@@ -99,8 +99,8 @@ function BreakdownList({
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
    return (
       <div className="flex items-center justify-between gap-4 min-h-7">
-         <span className="text-sm text-muted-foreground shrink-0">{label}</span>
-         <div className="flex items-center gap-1.5 text-sm min-w-0">{children}</div>
+         <span className="text-muted-foreground shrink-0">{label}</span>
+         <div className="flex items-center gap-1.5 min-w-0">{children}</div>
       </div>
    );
 }
@@ -196,7 +196,7 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
       <div className="flex flex-col h-full w-full overflow-y-auto">
          {/* Properties */}
          <div className="px-5 pt-4 pb-4 border-b">
-            <h3 className="text-sm font-medium mb-2.5">Properties</h3>
+            <h3 className="font-medium mb-2.5">Properties</h3>
             <div className="flex flex-col gap-1">
                <PropertyRow label="Status">
                   <project.status.icon />
@@ -271,7 +271,7 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
                      {project.labels.map((label) => (
                         <span
                            key={label.id}
-                           className="inline-flex items-center gap-1 text-xs border rounded-full px-2 py-0.5"
+                           className="inline-flex items-center gap-1 border rounded-full px-2 py-0.5"
                         >
                            <span
                               className="size-2 rounded-full"
@@ -291,23 +291,20 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
          {/* Milestones */}
          <div className="px-5 py-4 border-b">
             <div className="flex items-center justify-between mb-2">
-               <h3 className="text-sm font-medium">Milestones</h3>
+               <h3 className="font-medium">Milestones</h3>
                <button className="text-muted-foreground hover:text-foreground transition-colors">
                   <Plus className="size-3.5" />
                </button>
             </div>
             {detail.milestones.length === 0 ? (
-               <p className="text-xs text-muted-foreground">
+               <p className="text-muted-foreground">
                   Add milestones to organize work within your project and break it into more
                   granular stages. <span className="text-foreground/70 underline">Learn more</span>
                </p>
             ) : (
                <div className="flex flex-col gap-1.5">
                   {detail.milestones.map((milestone) => (
-                     <div
-                        key={milestone.id}
-                        className="flex items-center justify-between gap-2 text-sm"
-                     >
+                     <div key={milestone.id} className="flex items-center justify-between gap-2">
                         <span className="flex items-center gap-2 min-w-0">
                            <span
                               className={
@@ -328,7 +325,7 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
                               {milestone.name}
                            </span>
                         </span>
-                        <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        <span className="text-muted-foreground whitespace-nowrap">
                            {formatDay(milestone.targetDate)}
                         </span>
                      </div>
@@ -339,28 +336,28 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
 
          {/* Progress */}
          <div className="px-5 py-4 border-b">
-            <h3 className="text-sm font-medium mb-3">Progress</h3>
+            <h3 className="font-medium mb-3">Progress</h3>
             <div className="grid grid-cols-3 gap-2 mb-2">
                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="size-2 rounded-[2px] bg-[#8f9299]" />
                      Scope
                   </div>
-                  <span className="text-sm font-medium">{issues.length}</span>
+                  <span className="font-medium">{issues.length}</span>
                </div>
                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="size-2 rounded-[2px] bg-[#facc15]" />
                      Started
                   </div>
-                  <span className="text-sm font-medium">{started}</span>
+                  <span className="font-medium">{started}</span>
                </div>
                <div className="flex flex-col gap-0.5">
-                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
                      <span className="size-2 rounded-[2px] bg-[#6771c5]" />
                      Completed
                   </div>
-                  <span className="text-sm font-medium">{completed}</span>
+                  <span className="font-medium">{completed}</span>
                </div>
             </div>
             <div className="mb-3">
@@ -374,13 +371,13 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
             </div>
             <Tabs defaultValue="assignees">
                <TabsList className="h-8 bg-transparent gap-1 p-0">
-                  <TabsTrigger value="assignees" className="text-xs px-2.5 rounded-full">
+                  <TabsTrigger value="assignees" className="px-2.5 rounded-full">
                      Assignees
                   </TabsTrigger>
-                  <TabsTrigger value="labels" className="text-xs px-2.5 rounded-full">
+                  <TabsTrigger value="labels" className="px-2.5 rounded-full">
                      Labels
                   </TabsTrigger>
-                  <TabsTrigger value="cycles" className="text-xs px-2.5 rounded-full">
+                  <TabsTrigger value="cycles" className="px-2.5 rounded-full">
                      Cycles
                   </TabsTrigger>
                </TabsList>
@@ -399,14 +396,14 @@ export function ProjectPropertiesPanel({ project, detail, issues }: ProjectPrope
          {/* Activity */}
          <div className="px-5 py-4">
             <div className="flex items-center justify-between mb-2">
-               <h3 className="text-sm font-medium">Activity</h3>
-               <button className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+               <h3 className="font-medium">Activity</h3>
+               <button className="text-muted-foreground hover:text-foreground transition-colors">
                   See all
                </button>
             </div>
             <div className="flex flex-col gap-3">
                {detail.activity.map((event) => (
-                  <div key={event.id} className="flex items-start gap-2 text-xs">
+                  <div key={event.id} className="flex items-start gap-2">
                      <Avatar className="size-4 mt-0.5 shrink-0">
                         <AvatarImage src={event.user.avatarUrl} alt={event.user.name} />
                         <AvatarFallback>{event.user.name[0]}</AvatarFallback>

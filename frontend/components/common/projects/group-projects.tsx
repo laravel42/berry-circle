@@ -43,8 +43,8 @@ function GroupHeaderBar({ group, count }: { group: ProjectGroupDescriptor; count
       >
          <div className="flex min-w-0 items-center gap-2">
             {group.icon}
-            <span className="text-xs font-medium">{group.name}</span>
-            <span className="text-xs text-muted-foreground">{count}</span>
+            <span className="font-medium">{group.name}</span>
+            <span className="text-muted-foreground">{count}</span>
          </div>
          <Button
             className="size-5"
@@ -114,7 +114,7 @@ const ProjectGridList: FC<{ projects: Project[]; status?: Status }> = ({ project
                   transition={{ duration: 0.1 }}
                   className="pointer-events-none flex flex-1 items-center justify-center rounded-lg border border-dashed border-primary/40 bg-primary/5 p-4"
                >
-                  <p className="text-xs font-medium text-muted-foreground">Drop to move here</p>
+                  <p className="font-medium text-muted-foreground">Drop to move here</p>
                </motion.div>
             )}
          </AnimatePresence>

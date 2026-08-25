@@ -144,20 +144,20 @@ export function CreateNewIssue() {
 
             <div className="px-4 pb-0 space-y-3 w-full">
                <Input
-                  className="h-auto border-none bg-transparent px-0 text-2xl font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:font-normal placeholder:leading-4"
+                  className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:font-normal placeholder:leading-4"
                   placeholder="Issue title"
                   value={addIssueForm.title}
                   onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}
                />
 
                <MarkdownTextarea
-                  className="min-h-16 resize-none border-none bg-transparent px-0 text-[12px] text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:leading-4"
+                  className="min-h-16 resize-none border-none bg-transparent px-0 text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:!text-[12px] placeholder:leading-4"
                   placeholder="Add description..."
                   value={addIssueForm.description}
                   onChange={(description) => setAddIssueForm({ ...addIssueForm, description })}
                />
 
-               <div className="w-full flex items-center justify-start gap-1.5 flex-wrap [&_[data-slot=popover-trigger]]:text-[12px]">
+               <div className="w-full flex items-center justify-start gap-1.5 flex-wrap">
                   <StatusSelector
                      status={addIssueForm.status}
                      onChange={(newStatus) =>
@@ -198,9 +198,7 @@ export function CreateNewIssue() {
                         checked={createMore}
                         onCheckedChange={setCreateMore}
                      />
-                     <Label htmlFor="create-more" className="text-[12px]">
-                        Create more
-                     </Label>
+                     <Label htmlFor="create-more">Create more</Label>
                   </div>
                </div>
                <Button

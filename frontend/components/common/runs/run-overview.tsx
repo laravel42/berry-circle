@@ -116,7 +116,7 @@ export default function RunOverview() {
          {selectedRun ? (
             <div className="border-b bg-muted/20 px-6 py-5 sm:px-8">
                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-muted-foreground">
                      {issueById.get(selectedRun.issueId)?.identifier ?? selectedRun.issueId} ·{' '}
                      {getAgentById(selectedRun.agentId)?.name ?? 'agent'} ·{' '}
                      {streamStatus || selectedRun.status}
@@ -133,7 +133,7 @@ export default function RunOverview() {
                      </Button>
                   ) : null}
                </div>
-               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-sm leading-6">
+               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap leading-6">
                   {transcript ||
                      selectedRun.summary ||
                      selectedRun.failure?.message ||
@@ -151,7 +151,7 @@ export default function RunOverview() {
                         <th
                            key={column}
                            scope="col"
-                           className="px-6 py-2.5 text-xs font-normal text-muted-foreground sm:px-8"
+                           className="px-6 py-2.5 font-normal text-muted-foreground sm:px-8"
                         >
                            {column}
                         </th>
@@ -163,7 +163,7 @@ export default function RunOverview() {
                      <tr>
                         <td
                            colSpan={COLUMNS.length}
-                           className="px-6 py-12 text-sm leading-6 text-muted-foreground sm:px-8"
+                           className="px-6 py-12 leading-6 text-muted-foreground sm:px-8"
                         >
                            Nothing assigned.
                         </td>
@@ -177,7 +177,7 @@ export default function RunOverview() {
                               <td className="px-6 py-3 sm:px-8">
                                  <button
                                     type="button"
-                                    className="text-left text-sm hover:underline"
+                                    className="text-left hover:underline"
                                     onClick={() => {
                                        setSelectedRunId(run.id);
                                        router.replace(
@@ -191,10 +191,10 @@ export default function RunOverview() {
                                     </span>
                                  </button>
                               </td>
-                              <td className="px-6 py-3 text-sm sm:px-8">
+                              <td className="px-6 py-3 sm:px-8">
                                  {agent?.name ?? 'agent'}
                               </td>
-                              <td className="px-6 py-3 text-sm capitalize text-muted-foreground sm:px-8">
+                              <td className="px-6 py-3 capitalize text-muted-foreground sm:px-8">
                                  {isTerminalRunStatus(run.status)
                                     ? run.status
                                     : streamStatus && selectedRunId === run.id

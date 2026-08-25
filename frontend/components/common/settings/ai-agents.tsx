@@ -67,7 +67,7 @@ export default function AiAgents() {
                         <>
                            {feature.title}
                            {feature.beta && (
-                              <span className="text-[10px] font-medium uppercase tracking-wide border rounded px-1 py-px text-muted-foreground">
+                              <span className="font-medium uppercase tracking-wide border rounded px-1 py-px text-muted-foreground">
                                  Beta
                               </span>
                            )}

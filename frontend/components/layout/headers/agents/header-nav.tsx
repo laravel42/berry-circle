@@ -19,12 +19,12 @@ export default function HeaderNav() {
                <SidebarTrigger className="mt-0.5" />
                <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                     <span className="text-sm font-medium">Agents</span>
+                     <span className="font-medium">Agents</span>
                      {agents.length > 0 ? (
-                        <span className="rounded-md bg-accent px-1.5 py-1 text-xs">{agents.length}</span>
+                        <span className="rounded-md bg-accent px-1.5 py-1">{agents.length}</span>
                      ) : null}
                   </div>
-                  <p className="mt-1 max-w-2xl text-xs text-muted-foreground">
+                  <p className="mt-1 max-w-2xl text-muted-foreground">
                      AI teammates that pick up issues, comment, and update status.{' '}
                      <Link href={`/${orgId}/runs`} className="text-foreground underline-offset-2 hover:underline">
                         Learn more

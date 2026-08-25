@@ -72,7 +72,7 @@ export default function AccountCodeReviews() {
                      <div className="absolute top-2 right-2 z-10">
                         <SelectMenu options={['TypeScript', 'JavaScript', 'Python']} />
                      </div>
-                     <pre className="text-xs leading-5 font-mono overflow-x-auto py-2">
+                     <pre className="leading-5 font-mono overflow-x-auto py-2">
                         {DIFF_LINES.map((line, index) => (
                            <div
                               key={index}

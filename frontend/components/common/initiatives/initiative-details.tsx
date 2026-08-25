@@ -72,10 +72,10 @@ function ProjectsSection({ initiative }: { initiative: Initiative }) {
    return (
       <section className="flex flex-col gap-2">
          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-medium">Projects</h2>
+            <h2 className="font-medium">Projects</h2>
             <Plus className="size-4 text-muted-foreground" />
          </div>
-         <div className="flex items-center gap-2 py-1.5 text-xs text-muted-foreground border-b">
+         <div className="flex items-center gap-2 py-1.5 text-muted-foreground border-b">
             <span className="flex-1">Name</span>
             <span className="hidden sm:block w-16 shrink-0">Health</span>
             <span className="hidden sm:block w-16 shrink-0">Priority</span>
@@ -85,7 +85,7 @@ function ProjectsSection({ initiative }: { initiative: Initiative }) {
          </div>
          {groups.map((group) => (
             <div key={group.key} className="flex flex-col">
-               <div className="flex items-center gap-2 py-1.5 text-xs text-muted-foreground">
+               <div className="flex items-center gap-2 py-1.5 text-muted-foreground">
                   <ChevronDown className="size-3" />
                   {group.label}
                   <span className="flex-1 border-b border-border/60" />
@@ -94,7 +94,7 @@ function ProjectsSection({ initiative }: { initiative: Initiative }) {
                   <Link
                      key={project.id}
                      href={`/${orgId}/project/${project.id}/overview`}
-                     className="flex items-center gap-2 py-2 text-sm hover:bg-sidebar/50 rounded-md px-1 -mx-1 transition-colors"
+                     className="flex items-center gap-2 py-2 hover:bg-sidebar/50 rounded-md px-1 -mx-1 transition-colors"
                   >
                      <project.icon className="size-4 text-muted-foreground shrink-0" />
                      <span className="flex-1 truncate font-medium">{project.name}</span>
@@ -110,12 +110,10 @@ function ProjectsSection({ initiative }: { initiative: Initiative }) {
                      <span className="hidden md:block w-12 shrink-0">
                         <Avatar className="size-5">
                            <AvatarImage src={project.lead.avatarUrl} alt={project.lead.name} />
-                           <AvatarFallback className="text-[9px]">
-                              {project.lead.name[0]}
-                           </AvatarFallback>
+                           <AvatarFallback>{project.lead.name[0]}</AvatarFallback>
                         </Avatar>
                      </span>
-                     <span className="hidden md:flex items-center gap-1 w-24 shrink-0 text-xs text-muted-foreground">
+                     <span className="hidden md:flex items-center gap-1 w-24 shrink-0 text-muted-foreground">
                         {project.targetDate ? (
                            <>
                               <CalendarRange className="size-3.5" />
@@ -125,7 +123,7 @@ function ProjectsSection({ initiative }: { initiative: Initiative }) {
                            '—'
                         )}
                      </span>
-                     <span className="w-16 shrink-0 text-xs text-muted-foreground">
+                     <span className="w-16 shrink-0 text-muted-foreground">
                         {project.percentComplete}%
                      </span>
                   </Link>
@@ -140,8 +138,8 @@ function ProjectsSection({ initiative }: { initiative: Initiative }) {
 
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
    return (
-      <div className="flex items-center gap-2 text-sm">
-         <span className="w-24 text-muted-foreground text-xs shrink-0">{label}</span>
+      <div className="flex items-center gap-2">
+         <span className="w-24 text-muted-foreground shrink-0">{label}</span>
          {children}
       </div>
    );
@@ -155,18 +153,18 @@ function Overview({ initiative }: { initiative: Initiative }) {
       <div className="w-full h-full flex overflow-hidden">
          <div className="flex-1 min-w-0 overflow-y-auto">
             <div className="max-w-3xl mx-auto px-8 py-10 flex flex-col gap-6">
-               <span className="inline-flex size-10 items-center justify-center rounded-md bg-muted/50 text-2xl">
+               <span className="inline-flex size-10 items-center justify-center rounded-md bg-muted/50">
                   {initiative.icon}
                </span>
                <div className="flex flex-col gap-2">
-                  <h1 className="text-2xl font-semibold">{initiative.name}</h1>
-                  <p className="text-sm text-muted-foreground">
+                  <h1 className="font-semibold">{initiative.name}</h1>
+                  <p className="text-muted-foreground">
                      {initiative.description ?? 'Add a short summary…'}
                   </p>
                </div>
 
-               <div className="flex items-center gap-3 flex-wrap text-sm">
-                  <span className="text-muted-foreground text-xs w-24">Properties</span>
+               <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-muted-foreground w-24">Properties</span>
                   <span className="inline-flex items-center gap-1.5">
                      <InitiativeStatusIcon status={initiative.status} />
                      {INITIATIVE_STATUS_META[initiative.status].label}
@@ -182,9 +180,7 @@ function Overview({ initiative }: { initiative: Initiative }) {
                               src={initiative.owner.avatarUrl}
                               alt={initiative.owner.name}
                            />
-                           <AvatarFallback className="text-[8px]">
-                              {initiative.owner.name[0]}
-                           </AvatarFallback>
+                           <AvatarFallback>{initiative.owner.name[0]}</AvatarFallback>
                         </Avatar>
                         {initiative.owner.name}
                      </span>
@@ -201,22 +197,22 @@ function Overview({ initiative }: { initiative: Initiative }) {
                   )}
                </div>
 
-               <div className="flex items-center gap-3 text-sm">
-                  <span className="text-muted-foreground text-xs w-24">Resources</span>
+               <div className="flex items-center gap-3">
+                  <span className="text-muted-foreground w-24">Resources</span>
                   <button className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
                      <Plus className="size-4" />
                      Add document or link…
                   </button>
                </div>
 
-               <button className="flex items-center justify-center gap-2 rounded-lg border py-4 text-sm text-muted-foreground hover:bg-accent/40 transition-colors">
+               <button className="flex items-center justify-center gap-2 rounded-lg border py-4 text-muted-foreground hover:bg-accent/40 transition-colors">
                   <FilePenLine className="size-4" />
                   Write first initiative update
                </button>
 
                <div className="flex flex-col gap-2">
-                  <h2 className="text-sm font-medium">Description</h2>
-                  <p className="text-sm text-muted-foreground">
+                  <h2 className="font-medium">Description</h2>
+                  <p className="text-muted-foreground">
                      {initiative.description ?? 'Add description…'}
                   </p>
                </div>
@@ -227,7 +223,7 @@ function Overview({ initiative }: { initiative: Initiative }) {
 
          <aside className="hidden lg:flex flex-col w-80 shrink-0 border-l h-full overflow-y-auto p-5 gap-6 bg-container">
             <div className="flex flex-col gap-3">
-               <span className="text-sm font-medium">Properties</span>
+               <span className="font-medium">Properties</span>
                <PropertyRow label="Status">
                   <span className="inline-flex items-center gap-1.5">
                      <InitiativeStatusIcon status={initiative.status} />
@@ -248,9 +244,7 @@ function Overview({ initiative }: { initiative: Initiative }) {
                               src={initiative.owner.avatarUrl}
                               alt={initiative.owner.name}
                            />
-                           <AvatarFallback className="text-[8px]">
-                              {initiative.owner.name[0]}
-                           </AvatarFallback>
+                           <AvatarFallback>{initiative.owner.name[0]}</AvatarFallback>
                         </Avatar>
                         {initiative.owner.name}
                      </span>
@@ -272,7 +266,7 @@ function Overview({ initiative }: { initiative: Initiative }) {
                   </span>
                </PropertyRow>
                <PropertyRow label="Projects">
-                  <span className="text-muted-foreground text-xs">
+                  <span className="text-muted-foreground">
                      {completed} / {total} completed
                   </span>
                </PropertyRow>
@@ -282,12 +276,12 @@ function Overview({ initiative }: { initiative: Initiative }) {
 
             <div className="flex flex-col gap-3">
                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Activity</span>
-                  <button className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <span className="font-medium">Activity</span>
+                  <button className="text-muted-foreground hover:text-foreground transition-colors">
                      See all
                   </button>
                </div>
-               <div className="flex flex-col gap-2 text-xs text-muted-foreground">
+               <div className="flex flex-col gap-2 text-muted-foreground">
                   <span className="flex items-start gap-2">
                      <FilePenLine className="size-3.5 mt-px shrink-0" />
                      {initiative.owner?.name ?? 'someone'} renamed the initiative ·{' '}
@@ -324,16 +318,13 @@ function Activity({ initiative }: { initiative: Initiative }) {
    ];
    return (
       <div className="max-w-2xl mx-auto px-8 py-10 flex flex-col gap-4 w-full">
-         <h2 className="text-lg font-medium">Activity</h2>
+         <h2 className="font-medium">Activity</h2>
          <div className="flex flex-col">
             {events.map((event, index) => (
-               <div
-                  key={index}
-                  className="flex items-center gap-3 py-3 border-b border-border/50 text-sm"
-               >
+               <div key={index} className="flex items-center gap-3 py-3 border-b border-border/50">
                   <FileText className="size-4 text-muted-foreground shrink-0" />
                   <span className="flex-1">{event.label}</span>
-                  <span className="text-xs text-muted-foreground">{event.date}</span>
+                  <span className="text-muted-foreground">{event.date}</span>
                </div>
             ))}
          </div>
@@ -362,7 +353,7 @@ export default function InitiativeDetails({ initiativeId }: { initiativeId: stri
 
    if (!initiative) {
       return (
-         <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+         <div className="w-full h-full flex items-center justify-center text-muted-foreground">
             Initiative not found
          </div>
       );

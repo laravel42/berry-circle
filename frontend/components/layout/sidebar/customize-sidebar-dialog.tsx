@@ -67,7 +67,7 @@ function VisibilityDropdown({
 }) {
    return (
       <DropdownMenu>
-         <DropdownMenuTrigger className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors outline-none">
+         <DropdownMenuTrigger className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors outline-none">
             {VISIBILITY_LABELS[value]}
             <ChevronDown className="size-3.5" />
          </DropdownMenuTrigger>
@@ -159,12 +159,7 @@ function ItemSection({ section, items }: { section: SidebarSection; items: ItemC
                         current === 'never' && 'text-muted-foreground/50'
                      )}
                   />
-                  <span
-                     className={cn(
-                        'flex-1 text-sm',
-                        current === 'never' && 'text-muted-foreground/60'
-                     )}
-                  >
+                  <span className={cn('flex-1', current === 'never' && 'text-muted-foreground/60')}>
                      {item.label}
                   </span>
                   <VisibilityDropdown
@@ -193,15 +188,15 @@ export function CustomizeSidebarDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
          <DialogContent className="sm:max-w-md p-0 gap-0">
             <DialogHeader className="px-5 pt-5 pb-3">
-               <DialogTitle className="text-base">Customize sidebar</DialogTitle>
+               <DialogTitle>Customize sidebar</DialogTitle>
             </DialogHeader>
             <div className="px-5 pb-5 flex flex-col gap-5 overflow-y-auto max-h-[70vh]">
                <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-                  <span className="text-sm">Default badge style</span>
+                  <span>Default badge style</span>
                   <DropdownMenu>
-                     <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors outline-none">
+                     <DropdownMenuTrigger className="inline-flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors outline-none">
                         {badgeStyle === 'count' ? (
-                           <span className="text-xs bg-accent rounded px-1">1</span>
+                           <span className="bg-accent rounded px-1">1</span>
                         ) : (
                            <span className="size-1.5 rounded-full bg-muted-foreground inline-block" />
                         )}
@@ -220,12 +215,12 @@ export function CustomizeSidebarDialog({
                </div>
 
                <div className="flex flex-col gap-2">
-                  <span className="text-sm font-medium">Personal</span>
+                  <span className="font-medium">Personal</span>
                   <ItemSection section="personal" items={PERSONAL_ITEMS} />
                </div>
 
                <div className="flex flex-col gap-2">
-                  <span className="text-sm font-medium">Workspace</span>
+                  <span className="font-medium">Workspace</span>
                   <ItemSection section="workspace" items={WORKSPACE_ITEMS} />
                </div>
             </div>

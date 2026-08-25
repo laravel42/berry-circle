@@ -202,7 +202,7 @@ export default function Projects() {
                         type="button"
                         onClick={() => void setTab(item.value === 'all' ? null : item.value)}
                         className={cn(
-                           'px-2.5 h-7 inline-flex items-center rounded-full border text-xs font-medium transition-colors',
+                           'px-2.5 h-7 inline-flex items-center rounded-full border font-medium transition-colors',
                            isActive
                               ? 'bg-accent text-foreground border-border'
                               : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50'
@@ -237,7 +237,7 @@ export default function Projects() {
                      showEmptyGroups={showEmptyGroups}
                   />
                ) : displayed.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  <div className="flex h-full items-center justify-center text-muted-foreground">
                      No projects match these filters.
                   </div>
                ) : (

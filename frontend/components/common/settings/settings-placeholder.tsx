@@ -57,9 +57,9 @@ export default function SettingsPlaceholder({ config }: { config: PlaceholderCon
    return (
       <div className="w-full overflow-y-auto h-full">
          <div className="max-w-4xl mx-auto px-6 py-10">
-            <h1 className="text-2xl font-medium">{config.title}</h1>
+            <h1 className="font-medium">{config.title}</h1>
             {config.description && (
-               <p className="text-sm text-muted-foreground mt-1">{config.description}</p>
+               <p className="text-muted-foreground mt-1">{config.description}</p>
             )}
 
             <div className="flex items-center justify-between gap-3 mt-6">
@@ -69,7 +69,7 @@ export default function SettingsPlaceholder({ config }: { config: PlaceholderCon
 
             <div className="flex flex-col items-center justify-center gap-5 py-32">
                <DashedSmiley />
-               <p className="text-sm text-muted-foreground">{config.emptyLabel}</p>
+               <p className="text-muted-foreground">{config.emptyLabel}</p>
             </div>
          </div>
       </div>

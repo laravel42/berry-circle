@@ -23,8 +23,8 @@ export function SettingsShell({
    return (
       <div className="w-full overflow-y-auto h-full">
          <div className="max-w-2xl mx-auto px-6 py-10 pb-20">
-            <h1 className="font-display text-3xl tracking-[-0.025em]">{title}</h1>
-            {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
+            <h1 className="font-display tracking-[-0.025em]">{title}</h1>
+            {description && <p className="text-muted-foreground mt-1">{description}</p>}
             <div className="flex flex-col gap-10 mt-10">{children}</div>
          </div>
       </div>
@@ -48,9 +48,7 @@ export function SettingsSection({
             <div className="flex items-end justify-between gap-4 mb-1">
                <div>
                   {title && <h2 className="text-md font-medium">{title}</h2>}
-                  {description && (
-                     <p className="text-sm text-muted-foreground mt-0.5">{description}</p>
-                  )}
+                  {description && <p className="text-muted-foreground mt-0.5">{description}</p>}
                </div>
                {action}
             </div>
@@ -108,15 +106,11 @@ export function SettingsRow({
             </span>
          )}
          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium flex items-center gap-2">{title}</div>
-            {description && (
-               <div className="text-xs text-muted-foreground mt-0.5">{description}</div>
-            )}
+            <div className="font-medium flex items-center gap-2">{title}</div>
+            {description && <div className="text-muted-foreground mt-0.5">{description}</div>}
          </div>
          {trailing && (
-            <div className="shrink-0 flex items-center gap-2 text-sm text-muted-foreground">
-               {trailing}
-            </div>
+            <div className="shrink-0 flex items-center gap-2 text-muted-foreground">{trailing}</div>
          )}
          {chevron && <ChevronRight className="size-4 text-muted-foreground shrink-0" />}
       </Comp>
@@ -140,7 +134,7 @@ export function SelectMenu({
    const value = controlledValue ?? internal;
    return (
       <DropdownMenu>
-         <DropdownMenuTrigger className="h-8 px-3 rounded-md border bg-container text-sm inline-flex items-center gap-1.5 hover:bg-accent transition-colors outline-none">
+         <DropdownMenuTrigger className="h-8 px-3 rounded-md border bg-container inline-flex items-center gap-1.5 hover:bg-accent transition-colors outline-none">
             {value}
             <ChevronDown className="size-3.5 text-muted-foreground" />
          </DropdownMenuTrigger>
@@ -152,7 +146,7 @@ export function SelectMenu({
                      setInternal(option);
                      onChange?.(option);
                   }}
-                  className="flex items-center gap-2 text-sm"
+                  className="flex items-center gap-2"
                >
                   <span className="flex-1">{option}</span>
                   {value === option && <Check className="size-3.5" />}
@@ -166,7 +160,7 @@ export function SelectMenu({
 /** "● Enabled ..." green-dot status text. */
 export function EnabledDot({ children }: { children: React.ReactNode }) {
    return (
-      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
          <span className="size-1.5 rounded-full bg-[#00cc66] shrink-0" />
          {children}
       </span>

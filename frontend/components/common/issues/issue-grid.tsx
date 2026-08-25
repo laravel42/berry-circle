@@ -30,18 +30,21 @@ type IssueGridProps = {
 
 function IssueDragPreview({ issue }: { issue: Issue }) {
    return (
-      <div className="w-full overflow-hidden rounded-lg bg-void p-2 text-chalk shadow-lg">
+      <div className="w-full overflow-hidden rounded-lg border border-[var(--board-card-line)] bg-void p-2 text-chalk shadow-lg">
          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="text-xs text-subtle-foreground">{issue.identifier}</span>
+            <span className="text-subtle-foreground">{issue.identifier}</span>
             <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
          </div>
-         <h3 className="mb-2 line-clamp-2 text-xs">{issue.title}</h3>
+         {/* Plain text, not a heading: the ghost is a transient copy of the
+             card that only exists mid-drag, so it has nothing to contribute to
+             the document outline. */}
+         <div className="mb-2 line-clamp-2 font-medium">{issue.title}</div>
          <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
             <LabelBadge label={issue.labels} />
             {issue.project && <ProjectBadge project={issue.project} />}
          </div>
          <div className="flex items-center mt-auto pt-1">
-            <span className="text-xs text-muted-foreground">
+            <span className="text-muted-foreground">
                {format(new Date(issue.createdAt), 'MMM dd')}
             </span>
          </div>
@@ -163,6 +166,14 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                <div
                   className={cn(
                      'group w-full cursor-grab rounded-lg bg-void p-2 pl-1.5 text-chalk transition-colors active:cursor-grabbing',
+                     /* Not the themed `--border`, which would turn near-white on a
+                        card that stays dark in both themes. `--board-card-line` is
+                        the column behind it lifted a step, so the edge reads as a
+                        seam. In dark the card and the column resolve to the same
+                        colour, which leaves this border as the only thing marking
+                        where one ends -- the shadow has nothing to fall against
+                        and does its work in light mode. */
+                     'border border-[var(--board-card-line)] shadow-sm',
                      'hover:bg-base',
                      isOver && 'ring-1 ring-primary/40',
                      isOver && dropEdge === 'top' && 'mt-1',
@@ -181,7 +192,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                         {displayProperties.id || displayProperties.assignee ? (
                            <div className="mb-1.5 flex items-center justify-between gap-2">
                               {displayProperties.id ? (
-                                 <span className="text-xs text-subtle-foreground">
+                                 <span className="text-subtle-foreground">
                                     {issue.identifier}
                                  </span>
                               ) : (
@@ -200,7 +211,19 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                               if (isDragging) event.preventDefault();
                            }}
                         >
-                           <h3 className="mb-2 line-clamp-2 text-xs">{issue.title}</h3>
+                           {/* Sized as body text, so under the type scale it
+                               cannot be an h1-h4 -- those carry sizes. The
+                               heading role keeps what the element was giving
+                               back: a grid of cards is skimmed by its titles,
+                               and dropping to a bare div would leave screen
+                               readers tabbing every card to find one. */}
+                           <div
+                              className="mb-2 line-clamp-2 font-medium"
+                              role="heading"
+                              aria-level={4}
+                           >
+                              {issue.title}
+                           </div>
                         </Link>
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[1.25rem]">
                            {displayProperties.labels && <LabelBadge label={issue.labels} />}
@@ -210,7 +233,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                         </div>
                         {displayProperties.created ? (
                            <div className="mt-auto pt-1">
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-muted-foreground">
                                  {format(new Date(issue.createdAt), 'MMM dd')}
                               </span>
                            </div>

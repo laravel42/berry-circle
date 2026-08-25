@@ -33,7 +33,7 @@ export function SearchIssues() {
                {searchResults.length > 0 ? (
                   <div className="border rounded-md mt-4">
                      <div className="py-2 px-4 border-b bg-muted/50">
-                        <h3 className="text-sm font-medium">Results ({searchResults.length})</h3>
+                        <h3 className="font-medium">Results ({searchResults.length})</h3>
                      </div>
                      <div className="divide-y">
                         {searchResults.map((issue) => (

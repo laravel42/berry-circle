@@ -65,7 +65,7 @@ export default function ViewDetails({ viewId }: { viewId: string }) {
 
    if (!view) {
       return (
-         <div className="w-full h-full flex items-center justify-center text-sm text-muted-foreground">
+         <div className="w-full h-full flex items-center justify-center text-muted-foreground">
             View not found
          </div>
       );

@@ -147,6 +147,47 @@ storage and indexed by the `attachments` table.**
 
 - Retention for run artifacts: what expires, when, and who accounts for the
   spend. Not decided here.
-- The promotion path from a runtime workspace into the store — which files a
-  finished run offers as artifacts, and whether the agent or the gateway
-  chooses — is a separate change against the OpenFang contract.
+
+### Resolved: the promotion path
+
+The runtime exposes no API for reading a workspace, so promotion reads the
+volume directly. The worker mounts `openfang-data` read-only and, after a
+successful run, copies that agent's `output/` directory into the store.
+
+Three consequences of that choice are worth stating, because none are obvious:
+
+- **Only `output/` is promoted.** An agent's workspace also holds its identity
+  files, memory and scratch state. Promoting the directory wholesale would
+  publish all of it to an issue.
+- **Files are matched to a run by modification time.** The runtime keys
+  workspaces by agent, so two runs by one agent share a directory and the
+  filesystem cannot say which run wrote what. This is a heuristic: a file an
+  earlier run wrote and this one merely touched is attributed here. The
+  alternative — promoting everything present — would re-attach every previous
+  run's output on every subsequent run, which is worse and unbounded.
+- **Only a successful run offers artifacts.** A failed or cancelled one may
+  have left half-written files, and attaching those would present an abandoned
+  draft as a deliverable.
+
+Promotion is best effort and runs as a separate Temporal activity from
+dispatch. The model call is already paid for and its result already recorded by
+the time it runs, so a promotion failure is a missing file, not a failed run —
+retrying the workflow would repeat the work.
+
+Everything about that directory is agent-controlled, and the agent is running
+model-authored tool calls, so promotion treats it as untrusted input in two
+ways:
+
+- **Only regular files are promoted, and they are opened `O_NOFOLLOW`.** A
+  symlink is followed on open, so one placed in `output/` would promote whatever
+  it points at in the *worker's* filesystem — its environment, its database URL,
+  its object-storage keys — into a file any workspace member can download. The
+  output directory is resolved through symlinks and re-checked against the
+  volume root for the same reason, since the agent owns every component of that
+  path.
+- **An artifact's content type never resolves to a renderable one.** Serving an
+  agent-authored file as `text/html` or `image/svg+xml` would make an artifact
+  a stored cross-site script.
+
+A deployment without the mount is unaffected: the promoter reports itself
+disabled and the activity is a no-op.

@@ -72,7 +72,7 @@ export function PrioritySelector({ priority, onPriorityChange }: PrioritySelecto
                            >
                               <div className="flex items-center gap-2">
                                  <item.icon className="text-muted-foreground size-4" />
-                                 <span className="text-xs">{item.name}</span>
+                                 <span>{item.name}</span>
                               </div>
                               {value === item.id && <CheckIcon size={14} className="ml-auto" />}
                            </CommandItem>

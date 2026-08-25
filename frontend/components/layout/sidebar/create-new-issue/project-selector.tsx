@@ -104,7 +104,7 @@ export function ProjectSelector({ project, onChange }: ProjectSelectorProps) {
                                  {project.name}
                               </div>
                               {value === project.id && <CheckIcon size={16} className="ml-auto" />}
-                              <span className="text-muted-foreground text-xs">
+                              <span className="text-muted-foreground">
                                  {filterByProject(project.id).length}
                               </span>
                            </CommandItem>

@@ -57,7 +57,7 @@ function Keys({ keys }: { keys: string[] }) {
          {keys.map((key, index) => (
             <kbd
                key={index}
-               className="min-w-5 h-5 px-1 inline-flex items-center justify-center rounded border bg-muted/50 text-[11px] text-muted-foreground font-sans"
+               className="min-w-5 h-5 px-1 inline-flex items-center justify-center rounded border bg-muted/50 text-muted-foreground font-sans"
             >
                {key}
             </kbd>
@@ -180,9 +180,9 @@ export function CommandPalette() {
             }}
          />
          {route === 'root' && (
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-xs text-muted-foreground pointer-events-none">
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-muted-foreground pointer-events-none">
                open runs
-               <kbd className="h-5 px-1.5 inline-flex items-center rounded border bg-muted/50 text-[11px] font-sans">
+               <kbd className="h-5 px-1.5 inline-flex items-center rounded border bg-muted/50 font-sans">
                   Tab
                </kbd>
             </span>
@@ -207,7 +207,7 @@ export function CommandPalette() {
             <Command className="[&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group]]:px-2 [&_[cmdk-item]]:px-2 [&_[cmdk-item]]:py-2.5">
                {issue && (
                   <div className="flex items-center gap-1.5 px-3 pt-3 pb-1">
-                     <span className="inline-flex items-center gap-1.5 max-w-full rounded-md bg-muted/70 border border-border/60 px-2 py-1 text-xs">
+                     <span className="inline-flex items-center gap-1.5 max-w-full rounded-md bg-muted/70 border border-border/60 px-2 py-1">
                         <span className="text-muted-foreground shrink-0">{issue.identifier} ⋅</span>
                         <span className="truncate">{issue.title}</span>
                         <button
@@ -447,9 +447,7 @@ export function CommandPalette() {
                            >
                               <Avatar className="size-5">
                                  <AvatarImage src={user.avatarUrl} alt={user.name} />
-                                 <AvatarFallback className="text-[9px]">
-                                    {user.name[0]}
-                                 </AvatarFallback>
+                                 <AvatarFallback>{user.name[0]}</AvatarFallback>
                               </Avatar>
                               {user.name}
                               {issue.assignee?.id === user.id && (
@@ -587,7 +585,7 @@ export function CommandPalette() {
                            >
                               <CircleDot className="text-muted-foreground" />
                               {cycle.name}
-                              <span className="text-xs text-muted-foreground ml-2">
+                              <span className="text-muted-foreground ml-2">
                                  {formatCycleDateRange(cycle)}
                               </span>
                               {issue.cycleId === cycle.id && <Check className="ml-auto size-4" />}

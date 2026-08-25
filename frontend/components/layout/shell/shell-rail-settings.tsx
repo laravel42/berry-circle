@@ -45,7 +45,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
 
          {settingsNav.map((group) => (
             <div key={group.label}>
-               <div className="px-[18px] pt-[18px] pb-[7px] text-xs uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+               <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
                   {group.label}
                </div>
                <ul className="flex flex-col gap-px px-2">
@@ -55,6 +55,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
                      return (
                         <li key={`${group.label}-${item.name}`}>
                            <Link
+                              data-shell-nav
                               href={href}
                               aria-current={active ? 'page' : undefined}
                               className={link(href, active)}

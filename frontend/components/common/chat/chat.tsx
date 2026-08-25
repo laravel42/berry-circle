@@ -118,7 +118,7 @@ export function Chat() {
                <h2 className="text-[var(--shell-text)]">
                   {agent ? agent.name : 'Chat'}
                </h2>
-               <p className="min-w-0 truncate text-[11px] text-[var(--shell-text-dim)]">
+               <p className="min-w-0 truncate text-[var(--shell-text-dim)]">
                   {agent?.description ?? 'Direct conversation with a workspace agent'}
                </p>
             </header>
@@ -126,7 +126,7 @@ export function Chat() {
             <ThreadView messages={messages} pending={pending} agentName={agent?.name ?? null} />
 
             {error ? (
-               <p role="alert" className="px-6 pb-2 text-[11px] text-[var(--shell-accent)]">
+               <p role="alert" className="px-6 pb-2 text-[var(--shell-accent)]">
                   {error}
                </p>
             ) : null}

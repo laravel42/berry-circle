@@ -93,6 +93,21 @@ type Config struct {
 	InfobipWhatsAppFrom  string
 	InfobipSMSFrom       string
 	InfobipWebhookSecret string
+
+	// RuntimeWorkspaceRoot is where the runtime's workspaces volume is mounted
+	// into this process, read-only. Empty disables artifact promotion, so a
+	// deployment without the mount behaves as it did before ADR-0006 rather
+	// than failing every run.
+	RuntimeWorkspaceRoot string
+
+	// Integrations connect a workspace to GitHub, Slack, Linear, Notion and
+	// Gmail. Berry owns the credential; the runtime's MCP servers make the
+	// calls. Enabled only when there is a key to seal tokens with, because a
+	// deployment that cannot encrypt them must not collect them.
+	IntegrationsEnabled          bool
+	IntegrationEncryptionKey     string
+	IntegrationCallbackBaseURL   string
+	IntegrationRedirectAllowlist []string
 }
 
 // Load reads and validates an environment map. Errors identify fields without
@@ -348,6 +363,29 @@ func Load(env map[string]string) (Config, error) {
 	cfg.InfobipWhatsAppFrom = strings.TrimSpace(env["INFOBIP_WHATSAPP_FROM"])
 	cfg.InfobipSMSFrom = strings.TrimSpace(env["INFOBIP_SMS_FROM"])
 	cfg.InfobipWebhookSecret = strings.TrimSpace(env["INFOBIP_WEBHOOK_SECRET"])
+
+	// The key is the whole of the at-rest protection, so its absence disables
+	// the feature rather than downgrading it. There is deliberately no
+	// generated default: a key that appeared on its own would differ between
+	// restarts and strand every token already stored under the previous one.
+	cfg.RuntimeWorkspaceRoot = strings.TrimSpace(env["RUNTIME_WORKSPACE_ROOT"])
+
+	cfg.IntegrationEncryptionKey = strings.TrimSpace(env["INTEGRATION_ENCRYPTION_KEY"])
+	cfg.IntegrationCallbackBaseURL = strings.TrimSpace(env["INTEGRATION_CALLBACK_BASE_URL"])
+	cfg.IntegrationRedirectAllowlist = redirectAllowlist(
+		env["INTEGRATION_REDIRECT_ALLOWLIST"], &problems)
+	cfg.IntegrationsEnabled = cfg.IntegrationEncryptionKey != ""
+	if cfg.IntegrationsEnabled {
+		// Providers send an authorisation code wherever this points, so a wrong
+		// or missing origin means codes land somewhere Berry does not control.
+		if !safeHTTPURL(cfg.IntegrationCallbackBaseURL) {
+			problems = append(problems, "INTEGRATION_CALLBACK_BASE_URL")
+		}
+		// Empty would leave a completed flow with nowhere to return the person.
+		if len(cfg.IntegrationRedirectAllowlist) == 0 {
+			problems = append(problems, "INTEGRATION_REDIRECT_ALLOWLIST")
+		}
+	}
 	if cfg.InfobipEnabled {
 		// The base URL is per-account, so there is no safe default to fall back
 		// on — a wrong host would send customer messages somewhere unintended.
@@ -546,6 +584,34 @@ func safeIdentifier(value string, maxBytes int) bool {
 		return false
 	}
 	return true
+}
+
+// redirectAllowlist parses the addresses Berry may return a browser to.
+//
+// Unlike a trusted origin, a redirect target keeps its path: the allowlist
+// exists to name one settings page, not to open a whole host. Credentials in
+// the URL and a fragment are both refused — the first is never legitimate here,
+// and the second would be silently dropped on the wire while looking like it
+// had been honoured.
+func redirectAllowlist(raw string, problems *[]string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	result := make([]string, 0)
+	for _, item := range strings.Split(raw, ",") {
+		candidate := strings.TrimSpace(item)
+		if candidate == "" {
+			continue
+		}
+		parsed, err := url.Parse(candidate)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+			*problems = append(*problems, "INTEGRATION_REDIRECT_ALLOWLIST")
+			continue
+		}
+		result = append(result, candidate)
+	}
+	return result
 }
 
 func origins(raw string, problems *[]string) []string {

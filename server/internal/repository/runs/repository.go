@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -313,4 +314,46 @@ func wrap(operation string, err error) error {
 		return nil
 	}
 	return fmt.Errorf("%s: %w", operation, err)
+}
+
+// PromotableRunRow is what artifact promotion needs to know about a run.
+type PromotableRunRow struct {
+	AgentSlug   string
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Succeeded   bool
+}
+
+// PromotableRun resolves a run to the runtime workspace holding its output.
+//
+// The agent's name is what identifies that workspace, because the runtime keys
+// its directories by name rather than by the id Berry uses everywhere else.
+func (repository *Repository) PromotableRun(
+	ctx context.Context,
+	runID uuid.UUID,
+) (PromotableRunRow, error) {
+	var (
+		row         PromotableRunRow
+		status      string
+		startedAt   *time.Time
+		completedAt *time.Time
+	)
+	if err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT agent.name, run.status::text, run.started_at, run.completed_at
+		   FROM runs AS run
+		   JOIN agents AS agent ON agent.id = run.agent_id
+		  WHERE run.id = $1`,
+		runID,
+	).Scan(&row.AgentSlug, &status, &startedAt, &completedAt); err != nil {
+		return PromotableRunRow{}, fmt.Errorf("load promotable run: %w", err)
+	}
+	row.Succeeded = status == "succeeded"
+	if startedAt != nil {
+		row.StartedAt = *startedAt
+	}
+	if completedAt != nil {
+		row.CompletedAt = *completedAt
+	}
+	return row, nil
 }

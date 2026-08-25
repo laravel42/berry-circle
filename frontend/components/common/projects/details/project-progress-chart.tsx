@@ -79,7 +79,7 @@ export function ProjectProgressChart({
                />
             </ComposedChart>
          </ResponsiveContainer>
-         <div className="flex justify-between text-[11px] text-muted-foreground mt-0.5">
+         <div className="flex justify-between text-muted-foreground mt-0.5">
             <span>{format(parseISO(startDate), 'MMM d')}</span>
             <span>{format(parseISO(endDate), 'MMM d')}</span>
          </div>

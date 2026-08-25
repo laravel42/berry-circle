@@ -32,7 +32,7 @@ export default function HeaderNav() {
             {!inDrawer && <SidebarTrigger />}
             {cycle && (
                <>
-                  <span className="hidden sm:flex items-center gap-1.5 shrink-0 text-sm text-muted-foreground">
+                  <span className="hidden sm:flex items-center gap-1.5 shrink-0 text-muted-foreground">
                      <CyclePlayIcon className="size-3.5" />
                      {cycle.name}
                   </span>
@@ -40,7 +40,7 @@ export default function HeaderNav() {
                </>
             )}
             {issue && (
-               <span className="text-sm min-w-0 truncate">
+               <span className="min-w-0 truncate">
                   <span className="font-medium text-muted-foreground mr-1.5">
                      {issue.identifier}
                   </span>
@@ -51,7 +51,7 @@ export default function HeaderNav() {
 
          <div className="flex items-center gap-1 shrink-0">
             {index >= 0 && (
-               <span className="text-xs text-muted-foreground mr-1">
+               <span className="text-muted-foreground mr-1">
                   {index + 1} / {issues.length}
                </span>
             )}
