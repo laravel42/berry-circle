@@ -13,11 +13,11 @@ import (
 
 // IssueDependencyRef is one end of a dependency edge as a reader sees it.
 type IssueDependencyRef struct {
-	ID         uuid.UUID
-	Identifier string
-	Title      string
+	ID         uuid.UUID `json:"id"`
+	Identifier string    `json:"identifier"`
+	Title      string    `json:"title"`
 	// Status is the wire status of the referenced issue.
-	Status string
+	Status string `json:"status"`
 }
 
 // IssueDependencies is everything an issue waits on and everything waiting on

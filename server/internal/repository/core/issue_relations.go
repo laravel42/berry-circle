@@ -103,37 +103,49 @@ func LoadIssueRelations(ctx context.Context, querier relationQuerier, issueIDs [
 	rows, err = querier.Query(
 		ctx,
 		`SELECT edge.issue_id, edge.depends_on_issue_id,
-		        other.id, berry_issue_identifier(board.workspace_id, other.number), other.title, other.status::text
+		        dependent.title, dependent.status::text, berry_issue_identifier(dependent_board.workspace_id, dependent.number),
+		        blocker.title, blocker.status::text, berry_issue_identifier(blocker_board.workspace_id, blocker.number)
 		   FROM issue_dependencies AS edge
-		   JOIN issues AS other
-		     ON other.id = CASE WHEN edge.issue_id = ANY($1::uuid[]) THEN edge.depends_on_issue_id ELSE edge.issue_id END
-		    AND other.deleted_at IS NULL
-		   JOIN boards AS board ON board.id = other.board_id
+		   JOIN issues AS dependent ON dependent.id = edge.issue_id AND dependent.deleted_at IS NULL
+		   JOIN boards AS dependent_board ON dependent_board.id = dependent.board_id
+		   JOIN issues AS blocker ON blocker.id = edge.depends_on_issue_id AND blocker.deleted_at IS NULL
+		   JOIN boards AS blocker_board ON blocker_board.id = blocker.board_id
 		  WHERE edge.issue_id = ANY($1::uuid[]) OR edge.depends_on_issue_id = ANY($1::uuid[])
-		  ORDER BY edge.created_at ASC, other.id ASC`,
+		  ORDER BY edge.created_at ASC, edge.issue_id ASC, edge.depends_on_issue_id ASC`,
 		issueIDs,
 	)
 	if err != nil {
 		return nil, errors.New("load issue dependencies")
 	}
 	defer rows.Close()
+	// Every edge is described from both ends: a list that contains both
+	// tasks of an edge needs the blocker on the dependent's dependsOn AND
+	// the dependent on the blocker's blocks. Picking one side per row (the
+	// side not in the request) left blocks empty on every list read.
 	for rows.Next() {
 		var (
-			dependent, blocker uuid.UUID
-			ref                IssueDependencyRef
-			status             string
+			dependentID, blockerID uuid.UUID
+			dependentRef           = IssueDependencyRef{}
+			blockerRef             = IssueDependencyRef{}
+			dependentStatus        string
+			blockerStatus          string
 		)
-		if err := rows.Scan(&dependent, &blocker, &ref.ID, &ref.Identifier, &ref.Title, &status); err != nil {
+		if err := rows.Scan(
+			&dependentID, &blockerID,
+			&dependentRef.Title, &dependentStatus, &dependentRef.Identifier,
+			&blockerRef.Title, &blockerStatus, &blockerRef.Identifier,
+		); err != nil {
 			return nil, errors.New("scan issue dependency")
 		}
-		ref.Status = dbStatusToAPI(status)
-		if relations, ok := result[dependent]; ok && ref.ID == blocker {
-			relations.DependsOn = append(relations.DependsOn, ref)
-			result[dependent] = relations
+		dependentRef.ID, blockerRef.ID = dependentID, blockerID
+		dependentRef.Status, blockerRef.Status = dbStatusToAPI(dependentStatus), dbStatusToAPI(blockerStatus)
+		if relations, ok := result[dependentID]; ok {
+			relations.DependsOn = append(relations.DependsOn, blockerRef)
+			result[dependentID] = relations
 		}
-		if relations, ok := result[blocker]; ok && ref.ID == dependent {
-			relations.Blocks = append(relations.Blocks, ref)
-			result[blocker] = relations
+		if relations, ok := result[blockerID]; ok {
+			relations.Blocks = append(relations.Blocks, dependentRef)
+			result[blockerID] = relations
 		}
 	}
 	if err := rows.Err(); err != nil {

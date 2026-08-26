@@ -629,3 +629,30 @@ func TestCallbackCompletesAFlowAndSealsWhatItStores(t *testing.T) {
 		t.Error("default grants were not applied to a new connection")
 	}
 }
+
+// Every catalogued tool names its kind so a workflow editor never has to
+// infer trigger-versus-action from the tool's name.
+func TestProvidersCatalogReportsToolKinds(t *testing.T) {
+	t.Parallel()
+	response := do(t, mount(t, &fakeStore{}), http.MethodGet, "/providers", "")
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body)
+	}
+	list, _ := decode(t, response)["providers"].([]any)
+	checked := 0
+	for _, entry := range list {
+		provider, _ := entry.(map[string]any)
+		tools, _ := provider["tools"].([]any)
+		for _, item := range tools {
+			tool, _ := item.(map[string]any)
+			kind, _ := tool["kind"].(string)
+			if kind != "action" && kind != "trigger" {
+				t.Fatalf("tool %v of %v has kind %q, want action or trigger", tool["name"], provider["id"], kind)
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no tools were listed")
+	}
+}

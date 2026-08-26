@@ -182,6 +182,7 @@ func providerFor(
 type toolResource struct {
 	Name             string `json:"name"`
 	Description      string `json:"description"`
+	Kind             string `json:"kind"`
 	Effect           string `json:"effect"`
 	RequiresApproval bool   `json:"requiresApproval"`
 	EnabledByDefault bool   `json:"enabledByDefault"`
@@ -245,6 +246,7 @@ func toolResources(tools []core.Tool) []toolResource {
 		resources = append(resources, toolResource{
 			Name:             tool.Name,
 			Description:      tool.Description,
+			Kind:             string(toolKind(tool)),
 			Effect:           string(tool.Effect),
 			RequiresApproval: tool.RequiresApproval,
 			EnabledByDefault: tool.EnabledByDefault,
@@ -554,4 +556,10 @@ func writeInternalRedirect(
 ) {
 	options.logger().Error("integration callback failed", "action", action, "provider", provider, "error", err)
 	options.redirectResult(response, request, provider, "server_error")
+}
+
+// toolKind is the wire kind of a tool: action unless the provider declared
+// it a trigger, so clients never have to infer it from the name.
+func toolKind(tool core.Tool) core.ToolKind {
+	return tool.Kind.Normalized()
 }
