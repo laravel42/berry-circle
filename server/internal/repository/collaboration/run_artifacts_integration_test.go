@@ -80,12 +80,12 @@ func reserveAndActivate(
 	name string,
 	body []byte,
 	at time.Time,
-) Attachment {
+) RunArtifact {
 	t.Helper()
 	artifact, err := repository.ReserveRunArtifact(ctx, ReserveRunArtifactParams{
 		ID:             uuid.New(),
 		RunID:          runID,
-		FileName:       name,
+		Path:           name,
 		ContentType:    "text/markdown",
 		SizeBytes:      int64(len(body)),
 		ChecksumSHA256: sha256.Sum256(body),
@@ -110,16 +110,16 @@ func TestRunArtifactIsAttributedToTheAgentThatProducedIt(t *testing.T) {
 	artifact := reserveAndActivate(
 		t, ctx, repository, fixture.RunID, "blog.md", []byte("# AI Agents in 2026\n"), now)
 
-	if artifact.UploaderType != "agent" {
-		t.Errorf("uploaderType = %q, want agent", artifact.UploaderType)
+	if artifactUploaderType(artifact) != "agent" {
+		t.Errorf("uploaderType = %q, want agent", artifactUploaderType(artifact))
 	}
-	if artifact.Uploader == nil || artifact.Uploader.ID != fixture.AgentID {
-		t.Errorf("uploader = %+v, want the run's agent", artifact.Uploader)
+	if artifact.Agent == nil || artifact.Agent.ID != fixture.AgentID {
+		t.Errorf("uploader = %+v, want the run's agent", artifact.Agent)
 	}
-	if artifact.Uploader != nil && artifact.Uploader.Name != "writer" {
-		t.Errorf("uploader name = %q, want the agent's name", artifact.Uploader.Name)
+	if artifact.Agent != nil && artifact.Agent.Name != "writer" {
+		t.Errorf("uploader name = %q, want the agent's name", artifact.Agent.Name)
 	}
-	if artifact.RunID == nil || *artifact.RunID != fixture.RunID {
+	if artifact.RunID != fixture.RunID {
 		t.Errorf("runId = %v, want %s", artifact.RunID, fixture.RunID)
 	}
 	if artifact.IssueID != fixture.IssueID {
@@ -155,11 +155,11 @@ func TestListRunArtifactsAnswersWhatThisRunProduced(t *testing.T) {
 	if len(artifacts) != 2 {
 		t.Fatalf("returned %d artifacts, want 2", len(artifacts))
 	}
-	if artifacts[0].FileName != "first.md" || artifacts[1].FileName != "second.md" {
-		t.Errorf("order = %q, %q; want oldest first", artifacts[0].FileName, artifacts[1].FileName)
+	if artifacts[0].Path != "first.md" || artifacts[1].Path != "second.md" {
+		t.Errorf("order = %q, %q; want oldest first", artifacts[0].Path, artifacts[1].Path)
 	}
 	for _, artifact := range artifacts {
-		if artifact.FileName == "elsewhere.md" {
+		if artifact.Path == "elsewhere.md" {
 			t.Fatal("another run's artifact leaked into this run's list")
 		}
 	}
@@ -200,7 +200,7 @@ func TestActivatingAnArtifactRequiresItsOwnRun(t *testing.T) {
 	now := time.Now().UTC()
 
 	artifact, err := repository.ReserveRunArtifact(ctx, ReserveRunArtifactParams{
-		ID: uuid.New(), RunID: fixture.RunID, FileName: "x.md",
+		ID: uuid.New(), RunID: fixture.RunID, Path: "x.md",
 		ContentType: "text/markdown", SizeBytes: 1,
 		ChecksumSHA256: sha256.Sum256([]byte("x")), CreatedAt: now,
 	})
@@ -231,7 +231,7 @@ func TestAbortedArtifactNeverBecomesVisible(t *testing.T) {
 	now := time.Now().UTC()
 
 	artifact, err := repository.ReserveRunArtifact(ctx, ReserveRunArtifactParams{
-		ID: uuid.New(), RunID: fixture.RunID, FileName: "half.md",
+		ID: uuid.New(), RunID: fixture.RunID, Path: "half.md",
 		ContentType: "text/markdown", SizeBytes: 9,
 		ChecksumSHA256: sha256.Sum256([]byte("half")), CreatedAt: now,
 	})
@@ -249,4 +249,13 @@ func TestAbortedArtifactNeverBecomesVisible(t *testing.T) {
 	if len(artifacts) != 0 {
 		t.Fatalf("an aborted upload is listed: %+v", artifacts)
 	}
+}
+
+// artifactUploaderType keeps the old assertions readable now that a run
+// artifact is only ever an agent's.
+func artifactUploaderType(artifact RunArtifact) string {
+	if artifact.Agent == nil {
+		return ""
+	}
+	return "agent"
 }

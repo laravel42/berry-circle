@@ -10,6 +10,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo } from 'react';
 import { ActivityCommentComposer, ActivityFeedList, useIssueActivity } from './activity-feed';
+import { IssueArtifacts } from './issue-artifacts';
 import { IssueAttachments } from './issue-attachments';
 import { IssueDescriptionEditor } from './issue-description-editor';
 import { IssuePropertiesPanel } from './issue-properties-panel';
@@ -89,6 +90,7 @@ export default function IssueDetails() {
                      <IssueDescriptionEditor issueId={issue.id} description={issue.description} />
 
                      <IssueAttachments issueRef={issue?.identifier ?? issueId ?? ''} />
+                     <IssueArtifacts issueRef={issue?.identifier ?? issueId ?? ''} />
 
                      <div className="mt-4">
                         <div className="flex items-center gap-1 pb-1.5 text-muted-foreground">

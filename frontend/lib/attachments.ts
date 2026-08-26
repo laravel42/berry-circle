@@ -57,6 +57,107 @@ export async function downloadAttachment(attachment: ApiAttachment): Promise<voi
    }
 }
 
+const artifactSchema = z.object({
+   id: z.string(),
+   path: z.string(),
+   name: z.string(),
+   directory: z.string(),
+   contentType: z.string(),
+   sizeBytes: z.number(),
+   runId: z.string(),
+   agentName: z.string(),
+   downloadUrl: z.string(),
+   createdAt: z.string(),
+});
+
+export type RunArtifact = z.infer<typeof artifactSchema>;
+
+/**
+ * What the agents on an issue produced.
+ *
+ * A separate call from the attachments because they are separate things: a
+ * person's upload has a name, an agent's output has a path, and the shape of
+ * that tree is part of the work (migration 027).
+ */
+export async function loadIssueArtifacts(issueRef: string): Promise<RunArtifact[]> {
+   if (!issueRef) return [];
+   const json: unknown = await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/artifacts`
+   );
+   const parsed = z.object({ artifacts: z.array(artifactSchema) }).safeParse(json);
+   return parsed.success ? parsed.data.artifacts : [];
+}
+
+/** Download one artifact, the same way an attachment is fetched. */
+export async function downloadArtifact(artifact: RunArtifact): Promise<void> {
+   const response = await apiStream(artifact.downloadUrl, undefined, {});
+   if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
+   }
+   const blob = await response.blob();
+   const url = URL.createObjectURL(blob);
+   try {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = artifact.name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+   } finally {
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+   }
+}
+
+/**
+ * A directory tree built from flat paths.
+ *
+ * The server sends paths, not a tree, because a path is the fact and a tree is
+ * a rendering of it. Two agents may both write src/, so the merge happens here
+ * where the whole issue's files are in hand.
+ */
+export interface ArtifactTreeNode {
+   name: string;
+   path: string;
+   children: ArtifactTreeNode[];
+   /** Set on a leaf; absent on a directory. */
+   file?: RunArtifact;
+}
+
+export function buildArtifactTree(artifacts: RunArtifact[]): ArtifactTreeNode[] {
+   const root: ArtifactTreeNode = { name: '', path: '', children: [] };
+
+   for (const artifact of artifacts) {
+      const segments = artifact.path.split('/').filter(Boolean);
+      let cursor = root;
+      segments.forEach((segment, index) => {
+         const isLeaf = index === segments.length - 1;
+         const path = segments.slice(0, index + 1).join('/');
+         let next = cursor.children.find(
+            (child) => child.name === segment && !child.file === !isLeaf
+         );
+         if (!next) {
+            next = { name: segment, path, children: [] };
+            cursor.children.push(next);
+         }
+         if (isLeaf) next.file = artifact;
+         cursor = next;
+      });
+   }
+
+   // Directories first, then alphabetical — how a file tree is read.
+   const sort = (nodes: ArtifactTreeNode[]): ArtifactTreeNode[] => {
+      nodes.sort((left, right) => {
+         const leftIsDir = left.file === undefined;
+         const rightIsDir = right.file === undefined;
+         if (leftIsDir !== rightIsDir) return leftIsDir ? -1 : 1;
+         return left.name.localeCompare(right.name);
+      });
+      for (const node of nodes) sort(node.children);
+      return nodes;
+   };
+   return sort(root.children);
+}
+
 /** Human-readable size for a file listing. */
 export function formatFileSize(bytes: number): string {
    if (bytes < 1024) return `${bytes} B`;

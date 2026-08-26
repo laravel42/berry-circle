@@ -360,7 +360,7 @@ func TestIssueModeAgentStepFollowsRunCompletionNotDone(t *testing.T) {
 				}
 				body := []byte("# Report\n")
 				artifact, err := seeded.artifacts.ReserveRunArtifact(ctx, collabrepo.ReserveRunArtifactParams{
-					ID: uuid.New(), RunID: issueRunID, FileName: "report.md", ContentType: "text/markdown",
+					ID: uuid.New(), RunID: issueRunID, Path: "report.md", ContentType: "text/markdown",
 					SizeBytes: int64(len(body)), ChecksumSHA256: sha256.Sum256(body), CreatedAt: time.Now(),
 				})
 				if err != nil {

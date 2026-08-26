@@ -267,11 +267,12 @@ func (runner *Runner) runOutcome(ctx context.Context, runID uuid.UUID) (automati
 	return outcome, nil
 }
 
-func artifactRefs(artifacts []collaboration.Attachment) []map[string]any {
+func artifactRefs(artifacts []collaboration.RunArtifact) []map[string]any {
 	refs := make([]map[string]any, 0, len(artifacts))
 	for _, artifact := range artifacts {
 		refs = append(refs, map[string]any{
-			"id": artifact.ID.String(), "name": artifact.FileName, "contentType": artifact.ContentType, "sizeBytes": artifact.SizeBytes,
+			"id": artifact.ID.String(), "path": artifact.Path, "name": artifact.Name(),
+			"contentType": artifact.ContentType, "sizeBytes": artifact.SizeBytes,
 		})
 	}
 	return refs

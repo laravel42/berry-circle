@@ -284,9 +284,12 @@ func run() int {
 	var (
 		promoter     *artifacts.Promoter
 		artifactRuns orchestration.RunArtifactSource
+		// Held beyond the block below so the auto reviewer can read what
+		// promotion stored.
+		artifactStorage storage.Backend
 	)
 	if cfg.RuntimeWorkspaceRoot != "" {
-		artifactStorage, err := storage.NewWithContext(ctx, storage.Config{
+		backend, err := storage.NewWithContext(ctx, storage.Config{
 			Backend:           cfg.StorageBackend,
 			LocalRoot:         cfg.StorageLocalRoot,
 			MaxBytes:          cfg.StorageMaxBytes,
@@ -303,6 +306,7 @@ func run() int {
 			logger.Error("artifact storage setup failed", "error", err)
 			return 1
 		}
+		artifactStorage = backend
 		promoter = &artifacts.Promoter{
 			Root:     cfg.RuntimeWorkspaceRoot,
 			Store:    artifactStore,
@@ -439,6 +443,11 @@ func run() int {
 		Clock:  time.Now,
 		NewID:  uuid.New,
 		Logger: logger,
+	}
+	// The reviewer reads the artifacts rather than being told their names: it
+	// is sandboxed to its own workspace and cannot check the author's.
+	if artifactStorage != nil {
+		autoReview.Files = artifactStorage
 	}
 
 	activities, err := orchestration.NewActivities(orchestration.Activities{

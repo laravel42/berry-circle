@@ -58,21 +58,22 @@ func (store PostgresStore) ReviewSubject(ctx context.Context, runID uuid.UUID) (
 
 	rows, err := store.Pool.Query(
 		ctx,
-		`SELECT file_name FROM attachments
+		`SELECT path, content_type, size_bytes, storage_key FROM run_artifacts
 		  WHERE run_id = $1 AND state = 'ready'
-		  ORDER BY created_at DESC LIMIT 20`,
+		  ORDER BY path ASC LIMIT 20`,
 		runID,
 	)
 	if err != nil {
-		// The verdict is about the work, and the file list is context for it.
-		// Losing the list is worse review, not no review.
+		// The verdict is about the work, and the files are the evidence for it.
+		// Losing them is worse review, not no review — though a reviewer shown
+		// nothing will usually, and correctly, decline to approve.
 		return subject, nil
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err == nil {
-			subject.Artifacts = append(subject.Artifacts, name)
+		var file ArtifactFile
+		if err := rows.Scan(&file.Name, &file.ContentType, &file.SizeBytes, &file.StorageKey); err == nil {
+			subject.Artifacts = append(subject.Artifacts, file)
 		}
 	}
 	return subject, nil

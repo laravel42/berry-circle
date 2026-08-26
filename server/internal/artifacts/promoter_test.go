@@ -25,29 +25,29 @@ type fakeStore struct {
 	reserved   []collaboration.ReserveRunArtifactParams
 	activated  []uuid.UUID
 	aborted    []uuid.UUID
-	existing   []collaboration.Attachment
+	existing   []collaboration.RunArtifact
 	reserveErr error
 }
 
 func (store *fakeStore) ReserveRunArtifact(
 	_ context.Context, params collaboration.ReserveRunArtifactParams,
-) (collaboration.Attachment, error) {
+) (collaboration.RunArtifact, error) {
 	if store.reserveErr != nil {
-		return collaboration.Attachment{}, store.reserveErr
+		return collaboration.RunArtifact{}, store.reserveErr
 	}
 	store.reserved = append(store.reserved, params)
-	return collaboration.Attachment{
+	return collaboration.RunArtifact{
 		ID:         params.ID,
-		FileName:   params.FileName,
+		Path:       params.Path,
 		StorageKey: "artifacts/ws/run/" + params.ID.String(),
 	}, nil
 }
 
 func (store *fakeStore) ActivateRunArtifact(
-	_ context.Context, _ uuid.UUID, attachmentID uuid.UUID, _ uuid.UUID, _ time.Time,
-) (collaboration.Attachment, collaboration.Event, error) {
-	store.activated = append(store.activated, attachmentID)
-	return collaboration.Attachment{ID: attachmentID}, collaboration.Event{}, nil
+	_ context.Context, _ uuid.UUID, artifactID uuid.UUID, _ uuid.UUID, _ time.Time,
+) (collaboration.RunArtifact, collaboration.Event, error) {
+	store.activated = append(store.activated, artifactID)
+	return collaboration.RunArtifact{ID: artifactID}, collaboration.Event{}, nil
 }
 
 func (store *fakeStore) AbortRunArtifact(_ context.Context, _ uuid.UUID, attachmentID uuid.UUID) error {
@@ -56,8 +56,8 @@ func (store *fakeStore) AbortRunArtifact(_ context.Context, _ uuid.UUID, attachm
 }
 
 func (store *fakeStore) ListRunArtifacts(
-	context.Context, uuid.UUID, *collaboration.AttachmentCursor, int,
-) ([]collaboration.Attachment, error) {
+	context.Context, uuid.UUID, *collaboration.RunArtifactCursor, int,
+) ([]collaboration.RunArtifact, error) {
 	return store.existing, nil
 }
 
@@ -159,10 +159,10 @@ func TestPromoteCopiesOutputIntoTheStore(t *testing.T) {
 	}
 	for _, params := range store.reserved {
 		if params.SizeBytes == 0 {
-			t.Errorf("%s reserved with a zero size", params.FileName)
+			t.Errorf("%s reserved with a zero size", params.Path)
 		}
 		if params.ChecksumSHA256 == [32]byte{} {
-			t.Errorf("%s reserved without a checksum", params.FileName)
+			t.Errorf("%s reserved without a checksum", params.Path)
 		}
 	}
 }
@@ -195,7 +195,7 @@ func TestPromoteIgnoresFilesOutsideTheRunWindow(t *testing.T) {
 func TestPromoteSkipsWhatItAlreadyPublished(t *testing.T) {
 	t.Parallel()
 	root := workspace(t, "writer", map[string]string{"blog.md": "body"})
-	store := &fakeStore{existing: []collaboration.Attachment{{FileName: "blog.md"}}}
+	store := &fakeStore{existing: []collaboration.RunArtifact{{Path: "blog.md"}}}
 	promoter := newPromoter(root, store, newFakeStorage())
 
 	// A retried workflow must not attach the same deliverable twice.
@@ -499,7 +499,7 @@ func TestRecoverIsSafeToRepeat(t *testing.T) {
 		t.Fatalf("first Recover: %v", err)
 	}
 	// A second pass sees what the first published and must not attach it twice.
-	store.existing = []collaboration.Attachment{{FileName: "blog.md"}}
+	store.existing = []collaboration.RunArtifact{{Path: "blog.md"}}
 	recovered, err := Recover(context.Background(), promoter, source, runStart, nil)
 	if err != nil {
 		t.Fatalf("second Recover: %v", err)
@@ -601,7 +601,7 @@ func TestPromoteContentAttachesStreamedBytesWithoutARuntimeVolume(t *testing.T) 
 	if err := promoter.PromoteContent(context.Background(), run, "notes/report.md", content); err != nil {
 		t.Fatalf("PromoteContent() error = %v", err)
 	}
-	if len(store.reserved) != 1 || store.reserved[0].FileName != "notes/report.md" ||
+	if len(store.reserved) != 1 || store.reserved[0].Path != "notes/report.md" ||
 		store.reserved[0].RunID != run.RunID || store.reserved[0].SizeBytes != int64(len(content)) ||
 		store.reserved[0].ContentType != contentTypeFor("report.md") {
 		t.Fatalf("reserved = %#v", store.reserved)
@@ -637,5 +637,127 @@ func TestPromoteContentAbortsTheReservationWhenStorageFails(t *testing.T) {
 	}
 	if len(store.reserved) != 1 || len(store.aborted) != 1 || len(store.activated) != 0 {
 		t.Fatalf("reserved=%d aborted=%d activated=%d, want the reservation aborted", len(store.reserved), len(store.aborted), len(store.activated))
+	}
+}
+
+// The bug this exists to stop: an agent asked to build an application writes
+// output/src/…, and a flat discovery promoted none of it. The run looked as
+// though it produced nothing, and AutoGate's reviewer — shown no files —
+// rejected work that had actually been done.
+func TestNestedOutputIsPromoted(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "coder", map[string]string{"README.md": "top"})
+	nested := filepath.Join(root, "coder", outputDirectory, "src", "password")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for _, name := range []string{"generator.ts", "index.ts"} {
+		path := filepath.Join(nested, name)
+		if err := os.WriteFile(path, []byte("export const x = 1\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if err := os.Chtimes(path, runStart.Add(time.Minute), runStart.Add(time.Minute)); err != nil {
+			t.Fatalf("chtimes: %v", err)
+		}
+	}
+	store, backend := &fakeStore{}, newFakeStorage()
+	promoter := newPromoter(root, store, backend)
+
+	result, err := promoter.Promote(context.Background(), runContext("coder"))
+	if err != nil {
+		t.Fatalf("Promote: %v", err)
+	}
+	if len(result.Promoted) != 3 {
+		t.Fatalf("promoted %v, want the top-level file and both nested ones", result.Promoted)
+	}
+	names := strings.Join(result.Promoted, " ")
+	if !strings.Contains(names, "src/password/generator.ts") {
+		t.Errorf("nested file lost its path: %v", result.Promoted)
+	}
+}
+
+// run_artifacts.path is the artifact's identity, so what may become one is
+// constrained: relative, no traversal, no separator that is not a slash.
+func TestAnArtifactPathMustStayInsideTheOutputDirectory(t *testing.T) {
+	t.Parallel()
+	for _, allowed := range []string{
+		"README.md",
+		"src/password/generator.ts",
+		".github/workflows/ci.yml",
+	} {
+		if _, err := artifactName(allowed); err != nil {
+			t.Errorf("artifactName(%q) = %v, want it allowed", allowed, err)
+		}
+	}
+	for _, refused := range []string{
+		"../../etc/passwd",
+		"/etc/passwd",
+		"src/../../../etc/passwd",
+		`src\windows.ts`,
+		"",
+		"   ",
+	} {
+		if cleaned, err := artifactName(refused); err == nil {
+			t.Errorf("artifactName(%q) = %q, want it refused", refused, cleaned)
+		}
+	}
+}
+
+// Delivery needs the path, not the flattened name: a commit places a file.
+func TestOutputKeepsThePathWhilePromotionFlattensIt(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "coder", nil)
+	nested := filepath.Join(root, "coder", outputDirectory, "src", "api")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	deep := filepath.Join(nested, "handler.go")
+	if err := os.WriteFile(deep, []byte("package api\n"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.Chtimes(deep, runStart.Add(time.Minute), runStart.Add(time.Minute)); err != nil {
+		t.Fatalf("chtimes: %v", err)
+	}
+	promoter := newPromoter(root, &fakeStore{}, newFakeStorage())
+
+	produced, err := promoter.Output(runContext("coder"))
+	if err != nil {
+		t.Fatalf("Output: %v", err)
+	}
+	if len(produced) != 1 || produced[0].Name != "src/api/handler.go" {
+		t.Fatalf("Output = %+v, want src/api/handler.go", produced)
+	}
+}
+
+// A dot-directory is tooling, except .github, which agents are routinely
+// asked to write.
+func TestDotDirectoriesAreSkippedExceptGithub(t *testing.T) {
+	t.Parallel()
+	root := workspace(t, "devops-lead", nil)
+	output := filepath.Join(root, "devops-lead", outputDirectory)
+	for _, spec := range []struct{ dir, name string }{
+		{".github/workflows", "ci.yml"},
+		{".cache", "junk.bin"},
+	} {
+		full := filepath.Join(output, spec.dir)
+		if err := os.MkdirAll(full, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		path := filepath.Join(full, spec.name)
+		if err := os.WriteFile(path, []byte("x\n"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if err := os.Chtimes(path, runStart.Add(time.Minute), runStart.Add(time.Minute)); err != nil {
+			t.Fatalf("chtimes: %v", err)
+		}
+	}
+	promoter := newPromoter(root, &fakeStore{}, newFakeStorage())
+
+	produced, err := promoter.Output(runContext("devops-lead"))
+	if err != nil {
+		t.Fatalf("Output: %v", err)
+	}
+	if len(produced) != 1 || produced[0].Name != ".github/workflows/ci.yml" {
+		t.Fatalf("Output = %+v, want only the CI workflow", produced)
 	}
 }

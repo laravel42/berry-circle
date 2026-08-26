@@ -49,10 +49,10 @@ const maxPromotedFiles = 50
 
 // Store is the persistence the promoter needs.
 type Store interface {
-	ReserveRunArtifact(context.Context, collaboration.ReserveRunArtifactParams) (collaboration.Attachment, error)
-	ActivateRunArtifact(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) (collaboration.Attachment, collaboration.Event, error)
+	ReserveRunArtifact(context.Context, collaboration.ReserveRunArtifactParams) (collaboration.RunArtifact, error)
+	ActivateRunArtifact(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) (collaboration.RunArtifact, collaboration.Event, error)
 	AbortRunArtifact(context.Context, uuid.UUID, uuid.UUID) error
-	ListRunArtifacts(context.Context, uuid.UUID, *collaboration.AttachmentCursor, int) ([]collaboration.Attachment, error)
+	ListRunArtifacts(context.Context, uuid.UUID, *collaboration.RunArtifactCursor, int) ([]collaboration.RunArtifact, error)
 }
 
 // RunContext is what the promoter needs to know about a finished run.
@@ -128,7 +128,7 @@ func (promoter *Promoter) PromoteContent(
 	artifact, err := promoter.ReserveRunArtifact(ctx, collaboration.ReserveRunArtifactParams{
 		ID:             promoter.newID(),
 		RunID:          run.RunID,
-		FileName:       cleaned,
+		Path:           cleaned,
 		ContentType:    contentTypeFor(cleaned),
 		SizeBytes:      int64(len(content)),
 		ChecksumSHA256: checksum,
@@ -165,8 +165,12 @@ func artifactName(name string) (string, error) {
 		strings.Contains(cleaned, "/../") {
 		return "", errors.New("artifacts: file name must stay inside output/")
 	}
+	// A dot-prefixed segment is tooling rather than output, except .github,
+	// which agents are routinely asked to write. Same rule the directory walk
+	// applies, so a file arriving through the stream and the same file found
+	// on disk are judged identically.
 	for _, part := range strings.Split(cleaned, "/") {
-		if strings.HasPrefix(part, ".") {
+		if strings.HasPrefix(part, ".") && part != ".github" {
 			return "", errors.New("artifacts: hidden files are not deliverables")
 		}
 	}
@@ -213,37 +217,41 @@ func (promoter *Promoter) Promote(ctx context.Context, run RunContext) (Result, 
 	}
 	seen := make(map[string]struct{}, len(existing))
 	for _, artifact := range existing {
-		seen[artifact.FileName] = struct{}{}
+		seen[artifact.Path] = struct{}{}
 	}
 
 	for _, candidate := range candidates {
-		if _, done := seen[candidate.name]; done {
+		if _, done := seen[candidate.relative]; done {
 			continue
 		}
 		if len(result.Promoted) >= maxPromotedFiles {
-			result.Skipped = append(result.Skipped, candidate.name)
+			result.Skipped = append(result.Skipped, candidate.relative)
 			continue
 		}
 		if promoter.MaxBytes > 0 && candidate.size > promoter.MaxBytes {
 			promoter.logger().Warn("artifact exceeds the size cap and was not promoted",
-				"runId", run.RunID, "file", candidate.name,
+				"runId", run.RunID, "file", candidate.relative,
 				"sizeBytes", candidate.size, "maxBytes", promoter.MaxBytes)
-			result.Skipped = append(result.Skipped, candidate.name)
+			result.Skipped = append(result.Skipped, candidate.relative)
 			continue
 		}
 		if err := promoter.promoteOne(ctx, run, candidate); err != nil {
 			promoter.logger().Error("artifact promotion failed",
-				"runId", run.RunID, "file", candidate.name, "error", err)
-			result.Skipped = append(result.Skipped, candidate.name)
+				"runId", run.RunID, "file", candidate.relative, "error", err)
+			result.Skipped = append(result.Skipped, candidate.relative)
 			continue
 		}
-		result.Promoted = append(result.Promoted, candidate.name)
+		result.Promoted = append(result.Promoted, candidate.relative)
 	}
 	return result, nil
 }
 
 type candidate struct {
-	name string
+	// relative is the path inside output/, slash-separated. It is the
+	// artifact's identity: run_artifacts is keyed on (run_id, path), and
+	// delivery commits a file at exactly this path.
+	relative string
+	// path is the absolute location on the mounted volume.
 	path string
 	size int64
 }
@@ -313,14 +321,6 @@ func (promoter *Promoter) candidates(directory string, run RunContext) ([]candid
 		return nil, err
 	}
 
-	entries, err := os.ReadDir(resolved)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("artifacts: read output directory: %w", err)
-	}
-
 	// A generous margin either side: the run's recorded window and the
 	// filesystem's clock are not the same clock, and a file written moments
 	// before completion is still this run's output.
@@ -328,16 +328,45 @@ func (promoter *Promoter) candidates(directory string, run RunContext) ([]candid
 	from := run.StartedAt.Add(-margin)
 	until := run.CompletedAt.Add(margin)
 
-	found := make([]candidate, 0, len(entries))
-	for _, entry := range entries {
+	found := make([]candidate, 0, 16)
+	// Recursive, because agents organise their work. An agent asked to build a
+	// React application writes output/src/components/…, and a discovery that
+	// read only the top level promoted none of it: the run looked as though it
+	// had produced nothing, and a reviewer shown no files rejected work that
+	// was actually done.
+	//
+	// WalkDir lstats, so a symlinked directory is reported as a symlink and
+	// never descended into. With the O_NOFOLLOW opens elsewhere, nothing
+	// outside the output directory can be read however the tree is arranged.
+	walkErr := filepath.WalkDir(resolved, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			if entry != nil && entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
+		if current == resolved {
+			return nil
+		}
+		if entry.IsDir() {
+			// A dot-directory is tooling, not output — except .github, which
+			// is the one an agent is routinely asked to write.
+			if strings.HasPrefix(entry.Name(), ".") && entry.Name() != ".github" {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		if strings.HasPrefix(entry.Name(), ".") {
-			continue
+			return nil
+		}
+		if len(found) >= maxPromotedFiles*2 {
+			return fs.SkipAll
 		}
 		// Info is lstat, so a symlink reports as a symlink here rather than as
 		// whatever it points at.
 		info, err := entry.Info()
 		if err != nil {
-			continue
+			return nil
 		}
 		// Regular files only. A symlink would be followed on open and promote
 		// whatever it targets in *this* process's filesystem — the worker's
@@ -345,24 +374,30 @@ func (promoter *Promoter) candidates(directory string, run RunContext) ([]candid
 		// agent that writes into this directory is running model-authored tool
 		// calls. Devices, sockets and FIFOs are refused for the same reason:
 		// nothing that is not a plain file is a deliverable.
-		if !info.Mode().IsRegular() {
-			continue
-		}
-		if info.Size() == 0 {
-			continue
+		if !info.Mode().IsRegular() || info.Size() == 0 {
+			return nil
 		}
 		modified := info.ModTime()
 		if modified.Before(from) || modified.After(until) {
-			continue
+			return nil
 		}
+		relative, err := filepath.Rel(resolved, current)
+		if err != nil {
+			return nil
+		}
+		relative = filepath.ToSlash(relative)
 		found = append(found, candidate{
-			name: entry.Name(),
-			path: filepath.Join(resolved, entry.Name()),
-			size: info.Size(),
+			relative: relative,
+			path:     current,
+			size:     info.Size(),
 		})
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("artifacts: read output directory: %w", walkErr)
 	}
 	sort.Slice(found, func(left, right int) bool {
-		return found[left].name < found[right].name
+		return found[left].relative < found[right].relative
 	})
 	return found, nil
 }
@@ -383,7 +418,7 @@ func (promoter *Promoter) promoteOne(
 	// file with a symlink after it was checked would otherwise be enough.
 	handle, err := os.OpenFile(file.path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", file.name, err)
+		return fmt.Errorf("open %s: %w", file.relative, err)
 	}
 	defer handle.Close()
 
@@ -391,37 +426,37 @@ func (promoter *Promoter) promoteOne(
 	// entry, so what is read is provably the file that was inspected.
 	stat, err := handle.Stat()
 	if err != nil {
-		return fmt.Errorf("stat %s: %w", file.name, err)
+		return fmt.Errorf("stat %s: %w", file.relative, err)
 	}
 	if !stat.Mode().IsRegular() {
-		return fmt.Errorf("artifacts: %s is not a regular file", file.name)
+		return fmt.Errorf("artifacts: %s is not a regular file", file.relative)
 	}
 	if stat.Size() != file.size {
-		return fmt.Errorf("artifacts: %s changed size during promotion", file.name)
+		return fmt.Errorf("artifacts: %s changed size during promotion", file.relative)
 	}
 
 	digest := sha256.New()
 	if _, err := io.Copy(digest, io.LimitReader(handle, file.size)); err != nil {
-		return fmt.Errorf("checksum %s: %w", file.name, err)
+		return fmt.Errorf("checksum %s: %w", file.relative, err)
 	}
 	var checksum [32]byte
 	copy(checksum[:], digest.Sum(nil))
 	if _, err := handle.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("rewind %s: %w", file.name, err)
+		return fmt.Errorf("rewind %s: %w", file.relative, err)
 	}
 
 	now := promoter.now()
 	artifact, err := promoter.ReserveRunArtifact(ctx, collaboration.ReserveRunArtifactParams{
 		ID:             promoter.newID(),
 		RunID:          run.RunID,
-		FileName:       file.name,
-		ContentType:    contentTypeFor(file.name),
+		Path:           file.relative,
+		ContentType:    contentTypeFor(file.relative),
 		SizeBytes:      file.size,
 		ChecksumSHA256: checksum,
 		CreatedAt:      now,
 	})
 	if err != nil {
-		return fmt.Errorf("reserve %s: %w", file.name, err)
+		return fmt.Errorf("reserve %s: %w", file.relative, err)
 	}
 
 	if _, err := promoter.Storage.Put(ctx, artifact.StorageKey, handle); err != nil {
@@ -431,13 +466,13 @@ func (promoter *Promoter) promoteOne(
 			promoter.logger().Warn("could not abort a failed artifact reservation",
 				"runId", run.RunID, "attachmentId", artifact.ID, "error", abortErr)
 		}
-		return fmt.Errorf("store %s: %w", file.name, err)
+		return fmt.Errorf("store %s: %w", file.relative, err)
 	}
 
 	if _, _, err := promoter.ActivateRunArtifact(
 		ctx, run.RunID, artifact.ID, promoter.newID(), promoter.now(),
 	); err != nil {
-		return fmt.Errorf("activate %s: %w", file.name, err)
+		return fmt.Errorf("activate %s: %w", file.relative, err)
 	}
 	return nil
 }
@@ -494,12 +529,10 @@ type Produced struct {
 
 // Output reads the files a finished run produced, at the paths it wrote them.
 //
-// Shares the promoter's rules — the same output directory, the same run window,
+// The same discovery promotion uses — the same directory, the same run window,
 // the same refusal of symlinks, empty files and anything that is not a plain
-// file — but descends into subdirectories, which promotion does not. An
-// attachment is named; a commit is placed. A run that writes
-// output/src/api/handler.go means that file to arrive at src/api/handler.go in
-// the repository, and a flat name cannot say so.
+// file — read back for delivery, which needs the path rather than the name. An
+// attachment is named; a commit is placed.
 func (promoter *Promoter) Output(run RunContext) ([]Produced, error) {
 	if !promoter.Enabled() {
 		return nil, nil
@@ -508,79 +541,28 @@ func (promoter *Promoter) Output(run RunContext) ([]Produced, error) {
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := promoter.resolveInsideRoot(directory)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
+	files, err := promoter.candidates(directory, run)
 	if err != nil {
 		return nil, err
 	}
 
-	const margin = 2 * time.Minute
-	from := run.StartedAt.Add(-margin)
-	until := run.CompletedAt.Add(margin)
-
-	produced := make([]Produced, 0, 8)
-	// WalkDir lstats, so a symlinked directory is reported as a symlink and
-	// never descended into. Combined with O_NOFOLLOW below, nothing outside the
-	// output directory can be read however the tree is arranged.
-	err = filepath.WalkDir(resolved, func(current string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if current == resolved {
-			return nil
-		}
-		if strings.HasPrefix(entry.Name(), ".") {
-			if entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if len(produced) >= maxPromotedFiles {
-			return fs.SkipAll
-		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
-			return nil
-		}
-		if promoter.MaxBytes > 0 && info.Size() > promoter.MaxBytes {
-			return nil
-		}
-		modified := info.ModTime()
-		if modified.Before(from) || modified.After(until) {
-			return nil
-		}
-		relative, err := filepath.Rel(resolved, current)
-		if err != nil {
-			return nil
+	produced := make([]Produced, 0, len(files))
+	for _, file := range files {
+		if promoter.MaxBytes > 0 && file.size > promoter.MaxBytes {
+			continue
 		}
 		// O_NOFOLLOW for the same reason the promoter uses it: the agent can
 		// still write to this directory while delivery runs.
-		handle, err := os.OpenFile(current, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+		handle, err := os.OpenFile(file.path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 		if err != nil {
-			return nil
+			continue
 		}
-		contents, readErr := io.ReadAll(io.LimitReader(handle, info.Size()))
+		contents, readErr := io.ReadAll(io.LimitReader(handle, file.size))
 		handle.Close()
 		if readErr != nil {
-			return nil
+			continue
 		}
-		produced = append(produced, Produced{
-			Name:     filepath.ToSlash(relative),
-			Contents: string(contents),
-		})
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("artifacts: read output directory: %w", err)
+		produced = append(produced, Produced{Name: file.relative, Contents: string(contents)})
 	}
-	sort.Slice(produced, func(a, b int) bool { return produced[a].Name < produced[b].Name })
 	return produced, nil
 }

@@ -101,6 +101,9 @@ type Options struct {
 	PollInterval  time.Duration
 	// Artifacts lists what a run produced (ADR-0006). Optional.
 	Artifacts ArtifactStore
+	// ArtifactBytes streams one artifact for download. Optional; without it
+	// the list still answers and the download route reports not found.
+	ArtifactBytes ArtifactBytes
 	// ArtifactSink attaches files an agent writes during a run. Optional.
 	ArtifactSink runadmission.ArtifactSink
 	// Code renders repository context into a run's prompt. Optional.
@@ -128,6 +131,8 @@ type Handlers struct {
 	// answers an empty list rather than 404, so the route's shape does not
 	// depend on whether promotion is configured.
 	artifacts ArtifactStore
+	// artifactBytes streams an artifact's contents. Optional, like artifacts.
+	artifactBytes ArtifactBytes
 }
 
 // New constructs one lifecycle-owned run handler set.
@@ -221,6 +226,7 @@ func New(options Options) (*Handlers, error) {
 		heartbeat:     heartbeat,
 		pollInterval:  poll,
 		artifacts:     options.Artifacts,
+		artifactBytes: options.ArtifactBytes,
 	}, nil
 }
 
@@ -232,6 +238,7 @@ func (handlers *Handlers) Mount() httpapi.Mount {
 	router.Post("/{runId}/cancel", handlers.cancel)
 	router.Get("/{runId}/events", handlers.streamRunEvents)
 	router.Get("/{runId}/artifacts", handlers.listRunArtifacts)
+	router.Get("/{runId}/artifacts/{artifactId}/download", handlers.downloadRunArtifact)
 	return httpapi.Mount{Prefix: "/api/v1/runs", Handler: router}
 }
 

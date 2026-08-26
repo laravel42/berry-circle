@@ -487,24 +487,25 @@ func (repository *Repository) DependencyArtifacts(
 	}
 	rows, err := repository.Pool.Query(
 		ctx,
-		`SELECT upper(board.slug) || '-' || blocker.number,
+		`SELECT COALESCE(workspace.settings->>'issuePrefix', 'WS') || '-' || blocker.number,
 		        blocker.title,
 		        COALESCE(agent.name, ''),
-		        attachment.file_name,
-		        attachment.content_type,
-		        attachment.size_bytes,
-		        attachment.storage_key
+		        artifact.path,
+		        artifact.content_type,
+		        artifact.size_bytes,
+		        artifact.storage_key
 		   FROM issue_dependencies AS dependency
 		   JOIN issues AS blocker
 		     ON blocker.id = dependency.depends_on_issue_id AND blocker.deleted_at IS NULL
 		   JOIN boards AS board ON board.id = blocker.board_id
+		   JOIN workspaces AS workspace ON workspace.id = board.workspace_id
 		   JOIN runs AS run
 		     ON run.issue_id = blocker.id AND run.status = 'succeeded'
-		   JOIN attachments AS attachment
-		     ON attachment.run_id = run.id AND attachment.state = 'ready'
+		   JOIN run_artifacts AS artifact
+		     ON artifact.run_id = run.id AND artifact.state = 'ready'
 		   LEFT JOIN agents AS agent ON agent.id = run.agent_id
 		  WHERE dependency.issue_id = $1
-		  ORDER BY run.completed_at DESC NULLS LAST, attachment.created_at DESC, attachment.id DESC
+		  ORDER BY run.completed_at DESC NULLS LAST, artifact.path ASC
 		  LIMIT $2`,
 		issueID,
 		limit,

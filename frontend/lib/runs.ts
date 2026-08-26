@@ -340,16 +340,12 @@ export function runToActivityItems(run: RunRecord, actor: User): ActivityItem[] 
       },
    ];
 
-   const summary = run.summary?.trim();
-   if (summary) {
-      items.push({
-         kind: 'comment',
-         id: `run:${run.id}:result`,
-         actor,
-         timeAgo: relativeTime(at),
-         body: [{ type: 'paragraph', text: summary }],
-      });
-   }
+   // The summary is deliberately not a second card. The server already posts
+   // the agent's final message to the issue as the agent's own comment, which
+   // is the record a person replies to; rendering run.summary beside it showed
+   // every finished task's result twice, from two sources holding the same
+   // text. What the run contributes to the thread is that it happened and what
+   // it cost — the event above.
    return items;
 }
 

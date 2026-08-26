@@ -104,7 +104,7 @@ type IssueRuns interface {
 
 // Artifacts lists what an issue run produced, for the step's output.
 type Artifacts interface {
-	ListRunArtifacts(context.Context, uuid.UUID, *collaboration.AttachmentCursor, int) ([]collaboration.Attachment, error)
+	ListRunArtifacts(context.Context, uuid.UUID, *collaboration.RunArtifactCursor, int) ([]collaboration.RunArtifact, error)
 }
 
 // SubrunStarter hands a child run a subworkflow step created to whatever

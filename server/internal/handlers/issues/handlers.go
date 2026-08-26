@@ -38,6 +38,8 @@ type Options struct {
 	RunHandler http.Handler
 	// Optional P2 collaboration subtrees. The issue router owns auth.
 	AttachmentHandler http.Handler
+	// ArtifactHandler lists what the agents on an issue produced. Optional.
+	ArtifactHandler   http.Handler
 	ReactionHandler   http.Handler
 	SubscriberHandler http.Handler
 	// Goals links an issue to a goal; built from the pool when nil.
@@ -173,6 +175,17 @@ func NewMount(options Options) (httpapi.Mount, error) {
 				options.Authorization,
 				identity.PermissionWrite,
 				options.AttachmentHandler,
+			),
+		)
+	}
+	if options.ArtifactHandler != nil {
+		// Read, not write: nobody uploads an artifact, an agent produces one.
+		router.Mount(
+			"/{issueRef}/artifacts",
+			authorizeIssueNested(
+				options.Authorization,
+				identity.PermissionRead,
+				options.ArtifactHandler,
 			),
 		)
 	}

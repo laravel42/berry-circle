@@ -609,8 +609,11 @@ func run() int {
 		runRoutes, err = runhandlers.New(runhandlers.Options{
 			Service:    runService,
 			Repository: runStore,
-			// Lists a run's promoted outputs (ADR-0006).
+			// Lists a run's promoted outputs (ADR-0006), and streams one for
+			// download — artifacts have their own table and their own route,
+			// so the attachment download path no longer reaches them.
 			Artifacts:        runArtifactStore,
+			ArtifactBytes:    storageBackend,
 			Pool:             dbPool,
 			Sessions:         authenticator,
 			Clock:            time.Now,
@@ -771,6 +774,15 @@ func run() int {
 			closeValkey(valkeyClient)
 			closeDatabase(dbPool)
 			logger.Error("issue attachment route setup failed", "error", err)
+			return 1
+		}
+		issueArtifacts, err := attachments.NewIssueArtifactHandler(collaborationStore, authenticator)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("issue artifact route setup failed", "error", err)
 			return 1
 		}
 		commentAttachments, err := attachments.NewCommentHandler(attachmentOptions)
@@ -974,6 +986,7 @@ func run() int {
 			Authorization:     identityService,
 			Broadcaster:       realtimeManager,
 			AttachmentHandler: issueAttachments,
+			ArtifactHandler:   issueArtifacts,
 			ReactionHandler:   issueReactions,
 			SubscriberHandler: issueSubscribers,
 		})

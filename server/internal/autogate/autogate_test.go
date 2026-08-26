@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -52,12 +53,16 @@ type stubChat struct {
 	content string
 	err     error
 	model   string
+	prompt  string
 }
 
 func (chat *stubChat) CreateChatCompletion(
 	_ context.Context, request openfang.ChatCompletionRequest,
 ) (openfang.ChatCompletionResult, error) {
 	chat.model = request.Model
+	if len(request.Messages) > 0 {
+		chat.prompt = request.Messages[0].Content
+	}
 	if chat.err != nil {
 		return openfang.ChatCompletionResult{}, chat.err
 	}
@@ -237,7 +242,7 @@ func TestEveryCallReachesTheAskLedger(t *testing.T) {
 // though a person will catch anything it misses.
 func TestThePromptSaysApprovalIsFinal(t *testing.T) {
 	t.Parallel()
-	prompt := Prompt(gatedSubject())
+	prompt := Prompt(gatedSubject(), nil)
 	for _, want := range []string{"Nobody else will look at it first", "PLATFORM-9", "coder", "approved"} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt is missing %q", want)
@@ -262,5 +267,75 @@ func TestTheRecordedAnswerIsTheParsedVerdict(t *testing.T) {
 	}
 	if !round.Approved {
 		t.Error("a fenced answer was not parsed")
+	}
+}
+
+type stubFiles struct{ bodies map[string]string }
+
+func (files stubFiles) Open(_ context.Context, key string) (io.ReadCloser, error) {
+	body, ok := files.bodies[key]
+	if !ok {
+		return nil, errors.New("no such object")
+	}
+	return io.NopCloser(strings.NewReader(body)), nil
+}
+
+func subjectWithFiles() Subject {
+	subject := gatedSubject()
+	subject.Artifacts = []ArtifactFile{
+		{Name: "vite.config.ts", ContentType: "text/plain", SizeBytes: 40, StorageKey: "k1"},
+		{Name: "logo.png", ContentType: "application/octet-stream", SizeBytes: 900, StorageKey: "k2"},
+	}
+	return subject
+}
+
+// The reviewer is sandboxed to its own workspace and cannot read the author's.
+// Given only file names it went looking, found its own empty output/, and
+// rejected work that was actually done — so the files come to it.
+func TestTheReviewerIsShownTheFilesNotJustTheirNames(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{
+		subject:   subjectWithFiles(),
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+	}
+	chat := &stubChat{content: `{"approved":true,"reason":"The config is present and correct."}`}
+	reviewer := service(store, chat)
+	reviewer.Files = stubFiles{bodies: map[string]string{"k1": "export default defineConfig({})"}}
+
+	if _, err := reviewer.Review(context.Background(), store.subject.RunID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if !strings.Contains(chat.prompt, "export default defineConfig({})") {
+		t.Errorf("the file's contents never reached the reviewer:\n%s", chat.prompt)
+	}
+	// A binary is still evidence that the file was produced, which is the
+	// claim most often in dispute.
+	if !strings.Contains(chat.prompt, "logo.png") {
+		t.Error("an unreadable artifact was dropped instead of being named")
+	}
+}
+
+// The instruction that stops the failure we actually saw.
+func TestTheReviewerIsToldItCannotCheckTheFilesystem(t *testing.T) {
+	t.Parallel()
+	prompt := Prompt(subjectWithFiles(), []Evidence{{Name: "a.ts", Body: "x"}})
+	for _, want := range []string{
+		"cannot inspect the author's workspace",
+		"Your own workspace is not theirs",
+		"Do not use file tools",
+		"Do not reject because you could not verify something",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt is missing the guard %q:\n%s", want, prompt)
+		}
+	}
+}
+
+// A task that legitimately produced nothing must still be reviewable.
+func TestATaskWithNoFilesSaysSoPlainly(t *testing.T) {
+	t.Parallel()
+	prompt := Prompt(gatedSubject(), nil)
+	if !strings.Contains(prompt, "produced no files") {
+		t.Errorf("a file-less task did not say so:\n%s", prompt)
 	}
 }

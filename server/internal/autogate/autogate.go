@@ -18,17 +18,26 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 )
 
-// maxWorkBytes bounds what the reviewer is shown of the work.
-const maxWorkBytes = 16 * 1024
+// Bounds on what the reviewer is shown.
+const (
+	maxWorkBytes = 16 * 1024
+	// maxFileBytes and maxFiles bound the evidence. A reviewer given the whole
+	// output of a large run reads none of it carefully.
+	maxFileBytes  = 8 * 1024
+	maxFiles      = 8
+	maxTotalFiles = 32 * 1024
+)
 
 // Candidate is an agent that could review.
 type Candidate struct {
@@ -49,9 +58,27 @@ type Subject struct {
 	IssueTitle      string
 	IssueBody       string
 	Summary         string
-	Artifacts       []string
+	Artifacts       []ArtifactFile
 	AutoGate        bool
 	InReview        bool
+}
+
+// ArtifactFile is one file the run produced, as the store knows it.
+type ArtifactFile struct {
+	Name        string
+	ContentType string
+	SizeBytes   int64
+	StorageKey  string
+}
+
+// Evidence is one artifact with as much of its content as the reviewer sees.
+type Evidence struct {
+	Name string
+	Body string
+	// Unreadable marks a file that exists but could not be shown — a binary,
+	// or one storage would not return. It is still evidence that the file was
+	// produced, which is the claim most often in question.
+	Unreadable bool
 }
 
 // Verdict is what the reviewer answered.
@@ -93,6 +120,11 @@ type Store interface {
 	RecordAsk(ctx context.Context, ask Ask) error
 }
 
+// Files opens a stored artifact so the reviewer can read it.
+type Files interface {
+	Open(ctx context.Context, storageKey string) (io.ReadCloser, error)
+}
+
 // Completer is the one runtime call a review makes.
 type Completer interface {
 	CreateChatCompletion(context.Context, openfang.ChatCompletionRequest) (openfang.ChatCompletionResult, error)
@@ -103,7 +135,10 @@ type Service struct {
 	Store Store
 	// Chat is the runtime's OpenAI-compatible route, with the reviewer agent
 	// as the model — the same seam an agent ask uses.
-	Chat   Completer
+	Chat Completer
+	// Files reads the artifacts the run produced. Without it the reviewer sees
+	// only their names, which it has no way to verify.
+	Files  Files
 	Clock  func() time.Time
 	NewID  func() uuid.UUID
 	Logger *slog.Logger
@@ -139,7 +174,7 @@ func (service *Service) Review(ctx context.Context, runID uuid.UUID) (Verdict, e
 		return Verdict{}, ErrNoReviewer
 	}
 
-	prompt := Prompt(subject)
+	prompt := Prompt(subject, service.evidence(ctx, subject))
 	ask := Ask{
 		ID: service.newID(), WorkspaceID: subject.WorkspaceID, AgentID: reviewer.ID,
 		PromptBytes: len(prompt), ModelProvider: reviewer.ModelProvider,
@@ -207,8 +242,63 @@ func pick(candidates []Candidate, authorID uuid.UUID) (Candidate, bool) {
 	return fallback, found
 }
 
+// evidence reads what the run produced, for the prompt.
+//
+// The reviewer is an agent with file tools, and OpenFang scopes those to the
+// reviewer's own workspace — not the author's. Left to verify a claim itself
+// it reads its own empty output/ directory and reports, accurately and
+// uselessly, that there is no evidence. So the evidence comes to it.
+func (service *Service) evidence(ctx context.Context, subject Subject) []Evidence {
+	found := make([]Evidence, 0, len(subject.Artifacts))
+	spent := 0
+	for _, artifact := range subject.Artifacts {
+		if len(found) >= maxFiles || spent >= maxTotalFiles {
+			break
+		}
+		if service.Files == nil {
+			found = append(found, Evidence{Name: artifact.Name, Unreadable: true})
+			continue
+		}
+		body, ok := service.read(ctx, artifact)
+		if !ok {
+			found = append(found, Evidence{Name: artifact.Name, Unreadable: true})
+			continue
+		}
+		found = append(found, Evidence{Name: artifact.Name, Body: body})
+		spent += len(body)
+	}
+	return found
+}
+
+func (service *Service) read(ctx context.Context, artifact ArtifactFile) (string, bool) {
+	handle, err := service.Files.Open(ctx, artifact.StorageKey)
+	if err != nil {
+		return "", false
+	}
+	defer handle.Close()
+	raw, err := io.ReadAll(io.LimitReader(handle, maxFileBytes+1))
+	if err != nil || len(raw) == 0 {
+		return "", false
+	}
+	truncated := len(raw) > maxFileBytes
+	if truncated {
+		raw = raw[:maxFileBytes]
+	}
+	body := string(raw)
+	for !utf8.ValidString(body) && len(body) > 0 {
+		body = body[:len(body)-1]
+	}
+	if body == "" || strings.ContainsRune(body, 0) {
+		return "", false
+	}
+	if truncated {
+		body += "\n[…file continues]"
+	}
+	return body, true
+}
+
 // Prompt is what the reviewer is asked. Exported so a test can read it.
-func Prompt(subject Subject) string {
+func Prompt(subject Subject, evidence []Evidence) string {
 	var builder strings.Builder
 	builder.WriteString("You are reviewing another agent's finished work before it is marked done. ")
 	builder.WriteString("Nobody else will look at it first: if you approve, the task closes.\n\n")
@@ -228,17 +318,37 @@ func Prompt(subject Subject) string {
 		builder.WriteString("\n\nWhat the agent reported:\n")
 		builder.WriteString(clamp(subject.Summary, maxWorkBytes))
 	}
-	if len(subject.Artifacts) > 0 {
-		builder.WriteString("\n\nFiles it produced:\n")
-		for _, name := range subject.Artifacts {
-			builder.WriteString("- ")
-			builder.WriteString(name)
-			builder.WriteString("\n")
+	if len(evidence) > 0 {
+		builder.WriteString("\n\nFiles it produced — this is the work itself, already stored on the task:\n")
+		for _, file := range evidence {
+			builder.WriteString("\n--- ")
+			builder.WriteString(file.Name)
+			if file.Unreadable {
+				builder.WriteString(" (this file exists but is not text, so its contents are not shown) ---\n")
+				continue
+			}
+			builder.WriteString(" ---\n")
+			builder.WriteString(file.Body)
+			if !strings.HasSuffix(file.Body, "\n") {
+				builder.WriteString("\n")
+			}
 		}
+	} else {
+		builder.WriteString("\n\nThis task produced no files.")
 	}
-	builder.WriteString("\nApprove only if the work actually does what was asked. ")
-	builder.WriteString("Reject when it is incomplete, when it describes what it would do instead of doing it, ")
-	builder.WriteString("when it produced no evidence of the work, or when it contradicts the task. ")
+
+	// Said before the instruction, because the failure it prevents is the
+	// reviewer trying to check the claim itself.
+	builder.WriteString("\n\nYou cannot inspect the author's workspace, its repository, or any filesystem. ")
+	builder.WriteString("Your own workspace is not theirs — whatever it contains, including an empty output/ ")
+	builder.WriteString("directory, tells you nothing about this task. Everything above is the complete ")
+	builder.WriteString("evidence, and a file listed above exists whether or not you can find it yourself. ")
+	builder.WriteString("Do not use file tools; judge what you have been given.\n\n")
+	builder.WriteString("Approve when what you were given does what the task asked. ")
+	builder.WriteString("Reject when the work is incomplete, when it describes what it would do instead of ")
+	builder.WriteString("doing it, when the files contradict the task, or when the task needed a deliverable ")
+	builder.WriteString("and none was produced. Do not reject because you could not verify something ")
+	builder.WriteString("yourself — that is expected, and is not a fault of the work. ")
 	builder.WriteString("Say plainly what is missing — your reason is posted on the task for whoever picks it up.\n\n")
 	builder.WriteString(`Answer with a single JSON object and nothing else: {"approved": boolean, "reason": string}`)
 	return builder.String()

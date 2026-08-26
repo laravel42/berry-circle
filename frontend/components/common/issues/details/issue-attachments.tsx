@@ -13,12 +13,13 @@ import { Bot, Download, FileText, Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 /**
- * Files attached to an issue: what people uploaded and what agents produced.
+ * Files a person put on this issue.
  *
- * Listed together deliberately. ADR-0006 made an agent's output an ordinary
- * attachment rather than a parallel store, and splitting them back apart in the
- * UI would undo the point — a reader wants the files on this issue, not two
- * lists differing by who happened to author them.
+ * Agent output is no longer here. It was, under ADR-0006, on the reasoning that
+ * a reader wants the files on an issue rather than two lists split by author —
+ * but an agent does not attach a file, it produces a tree, and the attachment
+ * table could not hold a path. IssueArtifacts renders that tree; this stays
+ * what it always was, a list of uploads.
  */
 export function IssueAttachments({ issueRef }: { issueRef: string }) {
    const [attachments, setAttachments] = useState<ApiAttachment[]>([]);

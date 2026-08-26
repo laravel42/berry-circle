@@ -611,10 +611,10 @@ func (store *fakeIssueRuns) finish(id uuid.UUID, status runs.Status, summary str
 }
 
 type fakeArtifacts struct {
-	artifacts []collaboration.Attachment
+	artifacts []collaboration.RunArtifact
 }
 
-func (store *fakeArtifacts) ListRunArtifacts(context.Context, uuid.UUID, *collaboration.AttachmentCursor, int) ([]collaboration.Attachment, error) {
+func (store *fakeArtifacts) ListRunArtifacts(context.Context, uuid.UUID, *collaboration.RunArtifactCursor, int) ([]collaboration.RunArtifact, error) {
 	return store.artifacts, nil
 }
 
@@ -1087,7 +1087,7 @@ func TestRunnerIssueModeAgentWaitsOnRunCompletion(t *testing.T) {
 			fake := newFixture(t, "", nil)
 			fake.setDefinition(t, definition(fake.agent))
 			fake.store.runs[fake.runID].TriggerPayload, _ = json.Marshal(map[string]any{"topic": "issue.completed"})
-			fake.artifacts.artifacts = []collaboration.Attachment{{ID: uuid.New(), FileName: "report.md", ContentType: "text/markdown", SizeBytes: 12}}
+			fake.artifacts.artifacts = []collaboration.RunArtifact{{ID: uuid.New(), Path: "report.md", ContentType: "text/markdown", SizeBytes: 12}}
 			fake.execute()
 			run := fake.run(t)
 			if len(fake.issueRuns.admitted) != 1 || len(fake.issueRuns.queued) != 1 {

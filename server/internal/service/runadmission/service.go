@@ -1009,7 +1009,10 @@ func reportingContract() string {
 		"do not point the reader to a file for it.\n" +
 		"Files you produce beyond it (data, generated documents, code) belong " +
 		"under the output/ directory of your workspace, where Berry can collect " +
-		"them after the run.\n"
+		"them after the run. Subdirectories are kept, so write them where they " +
+		"belong — output/src/password/generator.ts is stored at that path. " +
+		"Describing a file is not writing one: a result that exists only in " +
+		"your reply has produced nothing to collect.\n"
 }
 
 // deliveryContract tells the agent how to hand code back.
@@ -1023,7 +1026,8 @@ func deliveryContract(repository string) string {
 	return "\n\nDelivering your work\n" +
 		"Write every file you want committed into the output/ directory of your " +
 		"workspace, at the path it should have in the repository: a change to " +
-		"src/api/handler.go goes to output/src/api/handler.go.\n" +
+		"src/api/handler.go goes to output/src/api/handler.go. The directories " +
+		"you write are the directories that are committed.\n" +
 		"Write each file's complete new contents. Berry commits the file as you " +
 		"wrote it rather than applying a patch, so a partial file replaces the " +
 		"whole one. Files you leave alone are untouched.\n" +
