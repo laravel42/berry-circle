@@ -105,6 +105,12 @@ type InboxItem struct {
 	ReadAt          *time.Time
 	ArchivedAt      *time.Time
 	CreatedAt       time.Time
+	// ApprovalID, GoalID, WorkflowRunID and PlanID name the aggregate an
+	// item is about when it is not an issue.
+	ApprovalID    *uuid.UUID
+	GoalID        *uuid.UUID
+	WorkflowRunID *uuid.UUID
+	PlanID        *uuid.UUID
 }
 
 type InboxCursor struct {

@@ -18,8 +18,10 @@ import (
 const maxSavedViewsPerUser = 100
 const maxPinsPerUser = 100
 
+// DefaultNotificationPreferences mirrors the column default from migration
+// 022: every category on, including approvals, goals and workflows.
 var DefaultNotificationPreferences = json.RawMessage(
-	`{"inApp":{"assignments":true,"statusChanges":true,"comments":true,"mentions":true,"updates":true,"agentActivity":true}}`,
+	`{"inApp":{"assignments":true,"statusChanges":true,"comments":true,"mentions":true,"updates":true,"agentActivity":true,"approvals":true,"goals":true,"workflows":true}}`,
 )
 
 type Repository struct {

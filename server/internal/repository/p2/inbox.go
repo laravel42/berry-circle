@@ -20,7 +20,8 @@ const inboxProjection = `
 		ELSE berry_issue_identifier(board.workspace_id, issue.number)
 	END AS issue_identifier,
 	inbox.actor_type, inbox.actor_id, inbox.title, inbox.body,
-	inbox.details, inbox.read_at, inbox.archived_at, inbox.created_at`
+	inbox.details, inbox.read_at, inbox.archived_at, inbox.created_at,
+	inbox.approval_id, inbox.goal_id, inbox.automation_run_id, inbox.plan_id`
 
 func (repository *Repository) ListInbox(
 	ctx context.Context,
@@ -224,6 +225,10 @@ func scanInboxItem(row scanner) (InboxItem, error) {
 		&item.ReadAt,
 		&item.ArchivedAt,
 		&item.CreatedAt,
+		&item.ApprovalID,
+		&item.GoalID,
+		&item.WorkflowRunID,
+		&item.PlanID,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return InboxItem{}, ErrNotFound

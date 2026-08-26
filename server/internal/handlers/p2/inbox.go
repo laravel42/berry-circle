@@ -36,6 +36,11 @@ type inboxResource struct {
 	ReadAt          *string         `json:"readAt"`
 	ArchivedAt      *string         `json:"archivedAt"`
 	CreatedAt       string          `json:"createdAt"`
+	// The aggregate an item is about when it is not (only) an issue.
+	ApprovalID    *uuid.UUID `json:"approvalId"`
+	GoalID        *uuid.UUID `json:"goalId"`
+	WorkflowRunID *uuid.UUID `json:"workflowRunId"`
+	PlanID        *uuid.UUID `json:"planId"`
 }
 
 type inboxConnection struct {
@@ -79,6 +84,10 @@ func serializeInboxItem(item p2repo.InboxItem) inboxResource {
 		ReadAt:          readAt,
 		ArchivedAt:      archivedAt,
 		CreatedAt:       item.CreatedAt.UTC().Format(time.RFC3339Nano),
+		ApprovalID:      item.ApprovalID,
+		GoalID:          item.GoalID,
+		WorkflowRunID:   item.WorkflowRunID,
+		PlanID:          item.PlanID,
 	}
 }
 
@@ -369,6 +378,9 @@ var notificationCategories = []string{
 	"mentions",
 	"updates",
 	"agentActivity",
+	"approvals",
+	"goals",
+	"workflows",
 }
 
 type notificationDocument struct {

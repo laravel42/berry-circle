@@ -19,6 +19,15 @@ var inboxProjectionTopics = []string{
 	"run.completed",
 	"run.failed",
 	"run.cancelled",
+	"approval.requested",
+	"approval.approved",
+	"approval.rejected",
+	"approval.expired",
+	"goal.completed",
+	"workflow.run.failed",
+	"plan.generated",
+	"plan.blocked",
+	"plan.compile_failed",
 }
 
 type projectionEvent struct {
@@ -28,6 +37,22 @@ type projectionEvent struct {
 	AggregateID   uuid.UUID
 	Payload       json.RawMessage
 	OccurredAt    time.Time
+}
+
+// projectionTarget is what one event is about and who should hear of it.
+// Issue is set for issue-scoped events; the other ids for the aggregate the
+// item links to. Recipients are resolved by the aggregate: the issue's
+// creator and assignee, an approval's addressee (or every member of the
+// addressed role), a goal's or plan's creator, a workflow's creator.
+type projectionTarget struct {
+	WorkspaceID   uuid.UUID
+	Issue         *projectionIssue
+	ApprovalID    *uuid.UUID
+	GoalID        *uuid.UUID
+	WorkflowRunID *uuid.UUID
+	PlanID        *uuid.UUID
+	Title         string
+	Recipients    []uuid.UUID
 }
 
 type projectionIssue struct {
@@ -108,7 +133,7 @@ func (repository *Repository) projectNextInboxEvent(
 		return false, 0, errors.New("claim inbox projection event")
 	}
 	event.Payload = append(json.RawMessage(nil), payload...)
-	issue, err := resolveProjectionIssue(ctx, tx, event)
+	target, err := resolveProjectionTarget(ctx, tx, event)
 	if errors.Is(err, ErrNotFound) {
 		if err := writeProjectionReceipt(ctx, tx, event.ID, nil, "skipped", 0, now); err != nil {
 			return false, 0, err
@@ -123,9 +148,12 @@ func (repository *Repository) projectNextInboxEvent(
 	}
 	category := eventCategory(event)
 	actorType, actorID := eventActor(event.Payload)
-	recipients := uniqueRecipients(issue.CreatorID, issue.UserAssigneeID)
 	created := 0
-	for _, recipientID := range recipients {
+	var issueID *uuid.UUID
+	if target.Issue != nil {
+		issueID = &target.Issue.ID
+	}
+	for _, recipientID := range target.Recipients {
 		if actorType != nil && actorID != nil &&
 			*actorType == "user" && *actorID == recipientID {
 			continue
@@ -133,7 +161,7 @@ func (repository *Repository) projectNextInboxEvent(
 		enabled, err := notificationEnabled(
 			ctx,
 			tx,
-			issue.WorkspaceID,
+			target.WorkspaceID,
 			recipientID,
 			category,
 		)
@@ -144,30 +172,35 @@ func (repository *Repository) projectNextInboxEvent(
 			continue
 		}
 		details := boundedProjectionDetails(event)
-		title := projectionTitle(event.Topic, issue.Identifier)
 		tag, err := tx.Exec(
 			ctx,
 			`INSERT INTO inbox_items (
 				id, workspace_id, recipient_id, source_event_id,
 				event_type, category, severity, issue_id, actor_type, actor_id,
-				title, details, created_at
+				title, details, created_at,
+				approval_id, goal_id, automation_run_id, plan_id
 			 ) VALUES (
-				$1, $2, $3, $4, $5, $6, 'info', $7, $8, $9, $10, $11::jsonb, $12
+				$1, $2, $3, $4, $5, $6, 'info', $7, $8, $9, $10, $11::jsonb, $12,
+				$13, $14, $15, $16
 			 )
 			 ON CONFLICT (recipient_id, source_event_id)
 			 WHERE source_event_id IS NOT NULL DO NOTHING`,
 			newID(),
-			issue.WorkspaceID,
+			target.WorkspaceID,
 			recipientID,
 			event.ID,
 			event.Topic,
 			category,
-			issue.ID,
+			issueID,
 			actorType,
 			actorID,
-			title,
+			target.Title,
 			string(details),
 			event.OccurredAt.UTC(),
+			target.ApprovalID,
+			target.GoalID,
+			target.WorkflowRunID,
+			target.PlanID,
 		)
 		if err != nil {
 			return false, 0, fmt.Errorf("insert projected inbox item: %w", err)
@@ -182,7 +215,7 @@ func (repository *Repository) projectNextInboxEvent(
 		ctx,
 		tx,
 		event.ID,
-		&issue.WorkspaceID,
+		&target.WorkspaceID,
 		outcome,
 		created,
 		now,
@@ -193,6 +226,216 @@ func (repository *Repository) projectNextInboxEvent(
 		return false, 0, errors.New("commit inbox projection")
 	}
 	return true, created, nil
+}
+
+// resolveProjectionTarget routes the event by its aggregate. Issue-lane
+// events keep the issue's creator and assignee as recipients; the aggregates
+// that arrived with planning resolve their own.
+func resolveProjectionTarget(
+	ctx context.Context,
+	tx pgx.Tx,
+	event projectionEvent,
+) (projectionTarget, error) {
+	switch event.AggregateType {
+	case "approval":
+		return resolveApprovalTarget(ctx, tx, event)
+	case "goal":
+		return resolveGoalTarget(ctx, tx, event)
+	case "automation_run":
+		return resolveRunTarget(ctx, tx, event)
+	case "plan":
+		return resolvePlanTarget(ctx, tx, event)
+	}
+	issue, err := resolveProjectionIssue(ctx, tx, event)
+	if err != nil {
+		return projectionTarget{}, err
+	}
+	return projectionTarget{
+		WorkspaceID: issue.WorkspaceID,
+		Issue:       &issue,
+		Title:       projectionTitle(event.Topic, issue.Identifier),
+		Recipients:  uniqueRecipients(issue.CreatorID, issue.UserAssigneeID),
+	}, nil
+}
+
+// resolveApprovalTarget addresses the person the approval names, or every
+// member whose role satisfies the addressed role. Resolutions go to the
+// requester as well, so whoever asked learns the answer.
+func resolveApprovalTarget(ctx context.Context, tx pgx.Tx, event projectionEvent) (projectionTarget, error) {
+	var (
+		approvalID                   = event.AggregateID
+		workspaceID                  uuid.UUID
+		title, status                string
+		issueID, requestedFrom, from *uuid.UUID
+		role                         *string
+		requestedByType              string
+	)
+	err := tx.QueryRow(
+		ctx,
+		`SELECT workspace_id, title, status, issue_id, requested_from_user_id, requested_from_role, requested_by_type, requested_by
+		   FROM approvals WHERE id = $1`,
+		approvalID,
+	).Scan(&workspaceID, &title, &status, &issueID, &requestedFrom, &role, &requestedByType, &from)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return projectionTarget{}, ErrNotFound
+	}
+	if err != nil {
+		return projectionTarget{}, errors.New("resolve projection approval")
+	}
+	target := projectionTarget{WorkspaceID: workspaceID, ApprovalID: &approvalID}
+	if issueID != nil {
+		if issue, err := loadProjectionIssue(ctx, tx, *issueID); err == nil {
+			target.Issue = &issue
+		}
+	}
+	var recipients []*uuid.UUID
+	switch event.Topic {
+	case "approval.requested":
+		target.Title = "Approval requested: " + title
+		if requestedFrom != nil {
+			recipients = append(recipients, requestedFrom)
+		} else if role != nil {
+			members, err := membersWithRole(ctx, tx, workspaceID, *role)
+			if err != nil {
+				return projectionTarget{}, err
+			}
+			for index := range members {
+				recipients = append(recipients, &members[index])
+			}
+		}
+	default:
+		target.Title = "Approval " + status + ": " + title
+		if requestedByType == "user" {
+			recipients = append(recipients, from)
+		}
+		if requestedFrom != nil {
+			recipients = append(recipients, requestedFrom)
+		}
+	}
+	target.Recipients = uniqueRecipients(recipients...)
+	return target, nil
+}
+
+// membersWithRole lists the members who hold the role or a stronger one.
+func membersWithRole(ctx context.Context, tx pgx.Tx, workspaceID uuid.UUID, role string) ([]uuid.UUID, error) {
+	roles := map[string][]string{
+		"member": {"member", "admin", "owner"},
+		"admin":  {"admin", "owner"},
+		"owner":  {"owner"},
+	}[role]
+	if roles == nil {
+		return nil, nil
+	}
+	rows, err := tx.Query(
+		ctx,
+		`SELECT user_id FROM workspace_memberships
+		  WHERE workspace_id = $1 AND role::text = ANY($2::text[])
+		  ORDER BY joined_at ASC, user_id ASC
+		  LIMIT 200`,
+		workspaceID, roles,
+	)
+	if err != nil {
+		return nil, errors.New("resolve approval role members")
+	}
+	defer rows.Close()
+	var members []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, errors.New("scan approval role member")
+		}
+		members = append(members, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.New("iterate approval role members")
+	}
+	return members, nil
+}
+
+func resolveGoalTarget(ctx context.Context, tx pgx.Tx, event projectionEvent) (projectionTarget, error) {
+	var (
+		goalID      = event.AggregateID
+		workspaceID uuid.UUID
+		title       string
+		createdBy   *uuid.UUID
+	)
+	err := tx.QueryRow(ctx, `SELECT workspace_id, title, created_by FROM goals WHERE id = $1`, goalID).Scan(&workspaceID, &title, &createdBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return projectionTarget{}, ErrNotFound
+	}
+	if err != nil {
+		return projectionTarget{}, errors.New("resolve projection goal")
+	}
+	return projectionTarget{
+		WorkspaceID: workspaceID, GoalID: &goalID, Title: "Goal completed: " + title, Recipients: uniqueRecipients(createdBy),
+	}, nil
+}
+
+func resolveRunTarget(ctx context.Context, tx pgx.Tx, event projectionEvent) (projectionTarget, error) {
+	var (
+		runID       = event.AggregateID
+		workspaceID uuid.UUID
+		name        string
+		goalID      *uuid.UUID
+		createdBy   *uuid.UUID
+	)
+	err := tx.QueryRow(
+		ctx,
+		`SELECT run.workspace_id, automation.name, run.goal_id, automation.created_by
+		   FROM automation_runs AS run
+		   JOIN automations AS automation ON automation.id = run.automation_id
+		  WHERE run.id = $1`,
+		runID,
+	).Scan(&workspaceID, &name, &goalID, &createdBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return projectionTarget{}, ErrNotFound
+	}
+	if err != nil {
+		return projectionTarget{}, errors.New("resolve projection workflow run")
+	}
+	return projectionTarget{
+		WorkspaceID: workspaceID, WorkflowRunID: &runID, GoalID: goalID, Title: "Workflow failed: " + name, Recipients: uniqueRecipients(createdBy),
+	}, nil
+}
+
+func resolvePlanTarget(ctx context.Context, tx pgx.Tx, event projectionEvent) (projectionTarget, error) {
+	var (
+		planID      = event.AggregateID
+		workspaceID uuid.UUID
+		goalID      *uuid.UUID
+		createdBy   *uuid.UUID
+		goalTitle   *string
+	)
+	err := tx.QueryRow(
+		ctx,
+		`SELECT plan.workspace_id, plan.goal_id, plan.created_by, goal.title
+		   FROM plans AS plan
+		   LEFT JOIN goals AS goal ON goal.id = plan.goal_id
+		  WHERE plan.id = $1`,
+		planID,
+	).Scan(&workspaceID, &goalID, &createdBy, &goalTitle)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return projectionTarget{}, ErrNotFound
+	}
+	if err != nil {
+		return projectionTarget{}, errors.New("resolve projection plan")
+	}
+	subject := "your plan"
+	if goalTitle != nil {
+		subject = *goalTitle
+	}
+	title := map[string]string{
+		"plan.generated":      "Plan ready: " + subject,
+		"plan.blocked":        "Plan needs answers: " + subject,
+		"plan.compile_failed": "Plan could not start: " + subject,
+	}[event.Topic]
+	return projectionTarget{
+		WorkspaceID: workspaceID, PlanID: &planID, GoalID: goalID, Title: title, Recipients: uniqueRecipients(createdBy),
+	}, nil
+}
+
+func loadProjectionIssue(ctx context.Context, tx pgx.Tx, issueID uuid.UUID) (projectionIssue, error) {
+	return resolveProjectionIssue(ctx, tx, projectionEvent{AggregateType: "issue", AggregateID: issueID})
 }
 
 func resolveProjectionIssue(
@@ -334,6 +577,12 @@ func uniqueRecipients(ids ...*uuid.UUID) []uuid.UUID {
 
 func eventCategory(event projectionEvent) string {
 	switch event.Topic {
+	case "approval.requested", "approval.approved", "approval.rejected", "approval.expired":
+		return "approvals"
+	case "goal.completed", "plan.generated", "plan.blocked", "plan.compile_failed":
+		return "goals"
+	case "workflow.run.failed":
+		return "workflows"
 	case "comment.created":
 		return "comments"
 	case "issue.updated":
