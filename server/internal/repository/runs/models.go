@@ -2,11 +2,12 @@
 package runs
 
 import (
-	"encoding/json"
 	"errors"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/laravel42/berry-circle/server/internal/repository/ledger"
 )
 
 // Status is the unchanged public run lifecycle enum.
@@ -85,24 +86,10 @@ func (run Run) Terminal() bool {
 		run.Status == StatusCancelled
 }
 
-// Event is one persisted public event and opaque replay cursor.
-//
-// WorkspaceID is the real workspace and BoardID the board the aggregate lives
-// on; before migration 019 the run lane stored the board id in the outbox
-// workspace column, which is why both are now explicit. RunID and Sequence are
-// nil for events that no run produced (issue and comment mutations), and
-// IssueID is uuid.Nil for aggregates without an issue.
-type Event struct {
-	ID          uuid.UUID
-	Type        string
-	OccurredAt  time.Time
-	WorkspaceID uuid.UUID
-	BoardID     uuid.UUID
-	IssueID     uuid.UUID
-	RunID       *uuid.UUID
-	Sequence    *int64
-	Payload     json.RawMessage
-}
+// Event is one persisted public event and opaque replay cursor. It is the
+// shared ledger event: the run ledger and the outbox replays both produce it,
+// so the board and workspace streams read one shape.
+type Event = ledger.Event
 
 // Cursor is the stable (createdAt, id) run-list key.
 type Cursor struct {
@@ -112,10 +99,7 @@ type Cursor struct {
 
 // BoardCursor is the stable outbox replay key resolved from an opaque event ID.
 // The same (occurred_at, id) pair orders the workspace replay.
-type BoardCursor struct {
-	OccurredAt time.Time
-	ID         uuid.UUID
-}
+type BoardCursor = ledger.OutboxCursor
 
 // ListFilter is a normalized forward run page scoped to one issue.
 type ListFilter struct {
@@ -218,7 +202,7 @@ var (
 	ErrRunTerminal             = errors.New("run is terminal")
 	ErrRunCancelling           = errors.New("run cancellation is in progress")
 	ErrCancellationUnconfirmed = errors.New("runtime cancellation was not confirmed")
-	ErrCursorExpired           = errors.New("event cursor expired")
+	ErrCursorExpired           = ledger.ErrCursorExpired
 )
 
 // ActiveRunError identifies the active run that blocked admission.

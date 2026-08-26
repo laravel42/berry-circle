@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/laravel42/berry-circle/server/internal/repository/ledger"
 )
 
 // ClaimDispatch atomically moves one queued run from pending to dispatching.
@@ -845,19 +847,5 @@ func nextEventTime(
 	runID uuid.UUID,
 	requested time.Time,
 ) (time.Time, error) {
-	var occurredAt time.Time
-	if err := tx.QueryRow(
-		ctx,
-		`SELECT GREATEST(
-		            $2::timestamptz,
-		            COALESCE(MAX(occurred_at) + INTERVAL '1 microsecond', $2::timestamptz)
-		        )
-		   FROM run_events
-		  WHERE run_id = $1`,
-		runID,
-		requested.UTC(),
-	).Scan(&occurredAt); err != nil {
-		return time.Time{}, errors.New("allocate run event time")
-	}
-	return occurredAt.UTC(), nil
+	return ledger.NextOccurredAt(ctx, tx, ledger.Runs, runID, requested)
 }

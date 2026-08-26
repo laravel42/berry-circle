@@ -9,6 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/laravel42/berry-circle/server/internal/repository/ledger"
 )
 
 type runResource struct {
@@ -122,25 +124,17 @@ func insertPublicEvent(ctx context.Context, tx pgx.Tx, event Event) error {
 	if event.RunID == nil || event.Sequence == nil {
 		return errors.New("run event requires run and sequence")
 	}
-	if !json.Valid(event.Payload) {
-		return errors.New("run event payload is invalid")
-	}
-	if _, err := tx.Exec(
-		ctx,
-		`INSERT INTO run_events (
-			id, run_id, board_id, issue_id, sequence,
-			event_type, payload, public, occurred_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, true, $8)`,
-		event.ID,
-		*event.RunID,
-		event.BoardID,
-		event.IssueID,
-		*event.Sequence,
-		event.Type,
-		string(event.Payload),
-		event.OccurredAt,
-	); err != nil {
-		return fmt.Errorf("persist run event: %w", err)
+	if err := ledger.Append(ctx, tx, ledger.Runs, ledger.Row{
+		ID:         event.ID,
+		OwnerID:    *event.RunID,
+		Scope:      []uuid.UUID{event.BoardID, event.IssueID},
+		Sequence:   *event.Sequence,
+		Type:       event.Type,
+		Payload:    event.Payload,
+		Public:     true,
+		OccurredAt: event.OccurredAt,
+	}); err != nil {
+		return err
 	}
 	return insertOutboxEvent(ctx, tx, event, "run", *event.RunID)
 }
@@ -201,15 +195,7 @@ func insertOutboxEvent(
 }
 
 func allocateSequence(ctx context.Context, tx pgx.Tx, runID uuid.UUID) (int64, error) {
-	var sequence int64
-	if err := tx.QueryRow(
-		ctx,
-		`SELECT berry_allocate_run_event_sequence($1)`,
-		runID,
-	).Scan(&sequence); err != nil {
-		return 0, errors.New("allocate run event sequence")
-	}
-	return sequence, nil
+	return ledger.Sequence(ctx, tx, ledger.Runs, runID)
 }
 
 type actorResource struct {
