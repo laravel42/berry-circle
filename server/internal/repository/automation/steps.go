@@ -223,8 +223,46 @@ func (repository *Repository) SkipStep(ctx context.Context, stepRunID uuid.UUID,
 	return finishStepTransition(ctx, tx, stepRunID, "workflow.step.skipped", nil, now, newID)
 }
 
+// RecordSkippedStep writes a step attempt that never ran — a branch the run
+// did not take — straight to skipped, with only workflow.step.skipped on the
+// ledger, so a reader can tell "not taken" from "attempted and abandoned".
+func (repository *Repository) RecordSkippedStep(ctx context.Context, params StartStepParams) (StepRun, Event, error) {
+	if params.ID == uuid.Nil || params.RunID == uuid.Nil || !automation.ValidStepID(params.StepID) ||
+		!automation.KnownStepTypes[params.StepType] || params.Now.IsZero() {
+		return StepRun{}, Event{}, errors.New("automation step skip parameters are invalid")
+	}
+	if params.Attempt < 1 {
+		params.Attempt = 1
+	}
+	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return StepRun{}, Event{}, errors.New("begin automation step skip")
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	run, err := getRun(ctx, tx, params.RunID, true)
+	if err != nil {
+		return StepRun{}, Event{}, err
+	}
+	if run.Status.Terminal() {
+		return StepRun{}, Event{}, ErrRunTerminal
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`INSERT INTO automation_step_runs (
+		    id, workspace_id, automation_run_id, step_id, step_type, attempt, status,
+		    completed_at, created_at, updated_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6, 'skipped', $7, $7, $7)`,
+		params.ID, run.WorkspaceID, run.ID, params.StepID, string(params.StepType), params.Attempt, params.Now.UTC(),
+	); err != nil {
+		return StepRun{}, Event{}, classifyWrite("insert skipped automation step run", err)
+	}
+	return finishStepTransition(ctx, tx, params.ID, "workflow.step.skipped", nil, params.Now, params.NewID)
+}
+
 // WaitStep parks an attempt on what it waits for and records the rows it
-// waits through (an approval, an issue run, an issue).
+// waits through (an approval, an issue run, an issue). A waiting attempt may
+// park again on something else: an action that waited for approval and then
+// started an agent run waits on the run next.
 func (repository *Repository) WaitStep(
 	ctx context.Context,
 	stepRunID uuid.UUID,
@@ -241,7 +279,7 @@ func (repository *Repository) WaitStep(
 		return StepRun{}, Event{}, err
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
-	if step.Status != StepRunning {
+	if step.Status != StepRunning && step.Status != StepWaiting {
 		return StepRun{}, Event{}, ErrStepState
 	}
 	if _, err := tx.Exec(

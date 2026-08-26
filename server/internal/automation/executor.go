@@ -39,7 +39,23 @@ type StepContext struct {
 	// RequestedBy is the person the run acts on behalf of (the workflow's
 	// creator for triggered runs), used for authorisation and provenance.
 	RequestedBy uuid.UUID
-	Now         time.Time
+	// GoalID is the goal the run serves, when the workflow has one.
+	GoalID *uuid.UUID
+	// Approved is set when the step resumes after a person approved it: an
+	// action that needed a decision now runs instead of asking again.
+	Approved bool
+	// ApprovalID is the decision the step resumed on, when Approved.
+	ApprovalID *uuid.UUID
+	Now        time.Time
+}
+
+// StepLinks are the rows a step produced or waits through, recorded on the
+// step run so a reader can follow a step to its issue, run or approval.
+type StepLinks struct {
+	IssueID      *uuid.UUID
+	IssueRunID   *uuid.UUID
+	ApprovalID   *uuid.UUID
+	AuditEventID *uuid.UUID
 }
 
 // StepOutcome is what an executor returns. A waiting outcome names what the
@@ -53,6 +69,7 @@ type StepOutcome struct {
 	// Next overrides the default successors (condition branches).
 	Next  []string
 	Usage *Usage
+	Links StepLinks
 }
 
 // StepExecutor runs one node type natively. Executors land with native

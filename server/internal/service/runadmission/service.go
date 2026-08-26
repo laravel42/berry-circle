@@ -11,7 +11,6 @@ import (
 	"path"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -87,6 +86,13 @@ type ArtifactSink interface {
 	PromoteContent(context.Context, artifacts.RunContext, string, []byte) error
 }
 
+// AgentEventStore records the agent.* facts a run produces: started once the
+// runtime accepted the dispatch, completed when the stream ended after the
+// runtime's terminal phase, failed otherwise. Workflows subscribe to them.
+type AgentEventStore interface {
+	RecordAgentEvent(context.Context, runs.AgentEventParams) (runs.Event, error)
+}
+
 // Options owns worker lifecycle and every external dependency explicitly.
 type Options struct {
 	Store       Store
@@ -112,6 +118,9 @@ type Options struct {
 	// output/, straight from the stream. Optional: without it those files
 	// reach the issue only if the post-run sweep finds them on disk.
 	Artifacts ArtifactSink
+	// AgentEvents writes agent.started/completed/failed beside the run
+	// facts. Optional: without it workflows cannot trigger on agent.*.
+	AgentEvents AgentEventStore
 }
 
 // Service owns a bounded worker queue tied to a caller-owned context.
@@ -121,20 +130,18 @@ type Service struct {
 	broadcaster realtime.Broadcaster
 	clock       func() time.Time
 	newID       func() uuid.UUID
-	ctx         context.Context
-	cancel      context.CancelFunc
-	dispatcher  Dispatcher
+	// ctx is the pool's lifetime; every projection and cleanup runs under it.
+	ctx        context.Context
+	pool       *Pool
+	dispatcher Dispatcher
 	// code renders repository context for issues whose project names one.
 	// Optional: without it runs dispatch exactly as they did before.
 	code CodeContext
 	// comments is where a run's result goes to be read. Optional.
-	comments  CommentStore
-	artifacts ArtifactSink
-	logger    *slog.Logger
-	jobs      chan uuid.UUID
-	wg        sync.WaitGroup
-	done      chan struct{}
-	closeOnce sync.Once
+	comments    CommentStore
+	artifacts   ArtifactSink
+	agentEvents AgentEventStore
+	logger      *slog.Logger
 }
 
 // New starts a bounded worker pool. Close or cancellation of WorkerContext
@@ -164,17 +171,16 @@ func New(options Options) (*Service, error) {
 	if options.QueueSize == 0 {
 		options.QueueSize = defaultQueueSize
 	}
-	if options.Workers < 1 || options.Workers > 128 {
+	if options.Workers < 1 || options.Workers > maxPoolWorkers {
 		return nil, errors.New("run admission worker count is invalid")
 	}
-	if options.QueueSize < 1 || options.QueueSize > 100000 {
+	if options.QueueSize < 1 || options.QueueSize > maxPoolQueueSize {
 		return nil, errors.New("run admission queue size is invalid")
 	}
 	logger := options.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	ctx, cancel := context.WithCancel(options.WorkerContext)
 	service := &Service{
 		store:       options.Store,
 		openfang:    options.OpenFang,
@@ -185,20 +191,15 @@ func New(options Options) (*Service, error) {
 		code:        options.Code,
 		comments:    options.Comments,
 		artifacts:   options.Artifacts,
+		agentEvents: options.AgentEvents,
 		logger:      logger,
-		ctx:         ctx,
-		cancel:      cancel,
-		jobs:        make(chan uuid.UUID, options.QueueSize),
-		done:        make(chan struct{}),
 	}
-	for range options.Workers {
-		service.wg.Add(1)
-		go service.worker()
+	pool, err := NewPool(options.WorkerContext, options.Workers, options.QueueSize, service.execute)
+	if err != nil {
+		return nil, err
 	}
-	go func() {
-		service.wg.Wait()
-		close(service.done)
-	}()
+	service.pool = pool
+	service.ctx = pool.Context()
 	return service, nil
 }
 
@@ -218,12 +219,7 @@ func (service *Service) Queue(runID uuid.UUID) error {
 		// caller only needs to know the handoff did not happen.
 		return service.dispatcher.Dispatch(service.ctx, runID)
 	}
-	select {
-	case service.jobs <- runID:
-		return nil
-	case <-service.ctx.Done():
-		return errors.New("run workers are shutting down")
-	}
+	return service.pool.Queue(runID)
 }
 
 // Get returns the latest durable snapshot.
@@ -314,13 +310,7 @@ func (service *Service) Close(ctx context.Context) error {
 	if service == nil {
 		return nil
 	}
-	service.closeOnce.Do(service.cancel)
-	select {
-	case <-service.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return service.pool.Close(ctx)
 }
 
 // Execute runs one admitted run to a terminal ledger state, synchronously,
@@ -339,18 +329,6 @@ func (service *Service) Execute(ctx context.Context, runID uuid.UUID) {
 		return
 	}
 	service.execute(ctx, runID)
-}
-
-func (service *Service) worker() {
-	defer service.wg.Done()
-	for {
-		select {
-		case <-service.ctx.Done():
-			return
-		case runID := <-service.jobs:
-			service.execute(service.ctx, runID)
-		}
-	}
 }
 
 func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
@@ -413,6 +391,7 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 		return
 	}
 	service.publish(started)
+	service.recordAgentEvent(runID, "agent.started", nil)
 
 	// The pinned upstream emits done at the end of every model turn and keeps
 	// the connection open for the next one whenever the agent called a tool.
@@ -587,9 +566,34 @@ func (service *Service) complete(
 	for _, item := range persisted {
 		service.publish(item)
 	}
+	service.recordAgentEvent(dispatch.RunID, "agent.completed", nil)
 	if text != "" {
 		service.postResult(dispatch, text, cut)
 	}
+}
+
+// recordAgentEvent writes one agent.* fact after the run transition it
+// describes committed. Best effort like the result comment: the run's own
+// ledger is authoritative and an agent event that could not be written is a
+// missing notification, logged rather than turned into a failed run.
+func (service *Service) recordAgentEvent(runID uuid.UUID, topic string, failure *runs.Failure) {
+	if service.agentEvents == nil {
+		return
+	}
+	ctx, cancel := service.cleanupContext()
+	defer cancel()
+	event, err := service.agentEvents.RecordAgentEvent(ctx, runs.AgentEventParams{
+		RunID:      runID,
+		EventID:    service.newID(),
+		Topic:      topic,
+		Failure:    failure,
+		OccurredAt: service.clock().UTC(),
+	})
+	if err != nil {
+		service.logger.Warn("agent event not recorded", "runId", runID, "topic", topic, "error", err)
+		return
+	}
+	service.publish(event)
 }
 
 // SetArtifacts installs the artifact sink after construction. The worker only
@@ -657,6 +661,7 @@ func (service *Service) failDispatch(runID uuid.UUID, cause error) {
 	)
 	if err == nil {
 		service.publish(event)
+		service.recordAgentEvent(runID, "agent.failed", &failure)
 	}
 }
 
@@ -687,22 +692,24 @@ func (service *Service) failIncomplete(dispatch runs.Dispatch, usage runs.Usage,
 		},
 		service.clock().UTC(),
 	)
+	failure := runs.Failure{
+		Code:      "RUN_INCOMPLETE",
+		Message:   "The runtime ended the run before the agent finished.",
+		Retryable: false,
+	}
 	_, event, err := service.store.Fail(
 		ctx,
 		runs.FailParams{
-			RunID:   dispatch.RunID,
-			EventID: service.newID(),
-			Failure: runs.Failure{
-				Code:      "RUN_INCOMPLETE",
-				Message:   "The runtime ended the run before the agent finished.",
-				Retryable: false,
-			},
+			RunID:     dispatch.RunID,
+			EventID:   service.newID(),
+			Failure:   failure,
 			FailedAt:  service.clock().UTC(),
 			Reconcile: true,
 		},
 	)
 	if err == nil {
 		service.publish(event)
+		service.recordAgentEvent(dispatch.RunID, "agent.failed", &failure)
 	}
 }
 
@@ -784,6 +791,7 @@ func (service *Service) failStream(runID uuid.UUID, cause error) {
 	)
 	if err == nil {
 		service.publish(event)
+		service.recordAgentEvent(runID, "agent.failed", &failure)
 	}
 }
 

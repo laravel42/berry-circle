@@ -443,6 +443,12 @@ func finishRunTransition(
 // them to running inside the claim means a second scheduler cannot resume
 // the same run twice.
 func (repository *Repository) ClaimResumable(ctx context.Context, now time.Time, limit int, newID func() uuid.UUID) ([]Run, []Event, error) {
+	return repository.ClaimResumableIn(ctx, nil, now, limit, newID)
+}
+
+// ClaimResumableIn is ClaimResumable narrowed to one workspace; nil claims
+// across all of them.
+func (repository *Repository) ClaimResumableIn(ctx context.Context, workspaceID *uuid.UUID, now time.Time, limit int, newID func() uuid.UUID) ([]Run, []Event, error) {
 	if limit < 1 || limit > 500 {
 		return nil, nil, errors.New("automation resume limit is invalid")
 	}
@@ -455,10 +461,11 @@ func (repository *Repository) ClaimResumable(ctx context.Context, now time.Time,
 		ctx,
 		`SELECT id FROM automation_runs
 		  WHERE status = 'waiting' AND resume_at IS NOT NULL AND resume_at <= $1
+		    AND ($3::uuid IS NULL OR workspace_id = $3::uuid)
 		  ORDER BY resume_at ASC, id ASC
 		  LIMIT $2
 		  FOR UPDATE SKIP LOCKED`,
-		now.UTC(), limit,
+		now.UTC(), limit, workspaceID,
 	)
 	if err != nil {
 		return nil, nil, errors.New("select resumable automation runs")
