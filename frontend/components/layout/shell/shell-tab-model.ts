@@ -20,6 +20,7 @@ const SECTION_LABELS: Record<string, string> = {
    members: 'agents',
    runs: 'runtimes',
    project: 'projects',
+   plan: 'plans',
    initiative: 'initiatives',
    review: 'reviews',
    view: 'views',

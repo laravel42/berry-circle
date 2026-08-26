@@ -10,6 +10,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { CustomizeSidebarDialog } from '@/components/layout/sidebar/customize-sidebar-dialog';
 import { useCreateIssueStore } from '@/store/create-issue-store';
+import { useCreatePlanStore } from '@/store/create-plan-store';
+import { Sparkles } from 'lucide-react';
 import {
    isSidebarItemVisible,
    resolveOrder,
@@ -48,6 +50,9 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
    // palette and the board group headers keep working from anywhere, including
    // settings, where the rail shows no trigger at all.
    const openCreateIssue = useCreateIssueStore((state) => state.openModal);
+   // Same arrangement for the plan prompt: the trigger lives here, the
+   // dialog is mounted once by CreatePlanModalProvider.
+   const openCreatePlan = useCreatePlanStore((state) => state.openModal);
    const [customizeOpen, setCustomizeOpen] = useState(false);
 
    // The preference store is persisted, so its first client value differs from
@@ -154,6 +159,15 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                      className={`size-7 ${shellIconButton}`}
                   >
                      <RiEditLine className="size-4" />
+                  </button>
+                  <button
+                     type="button"
+                     onClick={() => openCreatePlan()}
+                     aria-label="Plan work"
+                     title="Plan work"
+                     className={`size-7 ${shellIconButton}`}
+                  >
+                     <Sparkles className="size-4" />
                   </button>
                </div>
 

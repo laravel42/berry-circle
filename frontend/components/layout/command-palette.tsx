@@ -19,6 +19,7 @@ import { currentUser } from '@/data/users';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { useCreateIssueStore } from '@/store/create-issue-store';
+import { useCreatePlanStore } from '@/store/create-plan-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import {
@@ -87,6 +88,7 @@ export function CommandPalette() {
       updateIssue,
    } = useIssuesStore();
    const { openModal } = useCreateIssueStore();
+   const openPlanModal = useCreatePlanStore((state) => state.openModal);
    const allProjects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const allLabels = useLabelsStore((state) => state.labels);
@@ -399,6 +401,16 @@ export function CommandPalette() {
                               <SquarePen className="text-muted-foreground" />
                               Create new task
                               <Keys keys={['C']} />
+                           </CommandItem>
+                           <CommandItem
+                              onSelect={() => {
+                                 openPlanModal();
+                                 close();
+                              }}
+                           >
+                              <Sparkles className="text-muted-foreground" />
+                              Plan something…
+                              <Keys keys={['P']} />
                            </CommandItem>
                         </CommandGroup>
                         <CommandGroup heading="Go to">
