@@ -255,10 +255,39 @@ func (repository *Repository) ActivateRunArtifact(
 	if err := insertOutboxEvent(ctx, tx, event); err != nil {
 		return Attachment{}, Event{}, err
 	}
+	// The same fact under the name workflows subscribe to: a run produced a
+	// deliverable. attachment.created stays for the issue views; the artifact
+	// aggregate is what a berry.artifact_created trigger names. The id is
+	// derived from the attachment event's so a replay cannot mint two
+	// different second ids for one activation.
+	artifactEvent, err := makeEvent(
+		uuid.NewSHA1(eventID, []byte("artifact.created")),
+		workspaceID,
+		boardID,
+		"artifact.created",
+		"artifact",
+		artifact.ID,
+		artifactEventPayload{Artifact: attachmentEventPayload(artifact), RunID: runID, IssueID: artifact.IssueID},
+		readyAt.Add(time.Microsecond),
+	)
+	if err != nil {
+		return Attachment{}, Event{}, err
+	}
+	if err := insertOutboxEvent(ctx, tx, artifactEvent); err != nil {
+		return Attachment{}, Event{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Attachment{}, Event{}, errors.New("commit run artifact activation")
 	}
 	return artifact, event, nil
+}
+
+// artifactEventPayload names the run and issue beside the attachment so a
+// workflow trigger filter can read them without decoding the resource.
+type artifactEventPayload struct {
+	Artifact any       `json:"artifact"`
+	RunID    uuid.UUID `json:"runId"`
+	IssueID  uuid.UUID `json:"issueId"`
 }
 
 // AbortRunArtifact removes a reservation whose upload failed.

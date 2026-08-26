@@ -209,6 +209,9 @@ func run() int {
 		Code:          runCode,
 		Comments:      commentStore,
 		Logger:        logger,
+		// Writes agent.started/completed/failed beside the run facts so
+		// workflows can trigger on them from either dispatch path.
+		AgentEvents: runStore,
 	})
 	if err != nil {
 		logger.Error("run dispatcher setup failed", "error", err)
