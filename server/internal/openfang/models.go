@@ -11,8 +11,11 @@ import (
 )
 
 const (
-	maxChatMessages     = 32
-	maxChatContentBytes = 64 * 1024
+	maxChatMessages = 32
+	// MaxChatContentBytes bounds one chat message. The planner builds its
+	// task messages against it so an oversized context is trimmed before
+	// the call rather than refused by it.
+	MaxChatContentBytes = 64 * 1024
 )
 
 // Compatibility exposes OpenAI-compatible substrate probes for operator testing.
@@ -34,10 +37,27 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
-// ChatCompletionRequest is a non-streaming chat probe against the substrate.
+// ChatResponseFormat asks the upstream to constrain the reply shape. The
+// pinned runtime honours OpenAI's response_format on POST /v1/chat/completions.
+type ChatResponseFormat string
+
+// ChatResponseFormatJSONObject makes the reply a single JSON object.
+const ChatResponseFormatJSONObject ChatResponseFormat = "json_object"
+
+// Valid reports whether the format is one the runtime accepts; empty means
+// the field is omitted from the request.
+func (format ChatResponseFormat) Valid() bool {
+	return format == "" || format == ChatResponseFormatJSONObject
+}
+
+// ChatCompletionRequest is a non-streaming chat call against the substrate.
+// Model is an agent name on the pinned runtime, which routes the call through
+// that agent's configured provider and model.
 type ChatCompletionRequest struct {
 	Model    string
 	Messages []ChatMessage
+	// ResponseFormat is sent as response_format when set; "" omits the field.
+	ResponseFormat ChatResponseFormat
 }
 
 // ChatCompletionUsage reports token totals when the upstream includes them.
@@ -51,6 +71,14 @@ type ChatCompletionResult struct {
 	Model   string              `json:"model"`
 	Content string              `json:"content"`
 	Usage   ChatCompletionUsage `json:"usage"`
+	// RequestID is the upstream X-Request-Id, kept for the ledger and never
+	// shown to a browser.
+	RequestID string `json:"-"`
+}
+
+// chatResponseFormatWire is the OpenAI-compatible response_format object.
+type chatResponseFormatWire struct {
+	Type string `json:"type"`
 }
 
 type modelsListWire struct {
@@ -116,19 +144,24 @@ func (client *Client) CreateChatCompletion(
 	}
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	body := struct {
+		Model          string                  `json:"model"`
+		Messages       []ChatMessage           `json:"messages"`
+		Stream         bool                    `json:"stream"`
+		ResponseFormat *chatResponseFormatWire `json:"response_format,omitempty"`
+	}{
+		Model:    input.Model,
+		Messages: input.Messages,
+		Stream:   false,
+	}
+	if input.ResponseFormat != "" {
+		body.ResponseFormat = &chatResponseFormatWire{Type: string(input.ResponseFormat)}
+	}
 	request, err := client.NewJSONRequest(
 		callCtx,
 		http.MethodPost,
 		"/v1/chat/completions",
-		struct {
-			Model    string        `json:"model"`
-			Messages []ChatMessage `json:"messages"`
-			Stream   bool          `json:"stream"`
-		}{
-			Model:    input.Model,
-			Messages: input.Messages,
-			Stream:   false,
-		},
+		body,
 	)
 	if err != nil {
 		return ChatCompletionResult{}, err
@@ -160,6 +193,7 @@ func (client *Client) CreateChatCompletion(
 			InputTokens:  wire.Usage.PromptTokens,
 			OutputTokens: wire.Usage.CompletionTokens,
 		},
+		RequestID: requestID,
 	}, nil
 }
 
@@ -171,20 +205,26 @@ func validateChatCompletionRequest(input ChatCompletionRequest) error {
 	if len(input.Messages) == 0 || len(input.Messages) > maxChatMessages {
 		return errors.New("runtime chat messages must contain 1 to 32 entries")
 	}
+	if !input.ResponseFormat.Valid() {
+		return errors.New("runtime chat response format is invalid")
+	}
 	for _, message := range input.Messages {
 		role := strings.TrimSpace(message.Role)
 		if role != "user" && role != "assistant" && role != "system" {
 			return errors.New("runtime chat message role is invalid")
 		}
 		if !utf8.ValidString(message.Content) || len(message.Content) == 0 ||
-			len(message.Content) > maxChatContentBytes {
+			len(message.Content) > MaxChatContentBytes {
 			return errors.New("runtime chat message content must contain 1 to 65536 UTF-8 bytes")
 		}
 	}
 	return nil
 }
 
-var _ Compatibility = (*Client)(nil)
+var (
+	_ Compatibility = (*Client)(nil)
+	_ AgentPatcher  = (*Client)(nil)
+)
 
 // maxManifestBytes mirrors the pinned upstream limit for POST /api/agents.
 const maxManifestBytes = 1 << 20
@@ -201,6 +241,13 @@ type SpawnResponse struct {
 type Provisioner interface {
 	GetAgent(context.Context, uuid.UUID) (AgentDetail, error)
 	SpawnAgent(context.Context, string) (SpawnResponse, error)
+}
+
+// AgentPatcher is the provisioning write seam: what a bootstrap needs to
+// correct an agent's model or prompt in place. The same *Client satisfies it;
+// handlers/agents keeps its own Configurer alias for the editor route.
+type AgentPatcher interface {
+	PatchAgent(context.Context, uuid.UUID, PatchAgentRequest) error
 }
 
 // maxSystemPromptBytes bounds an authored prompt well below the manifest limit.
