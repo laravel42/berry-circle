@@ -1,4 +1,4 @@
-import type { Issue } from '@/data/issues';
+import type { Issue, IssueDependencyRef } from '@/data/issues';
 import { health, type Project } from '@/data/projects';
 import { priorities } from '@/data/priorities';
 import { status } from '@/data/status';
@@ -35,6 +35,37 @@ export function assigneeToApi(user: User | null): { type: 'user' | 'agent'; id: 
 const PAGE_SIZE = 100;
 const MAX_PAGES = 20;
 
+/**
+ * A task another task waits on, or that waits on it. The server currently
+ * serialises these with Go field names (`ID`, `Identifier`, `Title`,
+ * `Status`) where the contract says `id`, `identifier`, `title`, `status`;
+ * both spellings are read until that is fixed, so a dependency never
+ * vanishes from the panel over a capital letter.
+ */
+const dependencyRefSchema = z.preprocess(
+   (value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+      const record = value as Record<string, unknown>;
+      return {
+         id: record.id ?? record.ID,
+         identifier: record.identifier ?? record.Identifier,
+         title: record.title ?? record.Title,
+         status: record.status ?? record.Status,
+      };
+   },
+   z.object({
+      id: z.string(),
+      identifier: z.string(),
+      title: z.string().default(''),
+      status: z.string(),
+   })
+);
+
+const dependencyListsSchema = z.object({
+   dependsOn: z.array(dependencyRefSchema).default([]),
+   blocks: z.array(dependencyRefSchema).default([]),
+});
+
 const issueSchema = z.object({
    id: z.string(),
    boardId: z.string(),
@@ -52,6 +83,16 @@ const issueSchema = z.object({
    createdBy: actorRefSchema.nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
+   goal: z.object({ id: z.string(), title: z.string() }).nullish(),
+   origin: z
+      .object({
+         workflowId: z.string(),
+         workflowRunId: z.string(),
+         workflowStepRunId: z.string().nullish(),
+      })
+      .nullish(),
+   dependsOn: z.array(dependencyRefSchema).default([]),
+   blocks: z.array(dependencyRefSchema).default([]),
 });
 
 const issueConnectionSchema = connectionSchema(issueSchema);
@@ -87,6 +128,7 @@ export type IssuePatchBody = {
    sortOrder?: number;
    description?: string | null;
    assignee?: { type: 'user' | 'agent'; id: string } | null;
+   goalId?: string | null;
 };
 
 /**
@@ -115,9 +157,22 @@ export function describePatchFailure(error: unknown): string {
             return `Can't move from ${from} to ${to}.`;
          }
       }
+      if (error.code === 'APPROVAL_REQUIRED') {
+         return 'An approval is pending. The task moves to To do once it is granted.';
+      }
+      if (error.code === 'GOAL_NOT_FOUND') {
+         return 'That goal is not in this workspace.';
+      }
       return error.message;
    }
    return 'The change could not be saved.';
+}
+
+/** The approval that holds a refused move, when the server names one. */
+export function patchFailureApprovalId(error: unknown): string | null {
+   if (!(error instanceof BerryApiError) || error.code !== 'APPROVAL_REQUIRED') return null;
+   const details = error.details as { approvalId?: unknown } | null;
+   return typeof details?.approvalId === 'string' ? details.approvalId : null;
 }
 
 export async function getBoardIssue(issueRef: string): Promise<Issue | undefined> {
@@ -168,6 +223,10 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
    if (apiIssue.activeRunId) {
       issue.activeRunId = apiIssue.activeRunId;
    }
+   issue.goal = apiIssue.goal ?? null;
+   issue.origin = apiIssue.origin ?? null;
+   issue.dependsOn = apiIssue.dependsOn;
+   issue.blocks = apiIssue.blocks;
 
    return issue;
 }
@@ -316,12 +375,85 @@ function placeholderProject(id: string, name: string): Project {
  * silently failed to save is what this whole path was reported for, so the
  * error is raised and the caller decides.
  */
-export async function setIssueProject(
-   issueRef: string,
-   projectId: string | null
-): Promise<void> {
+export async function setIssueProject(issueRef: string, projectId: string | null): Promise<void> {
    await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}`, {
       method: 'PATCH',
       body: JSON.stringify({ projectId }),
    });
+}
+
+// ---------------------------------------------------------------------------
+// Goal and dependencies
+
+/**
+ * Link a task to a goal, or unlink it with null. Raised rather than
+ * swallowed for the same reason as the project link above. Throws
+ * `GOAL_NOT_FOUND` for a goal outside the workspace.
+ */
+export async function setIssueGoal(issueRef: string, goalId: string | null): Promise<void> {
+   await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ goalId }),
+   });
+}
+
+export interface IssueDependencyLists {
+   dependsOn: IssueDependencyRef[];
+   blocks: IssueDependencyRef[];
+}
+
+function parseDependencyLists(json: unknown): IssueDependencyLists {
+   const parsed = dependencyListsSchema.safeParse(json);
+   if (!parsed.success) {
+      throw new Error('Dependency response was not recognized');
+   }
+   return parsed.data;
+}
+
+export async function listIssueDependencies(issueRef: string): Promise<IssueDependencyLists> {
+   const json: unknown = await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/dependencies`
+   );
+   return parseDependencyLists(json);
+}
+
+/**
+ * Make `issueRef` wait on `dependsOn` (an id or identifier). Adding an edge
+ * that exists is not an error. Throws `DEPENDENCY_CYCLE` when the blocker
+ * already waits on this task, directly or through others, and
+ * `ISSUE_NOT_FOUND` for a blocker outside the workspace.
+ */
+export async function addIssueDependency(
+   issueRef: string,
+   dependsOn: string
+): Promise<IssueDependencyLists> {
+   const json: unknown = await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/dependencies`,
+      { method: 'POST', body: JSON.stringify({ dependsOn }) }
+   );
+   return parseDependencyLists(json);
+}
+
+export async function removeIssueDependency(issueRef: string, dependsOnId: string): Promise<void> {
+   await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/dependencies/${encodeURIComponent(dependsOnId)}`,
+      { method: 'DELETE' }
+   );
+}
+
+/** Human wording for a refused dependency change. */
+export function describeDependencyFailure(error: unknown): string {
+   if (error instanceof BerryApiError) {
+      switch (error.code) {
+         case 'DEPENDENCY_CYCLE':
+            return 'That would make a loop: the other task already waits on this one, directly or through others.';
+         case 'ISSUE_NOT_FOUND':
+            return 'No task by that id in this workspace.';
+         case 'NOT_FOUND':
+            return 'That dependency is already gone.';
+         default:
+            return error.message;
+      }
+   }
+   return 'The dependency could not be changed.';
 }

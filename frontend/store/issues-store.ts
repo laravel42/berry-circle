@@ -9,10 +9,14 @@ import {
    describePatchFailure,
    type IssuePatchBody,
    patchBoardIssue,
+   patchFailureApprovalId,
    rankFromSortOrder,
    sortOrderBetween,
 } from '@/lib/issues';
 import { apiPriorityFromUi, apiStatusFromUi } from '@/lib/catalog';
+import { WORKSPACE_SLUG } from '@/lib/config';
+import Link from 'next/link';
+import { createElement } from 'react';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
@@ -98,7 +102,24 @@ function commitPatch(
    get().updateIssue(issueId, optimistic);
    void patchBoardIssue(issueId, patch).catch((error: unknown) => {
       get().updateIssue(issueId, previous);
-      toast.error(describePatchFailure(error));
+      // A gated task names the approval that holds it, so the toast can
+      // take the person straight to the decision instead of a dead end.
+      const approvalId = patchFailureApprovalId(error);
+      toast.error(
+         describePatchFailure(error),
+         approvalId
+            ? {
+                 description: createElement(
+                    Link,
+                    {
+                       href: `/${WORKSPACE_SLUG}/approvals?approval=${encodeURIComponent(approvalId)}`,
+                       className: 'underline underline-offset-2',
+                    },
+                    'View the approval'
+                 ),
+              }
+            : undefined
+      );
    });
 }
 

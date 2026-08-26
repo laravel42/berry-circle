@@ -5,6 +5,22 @@ import { Project } from './projects';
 import { Status, StatusCategory } from './status';
 import { User } from './users';
 
+/** A task this one waits on, or that waits on it; enough to draw a row without a second read. */
+export interface IssueDependencyRef {
+   id: string;
+   identifier: string;
+   title: string;
+   /** API `IssueStatus` of the other task. */
+   status: string;
+}
+
+/** The workflow run that created a task. */
+export interface IssueOrigin {
+   workflowId: string;
+   workflowRunId: string;
+   workflowStepRunId?: string | null;
+}
+
 export interface Issue {
    id: string;
    identifier: string;
@@ -24,6 +40,14 @@ export interface Issue {
    sortOrder: number;
    dueDate?: string;
    activeRunId?: string | null;
+   /** The goal the task serves; null when it serves none. */
+   goal?: { id: string; title: string } | null;
+   /** Set when a workflow run created the task. */
+   origin?: IssueOrigin | null;
+   /** Tasks that must finish before this one starts. */
+   dependsOn?: IssueDependencyRef[];
+   /** Tasks waiting on this one. */
+   blocks?: IssueDependencyRef[];
 }
 
 /**
