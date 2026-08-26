@@ -154,3 +154,45 @@ func bytesContains(body, fragment []byte) bool {
 	}
 	return false
 }
+
+func TestReadyIncludesNamedChecks(t *testing.T) {
+	t.Parallel()
+
+	handler := testHandler(t, Options{
+		Database: checkerFunc(func(context.Context) error { return nil }),
+		Checks: map[string]Checker{
+			"triggerdispatch": checkerFunc(func(context.Context) error {
+				return errors.New("trigger dispatcher last ticked 2m0s ago")
+			}),
+		},
+	})
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", response.Code)
+	}
+	var envelope struct {
+		Error struct {
+			Code    string `json:"code"`
+			Details struct {
+				Checks map[string]bool `json:"checks"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode readiness envelope: %v", err)
+	}
+	if envelope.Error.Code != "NOT_READY" || envelope.Error.Details.Checks["triggerdispatch"] || !envelope.Error.Details.Checks["database"] {
+		t.Fatalf("envelope = %+v", envelope)
+	}
+
+	healthy := testHandler(t, Options{
+		Database: checkerFunc(func(context.Context) error { return nil }),
+		Checks:   map[string]Checker{"triggerdispatch": checkerFunc(func(context.Context) error { return nil })},
+	})
+	response = httptest.NewRecorder()
+	healthy.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.Code)
+	}
+}

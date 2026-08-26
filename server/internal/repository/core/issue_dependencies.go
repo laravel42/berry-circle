@@ -211,3 +211,123 @@ func classifyDependencyWrite(operation string, err error) error {
 	}
 	return fmt.Errorf("%s: %w", operation, err)
 }
+
+// DependencyRelease is what releasing a blocker's dependents produced.
+type DependencyRelease struct {
+	// Released holds the issue.updated facts of every dependent that moved
+	// from blocked to todo, for the caller to publish after commit.
+	Released []IssueMutationEvent
+	// Gated names dependents an approval gate refused to release; they stay
+	// blocked until the approval resolves, which releases them itself.
+	Gated []uuid.UUID
+}
+
+// ReleaseDependents moves every issue that waited only on blockerID from
+// blocked to todo, once none of its blockers is still open. Each dependent is
+// its own transaction so one refusal cannot roll back another's release, and
+// each moves under a row lock so a person's concurrent edit is honoured: a
+// dependent someone already moved elsewhere is left where they put it.
+//
+// The 010 and 020 triggers still fire: a dependent whose start needs an
+// approval is reported as gated rather than forced past the gate.
+func (repository *Repository) ReleaseDependents(
+	ctx context.Context,
+	blockerID uuid.UUID,
+	now time.Time,
+	newID func() uuid.UUID,
+) (DependencyRelease, error) {
+	if blockerID == uuid.Nil {
+		return DependencyRelease{}, errors.New("dependency release needs a blocker")
+	}
+	rows, err := repository.Pool.Query(
+		ctx,
+		`SELECT edge.issue_id FROM issue_dependencies AS edge
+		  WHERE edge.depends_on_issue_id = $1
+		  ORDER BY edge.created_at ASC, edge.issue_id ASC`,
+		blockerID,
+	)
+	if err != nil {
+		return DependencyRelease{}, fmt.Errorf("list dependents: %w", err)
+	}
+	var dependents []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return DependencyRelease{}, errors.New("scan dependent")
+		}
+		dependents = append(dependents, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return DependencyRelease{}, errors.New("iterate dependents")
+	}
+	var result DependencyRelease
+	for _, dependent := range dependents {
+		events, err := repository.releaseDependent(ctx, dependent, now, newID)
+		if errors.Is(err, ErrApprovalRequired) {
+			result.Gated = append(result.Gated, dependent)
+			continue
+		}
+		if err != nil {
+			return result, err
+		}
+		result.Released = append(result.Released, events...)
+	}
+	return result, nil
+}
+
+func (repository *Repository) releaseDependent(
+	ctx context.Context,
+	issueID uuid.UUID,
+	now time.Time,
+	newID func() uuid.UUID,
+) ([]IssueMutationEvent, error) {
+	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("begin dependency release: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback(context.Background())
+	}()
+	var status string
+	if err := tx.QueryRow(
+		ctx,
+		`SELECT status::text FROM issues WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+		issueID,
+	).Scan(&status); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("lock dependent: %w", err)
+	}
+	if status != "blocked" {
+		return nil, nil
+	}
+	open, err := HasOpenBlockers(ctx, tx, issueID)
+	if err != nil || open {
+		return nil, err
+	}
+	if _, err := tx.Exec(
+		ctx,
+		`UPDATE issues SET status = 'todo', updated_at = $2 WHERE id = $1`,
+		issueID, now.UTC(),
+	); err != nil {
+		return nil, classifyWriteError("release dependent", err)
+	}
+	events, err := RecordIssueEvents(ctx, tx, IssueEventParams{
+		IssueID:        issueID,
+		Kind:           IssueEventUpdated,
+		ChangedFields:  []string{"status"},
+		PreviousStatus: "blocked",
+		OccurredAt:     now,
+		NewID:          newID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit dependency release: %w", err)
+	}
+	return events, nil
+}

@@ -33,9 +33,13 @@ type Capabilities struct {
 
 // Options supplies operational dependencies.
 type Options struct {
-	Database       Checker
-	Valkey         Checker
-	Realtime       Checker
+	Database Checker
+	Valkey   Checker
+	Realtime Checker
+	// Checks are additional named readiness probes (the trigger dispatcher,
+	// for one). A failing check makes /readyz report NOT_READY under its
+	// name, exactly like the fixed three.
+	Checks         map[string]Checker
 	MetricsEnabled bool
 	Gatherer       prometheus.Gatherer
 	Capabilities   Capabilities
@@ -74,7 +78,13 @@ func readyHandler(options Options) http.Handler {
 			"realtime": realtimeReady,
 			"valkey":   valkeyReady,
 		}
-		if !databaseReady || !valkeyReady || !realtimeReady {
+		ready := databaseReady && valkeyReady && realtimeReady
+		for name, checker := range options.Checks {
+			passed := checker == nil || checker.Check(request.Context()) == nil
+			checks[name] = passed
+			ready = ready && passed
+		}
+		if !ready {
 			httpapi.WriteError(
 				response,
 				request,

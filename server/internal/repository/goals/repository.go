@@ -500,6 +500,29 @@ func LinkIssueIn(
 	return nil
 }
 
+// GoalForIssue returns the goal an issue serves; ErrNotFound when it serves
+// none. Goals that were archived no longer resolve.
+func (repository *Repository) GoalForIssue(ctx context.Context, issueID uuid.UUID) (uuid.UUID, error) {
+	if issueID == uuid.Nil {
+		return uuid.Nil, ErrNotFound
+	}
+	var goalID uuid.UUID
+	err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT link.goal_id FROM goal_issues AS link
+		   JOIN goals AS goal ON goal.id = link.goal_id AND goal.deleted_at IS NULL
+		  WHERE link.issue_id = $1`,
+		issueID,
+	).Scan(&goalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, errors.New("resolve issue goal")
+	}
+	return goalID, nil
+}
+
 // UnlinkIssue detaches an issue. ErrNotFound when it was not linked.
 func (repository *Repository) UnlinkIssue(ctx context.Context, goalID, issueID uuid.UUID) error {
 	tag, err := repository.Pool.Exec(

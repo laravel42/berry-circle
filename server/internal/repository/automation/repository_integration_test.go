@@ -341,7 +341,7 @@ func TestConcurrentClaimsNeverHandTheSameEventToTwoDispatchers(t *testing.T) {
 					// the second cannot simply run after the first commits.
 					<-release
 					for _, event := range batch.Events() {
-						if err := batch.WriteReceipt(ctx, event.ID, event.WorkspaceID, ReceiptUnmatched, 0, seeded.now); err != nil {
+						if err := batch.WriteReceipt(ctx, event.ID, event.WorkspaceID, ReceiptUnmatched, 0, "", seeded.now); err != nil {
 							return err
 						}
 					}
@@ -461,5 +461,52 @@ func TestMatchActiveAndTimerResume(t *testing.T) {
 	cancelled, event, err := repository.Cancel(ctx, run.ID, &seeded.userID, seeded.now.Add(11*time.Minute), nil)
 	if err != nil || cancelled.Status != RunCancelled || event.Type != "workflow.run.cancelled" {
 		t.Fatalf("Cancel() = %+v, %+v, %v", cancelled, event, err)
+	}
+}
+
+// An event whose workspace was deleted after the fact still gets its receipt
+// (with a null workspace) instead of a foreign-key failure that would abort
+// the claim and leave the whole batch unreceipted on every tick.
+func TestReceiptSurvivesAnEventWhoseWorkspaceIsGone(t *testing.T) {
+	ctx := context.Background()
+	repository, seeded := seed(t, ctx)
+	topic := "test.orphan." + uuid.NewString()[:8]
+	t.Cleanup(func() {
+		_, _ = seeded.pool.Exec(context.Background(), `DELETE FROM outbox_events WHERE topic = $1`, topic)
+	})
+	orphanEvent, goneWorkspace := uuid.New(), uuid.New()
+	liveEvent := uuid.New()
+	for _, row := range []struct {
+		id, workspace uuid.UUID
+		at            time.Time
+	}{{orphanEvent, goneWorkspace, seeded.now}, {liveEvent, seeded.workspaceID, seeded.now.Add(time.Second)}} {
+		if _, err := seeded.pool.Exec(ctx,
+			`INSERT INTO outbox_events (id, topic, aggregate_type, aggregate_id, workspace_id, payload, occurred_at, available_at)
+			 VALUES ($1, $2, 'issue', $3, $4, '{}'::jsonb, $5, $5)`,
+			row.id, topic, uuid.New(), row.workspace, row.at); err != nil {
+			t.Fatalf("seed outbox event: %v", err)
+		}
+	}
+	claimed, err := repository.ClaimTriggerBatch(ctx, ClaimParams{Topics: []string{topic}, Limit: 10, Now: seeded.now.Add(time.Hour)},
+		func(ctx context.Context, batch *TriggerBatch) error {
+			for _, event := range batch.Events() {
+				if err := batch.WriteReceipt(ctx, event.ID, event.WorkspaceID, ReceiptUnmatched, 0, "", seeded.now); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	if err != nil || claimed != 2 {
+		t.Fatalf("ClaimTriggerBatch() = %d, %v; want both events claimed and receipted", claimed, err)
+	}
+	var orphanWorkspace, liveWorkspace *uuid.UUID
+	if err := seeded.pool.QueryRow(ctx, `SELECT workspace_id FROM automation_trigger_receipts WHERE event_id = $1`, orphanEvent).Scan(&orphanWorkspace); err != nil {
+		t.Fatalf("orphan receipt missing: %v", err)
+	}
+	if err := seeded.pool.QueryRow(ctx, `SELECT workspace_id FROM automation_trigger_receipts WHERE event_id = $1`, liveEvent).Scan(&liveWorkspace); err != nil {
+		t.Fatalf("live receipt missing: %v", err)
+	}
+	if orphanWorkspace != nil || liveWorkspace == nil || *liveWorkspace != seeded.workspaceID {
+		t.Fatalf("receipt workspaces = %v, %v; want null for the orphan and the workspace for the live event", orphanWorkspace, liveWorkspace)
 	}
 }

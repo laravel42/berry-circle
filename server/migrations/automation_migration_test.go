@@ -52,6 +52,10 @@ func TestPlanningAndAutomationMigrationsAreAdditiveAndComplete(t *testing.T) {
 			"integration_connections_provider_ck",
 			"ADD COLUMN IF NOT EXISTS automation_step_run_id",
 		},
+		"023_trigger_receipt_reason.up.sql": {
+			"ALTER TABLE automation_trigger_receipts ADD COLUMN IF NOT EXISTS reason",
+			"automation_trigger_receipts_reason_ck",
+		},
 	}
 	all, err := List()
 	if err != nil {

@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
-// ClaimParams bounds one dispatcher tick.
+// ClaimParams bounds one dispatcher tick. WorkspaceID narrows the claim to
+// one workspace; nil, the production setting, claims across all of them.
 type ClaimParams struct {
-	Topics []string
-	Limit  int
-	Now    time.Time
+	Topics      []string
+	Limit       int
+	Now         time.Time
+	WorkspaceID *uuid.UUID
 }
 
 // TriggerBatch is one claimed set of outbox events and the transaction that
@@ -43,27 +47,114 @@ func (batch *TriggerBatch) CreateRun(ctx context.Context, params CreateRunParams
 	return createRunIn(ctx, batch.tx, params)
 }
 
+// maxReceiptReasonLength mirrors automation_trigger_receipts_reason_ck.
+const maxReceiptReasonLength = 500
+
 // WriteReceipt records what happened to one claimed event. The dispatcher
-// writes one per event; an event without a receipt is claimed again on the
-// next tick, which is the retry.
+// writes one per event and the receipt is final: an event with a receipt is
+// never offered again, whatever its outcome, because the work an event
+// starts (a provider call, an agent run) must not be repeated by a loop. The
+// reason says why an event was skipped or failed; it is empty for a match.
 func (batch *TriggerBatch) WriteReceipt(
 	ctx context.Context,
 	eventID uuid.UUID,
 	workspaceID *uuid.UUID,
 	outcome ReceiptOutcome,
 	matched int,
+	reason string,
 	now time.Time,
 ) error {
+	// The workspace is resolved through a subselect: an event whose workspace
+	// was deleted after the fact records a receipt with a null workspace
+	// instead of violating the foreign key, which would abort the claim
+	// transaction and leave every event in the batch unreceipted forever.
 	if _, err := batch.tx.Exec(
 		ctx,
-		`INSERT INTO automation_trigger_receipts (event_id, workspace_id, outcome, matched_count, processed_at)
-		 VALUES ($1, $2, $3, $4, $5)
+		`INSERT INTO automation_trigger_receipts (event_id, workspace_id, outcome, matched_count, reason, processed_at)
+		 VALUES ($1, (SELECT id FROM workspaces WHERE id = $2), $3, $4, NULLIF($5, ''), $6)
 		 ON CONFLICT (event_id) DO NOTHING`,
-		eventID, workspaceID, string(outcome), matched, now.UTC(),
+		eventID, workspaceID, string(outcome), matched, boundReason(reason), now.UTC(),
 	); err != nil {
 		return classifyWrite("record trigger receipt", err)
 	}
 	return nil
+}
+
+func boundReason(reason string) string {
+	reason = strings.TrimSpace(reason)
+	if len(reason) <= maxReceiptReasonLength {
+		return reason
+	}
+	cut := reason[:maxReceiptReasonLength]
+	for !utf8.ValidString(cut) && len(cut) > 0 {
+		cut = cut[:len(cut)-1]
+	}
+	return cut
+}
+
+// OldestUnreceipted is the available_at of the oldest event the dispatcher
+// has not receipted, or nil when it is caught up. It is what the lag gauge
+// reports.
+func (repository *Repository) OldestUnreceipted(ctx context.Context, topics []string) (*time.Time, error) {
+	if len(topics) == 0 {
+		return nil, errors.New("trigger lag parameters are invalid")
+	}
+	var oldest *time.Time
+	if err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT min(event.available_at)
+		   FROM outbox_events AS event
+		  WHERE event.topic = ANY($1::text[])
+		    AND NOT EXISTS (
+		        SELECT 1 FROM automation_trigger_receipts AS receipt
+		         WHERE receipt.event_id = event.id
+		    )`,
+		topics,
+	).Scan(&oldest); err != nil {
+		return nil, errors.New("read trigger lag")
+	}
+	if oldest != nil {
+		value := oldest.UTC()
+		oldest = &value
+	}
+	return oldest, nil
+}
+
+// Receipt is one recorded dispatcher outcome.
+type Receipt struct {
+	EventID      uuid.UUID
+	WorkspaceID  *uuid.UUID
+	Outcome      ReceiptOutcome
+	MatchedCount int
+	Reason       string
+	ProcessedAt  time.Time
+}
+
+// GetReceipt reads the receipt of one event.
+func (repository *Repository) GetReceipt(ctx context.Context, eventID uuid.UUID) (Receipt, error) {
+	var (
+		receipt Receipt
+		outcome string
+		reason  *string
+	)
+	err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT event_id, workspace_id, outcome, matched_count, reason, processed_at
+		   FROM automation_trigger_receipts WHERE event_id = $1`,
+		eventID,
+	).Scan(&receipt.EventID, &receipt.WorkspaceID, &outcome, &receipt.MatchedCount, &reason, &receipt.ProcessedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Receipt{}, ErrNotFound
+	}
+	if err != nil {
+		return Receipt{}, errors.New("read trigger receipt")
+	}
+	receipt.Outcome = ReceiptOutcome(outcome)
+	if reason != nil {
+		receipt.Reason = *reason
+	}
+	receipt.ProcessedAt = receipt.ProcessedAt.UTC()
+	return receipt, nil
 }
 
 // ClaimTriggerBatch locks up to Limit unreceipted events for the topics,
@@ -93,6 +184,7 @@ func (repository *Repository) ClaimTriggerBatch(
 		   FROM outbox_events AS event
 		  WHERE event.topic = ANY($1::text[])
 		    AND event.available_at <= $2
+		    AND ($4::uuid IS NULL OR event.workspace_id = $4::uuid)
 		    AND NOT EXISTS (
 		        SELECT 1 FROM automation_trigger_receipts AS receipt
 		         WHERE receipt.event_id = event.id
@@ -100,7 +192,7 @@ func (repository *Repository) ClaimTriggerBatch(
 		  ORDER BY event.available_at ASC, event.occurred_at ASC, event.id ASC
 		  LIMIT $3
 		  FOR UPDATE OF event SKIP LOCKED`,
-		params.Topics, now.UTC(), params.Limit,
+		params.Topics, now.UTC(), params.Limit, params.WorkspaceID,
 	)
 	if err != nil {
 		return 0, errors.New("claim trigger events")

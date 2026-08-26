@@ -70,10 +70,14 @@ import (
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 	planrepo "github.com/laravel42/berry-circle/server/internal/repository/plans"
 	projectrepo "github.com/laravel42/berry-circle/server/internal/repository/projects"
+	runrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
 	"github.com/laravel42/berry-circle/server/internal/secrets"
+	approvalsvc "github.com/laravel42/berry-circle/server/internal/service/approvals"
+	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
 	"github.com/laravel42/berry-circle/server/internal/service/projectplanning"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
+	"github.com/laravel42/berry-circle/server/internal/service/triggerdispatch"
 	"github.com/laravel42/berry-circle/server/internal/storage"
 	temporalclient "go.temporal.io/sdk/client"
 )
@@ -334,11 +338,22 @@ func run() int {
 		return 1
 	}
 
+	// The trigger dispatcher's readiness probe exists before the dispatcher
+	// so /readyz can be registered now and the probe filled in once the
+	// workflow services are built below.
+	var dispatchHealth *triggerdispatch.Health
+	readinessChecks := map[string]platformhandlers.Checker{}
+	if dbPool != nil && cfg.AutomationEnabled {
+		dispatchHealth = triggerdispatch.NewHealth(triggerdispatch.DefaultMaxTickAge, time.Now)
+		readinessChecks["triggerdispatch"] = dispatchHealth
+	}
+
 	var routes httpapi.Registry
 	for _, mount := range platformhandlers.Mounts(platformhandlers.Options{
 		Database:       dbReady,
 		Valkey:         valkeyReady,
 		Realtime:       realtimeManager,
+		Checks:         readinessChecks,
 		MetricsEnabled: cfg.MetricsEnabled,
 		Gatherer:       registry,
 		Capabilities: platformhandlers.Capabilities{
@@ -361,6 +376,7 @@ func run() int {
 		}
 	}
 	var runRoutes *runhandlers.Handlers
+	var automationStarter *automationrun.InProcessStarter
 	if dbPool != nil {
 		sessions, err := coreauth.NewService(coreauth.ServiceOptions{
 			Pool:       dbPool,
@@ -505,17 +521,32 @@ func run() int {
 			return 1
 		}
 
-		runRoutes, err = runhandlers.New(runhandlers.Options{
+		// The run admission service is built here rather than inside the run
+		// routes because the workflow runner shares it: an issue-mode agent
+		// step admits and queues a run exactly as the issue page does.
+		runStore, err := runrepo.New(dbPool)
+		if err != nil {
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("run repository setup failed", "error", err)
+			return 1
+		}
+		runService, err := runadmission.New(runadmission.Options{
+			Store:       runStore,
+			OpenFang:    upstream,
+			Broadcaster: realtimeManager,
+			Clock:       time.Now,
+			NewID:       uuid.New,
+			Dispatcher:  runDispatcher,
 			// Renders the repository an issue belongs to into its prompt.
 			Code: runCode,
 			// Posts the agent's final message on the issue it worked.
 			Comments: coreStore,
 			Logger:   logger,
-			// Lists a run's promoted outputs (ADR-0006).
-			Artifacts: runArtifactStore,
 			// Attaches files the agent writes during a run, from the stream:
 			// the in-process dispatcher has no runtime volume to sweep.
-			ArtifactSink: &artifacts.Promoter{
+			Artifacts: &artifacts.Promoter{
 				Store:    runArtifactStore,
 				Storage:  storageBackend,
 				MaxBytes: cfg.StorageMaxBytes,
@@ -523,7 +554,23 @@ func run() int {
 				NewID:    uuid.New,
 				Logger:   logger,
 			},
-			Dispatcher:       runDispatcher,
+			// Writes agent.started/completed/failed beside the run facts so
+			// workflows can trigger on them.
+			AgentEvents:   runStore,
+			WorkerContext: ctx,
+		})
+		if err != nil {
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("run admission setup failed", "error", err)
+			return 1
+		}
+		runRoutes, err = runhandlers.New(runhandlers.Options{
+			Service:    runService,
+			Repository: runStore,
+			// Lists a run's promoted outputs (ADR-0006).
+			Artifacts:        runArtifactStore,
 			Pool:             dbPool,
 			Sessions:         authenticator,
 			Clock:            time.Now,
@@ -535,6 +582,9 @@ func run() int {
 			Authorization:    identityService,
 		})
 		if err != nil {
+			closeCtx, cancelClose := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = runService.Close(closeCtx)
+			cancelClose()
 			_ = realtimeManager.Close()
 			closeValkey(valkeyClient)
 			closeDatabase(dbPool)
@@ -1098,6 +1148,119 @@ func run() int {
 			return 1
 		}
 
+		// Native workflow execution (P1b): the runner walks runs, the
+		// in-process starter executes them on a bounded pool, the trigger
+		// dispatcher turns outbox facts into runs and resumes, and the
+		// expiry sweep closes approvals nobody decided. The Temporal starter
+		// replaces the in-process one when the orchestration lands; until
+		// then runs execute in this process even with TEMPORAL_ENABLED.
+		if cfg.AutomationEnabled {
+			automationMetrics, err := observability.NewAutomationMetrics(registry)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("automation metrics setup failed", "error", err)
+				return 1
+			}
+			var toolAuthorizer integrationcore.Authorizer
+			if integrationCredentials != nil {
+				toolAuthorizer = integrationcore.PermissionAuthorizer{
+					Grants:      integrationCredentials,
+					Connections: integrationCredentials,
+				}
+			}
+			directory := automationrun.Directory{Pool: dbPool}
+			runner, err := automationrun.New(automationrun.Options{
+				Store:              automationStore,
+				Issues:             coreStore,
+				Approvals:          approvalStore,
+				Goals:              goalStore,
+				IssueRuns:          runService,
+				Artifacts:          runArtifactStore,
+				Responder:          upstream,
+				Agents:             directory,
+				Boards:             directory,
+				Registry:           providerRegistry,
+				Authorizer:         toolAuthorizer,
+				Broadcaster:        realtimeManager,
+				Clock:              time.Now,
+				NewID:              uuid.New,
+				Logger:             logger,
+				Metrics:            automationMetrics,
+				InlineAgentTimeout: cfg.AutomationInlineAgentTimeout,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("automation runner setup failed", "error", err)
+				return 1
+			}
+			automationStarter, err = automationrun.NewInProcessStarter(ctx, runner, cfg.AutomationMaxConcurrent, 0)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("automation starter setup failed", "error", err)
+				return 1
+			}
+			if cfg.TemporalEnabled {
+				logger.Warn("workflow runs execute in-process; the Temporal automation orchestration is not wired yet")
+			}
+			dispatcher, err := triggerdispatch.New(triggerdispatch.Options{
+				Store:       automationStore,
+				Issues:      coreStore,
+				Goals:       goalStore,
+				Starter:     automationStarter,
+				Broadcaster: realtimeManager,
+				Clock:       time.Now,
+				NewID:       uuid.New,
+				Logger:      logger,
+				Metrics:     automationMetrics,
+				Health:      dispatchHealth,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("trigger dispatcher setup failed", "error", err)
+				return 1
+			}
+			go func() {
+				if runErr := dispatcher.Run(ctx, 2*time.Second, 100); runErr != nil &&
+					!errors.Is(runErr, context.Canceled) {
+					logger.Error("trigger dispatcher stopped", "error", runErr)
+				}
+			}()
+			sweeper, err := approvalsvc.NewSweeper(approvalsvc.SweeperOptions{
+				Store:       approvalStore,
+				Clock:       time.Now,
+				NewID:       uuid.New,
+				Broadcaster: realtimeManager,
+				Logger:      logger,
+				Metrics:     automationMetrics,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("approval sweeper setup failed", "error", err)
+				return 1
+			}
+			go func() {
+				if runErr := sweeper.Run(ctx, time.Minute); runErr != nil &&
+					!errors.Is(runErr, context.Canceled) {
+					logger.Error("approval expiry sweep stopped", "error", runErr)
+				}
+			}()
+		}
+
 		productMounts := []httpapi.Mount{
 			authMount,
 			boardMount,
@@ -1221,6 +1384,15 @@ func run() int {
 		logger.Error("graceful HTTP shutdown failed", "error", err)
 		_ = server.Close()
 		exitCode = 1
+	}
+	// Workflow workers stop before the run workers: a step that admitted an
+	// agent run has already handed it over, and nothing new may start once
+	// the HTTP server is gone.
+	if automationStarter != nil {
+		if err := automationStarter.Close(shutdownCtx); err != nil {
+			logger.Error("workflow worker shutdown failed", "error", err)
+			exitCode = 1
+		}
 	}
 	if runRoutes != nil {
 		if err := runRoutes.Close(shutdownCtx); err != nil {
