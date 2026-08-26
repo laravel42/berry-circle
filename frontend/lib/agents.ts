@@ -151,6 +151,72 @@ export async function listAgentModels(): Promise<AgentModel[]> {
    return parsed.data.nodes;
 }
 
+/**
+ * `$3`, `$1.25`, `$0.021` — what a million tokens costs.
+ *
+ * Three significant figures rather than a fixed number of decimals, because
+ * these prices span four orders of magnitude: the catalog quotes Sonnet at $3
+ * and Ling at $0.021, and any single decimal count is either noise at the top
+ * ($3.00) or a lie at the bottom ($0.02, and $0.00 for anything cheaper).
+ * Trailing zeros are dropped so the common whole-dollar prices stay short.
+ */
+export function modelPrice(perMillion: number): string {
+   if (!Number.isFinite(perMillion) || perMillion < 0) return '—';
+   if (perMillion === 0) return '$0';
+   // Above $100 a cent is not information, and toPrecision would switch to
+   // exponential notation at four digits anyway.
+   if (perMillion >= 100) return `$${Math.round(perMillion)}`;
+   const figures = perMillion.toPrecision(3);
+   // Trailing zeros only ever follow a decimal point. Stripping them from a
+   // whole number turns $100 into $1.
+   const trimmed = figures.includes('.') ? figures.replace(/0+$/, '').replace(/\.$/, '') : figures;
+   return `$${trimmed}`;
+}
+
+export interface AgentPriceDisplay {
+   /** `$3 / $15`, `Free`, or a dash when the price is not known. */
+   label: string;
+   /** What the two numbers mean; absent when there is nothing to explain. */
+   title?: string;
+}
+
+/**
+ * What the agent's assigned model costs, input then output.
+ *
+ * Priced from the catalog rather than from the agent, because that is where
+ * price lives: an agent stores which model it runs on, and what that model
+ * costs is the provider's business and changes without the agent changing.
+ *
+ * A dash covers two different unknowns — no model assigned, and a model the
+ * catalog no longer offers — and says the same thing about both, which is that
+ * Berry cannot quote a price. Distinguishing them in a table cell would be
+ * detail nobody is reading the column for.
+ */
+export function agentPriceDisplay(
+   agent: Pick<Agent, 'modelProvider' | 'modelName'>,
+   prices: Map<string, AgentModel>
+): AgentPriceDisplay {
+   const provider = agent.modelProvider?.trim();
+   const model = agent.modelName?.trim();
+   if (!provider || !model) return { label: '—' };
+   const entry = prices.get(`${provider}/${model}`);
+   if (!entry) return { label: '—' };
+   if (entry.inputCostPerM === 0 && entry.outputCostPerM === 0) {
+      return { label: 'Free', title: `${entry.displayName} costs nothing to run` };
+   }
+   return {
+      label: `${modelPrice(entry.inputCostPerM)} / ${modelPrice(entry.outputCostPerM)}`,
+      title: `${entry.displayName}: ${modelPrice(entry.inputCostPerM)} in, ${modelPrice(
+         entry.outputCostPerM
+      )} out, per million tokens`,
+   };
+}
+
+/** Key a catalog model the way an agent stores its pairing. */
+export function modelKey(model: Pick<AgentModel, 'provider' | 'id'>): string {
+   return `${model.provider}/${model.id}`;
+}
+
 export async function updateAgentConfig(
    agentId: string,
    config: {
@@ -160,14 +226,11 @@ export async function updateAgentConfig(
       model?: string;
    }
 ): Promise<Agent> {
-   const json: unknown = await apiFetch(
-      `/api/v1/agents/${encodeURIComponent(agentId)}/config`,
-      {
-         method: 'PUT',
-         headers: { 'content-type': 'application/json' },
-         body: JSON.stringify(config),
-      }
-   );
+   const json: unknown = await apiFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/config`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(config),
+   });
    const parsed = agentSchema.safeParse(json);
    if (!parsed.success) {
       throw new Error('Agent response was not recognized');

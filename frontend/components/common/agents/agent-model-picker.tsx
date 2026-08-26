@@ -14,7 +14,13 @@ import {
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
-import { listAgentModels, updateAgentConfig, type AgentModel } from '@/lib/agents';
+import {
+   listAgentModels,
+   modelKey,
+   modelPrice,
+   updateAgentConfig,
+   type AgentModel,
+} from '@/lib/agents';
 
 interface AgentModelPickerProps {
    agentId: string;
@@ -24,20 +30,11 @@ interface AgentModelPickerProps {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-/** `$3.00` — per million tokens, which is how providers quote it. */
-function money(perMillion: number): string {
-   return `$${perMillion < 1 ? perMillion.toFixed(2) : perMillion.toFixed(0)}`;
-}
-
 /** `200K` — context windows are read as magnitude, not exact token counts. */
 function compact(tokens: number): string {
    if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`;
    if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}K`;
    return String(tokens);
-}
-
-function keyOf(item: AgentModel): string {
-   return `${item.provider}/${item.id}`;
 }
 
 /**
@@ -110,7 +107,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
       return [...byProvider.entries()];
    }, [models]);
 
-   const selected = models.find((item) => keyOf(item) === current);
+   const selected = models.find((item) => modelKey(item) === current);
 
    const change = async (value: string) => {
       const divider = value.indexOf('/');
@@ -159,7 +156,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                >
                   <span className="truncate">
                      {selected
-                        ? `${selected.displayName} — ${money(selected.inputCostPerM)}/${money(selected.outputCostPerM)} per M · ${compact(selected.contextWindow)} ctx`
+                        ? `${selected.displayName} — ${modelPrice(selected.inputCostPerM)}/${modelPrice(selected.outputCostPerM)} per M · ${compact(selected.contextWindow)} ctx`
                         : current || 'Select a model…'}
                   </span>
                   <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
@@ -179,7 +176,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                      {groups.map(([groupProvider, items]) => (
                         <CommandGroup key={groupProvider} heading={groupProvider}>
                            {items.map((item) => {
-                              const key = keyOf(item);
+                              const key = modelKey(item);
                               return (
                                  <CommandItem
                                     key={key}
@@ -196,8 +193,9 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                                     <span className="flex min-w-0 flex-col">
                                        <span className="truncate">{item.displayName}</span>
                                        <span className="text-muted-foreground">
-                                          {money(item.inputCostPerM)}/{money(item.outputCostPerM)}{' '}
-                                          per M · {compact(item.contextWindow)} ctx
+                                          {modelPrice(item.inputCostPerM)}/
+                                          {modelPrice(item.outputCostPerM)} per M ·{' '}
+                                          {compact(item.contextWindow)} ctx
                                           {item.supportsTools ? ' · tools' : ''}
                                        </span>
                                     </span>
@@ -214,7 +212,8 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
          {selected ? (
             <p className="text-muted-foreground">
                {selected.tier} · {compact(selected.contextWindow)} context ·{' '}
-               {money(selected.inputCostPerM)} in / {money(selected.outputCostPerM)} out per million
+               {modelPrice(selected.inputCostPerM)} in / {modelPrice(selected.outputCostPerM)} out
+               per million
                {selected.supportsTools ? ' · tools' : ''}
                {selected.supportsVision ? ' · vision' : ''}
             </p>

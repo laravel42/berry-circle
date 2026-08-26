@@ -1,10 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowDown, ArrowUpDown } from 'lucide-react';
 
 import { BerryApiError } from '@/lib/api';
-import { loadWorkspaceAgents, pickRunnableAgent, type Agent } from '@/lib/agents';
+import {
+   listAgentModels,
+   loadWorkspaceAgents,
+   modelKey,
+   pickRunnableAgent,
+   type Agent,
+   type AgentModel,
+} from '@/lib/agents';
 import { useAgentsListStore } from '@/store/agents-list-store';
 import { useAgentsStore } from '@/store/agents-store';
 import { useRunsStore } from '@/store/runs-store';
@@ -28,9 +34,32 @@ export default function Agents() {
    const { search, sort } = useAgentsListStore();
 
    const [loading, setLoading] = useState(storedAgents.length === 0 && !storedError);
+   const [prices, setPrices] = useState<Map<string, AgentModel>>(new Map());
+
+   // The catalog, not the agent, knows what a model costs. Best effort on
+   // purpose: a catalog Berry cannot reach costs the list its price column,
+   // which is not a reason to withhold the agents.
+   useEffect(() => {
+      let cancelled = false;
+      void listAgentModels()
+         .then((models) => {
+            if (cancelled) return;
+            setPrices(new Map(models.map((model) => [modelKey(model), model])));
+         })
+         .catch(() => {
+            /* leaves every price a dash */
+         });
+      return () => {
+         cancelled = true;
+      };
+   }, []);
 
    const runCounts = useMemo(
-      () => countRunsByAgent(storedAgents.map((agent) => agent.id), runs),
+      () =>
+         countRunsByAgent(
+            storedAgents.map((agent) => agent.id),
+            runs
+         ),
       [storedAgents, runs]
    );
 
@@ -92,9 +121,11 @@ export default function Agents() {
             <div className="w-27.5 shrink-0">Status</div>
             <div className="hidden w-25 shrink-0 lg:block">Access</div>
             <div className="hidden w-45 shrink-0 xl:block">Model</div>
-            <div className="hidden w-27.5 shrink-0 sm:flex sm:items-center sm:gap-1">
-               Last active
-               {sort === 'last-active-desc' ? <ArrowDown className="size-3" /> : <ArrowUpDown className="size-3" />}
+            <div
+               className="hidden w-27.5 shrink-0 sm:block"
+               title="Input / output, per million tokens"
+            >
+               Price
             </div>
             <div className="w-14 shrink-0 text-right">Runtimes</div>
          </div>
@@ -115,6 +146,7 @@ export default function Agents() {
                   key={agent.id}
                   agent={agent}
                   runCount={runCounts.get(agent.id) ?? 0}
+                  prices={prices}
                   highlightYou={agent.id === featuredAgentId}
                />
             ))
