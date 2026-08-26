@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/laravel42/berry-circle/server/internal/handlers/collaboration/shared"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 )
@@ -678,7 +679,7 @@ func (handler *handler) batchUpdateIssues(
 		writeValidation(response, request, fields...)
 		return
 	}
-	results, err := handler.service.BatchUpdateIssues(
+	results, events, err := handler.service.BatchUpdateIssues(
 		request.Context(),
 		currentUser(request).ID,
 		workspaceID,
@@ -689,6 +690,7 @@ func (handler *handler) batchUpdateIssues(
 		writeDomainError(response, request, err, "Workspace")
 		return
 	}
+	shared.PublishIssue(request.Context(), handler.broadcaster, events)
 	httpapi.WriteJSON(response, http.StatusOK, map[string]any{"results": results})
 }
 
@@ -705,7 +707,7 @@ func (handler *handler) batchDeleteIssues(
 		writeValidation(response, request, fields...)
 		return
 	}
-	results, err := handler.service.BatchDeleteIssues(
+	results, events, err := handler.service.BatchDeleteIssues(
 		request.Context(),
 		currentUser(request).ID,
 		workspaceID,
@@ -715,6 +717,7 @@ func (handler *handler) batchDeleteIssues(
 		writeDomainError(response, request, err, "Workspace")
 		return
 	}
+	shared.PublishIssue(request.Context(), handler.broadcaster, events)
 	httpapi.WriteJSON(response, http.StatusOK, map[string]any{"results": results})
 }
 

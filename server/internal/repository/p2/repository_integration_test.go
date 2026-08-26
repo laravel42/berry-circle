@@ -116,9 +116,10 @@ func verifyBatchIssueSeams(
 	ctx := context.Background()
 	status, priority := "inProgress", "high"
 	missingUpdateID := uuid.New()
-	updated, err := repository.BatchUpdateIssues(
+	updated, _, err := repository.BatchUpdateIssues(
 		ctx,
 		workspaceID,
+		uuid.New(),
 		[]uuid.UUID{updateID, missingUpdateID},
 		BatchIssuePatch{Status: &status, Priority: &priority},
 		now.Add(time.Minute),
@@ -131,9 +132,10 @@ func verifyBatchIssueSeams(
 		t.Fatalf("BatchUpdateIssues() results = %#v", updated)
 	}
 	missingDeleteID := uuid.New()
-	deleted, err := repository.BatchDeleteIssues(
+	deleted, _, err := repository.BatchDeleteIssues(
 		ctx,
 		workspaceID,
+		uuid.New(),
 		[]uuid.UUID{deleteID, missingDeleteID},
 		time.Now().UTC(),
 	)

@@ -221,8 +221,12 @@ func (repository *Repository) BoardExists(
 	return exists, nil
 }
 
+// runProjection reads the workspace through a scalar subquery rather than a
+// join so lockRun's FOR UPDATE keeps locking only the run row.
 const runProjection = `
-	r.id, r.issue_id, r.board_id, r.agent_id, r.upstream_agent_id,
+	r.id, r.issue_id, r.board_id,
+	(SELECT b.workspace_id FROM boards AS b WHERE b.id = r.board_id),
+	r.agent_id, r.upstream_agent_id,
 	r.status::text, r.sequence, r.summary, r.output,
 	r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros, r.currency,
 	r.failure_code, r.failure_message, r.failure_retryable,
@@ -248,6 +252,7 @@ func scanRun(row rowScanner) (Run, error) {
 		&result.ID,
 		&result.IssueID,
 		&result.BoardID,
+		&result.WorkspaceID,
 		&result.AgentID,
 		&upstreamAgentID,
 		&status,

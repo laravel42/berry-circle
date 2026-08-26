@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/laravel42/berry-circle/server/internal/identity"
+	"github.com/laravel42/berry-circle/server/internal/repository/core"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 )
 
@@ -51,8 +52,8 @@ type Store interface {
 	ListIssueGroups(context.Context, uuid.UUID, p2repo.IssueFilter, string, *p2repo.IssueGroupCursor, int) ([]p2repo.IssueGroup, error)
 	ListIssueRows(context.Context, uuid.UUID, p2repo.IssueFilter, string, string, *p2repo.IssueRowCursor, int) ([]p2repo.IssueRow, error)
 	ListIssueFacets(context.Context, uuid.UUID, p2repo.IssueFilter) ([]p2repo.FacetCount, error)
-	BatchUpdateIssues(context.Context, uuid.UUID, []uuid.UUID, p2repo.BatchIssuePatch, time.Time) ([]p2repo.BatchResult, error)
-	BatchDeleteIssues(context.Context, uuid.UUID, []uuid.UUID, time.Time) ([]p2repo.BatchResult, error)
+	BatchUpdateIssues(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID, p2repo.BatchIssuePatch, time.Time) ([]p2repo.BatchResult, []core.IssueMutationEvent, error)
+	BatchDeleteIssues(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID, time.Time) ([]p2repo.BatchResult, []core.IssueMutationEvent, error)
 }
 
 type Options struct {
@@ -432,18 +433,21 @@ func (service *Service) ListIssueFacets(
 	return service.store.ListIssueFacets(ctx, workspaceID, filter)
 }
 
+// BatchUpdateIssues returns the committed issue.* facts beside the per-issue
+// outcomes so the handler can publish them once the write is durable.
 func (service *Service) BatchUpdateIssues(
 	ctx context.Context,
 	userID, workspaceID uuid.UUID,
 	ids []uuid.UUID,
 	patch p2repo.BatchIssuePatch,
-) ([]p2repo.BatchResult, error) {
+) ([]p2repo.BatchResult, []core.IssueMutationEvent, error) {
 	if err := service.authorize(ctx, userID, workspaceID, identity.PermissionWrite); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return service.store.BatchUpdateIssues(
 		ctx,
 		workspaceID,
+		userID,
 		ids,
 		patch,
 		service.clock().UTC(),
@@ -454,11 +458,11 @@ func (service *Service) BatchDeleteIssues(
 	ctx context.Context,
 	userID, workspaceID uuid.UUID,
 	ids []uuid.UUID,
-) ([]p2repo.BatchResult, error) {
+) ([]p2repo.BatchResult, []core.IssueMutationEvent, error) {
 	if err := service.authorize(ctx, userID, workspaceID, identity.PermissionWrite); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return service.store.BatchDeleteIssues(ctx, workspaceID, ids, service.clock().UTC())
+	return service.store.BatchDeleteIssues(ctx, workspaceID, userID, ids, service.clock().UTC())
 }
 
 var (

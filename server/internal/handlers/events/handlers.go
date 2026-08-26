@@ -1,4 +1,9 @@
 // Package events exports the authenticated durable board event stream.
+//
+// The stream subscribes on the board id for live wakeups; publishers set it as
+// the event's BoardID beside the workspace, so a board-less fact never reaches
+// a board subscriber and a workspace-wide consumer can subscribe on its own
+// key without a second publish.
 package events
 
 import (
@@ -136,15 +141,19 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	return httpapi.Mount{Prefix: "/api/v1/events", Handler: router}, nil
 }
 
+// envelope is the board stream frame. runId and sequence are null for facts
+// no run produced (issue and comment mutations); issueId is the nil uuid for
+// an aggregate that belongs to no issue.
 type envelope struct {
-	ID         uuid.UUID       `json:"id"`
-	Type       string          `json:"type"`
-	OccurredAt string          `json:"occurredAt"`
-	BoardID    uuid.UUID       `json:"boardId"`
-	IssueID    uuid.UUID       `json:"issueId"`
-	RunID      *uuid.UUID      `json:"runId"`
-	Sequence   *int64          `json:"sequence"`
-	Payload    json.RawMessage `json:"payload"`
+	ID          uuid.UUID       `json:"id"`
+	Type        string          `json:"type"`
+	OccurredAt  string          `json:"occurredAt"`
+	WorkspaceID uuid.UUID       `json:"workspaceId"`
+	BoardID     uuid.UUID       `json:"boardId"`
+	IssueID     uuid.UUID       `json:"issueId"`
+	RunID       *uuid.UUID      `json:"runId"`
+	Sequence    *int64          `json:"sequence"`
+	Payload     json.RawMessage `json:"payload"`
 }
 
 func (handler *handler) stream(response http.ResponseWriter, request *http.Request) {
@@ -377,14 +386,15 @@ func writeBatch(
 ) (*runrepo.BoardCursor, bool) {
 	for _, event := range events {
 		data, err := json.Marshal(envelope{
-			ID:         event.ID,
-			Type:       event.Type,
-			OccurredAt: event.OccurredAt.UTC().Format(time.RFC3339Nano),
-			BoardID:    event.BoardID,
-			IssueID:    event.IssueID,
-			RunID:      event.RunID,
-			Sequence:   event.Sequence,
-			Payload:    event.Payload,
+			ID:          event.ID,
+			Type:        event.Type,
+			OccurredAt:  event.OccurredAt.UTC().Format(time.RFC3339Nano),
+			WorkspaceID: event.WorkspaceID,
+			BoardID:     event.BoardID,
+			IssueID:     event.IssueID,
+			RunID:       event.RunID,
+			Sequence:    event.Sequence,
+			Payload:     event.Payload,
 		})
 		if err != nil {
 			return after, false

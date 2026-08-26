@@ -138,6 +138,7 @@ func (repository *Repository) Admit(
 		ID:              params.RunID,
 		IssueID:         issue.ID,
 		BoardID:         issue.BoardID,
+		WorkspaceID:     params.WorkspaceID,
 		AgentID:         agentID,
 		UpstreamAgentID: upstreamAgentID,
 		Status:          StatusQueued,
@@ -195,14 +196,15 @@ func (repository *Repository) Admit(
 	sequence := int64(0)
 	runID := run.ID
 	event := Event{
-		ID:         params.CreatedEventID,
-		Type:       "run.created",
-		OccurredAt: run.CreatedAt,
-		BoardID:    run.BoardID,
-		IssueID:    run.IssueID,
-		RunID:      &runID,
-		Sequence:   &sequence,
-		Payload:    payload,
+		ID:          params.CreatedEventID,
+		Type:        "run.created",
+		OccurredAt:  run.CreatedAt,
+		WorkspaceID: run.WorkspaceID,
+		BoardID:     run.BoardID,
+		IssueID:     run.IssueID,
+		RunID:       &runID,
+		Sequence:    &sequence,
+		Payload:     payload,
 	}
 	if err := insertPublicEvent(ctx, tx, event); err != nil {
 		return Run{}, err

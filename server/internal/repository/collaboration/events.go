@@ -15,13 +15,14 @@ type outboxEnvelope struct {
 	Type          string          `json:"type"`
 	OccurredAt    string          `json:"occurredAt"`
 	WorkspaceID   uuid.UUID       `json:"workspaceId"`
+	BoardID       *uuid.UUID      `json:"boardId"`
 	AggregateType string          `json:"aggregateType"`
 	AggregateID   uuid.UUID       `json:"aggregateId"`
 	Payload       json.RawMessage `json:"payload"`
 }
 
 func makeEvent(
-	id, workspaceID uuid.UUID,
+	id, workspaceID, boardID uuid.UUID,
 	topic, aggregateType string,
 	aggregateID uuid.UUID,
 	payload any,
@@ -37,6 +38,7 @@ func makeEvent(
 	return Event{
 		ID:            id,
 		WorkspaceID:   workspaceID,
+		BoardID:       boardID,
 		Topic:         topic,
 		AggregateType: aggregateType,
 		AggregateID:   aggregateID,
@@ -46,11 +48,18 @@ func makeEvent(
 }
 
 func insertOutboxEvent(ctx context.Context, queryer database, event Event) error {
+	// A board-less fact stores NULL rather than the nil uuid so the board
+	// replay's partial index never matches it.
+	var boardID *uuid.UUID
+	if event.BoardID != uuid.Nil {
+		boardID = &event.BoardID
+	}
 	envelope, err := json.Marshal(outboxEnvelope{
 		ID:            event.ID,
 		Type:          event.Topic,
 		OccurredAt:    event.OccurredAt.UTC().Format(time.RFC3339Nano),
 		WorkspaceID:   event.WorkspaceID,
+		BoardID:       boardID,
 		AggregateType: event.AggregateType,
 		AggregateID:   event.AggregateID,
 		Payload:       event.Payload,
@@ -61,14 +70,15 @@ func insertOutboxEvent(ctx context.Context, queryer database, event Event) error
 	if _, err := queryer.Exec(
 		ctx,
 		`INSERT INTO outbox_events (
-		    id, topic, aggregate_type, aggregate_id, workspace_id,
+		    id, topic, aggregate_type, aggregate_id, workspace_id, board_id,
 		    payload, occurred_at, available_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $7)`,
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $8)`,
 		event.ID,
 		event.Topic,
 		event.AggregateType,
 		event.AggregateID,
 		event.WorkspaceID,
+		boardID,
 		string(envelope),
 		event.OccurredAt,
 	); err != nil {

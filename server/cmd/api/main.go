@@ -755,13 +755,14 @@ func run() int {
 		// ask. Both are resolved per request from the project itself, so this
 		// only needs the shared core store and the runtime.
 		issueGenerator := &projectplanning.Service{
-			Projects:   projectplanning.ProjectLookup{Pool: dbPool},
-			Issues:     coreStore,
-			Agents:     projectplanning.AgentLookup{Pool: dbPool},
-			Runtime:    upstream,
-			Authorizer: identityService,
-			Clock:      time.Now,
-			NewID:      uuid.New,
+			Projects:    projectplanning.ProjectLookup{Pool: dbPool},
+			Issues:      coreStore,
+			Agents:      projectplanning.AgentLookup{Pool: dbPool},
+			Runtime:     upstream,
+			Authorizer:  identityService,
+			Clock:       time.Now,
+			NewID:       uuid.New,
+			Broadcaster: realtimeManager,
 		}
 
 		projectMount, err := projects.NewMount(projects.Options{
@@ -820,6 +821,7 @@ func run() int {
 			Service:          p2API,
 			IdempotencyStore: idempotencyStore,
 			Clock:            time.Now,
+			Broadcaster:      realtimeManager,
 		})
 		if err != nil {
 			closeRunRoutes(runRoutes, logger)

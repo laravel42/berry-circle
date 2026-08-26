@@ -39,15 +39,19 @@ type failureResource struct {
 	Retryable bool   `json:"retryable"`
 }
 
+// eventEnvelope is the run-lane wire shape persisted in outbox_events.payload.
+// workspaceId sits next to boardId so a consumer never has to know which lane
+// wrote the row to find its scope.
 type eventEnvelope struct {
-	ID         string          `json:"id"`
-	Type       string          `json:"type"`
-	OccurredAt string          `json:"occurredAt"`
-	BoardID    uuid.UUID       `json:"boardId"`
-	IssueID    uuid.UUID       `json:"issueId"`
-	RunID      *uuid.UUID      `json:"runId"`
-	Sequence   *int64          `json:"sequence"`
-	Payload    json.RawMessage `json:"payload"`
+	ID          string          `json:"id"`
+	Type        string          `json:"type"`
+	OccurredAt  string          `json:"occurredAt"`
+	WorkspaceID uuid.UUID       `json:"workspaceId"`
+	BoardID     uuid.UUID       `json:"boardId"`
+	IssueID     uuid.UUID       `json:"issueId"`
+	RunID       *uuid.UUID      `json:"runId"`
+	Sequence    *int64          `json:"sequence"`
+	Payload     json.RawMessage `json:"payload"`
 }
 
 func lifecyclePayload(run Run) (json.RawMessage, error) {
@@ -141,6 +145,11 @@ func insertPublicEvent(ctx context.Context, tx pgx.Tx, event Event) error {
 	return insertOutboxEvent(ctx, tx, event, "run", *event.RunID)
 }
 
+// insertOutboxEvent writes the durable row with the workspace in workspace_id
+// and the board in board_id. Every caller loads the run through runProjection,
+// which carries the workspace; the lookup below covers an event assembled
+// without it so a row can never be written with the board in the wrong column
+// again.
 func insertOutboxEvent(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -148,15 +157,25 @@ func insertOutboxEvent(
 	aggregateType string,
 	aggregateID uuid.UUID,
 ) error {
+	if event.WorkspaceID == uuid.Nil {
+		if err := tx.QueryRow(
+			ctx,
+			`SELECT workspace_id FROM boards WHERE id = $1`,
+			event.BoardID,
+		).Scan(&event.WorkspaceID); err != nil {
+			return fmt.Errorf("resolve outbox event workspace: %w", err)
+		}
+	}
 	encoded, err := json.Marshal(eventEnvelope{
-		ID:         event.ID.String(),
-		Type:       event.Type,
-		OccurredAt: event.OccurredAt.UTC().Format(time.RFC3339Nano),
-		BoardID:    event.BoardID,
-		IssueID:    event.IssueID,
-		RunID:      event.RunID,
-		Sequence:   event.Sequence,
-		Payload:    event.Payload,
+		ID:          event.ID.String(),
+		Type:        event.Type,
+		OccurredAt:  event.OccurredAt.UTC().Format(time.RFC3339Nano),
+		WorkspaceID: event.WorkspaceID,
+		BoardID:     event.BoardID,
+		IssueID:     event.IssueID,
+		RunID:       event.RunID,
+		Sequence:    event.Sequence,
+		Payload:     event.Payload,
 	})
 	if err != nil {
 		return errors.New("encode outbox event")
@@ -164,13 +183,14 @@ func insertOutboxEvent(
 	if _, err := tx.Exec(
 		ctx,
 		`INSERT INTO outbox_events (
-			id, topic, aggregate_type, aggregate_id, workspace_id,
+			id, topic, aggregate_type, aggregate_id, workspace_id, board_id,
 			payload, occurred_at, available_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $7)`,
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $8)`,
 		event.ID,
 		event.Type,
 		aggregateType,
 		aggregateID,
+		event.WorkspaceID,
 		event.BoardID,
 		string(encoded),
 		event.OccurredAt,
@@ -225,6 +245,7 @@ func issueUpdatedEvent(
 ) (Event, error) {
 	var (
 		resource             issueResource
+		workspaceID          uuid.UUID
 		status, priority     string
 		dueDate              *time.Time
 		assigneeType         *string
@@ -246,7 +267,8 @@ func issueUpdatedEvent(
 		        i.active_run_id,
 		        i.created_by, creator.name, creator.avatar_url,
 		        i.created_at, i.updated_at,
-		        berry_issue_identifier(b.workspace_id, i.number)
+		        berry_issue_identifier(b.workspace_id, i.number),
+		        b.workspace_id
 		   -- Deliberately not filtered on i.deleted_at: this builds the
 		   -- payload for an event a run already emitted. A run whose issue was
 		   -- deleted still has a history, and refusing to describe it would
@@ -281,6 +303,7 @@ func issueUpdatedEvent(
 		&createdAt,
 		&updatedAt,
 		&resource.Identifier,
+		&workspaceID,
 	)
 	if err != nil {
 		return Event{}, fmt.Errorf("read issue event snapshot: %w", err)
@@ -332,14 +355,15 @@ func issueUpdatedEvent(
 	}
 	causeRunID := runID
 	return Event{
-		ID:         eventID,
-		Type:       "issue.updated",
-		OccurredAt: occurredAt,
-		BoardID:    resource.BoardID,
-		IssueID:    issueID,
-		RunID:      &causeRunID,
-		Sequence:   nil,
-		Payload:    payload,
+		ID:          eventID,
+		Type:        "issue.updated",
+		OccurredAt:  occurredAt,
+		WorkspaceID: workspaceID,
+		BoardID:     resource.BoardID,
+		IssueID:     issueID,
+		RunID:       &causeRunID,
+		Sequence:    nil,
+		Payload:     payload,
 	}, nil
 }
 

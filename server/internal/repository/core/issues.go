@@ -13,7 +13,7 @@ import (
 )
 
 const issueProjection = `
-	i.id, i.board_id, b.slug, w.settings->>'issuePrefix', i.number, i.title, i.description,
+	i.id, i.board_id, w.id, b.slug, w.settings->>'issuePrefix', i.number, i.title, i.description,
 	i.status::text, i.priority::text, i.sort_order, i.due_date,
 	i.assignee_type::text, i.assignee_id,
 	COALESCE(assignee_user.name, assignee_agent.name),
@@ -29,12 +29,21 @@ const issueProjection = `
 // every copy joined only users, so an issue assigned to an agent came back with
 // a null name and rendered as the literal word "Agent" with no avatar. Keeping
 // it in one place means the agent join cannot be forgotten at a fourth site.
+//
+// The live predicate rides on the board join rather than each caller's WHERE.
+// For an inner join the two are equivalent, and putting it here means a query
+// cannot read a deleted issue by forgetting to exclude one. issueSourceAny is
+// the same clause without it, for the one reader that must describe a deleted
+// issue: the event that records its deletion.
 const issueSource = `
 	   FROM issues AS i
-	   -- The live predicate rides on the board join rather than each caller's
-	   -- WHERE. For an inner join the two are equivalent, and putting it here
-	   -- means a query cannot read a deleted issue by forgetting to exclude one.
-	   JOIN boards AS b ON b.id = i.board_id AND i.deleted_at IS NULL
+	   JOIN boards AS b ON b.id = i.board_id AND i.deleted_at IS NULL` + issueSourceJoins
+
+const issueSourceAny = `
+	   FROM issues AS i
+	   JOIN boards AS b ON b.id = i.board_id` + issueSourceJoins
+
+const issueSourceJoins = `
 	   JOIN workspaces AS w ON w.id = b.workspace_id AND w.deleted_at IS NULL
 	   LEFT JOIN users AS assignee_user
 	     ON i.assignee_type = 'user' AND assignee_user.id = i.assignee_id
@@ -162,14 +171,16 @@ func (repository *Repository) GetIssue(ctx context.Context, reference string) (I
 	return issue, err
 }
 
-// CreateIssue allocates the board number and inserts all durable facts in one transaction.
+// CreateIssue allocates the board number and inserts all durable facts in one
+// transaction, including the issue.created outbox row. The returned events are
+// for the caller to publish live once the commit is known to have happened.
 func (repository *Repository) CreateIssue(
 	ctx context.Context,
 	params CreateIssueParams,
-) (Issue, error) {
+) (Issue, []IssueMutationEvent, error) {
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return Issue{}, fmt.Errorf("begin issue creation: %w", err)
+		return Issue{}, nil, fmt.Errorf("begin issue creation: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback(context.Background())
@@ -182,12 +193,12 @@ func (repository *Repository) CreateIssue(
 		params.BoardID,
 	).Scan(&boardSlug); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Issue{}, ErrNotFound
+			return Issue{}, nil, ErrNotFound
 		}
-		return Issue{}, fmt.Errorf("lock issue board: %w", err)
+		return Issue{}, nil, fmt.Errorf("lock issue board: %w", err)
 	}
 	if err := validateAssignee(ctx, tx, params.Assignee); err != nil {
-		return Issue{}, err
+		return Issue{}, nil, err
 	}
 
 	var number int32
@@ -196,7 +207,7 @@ func (repository *Repository) CreateIssue(
 		`SELECT berry_next_issue_number($1)`,
 		params.BoardID,
 	).Scan(&number); err != nil {
-		return Issue{}, fmt.Errorf("allocate issue number: %w", err)
+		return Issue{}, nil, fmt.Errorf("allocate issue number: %w", err)
 	}
 	var (
 		assigneeType *string
@@ -230,7 +241,7 @@ func (repository *Repository) CreateIssue(
 		params.CreatedBy,
 		params.CreatedAt,
 	); err != nil {
-		return Issue{}, classifyWriteError("create issue", err)
+		return Issue{}, nil, classifyWriteError("create issue", err)
 	}
 	if params.Assignee != nil {
 		if _, err := tx.Exec(
@@ -245,37 +256,49 @@ func (repository *Repository) CreateIssue(
 			params.CreatedBy,
 			params.CreatedAt,
 		); err != nil {
-			return Issue{}, classifyWriteError("record issue assignment", err)
+			return Issue{}, nil, classifyWriteError("record issue assignment", err)
 		}
 	}
 	if params.Project != nil {
 		if err := setIssueProject(ctx, tx, params.ID, params.Project, params.CreatedBy); err != nil {
-			return Issue{}, err
+			return Issue{}, nil, err
 		}
 	}
 	// Read back after linking so the returned issue carries its project, which
 	// is what lets a caller render the new issue without a second request.
 	created, err := getIssueByID(ctx, tx, params.ID, false)
 	if err != nil {
-		return Issue{}, err
+		return Issue{}, nil, err
 	}
 	if created.BoardSlug != boardSlug {
-		return Issue{}, errors.New("create issue: board scope changed")
+		return Issue{}, nil, errors.New("create issue: board scope changed")
+	}
+	events, err := RecordIssueEvents(ctx, tx, IssueEventParams{
+		IssueID:    params.ID,
+		Kind:       IssueEventCreated,
+		Actor:      &ActorKey{Type: "user", ID: params.CreatedBy},
+		OccurredAt: params.CreatedAt,
+		NewID:      params.NewID,
+	})
+	if err != nil {
+		return Issue{}, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Issue{}, fmt.Errorf("commit issue creation: %w", err)
+		return Issue{}, nil, fmt.Errorf("commit issue creation: %w", err)
 	}
-	return created, nil
+	return created, events, nil
 }
 
-// UpdateIssue serializes workflow and assignment changes under a row lock.
+// UpdateIssue serializes workflow and assignment changes under a row lock and
+// records issue.updated plus the derived issue.assigned/started/completed
+// facts in the same transaction.
 func (repository *Repository) UpdateIssue(
 	ctx context.Context,
 	params UpdateIssueParams,
-) (Issue, error) {
+) (Issue, []IssueMutationEvent, error) {
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return Issue{}, fmt.Errorf("begin issue update: %w", err)
+		return Issue{}, nil, fmt.Errorf("begin issue update: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback(context.Background())
@@ -288,19 +311,19 @@ func (repository *Repository) UpdateIssue(
 		params.IssueID,
 	).Scan(&currentStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return Issue{}, ErrNotFound
+			return Issue{}, nil, ErrNotFound
 		}
-		return Issue{}, fmt.Errorf("lock issue: %w", err)
+		return Issue{}, nil, fmt.Errorf("lock issue: %w", err)
 	}
 	if params.Patch.Status != nil && !canTransition(currentStatus, *params.Patch.Status) {
-		return Issue{}, &StateTransitionError{
+		return Issue{}, nil, &StateTransitionError{
 			From: dbStatusToAPI(currentStatus),
 			To:   dbStatusToAPI(*params.Patch.Status),
 		}
 	}
 	if params.Patch.AssigneeSet {
 		if err := validateAssignee(ctx, tx, params.Patch.Assignee); err != nil {
-			return Issue{}, err
+			return Issue{}, nil, err
 		}
 	}
 
@@ -344,10 +367,10 @@ func (repository *Repository) UpdateIssue(
 		params.UpdatedAt,
 	)
 	if err != nil {
-		return Issue{}, classifyWriteError("update issue", err)
+		return Issue{}, nil, classifyWriteError("update issue", err)
 	}
 	if tag.RowsAffected() != 1 {
-		return Issue{}, ErrNotFound
+		return Issue{}, nil, ErrNotFound
 	}
 	if params.Patch.AssigneeSet && params.Patch.Assignee != nil {
 		if _, err := tx.Exec(
@@ -362,24 +385,72 @@ func (repository *Repository) UpdateIssue(
 			params.AssignedBy,
 			params.UpdatedAt,
 		); err != nil {
-			return Issue{}, classifyWriteError("record issue assignment", err)
+			return Issue{}, nil, classifyWriteError("record issue assignment", err)
 		}
 	}
 	if params.Patch.ProjectSet {
 		if err := setIssueProject(
 			ctx, tx, params.IssueID, params.Patch.Project, params.AssignedBy,
 		); err != nil {
-			return Issue{}, err
+			return Issue{}, nil, err
 		}
 	}
 	updated, err := getIssueByID(ctx, tx, params.IssueID, false)
 	if err != nil {
-		return Issue{}, err
+		return Issue{}, nil, err
+	}
+	changed, previousStatus := issuePatchChanges(params.Patch, currentStatus)
+	events, err := RecordIssueEvents(ctx, tx, IssueEventParams{
+		IssueID:        params.IssueID,
+		Kind:           IssueEventUpdated,
+		ChangedFields:  changed,
+		PreviousStatus: previousStatus,
+		Actor:          &ActorKey{Type: "user", ID: params.AssignedBy},
+		OccurredAt:     params.UpdatedAt,
+		NewID:          params.NewID,
+	})
+	if err != nil {
+		return Issue{}, nil, err
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return Issue{}, fmt.Errorf("commit issue update: %w", err)
+		return Issue{}, nil, fmt.Errorf("commit issue update: %w", err)
 	}
-	return updated, nil
+	return updated, events, nil
+}
+
+// issuePatchChanges names the wire fields a patch touched, and the storage
+// status it moved away from when the status actually changed. A status set to
+// its current value is a no-op transition and is not reported: consumers
+// keyed on issue.started/completed must see a real move, not a repeated PATCH.
+func issuePatchChanges(patch IssuePatch, currentStatus string) ([]string, string) {
+	changed := make([]string, 0, 8)
+	previousStatus := ""
+	if patch.Title != nil {
+		changed = append(changed, "title")
+	}
+	if patch.DescriptionSet {
+		changed = append(changed, "description")
+	}
+	if patch.Status != nil && *patch.Status != currentStatus {
+		changed = append(changed, "status")
+		previousStatus = currentStatus
+	}
+	if patch.Priority != nil {
+		changed = append(changed, "priority")
+	}
+	if patch.SortOrder != nil {
+		changed = append(changed, "sortOrder")
+	}
+	if patch.DueDateSet {
+		changed = append(changed, "dueDate")
+	}
+	if patch.AssigneeSet {
+		changed = append(changed, "assignee")
+	}
+	if patch.ProjectSet {
+		changed = append(changed, "project")
+	}
+	return changed, previousStatus
 }
 
 func getIssueByID(
@@ -420,6 +491,7 @@ func scanIssue(row rowScanner) (Issue, error) {
 	if err := row.Scan(
 		&issue.ID,
 		&issue.BoardID,
+		&issue.WorkspaceID,
 		&issue.BoardSlug,
 		&issue.IssuePrefix,
 		&issue.Number,

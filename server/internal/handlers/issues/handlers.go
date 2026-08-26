@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/laravel42/berry-circle/server/internal/auth"
+	"github.com/laravel42/berry-circle/server/internal/handlers/collaboration/shared"
 	"github.com/laravel42/berry-circle/server/internal/handlers/comments"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
@@ -314,7 +315,7 @@ func createHandler(
 		if input.Assignee != nil {
 			assignmentID = options.NewID()
 		}
-		created, err := repository.CreateIssue(request.Context(), core.CreateIssueParams{
+		created, events, err := repository.CreateIssue(request.Context(), core.CreateIssueParams{
 			ID:           options.NewID(),
 			AssignmentID: assignmentID,
 			BoardID:      input.BoardID,
@@ -328,6 +329,7 @@ func createHandler(
 			Project:      input.Project,
 			CreatedBy:    user.ID,
 			CreatedAt:    options.Clock().UTC(),
+			NewID:        options.NewID,
 		})
 		switch {
 		case errors.Is(err, core.ErrNotFound):
@@ -354,6 +356,7 @@ func createHandler(
 			writeIssueInternal(response, request)
 			return
 		}
+		shared.PublishIssue(request.Context(), options.Broadcaster, events)
 		response.Header().Set("Location", "/api/v1/issues/"+created.ID.String())
 		httpapi.WriteJSON(response, http.StatusCreated, serializeIssue(created))
 	}
@@ -426,12 +429,13 @@ func updateHandler(
 		if patch.AssigneeSet && patch.Assignee != nil {
 			assignmentID = options.NewID()
 		}
-		updated, err := repository.UpdateIssue(request.Context(), core.UpdateIssueParams{
+		updated, events, err := repository.UpdateIssue(request.Context(), core.UpdateIssueParams{
 			IssueID:      found.ID,
 			Patch:        patch,
 			AssignmentID: assignmentID,
 			AssignedBy:   user.ID,
 			UpdatedAt:    options.Clock().UTC(),
+			NewID:        options.NewID,
 		})
 		var transition *core.StateTransitionError
 		switch {
@@ -472,6 +476,7 @@ func updateHandler(
 			writeIssueInternal(response, request)
 			return
 		}
+		shared.PublishIssue(request.Context(), options.Broadcaster, events)
 		httpapi.WriteJSON(response, http.StatusOK, serializeIssue(updated))
 	}
 }

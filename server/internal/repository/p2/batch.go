@@ -7,26 +7,33 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
 
+// BatchUpdateIssues applies one patch to many issues in a single transaction
+// and records the issue.* facts each change produced. actorID is the user
+// making the change; it is stamped on every event so the inbox projector can
+// leave the person who moved ten issues out of their own ten notifications.
 func (repository *Repository) BatchUpdateIssues(
 	ctx context.Context,
-	workspaceID uuid.UUID,
+	workspaceID, actorID uuid.UUID,
 	ids []uuid.UUID,
 	patch BatchIssuePatch,
 	now time.Time,
-) ([]BatchResult, error) {
+) ([]BatchResult, []core.IssueMutationEvent, error) {
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, errors.New("begin batch issue update")
+		return nil, nil, errors.New("begin batch issue update")
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	results := make([]BatchResult, 0, len(ids))
+	var events []core.IssueMutationEvent
 	for _, issueID := range ids {
-		var currentStatus string
+		var currentStatus, currentPriority string
 		err := tx.QueryRow(
 			ctx,
-			`SELECT issue.status::text
+			`SELECT issue.status::text, issue.priority::text
 			   FROM issues AS issue
 			   JOIN boards AS board ON board.id = issue.board_id
 			    AND issue.deleted_at IS NULL
@@ -34,13 +41,13 @@ func (repository *Repository) BatchUpdateIssues(
 			  FOR UPDATE OF issue`,
 			issueID,
 			workspaceID,
-		).Scan(&currentStatus)
+		).Scan(&currentStatus, &currentPriority)
 		if errors.Is(err, pgx.ErrNoRows) {
 			results = append(results, BatchResult{ID: issueID, Outcome: "notFound"})
 			continue
 		}
 		if err != nil {
-			return nil, errors.New("lock batch issue")
+			return nil, nil, errors.New("lock batch issue")
 		}
 		if patch.Status != nil && !batchTransitionAllowed(
 			currentStatus,
@@ -70,28 +77,58 @@ func (repository *Repository) BatchUpdateIssues(
 			priority,
 			now,
 		); err != nil {
-			return nil, classifyWrite("batch update issue", err)
+			return nil, nil, classifyWrite("batch update issue", err)
 		}
 		results = append(results, BatchResult{ID: issueID, Outcome: "updated"})
+
+		// Only what actually moved is reported. A batch that sets the status
+		// every row already has changed nothing worth waking a consumer for.
+		changed := make([]string, 0, 2)
+		previousStatus := ""
+		if patch.Status != nil && apiStatusToDatabase(*patch.Status) != currentStatus {
+			changed = append(changed, "status")
+			previousStatus = currentStatus
+		}
+		if patch.Priority != nil && *patch.Priority != currentPriority {
+			changed = append(changed, "priority")
+		}
+		if len(changed) == 0 {
+			continue
+		}
+		recorded, err := core.RecordIssueEvents(ctx, tx, core.IssueEventParams{
+			IssueID:        issueID,
+			Kind:           core.IssueEventUpdated,
+			ChangedFields:  changed,
+			PreviousStatus: previousStatus,
+			Actor:          &core.ActorKey{Type: "user", ID: actorID},
+			OccurredAt:     now,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		events = append(events, recorded...)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, errors.New("commit batch issue update")
+		return nil, nil, errors.New("commit batch issue update")
 	}
-	return results, nil
+	return results, events, nil
 }
 
+// BatchDeleteIssues soft-deletes many issues in one transaction and records an
+// issue.deleted fact for each row that was live.
 func (repository *Repository) BatchDeleteIssues(
 	ctx context.Context,
-	workspaceID uuid.UUID,
+	workspaceID, actorID uuid.UUID,
 	ids []uuid.UUID,
 	now time.Time,
-) ([]BatchResult, error) {
+) ([]BatchResult, []core.IssueMutationEvent, error) {
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return nil, errors.New("begin batch issue deletion")
+		return nil, nil, errors.New("begin batch issue deletion")
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
 	results := make([]BatchResult, 0, len(ids))
+	var events []core.IssueMutationEvent
 	for _, issueID := range ids {
 		tag, err := tx.Exec(
 			ctx,
@@ -114,18 +151,28 @@ func (repository *Repository) BatchDeleteIssues(
 			now.UTC(),
 		)
 		if err != nil {
-			return nil, errors.New("batch delete issue")
+			return nil, nil, errors.New("batch delete issue")
 		}
-		outcome := "deleted"
 		if tag.RowsAffected() != 1 {
-			outcome = "notFound"
+			results = append(results, BatchResult{ID: issueID, Outcome: "notFound"})
+			continue
 		}
-		results = append(results, BatchResult{ID: issueID, Outcome: outcome})
+		results = append(results, BatchResult{ID: issueID, Outcome: "deleted"})
+		recorded, err := core.RecordIssueEvents(ctx, tx, core.IssueEventParams{
+			IssueID:    issueID,
+			Kind:       core.IssueEventDeleted,
+			Actor:      &core.ActorKey{Type: "user", ID: actorID},
+			OccurredAt: now,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		events = append(events, recorded...)
 	}
 	if err := tx.Commit(ctx); err != nil {
-		return nil, errors.New("commit batch issue deletion")
+		return nil, nil, errors.New("commit batch issue deletion")
 	}
-	return results, nil
+	return results, events, nil
 }
 
 func batchTransitionAllowed(from, to string) bool {

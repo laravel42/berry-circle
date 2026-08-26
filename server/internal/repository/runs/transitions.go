@@ -825,14 +825,15 @@ func runEvent(
 	runID := run.ID
 	value := sequence
 	return Event{
-		ID:         eventID,
-		Type:       eventType,
-		OccurredAt: occurredAt.UTC(),
-		BoardID:    run.BoardID,
-		IssueID:    run.IssueID,
-		RunID:      &runID,
-		Sequence:   &value,
-		Payload:    payload,
+		ID:          eventID,
+		Type:        eventType,
+		OccurredAt:  occurredAt.UTC(),
+		WorkspaceID: run.WorkspaceID,
+		BoardID:     run.BoardID,
+		IssueID:     run.IssueID,
+		RunID:       &runID,
+		Sequence:    &value,
+		Payload:     payload,
 	}
 }
 

@@ -1123,13 +1123,14 @@ func (store *serviceStore) event(
 	run := runID
 	seq := sequence
 	return runs.Event{
-		ID:         eventID,
-		Type:       eventType,
-		OccurredAt: now,
-		BoardID:    store.dispatch.BoardID,
-		IssueID:    store.dispatch.IssueID,
-		RunID:      &run,
-		Sequence:   &seq,
-		Payload:    []byte(`{}`),
+		ID:          eventID,
+		Type:        eventType,
+		OccurredAt:  now,
+		WorkspaceID: store.dispatch.WorkspaceID,
+		BoardID:     store.dispatch.BoardID,
+		IssueID:     store.dispatch.IssueID,
+		RunID:       &run,
+		Sequence:    &seq,
+		Payload:     []byte(`{}`),
 	}
 }

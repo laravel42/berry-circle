@@ -75,6 +75,7 @@ func (repository *Repository) addReaction(
 	var (
 		targetID    uuid.UUID
 		workspaceID uuid.UUID
+		boardID     uuid.UUID
 		table       string
 		targetField string
 		permission  identity.Permission
@@ -93,7 +94,7 @@ func (repository *Repository) addReaction(
 		if err != nil {
 			return Reaction{}, Event{}, err
 		}
-		targetID, workspaceID = access.IssueID, access.WorkspaceID
+		targetID, workspaceID, boardID = access.IssueID, access.WorkspaceID, access.BoardID
 		table, targetField = "issue_reactions", "issue_id"
 	case TargetComment:
 		permission = identity.PermissionCommentWrite
@@ -101,7 +102,7 @@ func (repository *Repository) addReaction(
 		if err != nil {
 			return Reaction{}, Event{}, err
 		}
-		targetID, workspaceID = access.CommentID, access.WorkspaceID
+		targetID, workspaceID, boardID = access.CommentID, access.WorkspaceID, access.BoardID
 		table, targetField = "comment_reactions", "comment_id"
 	default:
 		return Reaction{}, Event{}, errors.New("invalid reaction target")
@@ -165,6 +166,7 @@ func (repository *Repository) addReaction(
 		event, err = makeEvent(
 			eventID,
 			workspaceID,
+			boardID,
 			string(kind)+".reaction.added",
 			string(kind),
 			targetID,
@@ -244,6 +246,7 @@ func (repository *Repository) removeReaction(
 	var (
 		targetID    uuid.UUID
 		workspaceID uuid.UUID
+		boardID     uuid.UUID
 		table       string
 		targetField string
 	)
@@ -260,7 +263,7 @@ func (repository *Repository) removeReaction(
 		if err != nil {
 			return Event{}, err
 		}
-		targetID, workspaceID = access.IssueID, access.WorkspaceID
+		targetID, workspaceID, boardID = access.IssueID, access.WorkspaceID, access.BoardID
 		table, targetField = "issue_reactions", "issue_id"
 	case TargetComment:
 		access, err := authorizeComment(
@@ -274,7 +277,7 @@ func (repository *Repository) removeReaction(
 		if err != nil {
 			return Event{}, err
 		}
-		targetID, workspaceID = access.CommentID, access.WorkspaceID
+		targetID, workspaceID, boardID = access.CommentID, access.WorkspaceID, access.BoardID
 		table, targetField = "comment_reactions", "comment_id"
 	default:
 		return Event{}, errors.New("invalid reaction target")
@@ -294,6 +297,7 @@ func (repository *Repository) removeReaction(
 		event, err = makeEvent(
 			eventID,
 			workspaceID,
+			boardID,
 			string(kind)+".reaction.removed",
 			string(kind),
 			targetID,

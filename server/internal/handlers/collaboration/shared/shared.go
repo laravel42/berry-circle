@@ -17,6 +17,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	repository "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
+	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
 
 const MaxJSONBodyBytes = 64 * 1024
@@ -145,6 +146,10 @@ func WriteRepositoryError(
 
 // Publish delivers an already-committed outbox fact. Realtime failure cannot
 // roll back or hide the authoritative PostgreSQL mutation.
+//
+// The workspace is the delivery scope of record and the board a second one,
+// so the board stream that subscribes on its board id wakes up for a comment
+// or reaction the same way it does for a run event.
 func Publish(
 	ctx context.Context,
 	broadcaster realtime.Broadcaster,
@@ -158,10 +163,47 @@ func Publish(
 	_ = broadcaster.Publish(publishCtx, realtime.Event{
 		ID:          event.ID.String(),
 		WorkspaceID: event.WorkspaceID.String(),
+		BoardID:     boardScope(event.BoardID),
 		Type:        event.Topic,
 		Payload:     event.Payload,
 		OccurredAt:  event.OccurredAt,
 	})
+}
+
+// PublishIssue delivers committed issue.* facts the same way. Every mutation
+// path that writes them — the issue routes, the p2 batch routes and project
+// planning — calls this after its commit so no writer forgets the live
+// wakeup.
+func PublishIssue(
+	ctx context.Context,
+	broadcaster realtime.Broadcaster,
+	events []core.IssueMutationEvent,
+) {
+	if broadcaster == nil || len(events) == 0 {
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	for _, event := range events {
+		if event.ID == uuid.Nil {
+			continue
+		}
+		_ = broadcaster.Publish(publishCtx, realtime.Event{
+			ID:          event.ID.String(),
+			WorkspaceID: event.WorkspaceID.String(),
+			BoardID:     boardScope(event.BoardID),
+			Type:        event.Type,
+			Payload:     event.Payload,
+			OccurredAt:  event.OccurredAt,
+		})
+	}
+}
+
+func boardScope(boardID uuid.UUID) string {
+	if boardID == uuid.Nil {
+		return ""
+	}
+	return boardID.String()
 }
 
 // RequireJSONIdempotency applies the actor/method/path/body replay contract to

@@ -131,6 +131,7 @@ func (repository *Repository) addSubscriber(
 		event, err = makeEvent(
 			eventID,
 			access.WorkspaceID,
+			access.BoardID,
 			"issue.subscriber.added",
 			"issue",
 			access.IssueID,
@@ -231,6 +232,7 @@ func (repository *Repository) removeSubscriber(
 		event, err = makeEvent(
 			eventID,
 			access.WorkspaceID,
+			access.BoardID,
 			"issue.subscriber.removed",
 			"issue",
 			access.IssueID,

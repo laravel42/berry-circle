@@ -198,7 +198,7 @@ func (repository *Repository) ActivateRunArtifact(
 		_ = tx.Rollback(context.Background())
 	}()
 
-	var workspaceID uuid.UUID
+	var workspaceID, boardID uuid.UUID
 	if err := tx.QueryRow(
 		ctx,
 		// Deliberately not filtered on issue.deleted_at: this resolves the
@@ -214,9 +214,9 @@ func (repository *Repository) ActivateRunArtifact(
 		    AND attachment.state = 'pending'
 		    AND issue.id = attachment.issue_id
 		    AND board.id = issue.board_id
-		 RETURNING board.workspace_id`,
+		 RETURNING board.workspace_id, board.id`,
 		attachmentID, runID, readyAt.UTC(),
-	).Scan(&workspaceID); err != nil {
+	).Scan(&workspaceID, &boardID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Either it was already activated or it is not this run's to
 			// activate. Both are refusals rather than faults: promotion retries.
@@ -242,6 +242,7 @@ func (repository *Repository) ActivateRunArtifact(
 	event, err := makeEvent(
 		eventID,
 		workspaceID,
+		boardID,
 		"attachment.created",
 		"attachment",
 		artifact.ID,

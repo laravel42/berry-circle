@@ -72,7 +72,7 @@ func TestDeletedIssueDisappearsFromEveryRead(t *testing.T) {
 	if _, err := repository.GetIssue(ctx, fixture.Reference); err != nil {
 		t.Fatalf("issue should be readable before deletion: %v", err)
 	}
-	if _, err := repository.DeleteIssue(ctx, fixture.IssueID, now); err != nil {
+	if _, _, err := repository.DeleteIssue(ctx, DeleteIssueParams{IssueID: fixture.IssueID, DeletedBy: fixture.UserID, DeletedAt: now}); err != nil {
 		t.Fatalf("DeleteIssue: %v", err)
 	}
 
@@ -98,7 +98,7 @@ func TestDeletedIssueKeepsItsRowAndNumber(t *testing.T) {
 	fixture := seedIssue(t, ctx, pool)
 	now := time.Now().UTC()
 
-	if _, err := repository.DeleteIssue(ctx, fixture.IssueID, now); err != nil {
+	if _, _, err := repository.DeleteIssue(ctx, DeleteIssueParams{IssueID: fixture.IssueID, DeletedBy: fixture.UserID, DeletedAt: now}); err != nil {
 		t.Fatalf("DeleteIssue: %v", err)
 	}
 
@@ -128,12 +128,12 @@ func TestDeletingTwiceReportsNotFound(t *testing.T) {
 	fixture := seedIssue(t, ctx, pool)
 	now := time.Now().UTC()
 
-	if _, err := repository.DeleteIssue(ctx, fixture.IssueID, now); err != nil {
+	if _, _, err := repository.DeleteIssue(ctx, DeleteIssueParams{IssueID: fixture.IssueID, DeletedBy: fixture.UserID, DeletedAt: now}); err != nil {
 		t.Fatalf("first delete: %v", err)
 	}
 	// A second click from a stale board must say something true rather than
 	// report success for work it did not do.
-	if _, err := repository.DeleteIssue(ctx, fixture.IssueID, now); !errors.Is(err, ErrNotFound) {
+	if _, _, err := repository.DeleteIssue(ctx, DeleteIssueParams{IssueID: fixture.IssueID, DeletedBy: fixture.UserID, DeletedAt: now}); !errors.Is(err, ErrNotFound) {
 		t.Errorf("second delete = %v, want ErrNotFound", err)
 	}
 }
@@ -144,12 +144,12 @@ func TestDeletedIssueCannotBeEditedOrCommentedOn(t *testing.T) {
 	fixture := seedIssue(t, ctx, pool)
 	now := time.Now().UTC()
 
-	if _, err := repository.DeleteIssue(ctx, fixture.IssueID, now); err != nil {
+	if _, _, err := repository.DeleteIssue(ctx, DeleteIssueParams{IssueID: fixture.IssueID, DeletedBy: fixture.UserID, DeletedAt: now}); err != nil {
 		t.Fatalf("DeleteIssue: %v", err)
 	}
 
 	status := "inProgress"
-	_, err := repository.UpdateIssue(ctx, UpdateIssueParams{
+	_, _, err := repository.UpdateIssue(ctx, UpdateIssueParams{
 		IssueID:   fixture.IssueID,
 		Patch:     IssuePatch{Status: &status},
 		UpdatedAt: now,
@@ -185,7 +185,7 @@ func TestIntakeNeverClaimsADeletedIssue(t *testing.T) {
 		}
 	}
 	assertClaimable(true)
-	if _, err := repository.DeleteIssue(ctx, fixture.IssueID, now); err != nil {
+	if _, _, err := repository.DeleteIssue(ctx, DeleteIssueParams{IssueID: fixture.IssueID, DeletedBy: fixture.UserID, DeletedAt: now}); err != nil {
 		t.Fatalf("DeleteIssue: %v", err)
 	}
 	assertClaimable(false)

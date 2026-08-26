@@ -378,15 +378,15 @@ func persistCommentOutbox(
 	if eventID == uuid.Nil {
 		return CommentMutationEvent{}, errors.New("comment event ID is nil")
 	}
-	var workspaceID uuid.UUID
+	var workspaceID, boardID uuid.UUID
 	if err := tx.QueryRow(
 		ctx,
-		`SELECT board.workspace_id
+		`SELECT board.workspace_id, board.id
 		   FROM issues AS issue
 		   JOIN boards AS board ON board.id = issue.board_id
 		  WHERE issue.id = $1 AND issue.deleted_at IS NULL`,
 		comment.IssueID,
-	).Scan(&workspaceID); err != nil {
+	).Scan(&workspaceID, &boardID); err != nil {
 		return CommentMutationEvent{}, fmt.Errorf("resolve comment event workspace: %w", err)
 	}
 	payload, err := json.Marshal(struct {
@@ -398,15 +398,21 @@ func persistCommentOutbox(
 	event := CommentMutationEvent{
 		ID:          eventID,
 		WorkspaceID: workspaceID,
+		BoardID:     boardID,
+		IssueID:     comment.IssueID,
 		Type:        eventType,
 		Payload:     payload,
 		OccurredAt:  occurredAt.UTC(),
 	}
+	// boardId and issueId sit beside the collaboration fields so the board
+	// stream can replay a comment without reaching into its payload.
 	envelope, err := json.Marshal(struct {
 		ID            uuid.UUID       `json:"id"`
 		Type          string          `json:"type"`
 		OccurredAt    string          `json:"occurredAt"`
 		WorkspaceID   uuid.UUID       `json:"workspaceId"`
+		BoardID       uuid.UUID       `json:"boardId"`
+		IssueID       uuid.UUID       `json:"issueId"`
 		AggregateType string          `json:"aggregateType"`
 		AggregateID   uuid.UUID       `json:"aggregateId"`
 		Payload       json.RawMessage `json:"payload"`
@@ -415,6 +421,8 @@ func persistCommentOutbox(
 		Type:          event.Type,
 		OccurredAt:    event.OccurredAt.Format(time.RFC3339Nano),
 		WorkspaceID:   event.WorkspaceID,
+		BoardID:       event.BoardID,
+		IssueID:       event.IssueID,
 		AggregateType: "comment",
 		AggregateID:   comment.ID,
 		Payload:       event.Payload,
@@ -425,13 +433,14 @@ func persistCommentOutbox(
 	if _, err := tx.Exec(
 		ctx,
 		`INSERT INTO outbox_events (
-		    id, topic, aggregate_type, aggregate_id, workspace_id,
+		    id, topic, aggregate_type, aggregate_id, workspace_id, board_id,
 		    payload, occurred_at, available_at
-		 ) VALUES ($1, $2, 'comment', $3, $4, $5::jsonb, $6, $6)`,
+		 ) VALUES ($1, $2, 'comment', $3, $4, $5, $6::jsonb, $7, $7)`,
 		event.ID,
 		event.Type,
 		comment.ID,
 		event.WorkspaceID,
+		event.BoardID,
 		string(envelope),
 		event.OccurredAt,
 	); err != nil {

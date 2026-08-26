@@ -52,9 +52,12 @@ type Failure struct {
 
 // Run is the storage-neutral durable ledger record.
 type Run struct {
-	ID                uuid.UUID
-	IssueID           uuid.UUID
-	BoardID           uuid.UUID
+	ID      uuid.UUID
+	IssueID uuid.UUID
+	BoardID uuid.UUID
+	// WorkspaceID is the board's workspace, read alongside the run so every
+	// event the run emits can carry both scopes without a second lookup.
+	WorkspaceID       uuid.UUID
 	AgentID           uuid.UUID
 	UpstreamAgentID   uuid.UUID
 	Status            Status
@@ -83,15 +86,22 @@ func (run Run) Terminal() bool {
 }
 
 // Event is one persisted public event and opaque replay cursor.
+//
+// WorkspaceID is the real workspace and BoardID the board the aggregate lives
+// on; before migration 019 the run lane stored the board id in the outbox
+// workspace column, which is why both are now explicit. RunID and Sequence are
+// nil for events that no run produced (issue and comment mutations), and
+// IssueID is uuid.Nil for aggregates without an issue.
 type Event struct {
-	ID         uuid.UUID
-	Type       string
-	OccurredAt time.Time
-	BoardID    uuid.UUID
-	IssueID    uuid.UUID
-	RunID      *uuid.UUID
-	Sequence   *int64
-	Payload    json.RawMessage
+	ID          uuid.UUID
+	Type        string
+	OccurredAt  time.Time
+	WorkspaceID uuid.UUID
+	BoardID     uuid.UUID
+	IssueID     uuid.UUID
+	RunID       *uuid.UUID
+	Sequence    *int64
+	Payload     json.RawMessage
 }
 
 // Cursor is the stable (createdAt, id) run-list key.
@@ -101,6 +111,7 @@ type Cursor struct {
 }
 
 // BoardCursor is the stable outbox replay key resolved from an opaque event ID.
+// The same (occurred_at, id) pair orders the workspace replay.
 type BoardCursor struct {
 	OccurredAt time.Time
 	ID         uuid.UUID

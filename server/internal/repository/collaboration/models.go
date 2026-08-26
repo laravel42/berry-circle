@@ -39,6 +39,7 @@ type Actor struct {
 type Attachment struct {
 	ID             uuid.UUID
 	WorkspaceID    uuid.UUID
+	BoardID        uuid.UUID
 	IssueID        uuid.UUID
 	CommentID      *uuid.UUID
 	Uploader       *Actor
@@ -112,9 +113,12 @@ type SubscriberCursor struct {
 }
 
 // Event is a durable outbox fact returned only after its transaction commits.
+// BoardID is the board of the issue the aggregate hangs off; every
+// collaboration aggregate has one today.
 type Event struct {
 	ID            uuid.UUID
 	WorkspaceID   uuid.UUID
+	BoardID       uuid.UUID
 	Topic         string
 	AggregateType string
 	AggregateID   uuid.UUID

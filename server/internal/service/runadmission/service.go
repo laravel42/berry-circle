@@ -825,26 +825,34 @@ func (service *Service) publish(event runs.Event) {
 	}
 	ctx, cancel := service.cleanupContext()
 	defer cancel()
+	// The workspace is the scope of record and the board a second delivery
+	// key: the run and board streams subscribe on the board id, so it has to
+	// travel with the event for them to wake up.
 	_ = service.broadcaster.Publish(ctx, realtime.Event{
 		ID:          event.ID.String(),
-		WorkspaceID: event.BoardID.String(),
+		WorkspaceID: event.WorkspaceID.String(),
+		BoardID:     event.BoardID.String(),
 		Type:        event.Type,
 		Payload:     payload,
 		OccurredAt:  event.OccurredAt,
 	})
 }
 
-// publishComment mirrors what the comment routes do after their commit. Comment
-// events are scoped to the workspace, unlike run events, which ride the board.
+// publishComment mirrors what the comment routes do after their commit.
 func (service *Service) publishComment(event core.CommentMutationEvent) {
 	if event.ID == uuid.Nil {
 		return
 	}
 	ctx, cancel := service.cleanupContext()
 	defer cancel()
+	boardID := ""
+	if event.BoardID != uuid.Nil {
+		boardID = event.BoardID.String()
+	}
 	_ = service.broadcaster.Publish(ctx, realtime.Event{
 		ID:          event.ID.String(),
 		WorkspaceID: event.WorkspaceID.String(),
+		BoardID:     boardID,
 		Type:        event.Type,
 		Payload:     json.RawMessage(event.Payload),
 		OccurredAt:  event.OccurredAt,

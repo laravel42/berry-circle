@@ -134,6 +134,7 @@ func (repository *Repository) ResolveComment(
 		event, eventErr := makeEvent(
 			displacedEventID,
 			access.WorkspaceID,
+			access.BoardID,
 			"comment.unresolved",
 			"comment",
 			displacedID,
@@ -184,6 +185,7 @@ func (repository *Repository) ResolveComment(
 	event, err := makeEvent(
 		resolvedEventID,
 		access.WorkspaceID,
+		access.BoardID,
 		"comment.resolved",
 		"comment",
 		commentID,
@@ -281,6 +283,7 @@ func (repository *Repository) UnresolveComment(
 	event, err := makeEvent(
 		eventID,
 		access.WorkspaceID,
+		access.BoardID,
 		"comment.unresolved",
 		"comment",
 		commentID,

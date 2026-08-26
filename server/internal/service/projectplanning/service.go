@@ -19,6 +19,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/planning"
+	"github.com/laravel42/berry-circle/server/internal/realtime"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
 
@@ -61,7 +62,10 @@ type Projects interface {
 
 // Issues records what was proposed.
 type Issues interface {
-	CreateIssue(ctx context.Context, params core.CreateIssueParams) (core.Issue, error)
+	CreateIssue(
+		ctx context.Context,
+		params core.CreateIssueParams,
+	) (core.Issue, []core.IssueMutationEvent, error)
 	ListIssues(ctx context.Context, filter core.IssueListFilter) ([]core.Issue, error)
 }
 
@@ -87,6 +91,10 @@ type Service struct {
 	Authorizer Authorizer
 	Clock      func() time.Time
 	NewID      func() uuid.UUID
+	// Broadcaster is optional. Generated issues land on a board someone may be
+	// watching, and the durable issue.created rows exist whether or not the
+	// live wakeup is delivered.
+	Broadcaster realtime.Broadcaster
 }
 
 // ErrNoAgent means the workspace has nobody to ask.
@@ -192,7 +200,7 @@ func (service *Service) GenerateIssues(
 			assignmentID = service.NewID()
 		}
 
-		issue, err := service.Issues.CreateIssue(ctx, core.CreateIssueParams{
+		issue, events, err := service.Issues.CreateIssue(ctx, core.CreateIssueParams{
 			ID:           service.NewID(),
 			AssignmentID: assignmentID,
 			BoardID:      project.BoardID,
@@ -208,6 +216,7 @@ func (service *Service) GenerateIssues(
 			Project:   &projectID,
 			CreatedBy: actorID,
 			CreatedAt: now,
+			NewID:     service.NewID,
 		})
 		if err != nil {
 			// Partial success is kept. The model call is already paid for, and
@@ -215,6 +224,7 @@ func (service *Service) GenerateIssues(
 			// would waste it for nothing.
 			return created, fmt.Errorf("create generated issue: %w", err)
 		}
+		service.publish(ctx, events)
 		created = append(created, projecthandlers.GeneratedIssue{
 			ID:         issue.ID,
 			Identifier: issue.Identifier(),
@@ -250,4 +260,25 @@ func nonEmpty(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// publish delivers committed issue.created facts live. Kept here rather than
+// borrowed from a handler package: a service that imports HTTP helpers to
+// send a wakeup has its dependencies pointing the wrong way.
+func (service *Service) publish(ctx context.Context, events []core.IssueMutationEvent) {
+	if service.Broadcaster == nil {
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	for _, event := range events {
+		_ = service.Broadcaster.Publish(publishCtx, realtime.Event{
+			ID:          event.ID.String(),
+			WorkspaceID: event.WorkspaceID.String(),
+			BoardID:     event.BoardID.String(),
+			Type:        event.Type,
+			Payload:     event.Payload,
+			OccurredAt:  event.OccurredAt,
+		})
+	}
 }

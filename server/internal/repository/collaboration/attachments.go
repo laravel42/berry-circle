@@ -13,7 +13,7 @@ import (
 )
 
 const attachmentProjection = `
-	attachment.id, board.workspace_id, attachment.issue_id, attachment.comment_id,
+	attachment.id, board.workspace_id, board.id, attachment.issue_id, attachment.comment_id,
 	COALESCE(attachment.uploader_type::text, 'user'),
 	COALESCE(attachment.uploader_id, attachment.uploader_agent_id),
 	attachment.uploader_name,
@@ -207,6 +207,7 @@ func (repository *Repository) ActivateAttachment(
 	event, err := makeEvent(
 		eventID,
 		attachment.WorkspaceID,
+		attachment.BoardID,
 		"attachment.created",
 		"attachment",
 		attachment.ID,
@@ -513,6 +514,7 @@ func (repository *Repository) CompleteAttachmentDelete(
 	event, err := makeEvent(
 		eventID,
 		attachment.WorkspaceID,
+		attachment.BoardID,
 		"attachment.deleted",
 		"attachment",
 		attachment.ID,
@@ -589,6 +591,7 @@ func scanAttachmentFields(row pgx.Row, role *string) (Attachment, error) {
 	targets := []any{
 		&attachment.ID,
 		&attachment.WorkspaceID,
+		&attachment.BoardID,
 		&attachment.IssueID,
 		&attachment.CommentID,
 		&attachment.UploaderType,

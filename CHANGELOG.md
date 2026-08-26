@@ -131,9 +131,25 @@ and known issues.
 - Gateway boards route with actor/enum alignment and run-event updates — [28a4da6].
 - OpenFang and Temporal run as part of the default `docker compose` stack, with a
   Temporal UI at `127.0.0.1:8233` — [cd83fc8].
+- Issue mutation events. `POST/PATCH/DELETE /api/v1/issues`, the `issue-query` batch
+  routes and project planning now write `issue.created`, `issue.updated`,
+  `issue.assigned`, `issue.started`, `issue.completed` and `issue.deleted` to the outbox
+  inside the mutating transaction and publish them live after commit, so the board stream
+  and (later) automation triggers see a person's edits, not only a run's — ADR-0007.
+- ADR-0007 (Proposed): workflows and AI planning — the `Workflow` product noun over the
+  `automation` Go/SQL vocabulary, Berry-native execution with an optional Activepieces
+  adapter that fails closed, the bounded planner repair loop as a recorded exception to
+  the never-retry-a-paid-call rule, and the licence audit that gates the adapter.
 
 ### Changed
 
+- Durable events carry an explicit board scope. `outbox_events` gains `board_id`
+  (migration `019_outbox_scope`) and `workspace_id` always holds the workspace; the run
+  lane used to store the board id there, which hid every comment and collaboration event
+  from `GET /api/v1/events?boardId=`. The stream envelope gains `workspaceId`, `runId` and
+  `sequence` are null for facts no run produced, and `comment.created` now appears on the
+  board stream. Realtime events fan out to both the workspace and the board subscription
+  scope — ADR-0007.
 - Issue identifiers use the workspace issue prefix (first three characters of the
   workspace name) plus the board sequential number — for example `BER-5` instead of
   `PLATFORM-5`. Lookups, search, inbox, and run dispatch all format and resolve the

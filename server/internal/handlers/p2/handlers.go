@@ -14,6 +14,8 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/auth"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
+	"github.com/laravel42/berry-circle/server/internal/realtime"
+	"github.com/laravel42/berry-circle/server/internal/repository/core"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
 )
@@ -40,8 +42,8 @@ type API interface {
 	ListIssueGroups(context.Context, uuid.UUID, uuid.UUID, p2repo.IssueFilter, string, *p2repo.IssueGroupCursor, int) ([]p2repo.IssueGroup, error)
 	ListIssueRows(context.Context, uuid.UUID, uuid.UUID, p2repo.IssueFilter, string, string, *p2repo.IssueRowCursor, int) ([]p2repo.IssueRow, error)
 	ListIssueFacets(context.Context, uuid.UUID, uuid.UUID, p2repo.IssueFilter) ([]p2repo.FacetCount, error)
-	BatchUpdateIssues(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID, p2repo.BatchIssuePatch) ([]p2repo.BatchResult, error)
-	BatchDeleteIssues(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID) ([]p2repo.BatchResult, error)
+	BatchUpdateIssues(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID, p2repo.BatchIssuePatch) ([]p2repo.BatchResult, []core.IssueMutationEvent, error)
+	BatchDeleteIssues(context.Context, uuid.UUID, uuid.UUID, []uuid.UUID) ([]p2repo.BatchResult, []core.IssueMutationEvent, error)
 }
 
 type Options struct {
@@ -49,10 +51,14 @@ type Options struct {
 	Service          API
 	IdempotencyStore httpapi.IdempotencyStore
 	Clock            func() time.Time
+	// Broadcaster is optional: the batch routes publish their issue.* facts
+	// live after commit, and the durable outbox rows exist either way.
+	Broadcaster realtime.Broadcaster
 }
 
 type handler struct {
-	service API
+	service     API
+	broadcaster realtime.Broadcaster
 }
 
 func NewMounts(options Options) ([]httpapi.Mount, error) {
@@ -66,7 +72,7 @@ func NewMounts(options Options) ([]httpapi.Mount, error) {
 	case options.Clock == nil:
 		return nil, errors.New("p2 handler clock is nil")
 	}
-	target := &handler{service: options.Service}
+	target := &handler{service: options.Service, broadcaster: options.Broadcaster}
 	requireAuth := auth.RequireSession(options.Sessions)
 
 	views := httpapi.NewSubrouter()

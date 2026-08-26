@@ -43,6 +43,9 @@ func validateEvent(event Event) error {
 	if !validIdentifier(event.WorkspaceID, maxWorkspaceIDBytes) {
 		return errors.New("realtime event requires a valid workspaceId")
 	}
+	if event.BoardID != "" && !validIdentifier(event.BoardID, maxWorkspaceIDBytes) {
+		return errors.New("realtime event boardId is invalid")
+	}
 	if !validEventType(event.Type) {
 		return errors.New("realtime event requires a valid type")
 	}
@@ -90,4 +93,14 @@ func validEventType(value string) bool {
 		return false
 	}
 	return true
+}
+
+// scopes lists the subscription keys one event is delivered to. The board is
+// listed once even when a caller passed the same id for both fields, so no
+// subscriber sees a duplicate.
+func (event Event) scopes() []string {
+	if event.BoardID == "" || event.BoardID == event.WorkspaceID {
+		return []string{event.WorkspaceID}
+	}
+	return []string{event.WorkspaceID, event.BoardID}
 }

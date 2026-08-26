@@ -3,9 +3,7 @@ package core
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -22,14 +20,16 @@ import (
 // Deleting an already-deleted issue reports not-found rather than succeeding
 // quietly, so a caller can tell "I deleted it" from "it was already gone" —
 // which is what makes a second click from a stale list say something true.
+//
+// The issue.deleted outbox row is written in the same transaction; the caller
+// publishes it live after commit.
 func (repository *Repository) DeleteIssue(
 	ctx context.Context,
-	issueID uuid.UUID,
-	now time.Time,
-) (Issue, error) {
+	params DeleteIssueParams,
+) (Issue, []IssueMutationEvent, error) {
 	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		return Issue{}, fmt.Errorf("begin issue delete: %w", err)
+		return Issue{}, nil, fmt.Errorf("begin issue delete: %w", err)
 	}
 	defer func() {
 		_ = tx.Rollback(context.Background())
@@ -37,9 +37,9 @@ func (repository *Repository) DeleteIssue(
 
 	// Read before writing so the caller receives what was deleted: the response
 	// names the issue, and after the update the projection would exclude it.
-	issue, err := getIssueByID(ctx, tx, issueID, true)
+	issue, err := getIssueByID(ctx, tx, params.IssueID, true)
 	if err != nil {
-		return Issue{}, err
+		return Issue{}, nil, err
 	}
 
 	tag, err := tx.Exec(
@@ -47,13 +47,23 @@ func (repository *Repository) DeleteIssue(
 		`UPDATE issues
 		    SET deleted_at = $2, updated_at = $2
 		  WHERE id = $1 AND deleted_at IS NULL`,
-		issueID, now.UTC(),
+		params.IssueID, params.DeletedAt.UTC(),
 	)
 	if err != nil {
-		return Issue{}, fmt.Errorf("delete issue: %w", err)
+		return Issue{}, nil, fmt.Errorf("delete issue: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return Issue{}, ErrNotFound
+		return Issue{}, nil, ErrNotFound
+	}
+	events, err := RecordIssueEvents(ctx, tx, IssueEventParams{
+		IssueID:    params.IssueID,
+		Kind:       IssueEventDeleted,
+		Actor:      &ActorKey{Type: "user", ID: params.DeletedBy},
+		OccurredAt: params.DeletedAt,
+		NewID:      params.NewID,
+	})
+	if err != nil {
+		return Issue{}, nil, err
 	}
 
 	// An in-flight run is left to finish. Cancelling it here would mean a
@@ -61,7 +71,7 @@ func (repository *Repository) DeleteIssue(
 	// record is retained anyway — what it did in the outside world happened
 	// whether or not the issue survives.
 	if err := tx.Commit(ctx); err != nil {
-		return Issue{}, fmt.Errorf("commit issue delete: %w", err)
+		return Issue{}, nil, fmt.Errorf("commit issue delete: %w", err)
 	}
-	return issue, nil
+	return issue, events, nil
 }

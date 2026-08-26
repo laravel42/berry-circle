@@ -39,6 +39,7 @@ type database interface {
 type issueAccess struct {
 	IssueID     uuid.UUID
 	WorkspaceID uuid.UUID
+	BoardID     uuid.UUID
 	Role        identity.Role
 }
 
@@ -46,6 +47,7 @@ type commentAccess struct {
 	CommentID   uuid.UUID
 	IssueID     uuid.UUID
 	WorkspaceID uuid.UUID
+	BoardID     uuid.UUID
 	Role        identity.Role
 }
 
@@ -72,7 +74,7 @@ func authorizeIssueReference(
 		condition = "lower(workspace.settings->>'issuePrefix') = lower($2) AND issue.number = $3"
 		arguments = []any{userID, prefix, number}
 	}
-	statement := `SELECT issue.id, board.workspace_id, membership.role::text
+	statement := `SELECT issue.id, board.workspace_id, board.id, membership.role::text
 		FROM issues AS issue
 		JOIN boards AS board ON board.id = issue.board_id
 		 AND issue.deleted_at IS NULL
@@ -93,6 +95,7 @@ func authorizeIssueReference(
 	if err := queryer.QueryRow(ctx, statement, arguments...).Scan(
 		&access.IssueID,
 		&access.WorkspaceID,
+		&access.BoardID,
 		&role,
 	); err != nil {
 		return issueAccess{}, classifyReadError("authorize issue collaboration", err)
@@ -128,7 +131,7 @@ func authorizeComment(
 	permission identity.Permission,
 	lock bool,
 ) (commentAccess, error) {
-	statement := `SELECT comment.id, comment.issue_id, board.workspace_id,
+	statement := `SELECT comment.id, comment.issue_id, board.workspace_id, board.id,
 	                      membership.role::text
 		FROM comments AS comment
 		JOIN issues AS issue ON issue.id = comment.issue_id
@@ -151,6 +154,7 @@ func authorizeComment(
 		&access.CommentID,
 		&access.IssueID,
 		&access.WorkspaceID,
+		&access.BoardID,
 		&role,
 	); err != nil {
 		return commentAccess{}, classifyReadError("authorize comment collaboration", err)

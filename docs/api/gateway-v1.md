@@ -599,7 +599,7 @@ Replays and follows one run. The client may send `Last-Event-ID` or `after` (opa
 
 #### `GET /api/v1/events`
 
-Follows board-level product changes. Required query parameter `boardId`; optional `after` cursor. This stream emits `issue.updated` and `comment.created`, plus run lifecycle events for issues on that board.
+Follows board-level product changes. Required query parameter `boardId`; optional `after` cursor. This stream emits every `issue.*` mutation on the board — whether a person, a batch edit, project planning or a run made it — plus `comment.created` and the run lifecycle events for issues on that board. Replay filters on the event's stored board scope, so a comment posted by a run and a comment posted by a person appear on the same stream.
 
 Both endpoints:
 
@@ -617,7 +617,7 @@ Event frame:
 ```text
 id: evt_01J5VXZ6J93DPTW7XEF27MS7SB
 event: run.started
-data: {"id":"evt_01J5VXZ6J93DPTW7XEF27MS7SB","type":"run.started","occurredAt":"2026-08-22T06:42:01.000Z","boardId":"bb99372f-88c4-44f0-914f-a343bf30e6fb","issueId":"8138a662-f20f-41aa-bd5a-cf46e35ba952","runId":"2020836b-a055-4980-b165-50664cf402c3","sequence":1,"payload":{"startedAt":"2026-08-22T06:42:01.000Z"}}
+data: {"id":"evt_01J5VXZ6J93DPTW7XEF27MS7SB","type":"run.started","occurredAt":"2026-08-22T06:42:01.000Z","workspaceId":"4d5e0f77-2f4b-4f0c-9b1c-6f0a1c2d3e4f","boardId":"bb99372f-88c4-44f0-914f-a343bf30e6fb","issueId":"8138a662-f20f-41aa-bd5a-cf46e35ba952","runId":"2020836b-a055-4980-b165-50664cf402c3","sequence":1,"payload":{"startedAt":"2026-08-22T06:42:01.000Z"}}
 
 ```
 
@@ -630,13 +630,14 @@ The SSE `id` line MUST equal data field `id`; the SSE `event` line MUST equal da
 | `id` | string | yes | Opaque, globally unique event cursor |
 | `type` | `EventType` | yes | Discriminator matching the SSE event name |
 | `occurredAt` | `Timestamp` | yes | Gateway persistence time |
-| `boardId` | `Uuid` | yes | Board scope |
+| `workspaceId` | `Uuid` | yes | Workspace scope; always the real workspace |
+| `boardId` | `Uuid` | yes | Board scope; the board the aggregate lives on |
 | `issueId` | `Uuid` | yes | Issue scope |
-| `runId` | `Uuid` or null | yes | Run scope; null for comment-only events |
+| `runId` | `Uuid` or null | yes | Run scope; null for events no run produced (`issue.*` from a person or batch edit, `comment.*` from a person) |
 | `sequence` | integer or null | yes | Strictly increasing within a run; null for events without a run |
 | `payload` | object | yes | Shape selected by `type` |
 
-Run sequences start at 0 and MUST be contiguous in the persisted stream. Delivery is at least once after reconnect; clients deduplicate by event `id`. Clients MUST apply run events only when `sequence` is greater than their last applied sequence for that run.
+Run sequences start at 0 and MUST be contiguous in the persisted stream. Delivery is at least once after reconnect; clients deduplicate by event `id`. Clients MUST apply run events only when `sequence` is greater than their last applied sequence for that run. Clients MUST tolerate null `runId`/`sequence`: the board stream carries facts that no run produced.
 
 ### Event types and payloads
 
@@ -651,8 +652,15 @@ Run sequences start at 0 and MUST be contiguous in the persisted stream. Deliver
 | `run.completed` | `{ "run": Run }` | Terminal `succeeded` snapshot |
 | `run.failed` | `{ "run": Run }` | Terminal `failed` snapshot with `failure` |
 | `run.cancelled` | `{ "run": Run }` | Terminal `cancelled` snapshot |
-| `issue.updated` | `{ "issue": Issue, "changedFields": string[] }` | `runId` is the causing run when applicable |
+| `issue.created` | `IssueMutation` | Emitted by `POST /issues`, project planning and plan compilation |
+| `issue.updated` | `IssueMutation` | Every change; `changedFields` names the wire fields touched. `runId` is the causing run when a run completion moved the issue |
+| `issue.assigned` | `IssueMutation` | Emitted beside `issue.updated` when the assignee changed to someone |
+| `issue.started` | `IssueMutation` | Emitted beside `issue.updated` when `status` moved to `inProgress` |
+| `issue.completed` | `IssueMutation` | Emitted beside `issue.updated` when `status` moved to `done` |
+| `issue.deleted` | `IssueMutation` | Soft delete; the `issue` snapshot is the row as it was |
 | `comment.created` | `{ "comment": Comment }` | `runId` is the authoring run when applicable |
+
+`IssueMutation` is `{ "issue": Issue, "changedFields": string[], "previousStatus"?: IssueStatus, "actor"?: { "type": "user" | "agent", "id": Uuid } }`. `changedFields` is empty for `issue.created` and `issue.deleted`; `previousStatus` is present only when `status` changed; `actor` is the user who made the change and is absent when a run made it. The derived topics (`assigned`, `started`, `completed`) carry the same payload as the `issue.updated` they accompany and are ordered after it.
 
 Raw prompts, hidden reasoning, credentials, unredacted tool inputs/outputs, provider errors, and filesystem paths MUST NOT appear in any event payload. A provider event that has no safe public equivalent is recorded internally but not emitted.
 
@@ -661,7 +669,7 @@ Terminal event example:
 ```text
 id: evt_01J5W0BBZM6S8G8P7XYAHQHN2C
 event: run.completed
-data: {"id":"evt_01J5W0BBZM6S8G8P7XYAHQHN2C","type":"run.completed","occurredAt":"2026-08-22T06:48:22.000Z","boardId":"bb99372f-88c4-44f0-914f-a343bf30e6fb","issueId":"8138a662-f20f-41aa-bd5a-cf46e35ba952","runId":"2020836b-a055-4980-b165-50664cf402c3","sequence":19,"payload":{"run":{"id":"2020836b-a055-4980-b165-50664cf402c3","issueId":"8138a662-f20f-41aa-bd5a-cf46e35ba952","agentId":"f8957903-6534-4ca3-a218-d95e537a5076","status":"succeeded","sequence":19,"summary":"Gateway wiring completed and tests passed.","usage":{"inputTokens":2140,"outputTokens":901,"totalTokens":3041,"costMicros":null,"currency":null},"failure":null,"createdAt":"2026-08-22T06:42:00.000Z","startedAt":"2026-08-22T06:42:01.000Z","completedAt":"2026-08-22T06:48:22.000Z"}}}
+data: {"id":"evt_01J5W0BBZM6S8G8P7XYAHQHN2C","type":"run.completed","occurredAt":"2026-08-22T06:48:22.000Z","workspaceId":"4d5e0f77-2f4b-4f0c-9b1c-6f0a1c2d3e4f","boardId":"bb99372f-88c4-44f0-914f-a343bf30e6fb","issueId":"8138a662-f20f-41aa-bd5a-cf46e35ba952","runId":"2020836b-a055-4980-b165-50664cf402c3","sequence":19,"payload":{"run":{"id":"2020836b-a055-4980-b165-50664cf402c3","issueId":"8138a662-f20f-41aa-bd5a-cf46e35ba952","agentId":"f8957903-6534-4ca3-a218-d95e537a5076","status":"succeeded","sequence":19,"summary":"Gateway wiring completed and tests passed.","usage":{"inputTokens":2140,"outputTokens":901,"totalTokens":3041,"costMicros":null,"currency":null},"failure":null,"createdAt":"2026-08-22T06:42:00.000Z","startedAt":"2026-08-22T06:42:01.000Z","completedAt":"2026-08-22T06:48:22.000Z"}}}
 
 ```
 

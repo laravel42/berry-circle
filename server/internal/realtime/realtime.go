@@ -14,11 +14,17 @@ import (
 
 // Event is an ephemeral projection of a fact already persisted in PostgreSQL.
 type Event struct {
-	ID          string          `json:"id"`
-	WorkspaceID string          `json:"workspaceId"`
-	Type        string          `json:"type"`
-	Payload     json.RawMessage `json:"payload"`
-	OccurredAt  time.Time       `json:"occurredAt"`
+	ID          string `json:"id"`
+	WorkspaceID string `json:"workspaceId"`
+	// BoardID is a second delivery scope. Board streams subscribe on the board
+	// id while workspace-wide consumers subscribe on the workspace id, and one
+	// fact must reach both without being published twice: the hub fans an
+	// event out to every subscriber of either scope. Empty for facts that
+	// belong to no board.
+	BoardID    string          `json:"boardId,omitempty"`
+	Type       string          `json:"type"`
+	Payload    json.RawMessage `json:"payload"`
+	OccurredAt time.Time       `json:"occurredAt"`
 
 	// OriginNodeID is relay metadata and is never sent to browser clients.
 	OriginNodeID string `json:"-"`
@@ -153,18 +159,20 @@ func (hub *Hub) Publish(ctx context.Context, event Event) error {
 		return errors.New("realtime hub is closed")
 	}
 	overflowed := 0
-	for id, target := range hub.channels[event.WorkspaceID] {
-		select {
-		case target.events <- event:
-		default:
-			delete(hub.channels[event.WorkspaceID], id)
-			target.stop()
-			hub.overflow.Add(1)
-			overflowed++
+	for _, scope := range event.scopes() {
+		for id, target := range hub.channels[scope] {
+			select {
+			case target.events <- event:
+			default:
+				delete(hub.channels[scope], id)
+				target.stop()
+				hub.overflow.Add(1)
+				overflowed++
+			}
 		}
-	}
-	if len(hub.channels[event.WorkspaceID]) == 0 {
-		delete(hub.channels, event.WorkspaceID)
+		if len(hub.channels[scope]) == 0 {
+			delete(hub.channels, scope)
+		}
 	}
 	observer := hub.observer
 	hub.mu.Unlock()

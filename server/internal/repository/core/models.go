@@ -3,6 +3,7 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -74,8 +75,8 @@ type BoardPatch struct {
 
 // ActorKey identifies an actor before display data is resolved.
 type ActorKey struct {
-	Type string
-	ID   uuid.UUID
+	Type string    `json:"type"`
+	ID   uuid.UUID `json:"id"`
 }
 
 // ActorRef is Berry's public embedded actor projection.
@@ -94,8 +95,11 @@ type AssigneeInput struct {
 
 // Issue is a storage-neutral issue plus its board identifier context.
 type Issue struct {
-	ID          uuid.UUID
-	BoardID     uuid.UUID
+	ID      uuid.UUID
+	BoardID uuid.UUID
+	// WorkspaceID is the board's workspace. Read with the issue so an event
+	// about it can be scoped without another query inside the transaction.
+	WorkspaceID uuid.UUID
 	BoardSlug   string
 	IssuePrefix string
 	Number      int32
@@ -159,6 +163,9 @@ type CreateIssueParams struct {
 	Project      *uuid.UUID
 	CreatedBy    uuid.UUID
 	CreatedAt    time.Time
+	// NewID mints the outbox event ids written with the issue. Nil falls back
+	// to random ids; callers that replay or assert on ids supply their own.
+	NewID func() uuid.UUID
 }
 
 // IssuePatch distinguishes omitted fields from explicit nullable values.
@@ -185,8 +192,21 @@ type UpdateIssueParams struct {
 	IssueID      uuid.UUID
 	Patch        IssuePatch
 	AssignmentID uuid.UUID
-	AssignedBy   uuid.UUID
-	UpdatedAt    time.Time
+	// AssignedBy is the acting user. It names the assignment's author and is
+	// the actor recorded on the events the update emits.
+	AssignedBy uuid.UUID
+	UpdatedAt  time.Time
+	// NewID mints the outbox event ids; nil falls back to random ids.
+	NewID func() uuid.UUID
+}
+
+// DeleteIssueParams carries one soft delete and who asked for it.
+type DeleteIssueParams struct {
+	IssueID   uuid.UUID
+	DeletedBy uuid.UUID
+	DeletedAt time.Time
+	// NewID mints the outbox event id; nil falls back to a random id.
+	NewID func() uuid.UUID
 }
 
 // StateTransitionError carries safe public transition details.
@@ -254,7 +274,21 @@ func (conflict *RevisionConflictError) Unwrap() error {
 type CommentMutationEvent struct {
 	ID          uuid.UUID
 	WorkspaceID uuid.UUID
+	BoardID     uuid.UUID
+	IssueID     uuid.UUID
 	Type        string
 	Payload     []byte
+	OccurredAt  time.Time
+}
+
+// IssueMutationEvent is one durable issue.* outbox fact, returned only after
+// the transaction that wrote it committed so the caller can publish it live.
+type IssueMutationEvent struct {
+	ID          uuid.UUID
+	Type        string
+	WorkspaceID uuid.UUID
+	BoardID     uuid.UUID
+	IssueID     uuid.UUID
+	Payload     json.RawMessage
 	OccurredAt  time.Time
 }

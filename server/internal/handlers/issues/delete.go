@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/laravel42/berry-circle/server/internal/auth"
+	"github.com/laravel42/berry-circle/server/internal/handlers/collaboration/shared"
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
 )
@@ -45,9 +46,13 @@ func deleteHandler(
 			return
 		}
 
-		if _, err := repository.DeleteIssue(
-			request.Context(), found.ID, options.Clock().UTC(),
-		); err != nil {
+		_, events, err := repository.DeleteIssue(request.Context(), core.DeleteIssueParams{
+			IssueID:   found.ID,
+			DeletedBy: user.ID,
+			DeletedAt: options.Clock().UTC(),
+			NewID:     options.NewID,
+		})
+		if err != nil {
 			// Already deleted reads as not-found, so a second click from a
 			// stale board says something true rather than reporting success
 			// for work it did not do.
@@ -58,6 +63,7 @@ func deleteHandler(
 			writeIssueInternal(response, request)
 			return
 		}
+		shared.PublishIssue(request.Context(), options.Broadcaster, events)
 		response.WriteHeader(http.StatusNoContent)
 	}
 }
