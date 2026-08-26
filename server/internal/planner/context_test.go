@@ -179,3 +179,62 @@ func TestAShortBriefIsLeftAlone(t *testing.T) {
 		t.Errorf("bounded = %q, want %q", bounded, brief)
 	}
 }
+
+// The classifier decides whether a request can be planned at all, and it runs
+// before the context stage reads the project. Without the brief in front of
+// it, "read the project brief" is an underspecified request and it blocks —
+// asking for the one thing the linked project already answers.
+func TestTheIntentMessageCarriesTheLinkedProjectBrief(t *testing.T) {
+	t.Parallel()
+	project := &ProjectData{
+		ID:          uuid.New(),
+		Name:        "Password Generator",
+		Description: "Build a standalone password generator with configurable criteria.",
+		Repository:  "laravel42/berry-repo-test",
+	}
+	message := intentMessage("Read project brief", HintAuto, project)
+
+	for _, want := range []string{
+		"Password Generator",
+		"configurable criteria",
+		"laravel42/berry-repo-test",
+	} {
+		if !strings.Contains(message, want) {
+			t.Errorf("intent message is missing %q:\n%s", want, message)
+		}
+	}
+}
+
+// A project with no brief must say so rather than leaving the section absent,
+// which reads identically to no project being linked at all.
+func TestAProjectWithoutABriefSaysSo(t *testing.T) {
+	t.Parallel()
+	message := intentMessage("Do the next thing", HintAuto, &ProjectData{Name: "Untitled"})
+	if !strings.Contains(message, "no written brief") {
+		t.Errorf("a brief-less project did not say so:\n%s", message)
+	}
+}
+
+// No project linked: the message is what it always was.
+func TestWithNoProjectTheIntentMessageIsUnchanged(t *testing.T) {
+	t.Parallel()
+	message := intentMessage("Fix the login bug", HintAuto, nil)
+	if strings.Contains(message, "Project") {
+		t.Errorf("a project section appeared with no project linked:\n%s", message)
+	}
+}
+
+// A brief is bounded here too: the classifier is a cheap model on a small
+// context, and it is the stage that can least afford a 20 KB paste.
+func TestTheIntentBriefIsBounded(t *testing.T) {
+	t.Parallel()
+	project := &ProjectData{
+		Name:        "Big",
+		Description: strings.Repeat("Requirements go here. ", 3000),
+	}
+	message := intentMessage("Continue", HintAuto, project)
+	if len(message) > MaxProjectBriefBytes+1024 {
+		t.Errorf("intent message is %d bytes, want it bounded near %d",
+			len(message), MaxProjectBriefBytes)
+	}
+}

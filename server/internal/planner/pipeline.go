@@ -51,6 +51,9 @@ type run struct {
 	version     int
 	repairs     int
 	finished    bool
+	// project is the linked project, read once before intent so the classifier
+	// can see the brief it would otherwise ask the person to locate.
+	project *ProjectData
 }
 
 func (r *run) now() time.Time { return r.service.options.Clock().UTC() }
@@ -69,6 +72,7 @@ func (r *run) execute(ctx context.Context) {
 			r.fail(ctx, plans.StageFinalize, ErrorStore, plans.OutcomeError, nil)
 		}
 	}()
+	r.loadProject(ctx)
 	r.progress(ctx, plans.StageIntent)
 	intent, ok := r.intent(ctx)
 	if !ok {
@@ -183,9 +187,32 @@ func (r *run) stageFailed(ctx context.Context, stage string, role modelgateway.R
 	r.fail(ctx, stage, code, outcome, nil)
 }
 
+// loadProject reads the linked project before the first model call.
+//
+// The classifier decides whether a request can be planned at all, and it made
+// that decision knowing only the sentence the person typed. Asked to work from
+// a project brief it could not see, it did the reasonable thing and asked
+// where the brief was — a question the linked project answers, from a stage
+// that runs before the project is ever read.
+//
+// Best effort: a project that cannot be read costs the classifier context, not
+// the plan. The context stage reads it again rather than sharing this value,
+// because that stage must reflect the project as of its own moment and one
+// extra bounded read is cheaper than reasoning about which is authoritative.
+func (r *run) loadProject(ctx context.Context) {
+	if r.input.ProjectID == nil || r.service.options.Sources.Project == nil {
+		return
+	}
+	data, err := r.service.options.Sources.Project.Project(ctx, r.header.WorkspaceID, *r.input.ProjectID)
+	if err != nil {
+		return
+	}
+	r.project = &data
+}
+
 func (r *run) intent(ctx context.Context) (ir.IntentAnalysis, bool) {
 	started := r.now()
-	reply, err := r.complete(ctx, modelgateway.RoleClassifier, intentMessage(r.input.Prompt, r.input.Hint), "IntentAnalysis")
+	reply, err := r.complete(ctx, modelgateway.RoleClassifier, intentMessage(r.input.Prompt, r.input.Hint, r.project), "IntentAnalysis")
 	if err != nil {
 		r.stageFailed(ctx, plans.StageIntent, modelgateway.RoleClassifier, reply, err)
 		return ir.IntentAnalysis{}, false

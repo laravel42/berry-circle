@@ -31,13 +31,13 @@ const (
 	RepositoryMaxFiles  = 6
 	// MaxProjectBriefBytes bounds the project description the planner reads.
 	//
-	// The column allows 20 KB, which is larger than the whole context budget
-	// on a small workspace. Unbounded it would push the budget over on its own
-	// and fitBudget would answer by discarding the repository, the open issues
-	// and the tool list — everything except the thing that caused it. A brief
-	// long enough to hit this cap has said what the plan is about several
-	// times over.
-	MaxProjectBriefBytes = 6 * 1024
+	// A third of the default 48 KB context budget. The cap exists so a 20 KB
+	// brief cannot push the budget over on its own — fitBudget would answer by
+	// discarding the repository, the open issues and the tool list, everything
+	// except the thing that caused it — but it has to clear a real brief.
+	// Set at 6 KB it halved a genuine 12 KB one, and a plan built from a brief
+	// should not be built from half of it.
+	MaxProjectBriefBytes = 16 * 1024
 )
 
 // WorkspaceData is what the workspace source answers.

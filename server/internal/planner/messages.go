@@ -41,9 +41,29 @@ func hintText(hint Hint) string {
 }
 
 // intentMessage is the classifier's task.
-func intentMessage(prompt string, hint Hint) string {
+func intentMessage(prompt string, hint Hint, project *ProjectData) string {
 	var builder strings.Builder
 	builder.WriteString(section("Request", prompt))
+	// The project, when one is linked, so a request that leans on the brief
+	// ("read the project brief", "start the next piece") is read against it
+	// rather than treated as underspecified.
+	if project != nil {
+		var details strings.Builder
+		details.WriteString("Name: ")
+		details.WriteString(project.Name)
+		if project.Repository != "" {
+			details.WriteString("\nRepository: ")
+			details.WriteString(project.Repository)
+		}
+		if brief := strings.TrimSpace(project.Description); brief != "" {
+			bounded, _ := boundBrief(brief)
+			details.WriteString("\nBrief:\n")
+			details.WriteString(bounded)
+		} else {
+			details.WriteString("\nBrief: this project has no written brief.")
+		}
+		builder.WriteString(section("Project", details.String()))
+	}
 	builder.WriteString(section("Instructions", "Extract the intent of the request. "+hintText(hint)+" Return only the IntentAnalysis JSON object."))
 	return strings.TrimSpace(builder.String())
 }
