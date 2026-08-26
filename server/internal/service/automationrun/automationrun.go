@@ -226,6 +226,27 @@ func (runner *Runner) Resume(ctx context.Context, runID uuid.UUID, signal Resume
 	runner.Execute(ctx, runID)
 }
 
+// Fail ends a run its executor lost: the orchestration's step activity
+// timed out or its worker died between steps. The row's own refusals stand
+// (a finished run returns ErrRunTerminal), so a failure the runner already
+// recorded is never overwritten.
+func (runner *Runner) Fail(ctx context.Context, runID uuid.UUID, failure automationrepo.Failure) error {
+	if runner == nil || ctx == nil || runID == uuid.Nil {
+		return errors.New("automation failure parameters are invalid")
+	}
+	if !runner.acquire(runID) {
+		return ErrRunBusy
+	}
+	defer runner.release(runID)
+	failed, event, err := runner.options.Store.Fail(ctx, runID, failure, runner.now(), runner.options.NewID)
+	if err != nil {
+		return err
+	}
+	runner.publish(ctx, event)
+	runner.options.Metrics.CountRun(string(failed.Status))
+	return nil
+}
+
 // ApplySignal settles the step a run waits on and returns the run to
 // running. It is durable on its own: a process that dies between this and
 // the walk leaves rows a later Execute continues from.

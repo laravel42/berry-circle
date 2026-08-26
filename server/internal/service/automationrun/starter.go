@@ -18,6 +18,42 @@ type Starter interface {
 	Resume(ctx context.Context, runID uuid.UUID, signal ResumeSignal) error
 }
 
+// Canceller tells the executor that a run row was cancelled, so an
+// orchestration parked on a wait stops waiting. The in-process starter needs
+// no such call: its next step refuses a terminal run on its own.
+type Canceller interface {
+	Cancel(ctx context.Context, runID uuid.UUID) error
+}
+
+// ScheduleSpec is what a schedule trigger asks the scheduler to fire on.
+type ScheduleSpec struct {
+	Cron     string
+	Timezone string
+}
+
+// Schedules is the seam through which activating, pausing and archiving a
+// schedule-triggered workflow reaches whatever fires it: Temporal Schedules
+// when the orchestration is enabled, the in-process scheduler otherwise.
+// Both land with the schedule trigger (P4.5); until then NoopSchedules
+// records nothing and the activation stays a recorded decision.
+type Schedules interface {
+	Ensure(ctx context.Context, automationID uuid.UUID, spec ScheduleSpec) error
+	Pause(ctx context.Context, automationID uuid.UUID) error
+	Delete(ctx context.Context, automationID uuid.UUID) error
+}
+
+// NoopSchedules is the seam's stand-in until a scheduler exists.
+type NoopSchedules struct{}
+
+// Ensure records nothing.
+func (NoopSchedules) Ensure(context.Context, uuid.UUID, ScheduleSpec) error { return nil }
+
+// Pause records nothing.
+func (NoopSchedules) Pause(context.Context, uuid.UUID) error { return nil }
+
+// Delete records nothing.
+func (NoopSchedules) Delete(context.Context, uuid.UUID) error { return nil }
+
 // InProcessStarter executes runs on a bounded worker pool in this process.
 // Like the issue run pool it wraps, queued work does not survive the
 // process; the signal itself is applied to the rows before queueing so a

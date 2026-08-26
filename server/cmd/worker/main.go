@@ -28,16 +28,22 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
 	"github.com/laravel42/berry-circle/server/internal/delivery"
+	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
 	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
+	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
+	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
 	collaborationrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	corerepo "github.com/laravel42/berry-circle/server/internal/repository/core"
+	goalrepo "github.com/laravel42/berry-circle/server/internal/repository/goals"
 	intakerepo "github.com/laravel42/berry-circle/server/internal/repository/intake"
 	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	runsrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
 	"github.com/laravel42/berry-circle/server/internal/secrets"
+	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
 	"github.com/laravel42/berry-circle/server/internal/storage"
 )
@@ -182,6 +188,7 @@ func run() int {
 	// admitted by intake comes through here, so wiring only the API left the
 	// context unbuilt on the one path that matters.
 	var runCode runadmission.CodeContext
+	var integrationCredentials *integrationrepo.Repository
 	if cfg.IntegrationsEnabled {
 		sealer, sealerErr := secrets.NewFromBase64Key(cfg.IntegrationEncryptionKey)
 		if sealerErr != nil {
@@ -194,7 +201,27 @@ func run() int {
 			return 1
 		}
 		runCode = githubclient.RunContext{Credentials: credentials, Logger: logger}
+		integrationCredentials = credentials
 		logger.Info("repository context enabled for runs")
+	}
+
+	temporalClient, err := client.Dial(client.Options{
+		HostPort:  cfg.TemporalHostPort,
+		Namespace: cfg.TemporalNamespace,
+		Logger:    newTemporalLogger(logger),
+	})
+	if err != nil {
+		logger.Error("temporal connection failed", "error", err)
+		return 1
+	}
+	defer temporalClient.Close()
+
+	// Issue runs a workflow step admits go through Temporal too, the way
+	// the API's do, rather than through this process's own pool.
+	runDispatcher, err := orchestration.NewTemporalDispatcher(temporalClient, cfg.TemporalTaskQueue)
+	if err != nil {
+		logger.Error("temporal dispatcher setup failed", "error", err)
+		return 1
 	}
 
 	dispatcher, err := runadmission.New(runadmission.Options{
@@ -206,6 +233,7 @@ func run() int {
 		WorkerContext: ctx,
 		Workers:       1,
 		QueueSize:     1,
+		Dispatcher:    runDispatcher,
 		Code:          runCode,
 		Comments:      commentStore,
 		Logger:        logger,
@@ -237,6 +265,13 @@ func run() int {
 		)
 		return 1
 	}
+	// The attachments ledger: what a run produced, read by workflow steps
+	// that wait on an agent run and written by the promoter below.
+	artifactStore, err := collaborationrepo.New(pool)
+	if err != nil {
+		logger.Error("collaboration repository setup failed", "error", err)
+		return 1
+	}
 	// Artifact promotion (ADR-0006). Both dependencies are optional: without a
 	// mounted runtime volume the promoter reports itself disabled and the
 	// activity is a no-op, which is what a deployment did before this existed.
@@ -245,11 +280,6 @@ func run() int {
 		artifactRuns orchestration.RunArtifactSource
 	)
 	if cfg.RuntimeWorkspaceRoot != "" {
-		artifactStore, err := collaborationrepo.New(pool)
-		if err != nil {
-			logger.Error("collaboration repository setup failed", "error", err)
-			return 1
-		}
 		artifactStorage, err := storage.NewWithContext(ctx, storage.Config{
 			Backend:           cfg.StorageBackend,
 			LocalRoot:         cfg.StorageLocalRoot,
@@ -318,6 +348,62 @@ func run() int {
 		}
 	}
 
+	// Workflow runs (P1b). The activities drive the same runner the API's
+	// in-process starter drives, over the same stores, so the two execution
+	// paths cannot drift; only the step executors' wall clock differs.
+	automationStore, err := automationrepo.New(pool)
+	if err != nil {
+		logger.Error("automation store setup failed", "error", err)
+		return 1
+	}
+	approvalStore, err := approvalrepo.New(pool)
+	if err != nil {
+		logger.Error("approval store setup failed", "error", err)
+		return 1
+	}
+	goalStore, err := goalrepo.New(pool)
+	if err != nil {
+		logger.Error("goal store setup failed", "error", err)
+		return 1
+	}
+	providerRegistry := integrationcore.NewRegistry()
+	for _, provider := range append(providers.All(), providers.Berry{}) {
+		if err := providerRegistry.Register(provider); err != nil {
+			logger.Error("integration provider registration failed", "error", err)
+			return 1
+		}
+	}
+	var toolAuthorizer integrationcore.Authorizer
+	if integrationCredentials != nil {
+		toolAuthorizer = integrationcore.PermissionAuthorizer{
+			Grants:      integrationCredentials,
+			Connections: integrationCredentials,
+		}
+	}
+	directory := automationrun.Directory{Pool: pool}
+	runner, err := automationrun.New(automationrun.Options{
+		Store:              automationStore,
+		Issues:             commentStore,
+		Approvals:          approvalStore,
+		Goals:              goalStore,
+		IssueRuns:          dispatcher,
+		Artifacts:          artifactStore,
+		Responder:          upstream,
+		Agents:             directory,
+		Boards:             directory,
+		Registry:           providerRegistry,
+		Authorizer:         toolAuthorizer,
+		Broadcaster:        broadcaster,
+		Clock:              time.Now,
+		NewID:              uuid.New,
+		Logger:             logger,
+		InlineAgentTimeout: cfg.AutomationInlineAgentTimeout,
+	})
+	if err != nil {
+		logger.Error("automation runner setup failed", "error", err)
+		return 1
+	}
+
 	activities, err := orchestration.NewActivities(orchestration.Activities{
 		Intake:          intakeStore,
 		Runs:            dispatcher,
@@ -328,6 +414,9 @@ func run() int {
 		ArtifactRuns:    artifactRuns,
 		Delivery:        runDeliveries,
 		DeliverableRuns: deliverableRows,
+		Automations:     runner,
+		AutomationRuns:  automationStore,
+		ScheduledRuns:   automationStore,
 		Logger:          logger,
 	})
 	if err != nil {
@@ -335,21 +424,12 @@ func run() int {
 		return 1
 	}
 
-	temporalClient, err := client.Dial(client.Options{
-		HostPort:  cfg.TemporalHostPort,
-		Namespace: cfg.TemporalNamespace,
-		Logger:    newTemporalLogger(logger),
-	})
-	if err != nil {
-		logger.Error("temporal connection failed", "error", err)
-		return 1
-	}
-	defer temporalClient.Close()
-
 	w := worker.New(temporalClient, cfg.TemporalTaskQueue, worker.Options{
 		// Activity slots bound how many agent streams this worker holds open,
-		// which is a provider-spend ceiling as much as a memory one.
-		MaxConcurrentActivityExecutionSize: cfg.IntakeMaxConcurrent,
+		// which is a provider-spend ceiling as much as a memory one. Workflow
+		// step activities share the queue, so they get their own share of
+		// slots rather than starving the agent streams.
+		MaxConcurrentActivityExecutionSize: cfg.IntakeMaxConcurrent + cfg.AutomationMaxConcurrent,
 	})
 	if err := orchestration.Register(w, activities); err != nil {
 		logger.Error("orchestration registration failed", "error", err)
@@ -367,6 +447,7 @@ func run() int {
 		"taskQueue", cfg.TemporalTaskQueue,
 		"namespace", cfg.TemporalNamespace,
 		"intakeEnabled", cfg.IntakeEnabled,
+		"automationMaxConcurrent", cfg.AutomationMaxConcurrent,
 	)
 
 	if cfg.IntakeEnabled {

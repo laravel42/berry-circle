@@ -11,7 +11,12 @@
 // state.
 package orchestration
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+
+	"github.com/google/uuid"
+)
 
 // TaskQueue is the default queue both the API (as client) and the worker use.
 // Overridden by TEMPORAL_TASK_QUEUE.
@@ -89,4 +94,66 @@ type IntakeResult struct {
 	// worse than no automatic assignment.
 	Routed   int `json:"routed"`
 	Fallback int `json:"fallback"`
+}
+
+// Automation orchestration names. The product noun is Workflow and the Go
+// noun automation (ADR-0007); like the run names above these persist in
+// Temporal history, so they are a wire contract.
+const (
+	AutomationOrchestrationName = "berry.AutomationOrchestration"
+	// AutomationResumeSignal carries the fact a parked run waited on: an
+	// approval decided, an agent run ended, an issue completed, an event a
+	// step subscribed to, or a timer the dispatcher claimed.
+	AutomationResumeSignal = "berry.AutomationResume"
+	// AutomationCancelSignal tells a waiting orchestration that the run row
+	// was cancelled from the HTTP layer, so it stops waiting for a resume
+	// that will never come.
+	AutomationCancelSignal = "berry.AutomationCancel"
+)
+
+// AutomationRunWorkflowID derives the deduplication key for one workflow
+// run. The run row is created idempotently on its source event before the
+// orchestration starts, and this makes a duplicate start a no-op at the
+// Temporal layer too.
+func AutomationRunWorkflowID(runID uuid.UUID) string {
+	return "automation-run:" + runID.String()
+}
+
+// AutomationScheduleID names the Temporal Schedule that fires a
+// schedule-triggered workflow. Schedules themselves land with the schedule
+// trigger (P4.5); the id is fixed here so the seam and the worker agree.
+func AutomationScheduleID(automationID uuid.UUID) string {
+	return "automation-schedule:" + automationID.String()
+}
+
+// Automation bounds. A step activity walks a run until it finishes or parks;
+// the run timeout covers the longest a run may stay parked on a person.
+const (
+	AutomationActivityTimeout = 30 * time.Minute
+	AutomationHeartbeat       = 30 * time.Second
+	AutomationRunTimeout      = 30 * 24 * time.Hour
+)
+
+// AutomationResume is the AutomationResumeSignal payload: one settled wait,
+// in the vocabulary automation_runs.waiting_on stores.
+type AutomationResume struct {
+	Kind       string          `json:"kind"`
+	ID         string          `json:"id,omitempty"`
+	Topic      string          `json:"topic,omitempty"`
+	Outcome    string          `json:"outcome,omitempty"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
+	OccurredAt time.Time       `json:"occurredAt"`
+}
+
+// AutomationCancel is the AutomationCancelSignal payload.
+type AutomationCancel struct {
+	RequestedBy string `json:"requestedBy"`
+}
+
+// AutomationRunState is what a step activity reports back: whether the run
+// finished, and if not what it waits on.
+type AutomationRunState struct {
+	Status    string `json:"status"`
+	WaitingOn string `json:"waitingOn,omitempty"`
+	Terminal  bool   `json:"terminal"`
 }

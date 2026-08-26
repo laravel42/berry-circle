@@ -27,6 +27,10 @@ func Register(w worker.Worker, activities *Activities) error {
 		IntakeOrchestration,
 		workflow.RegisterOptions{Name: IntakeOrchestrationName},
 	)
+	w.RegisterWorkflowWithOptions(
+		AutomationOrchestration,
+		workflow.RegisterOptions{Name: AutomationOrchestrationName},
+	)
 	w.RegisterActivity(activities)
 	return nil
 }

@@ -15,6 +15,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/laravel42/berry-circle/server/internal/automation"
+	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
+	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/repository/approvals"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
@@ -1178,5 +1180,46 @@ func TestSignalKeysFollowTheWaitVocabulary(t *testing.T) {
 	}
 	if (ResumeSignal{Kind: SignalTimer}).Key() != "timer" || (ResumeSignal{Kind: SignalApproval, ID: id}).Key() != "approval:"+id.String() {
 		t.Fatal("keys do not match automation_runs.waiting_on")
+	}
+}
+
+// approvalAuthorizer allows every tool but asks for an approval first, the
+// way a grant with an approval policy does.
+type approvalAuthorizer struct{}
+
+func (approvalAuthorizer) Authorize(context.Context, integrationcore.ExecutionContext, integrationcore.Tool) (integrationcore.Decision, error) {
+	return integrationcore.Decision{Allowed: true, RequiresApproval: true}, nil
+}
+
+// A provider tool without a native executor fails before anyone is asked to
+// approve it: an approval for a call that cannot happen would only cost the
+// approver's attention.
+func TestRunnerRefusesInexecutableToolsBeforeRequestingApproval(t *testing.T) {
+	t.Parallel()
+	fake := newFixture(t, definitionJSON(berryTrigger,
+		`{"id":"act","type":"action","provider":"slack","operation":"post_message","input":{"channel":"#x","text":"hi"}}`), map[string]any{"name": "Ada"})
+	registry := integrationcore.NewRegistry()
+	for _, provider := range append(providers.All(), providers.Berry{}) {
+		registry.MustRegister(provider)
+	}
+	runner, err := New(Options{
+		Store: fake.store, Issues: fake.issues, Approvals: fake.approvals, Goals: fake.goals, IssueRuns: fake.issueRuns,
+		Registry: registry, Authorizer: approvalAuthorizer{},
+		Clock: func() time.Time { return fake.now }, NewID: uuid.New,
+		Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	runner.Execute(context.Background(), fake.runID)
+	step := fake.step(t, "act")
+	if step.Status != automationrepo.StepFailed || step.Failure == nil || step.Failure.Code != "TOOL_NOT_EXECUTABLE" {
+		t.Fatalf("step = %+v", step)
+	}
+	if len(fake.approvals.created) != 0 {
+		t.Fatalf("approvals requested for a tool that cannot run: %+v", fake.approvals.created)
+	}
+	if run := fake.run(t); run.Status != automationrepo.RunFailed {
+		t.Fatalf("run = %+v, want failed", run)
 	}
 }

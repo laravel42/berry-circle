@@ -50,7 +50,13 @@ type Activities struct {
 	// it a run still promotes its artifacts and simply delivers nothing.
 	Delivery        RunDelivery
 	DeliverableRuns DeliverableRuns
-	Logger          *slog.Logger
+	// Automations executes workflow runs and AutomationRuns reads them back;
+	// ScheduledRuns creates the run a schedule fires. A worker without them
+	// still serves issue runs and refuses automation orchestrations.
+	Automations    AutomationRunner
+	AutomationRuns AutomationRunReader
+	ScheduledRuns  ScheduledRunStore
+	Logger         *slog.Logger
 }
 
 // NewActivities validates dependencies up front so a misconfigured worker
@@ -198,20 +204,8 @@ func (activities *Activities) DispatchRun(ctx context.Context, runID string) err
 	// Heartbeat while the stream is consumed so a dead worker is detected as a
 	// heartbeat timeout, which the workflow turns into a reconciliation marker
 	// rather than an orphaned row.
-	beat, stopBeat := context.WithCancel(ctx)
+	stopBeat := heartbeatWhile(ctx, DispatchHeartbeat/2, runID)
 	defer stopBeat()
-	go func() {
-		ticker := time.NewTicker(DispatchHeartbeat / 2)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-beat.Done():
-				return
-			case <-ticker.C:
-				activity.RecordHeartbeat(ctx, runID)
-			}
-		}
-	}()
 
 	activities.Runs.Execute(ctx, parsed)
 	return nil
