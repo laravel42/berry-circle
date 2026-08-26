@@ -18,6 +18,7 @@ const runProjection = `
 	run.trigger_type, run.trigger_payload, run.source_event_key, run.current_step_id, run.waiting_on,
 	run.resume_at, run.sequence, run.engine, run.engine_run_id, run.failure_code, run.failure_message,
 	run.input_tokens, run.output_tokens, run.cost_micros, run.requested_by, run.request_id,
+	run.parent_run_id, run.parent_step_run_id, run.depth,
 	run.created_at, run.started_at, run.completed_at, run.updated_at`
 
 func scanRun(row rowScanner) (Run, error) {
@@ -32,6 +33,7 @@ func scanRun(row rowScanner) (Run, error) {
 		&triggerType, &payload, &run.SourceEventKey, &run.CurrentStepID, &run.WaitingOn,
 		&run.ResumeAt, &run.Sequence, &engine, &run.EngineRunID, &failureCode, &failureMessage,
 		&run.Usage.InputTokens, &run.Usage.OutputTokens, &run.Usage.CostMicros, &run.RequestedBy, &run.RequestID,
+		&run.ParentRunID, &run.ParentStepRunID, &run.Depth,
 		&run.CreatedAt, &run.StartedAt, &run.CompletedAt, &run.UpdatedAt,
 	); err != nil {
 		return Run{}, err
@@ -171,6 +173,9 @@ func createRunIn(ctx context.Context, tx database, params CreateRunParams) (Run,
 	if params.ID == uuid.Nil || params.AutomationID == uuid.Nil || !params.TriggerType.Valid() || params.CreatedAt.IsZero() {
 		return Run{}, false, errors.New("automation run parameters are invalid")
 	}
+	if (params.ParentRunID == nil) != (params.Depth == 0) || params.Depth < 0 || params.Depth > automation.MaxSubworkflowDepth {
+		return Run{}, false, errors.New("automation run parent and depth disagree")
+	}
 	payload := params.Payload
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
@@ -217,10 +222,12 @@ func createRunIn(ctx context.Context, tx database, params CreateRunParams) (Run,
 		ctx,
 		`INSERT INTO automation_runs (
 		    id, workspace_id, automation_id, automation_version, goal_id, status, trigger_type,
-		    trigger_payload, source_event_key, engine, requested_by, request_id, created_at, updated_at
-		 ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7::jsonb, $8, $9, $10, $11, $12, $12)`,
+		    trigger_payload, source_event_key, engine, requested_by, request_id,
+		    parent_run_id, parent_step_run_id, depth, created_at, updated_at
+		 ) VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $15)`,
 		params.ID, item.WorkspaceID, item.ID, item.Version, item.GoalID, string(params.TriggerType),
-		string(payload), params.SourceEventKey, string(item.Engine), params.RequestedBy, requestID, params.CreatedAt.UTC(),
+		string(payload), params.SourceEventKey, string(item.Engine), params.RequestedBy, requestID,
+		params.ParentRunID, params.ParentStepRunID, params.Depth, params.CreatedAt.UTC(),
 	); err != nil {
 		return Run{}, false, classifyWrite("insert automation run", err)
 	}

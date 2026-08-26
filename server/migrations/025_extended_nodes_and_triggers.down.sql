@@ -1,0 +1,12 @@
+-- Reversal notes for 025 (Berry migrations are forward-only; this file
+-- documents the manual rollback and is never applied by cmd/migrate).
+--
+-- 1. Restore the strict step id check only after deleting foreach rows:
+--    DELETE FROM automation_step_runs WHERE step_id LIKE '%[%';
+--    ALTER TABLE automation_step_runs DROP CONSTRAINT automation_step_runs_step_id_ck;
+--    ALTER TABLE automation_step_runs ADD CONSTRAINT automation_step_runs_step_id_ck CHECK (step_id ~ '^[a-z][a-z0-9_]{0,63}$');
+-- 2. Parent links: ALTER TABLE automation_runs DROP CONSTRAINT automation_runs_parent_ck, DROP CONSTRAINT automation_runs_depth_ck,
+--    DROP COLUMN parent_step_run_id, DROP COLUMN parent_run_id, DROP COLUMN depth; DROP INDEX automation_runs_parent_idx;
+-- 3. Recreate outbox_events_trigger_dispatch_order_idx with the 019 topic list.
+-- 4. DROP INDEX automations_active_integration_idx;
+-- 5. DROP TABLE agent_asks;

@@ -188,10 +188,16 @@ type Run struct {
 	Usage             Usage
 	RequestedBy       *uuid.UUID
 	RequestID         *string
-	CreatedAt         time.Time
-	StartedAt         *time.Time
-	CompletedAt       *time.Time
-	UpdatedAt         time.Time
+	// ParentRunID and ParentStepRunID link a subworkflow run to the run and
+	// step that started it; Depth is how many such links lead up to the run
+	// a trigger started (0).
+	ParentRunID     *uuid.UUID
+	ParentStepRunID *uuid.UUID
+	Depth           int
+	CreatedAt       time.Time
+	StartedAt       *time.Time
+	CompletedAt     *time.Time
+	UpdatedAt       time.Time
 }
 
 // StepRun is one execution attempt of one step.
@@ -313,7 +319,13 @@ type CreateRunParams struct {
 	SourceEventKey *string
 	RequestedBy    *uuid.UUID
 	RequestID      string
-	CreatedAt      time.Time
+	// ParentRunID and ParentStepRunID are set for a subworkflow run; Depth
+	// is then the parent's depth plus one and bounded by
+	// automation.MaxSubworkflowDepth.
+	ParentRunID     *uuid.UUID
+	ParentStepRunID *uuid.UUID
+	Depth           int
+	CreatedAt       time.Time
 }
 
 // StartStepParams opens one step attempt.

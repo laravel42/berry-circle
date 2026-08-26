@@ -72,12 +72,34 @@ var KnownStepTypes = map[StepType]bool{
 	StepForeach: true, StepTransform: true, StepSubworkflow: true,
 }
 
-// SupportedStepTypes is the MVP set Berry executes natively (spec §42). The
-// remaining types parse, so a plan can carry them, but validation reports
-// NODE_TYPE_UNSUPPORTED until their executors land.
+// SupportedStepTypes is the set Berry executes natively: the MVP set (spec
+// §42) plus the extended nodes that landed with P4.5. A type in
+// KnownStepTypes but not here parses, so a plan can carry it, and validation
+// reports NODE_TYPE_UNSUPPORTED.
 var SupportedStepTypes = map[StepType]bool{
 	StepAction: true, StepCondition: true, StepAgent: true, StepCreateIssue: true,
 	StepUpdateIssue: true, StepApproval: true, StepWait: true,
+	StepSwitch: true, StepForeach: true, StepTransform: true, StepSubworkflow: true,
+}
+
+// Foreach bounds. A loop is a bounded fan-out, not a batch job: every item
+// becomes one step row per body step, and a run walks them in order.
+const (
+	MaxForeachItems     = 100
+	DefaultForeachItems = 25
+)
+
+// MaxSubworkflowDepth is how deep subworkflow runs may nest below the run a
+// trigger started (depth 0): a child at 1, its child at 2, its child at 3.
+const MaxSubworkflowDepth = 3
+
+// ForeachBodyTypes are the step types a foreach body may contain. Branching
+// and nested loops inside a loop stay out so an iteration is a straight
+// walk; every body step may still wait (an approval, an agent run, a child
+// workflow) because each iteration has its own rows.
+var ForeachBodyTypes = map[StepType]bool{
+	StepAction: true, StepAgent: true, StepCreateIssue: true, StepUpdateIssue: true,
+	StepApproval: true, StepWait: true, StepTransform: true, StepSubworkflow: true,
 }
 
 // OnError names what the runner does when a step fails.
@@ -116,12 +138,41 @@ const (
 	ApproverRole ApproverType = "role"
 )
 
-var stepIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+var (
+	stepIDPattern    = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
+	stepRunIDPattern = regexp.MustCompile(`^([a-z][a-z0-9_]{0,63})(?:\[([0-9]{1,3})\])?$`)
+)
 
-// ValidStepID reports whether an id matches the step id grammar shared with
-// automation_step_runs.step_id.
+// ValidStepID reports whether an id matches the step id grammar of a
+// definition.
 func ValidStepID(id string) bool {
 	return stepIDPattern.MatchString(id)
+}
+
+// ValidStepRunID reports whether an id matches what automation_step_runs
+// stores: a step id, or a step id with a foreach index suffix ("body[2]").
+func ValidStepRunID(id string) bool {
+	return stepRunIDPattern.MatchString(id)
+}
+
+// IndexedStepID names the row a foreach body step gets for one item.
+func IndexedStepID(id string, index int) string {
+	return id + "[" + strconv.Itoa(index) + "]"
+}
+
+// SplitStepRunID separates a stored step id into the definition's step id
+// and, for a foreach body row, the item index. indexed is false for a plain
+// step id; the index is then -1.
+func SplitStepRunID(id string) (base string, index int, indexed bool) {
+	match := stepRunIDPattern.FindStringSubmatch(id)
+	if match == nil {
+		return id, -1, false
+	}
+	if match[2] == "" {
+		return match[1], -1, false
+	}
+	index, _ = strconv.Atoi(match[2])
+	return match[1], index, true
 }
 
 // Definition is WorkflowDefinition v1, the shape stored in

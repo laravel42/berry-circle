@@ -42,6 +42,12 @@ func (batch *TriggerBatch) MatchActive(ctx context.Context, workspaceID uuid.UUI
 	return matchActive(ctx, batch.tx, workspaceID, topic)
 }
 
+// MatchIntegration lists the active workflows in a workspace whose
+// integration trigger names the provider and operation.
+func (batch *TriggerBatch) MatchIntegration(ctx context.Context, workspaceID uuid.UUID, provider, operation string) ([]Automation, error) {
+	return matchIntegration(ctx, batch.tx, workspaceID, provider, operation)
+}
+
 // CreateRun records a run for a claimed event inside the batch transaction.
 func (batch *TriggerBatch) CreateRun(ctx context.Context, params CreateRunParams) (Run, bool, error) {
 	return createRunIn(ctx, batch.tx, params)
@@ -234,6 +240,45 @@ func (repository *Repository) ClaimTriggerBatch(
 // need to know what would fire.
 func (repository *Repository) MatchActive(ctx context.Context, workspaceID uuid.UUID, topic string) ([]Automation, error) {
 	return matchActive(ctx, repository.Pool, workspaceID, topic)
+}
+
+// MatchIntegration is the integration matcher outside a claim.
+func (repository *Repository) MatchIntegration(ctx context.Context, workspaceID uuid.UUID, provider, operation string) ([]Automation, error) {
+	return matchIntegration(ctx, repository.Pool, workspaceID, provider, operation)
+}
+
+func matchIntegration(ctx context.Context, queryer database, workspaceID uuid.UUID, provider, operation string) ([]Automation, error) {
+	if workspaceID == uuid.Nil || provider == "" || operation == "" {
+		return nil, errors.New("integration match parameters are invalid")
+	}
+	rows, err := queryer.Query(
+		ctx,
+		`SELECT `+automationProjection+`
+		   FROM automations AS automation
+		  WHERE automation.workspace_id = $1
+		    AND automation.status = 'active'
+		    AND automation.trigger_type = 'integration'
+		    AND automation.trigger_provider = $2
+		    AND automation.trigger_operation = $3
+		  ORDER BY automation.created_at ASC, automation.id ASC`,
+		workspaceID, provider, operation,
+	)
+	if err != nil {
+		return nil, errors.New("match integration automations")
+	}
+	defer rows.Close()
+	result := []Automation{}
+	for rows.Next() {
+		item, err := scanAutomation(rows)
+		if err != nil {
+			return nil, errors.New("scan matched automation")
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.New("iterate matched automations")
+	}
+	return result, nil
 }
 
 func matchActive(ctx context.Context, queryer database, workspaceID uuid.UUID, topic string) ([]Automation, error) {

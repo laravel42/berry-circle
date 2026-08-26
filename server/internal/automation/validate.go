@@ -14,6 +14,8 @@ import (
 	_ "time/tzdata"
 
 	"github.com/google/uuid"
+
+	"github.com/laravel42/berry-circle/server/internal/cron"
 )
 
 // ToolKind distinguishes what a provider tool is used for in a definition.
@@ -50,14 +52,34 @@ type Catalog interface {
 	Connected(provider string) bool
 }
 
+// SubworkflowRef is what the validator learns about a workflow a subworkflow
+// step names.
+type SubworkflowRef struct {
+	Definition Definition
+	Active     bool
+}
+
+// SubworkflowCatalog resolves the workflows subworkflow steps name, within
+// the workspace being validated. A nil catalog skips the subworkflow rules
+// except the shape of the id.
+type SubworkflowCatalog interface {
+	Subworkflow(id uuid.UUID) (SubworkflowRef, bool)
+}
+
 // ValidateOptions tunes one validation.
 type ValidateOptions struct {
 	Catalog Catalog
 	// RequireConnections makes a missing connection an error, which is the
-	// activation rule; saving a draft only warns.
+	// activation rule; saving a draft only warns. The same strictness applies
+	// to a subworkflow that is not active.
 	RequireConnections bool
 	// Supported overrides SupportedStepTypes when set.
 	Supported map[StepType]bool
+	// Subworkflows resolves the workflows subworkflow steps call.
+	Subworkflows SubworkflowCatalog
+	// AutomationID is the workflow being validated, when it exists, so a
+	// subworkflow chain that leads back to it is refused as a cycle.
+	AutomationID *uuid.UUID
 }
 
 // Report is the outcome of a validation. Errors block the write; warnings are
@@ -145,9 +167,10 @@ func ParseDuration(text string) (time.Duration, bool) {
 	return total, true
 }
 
-// ValidCronExpression is a syntactic check on a five-field expression or one
-// of the named schedules. The parser that computes fire times lands with
-// schedule triggers; until then a malformed expression is still refused here.
+// ValidCronExpression reports whether a five-field expression, or one of the
+// named schedules, parses with the scheduler's own parser. The character
+// check in front keeps letters out even where the parser would tolerate
+// them, so the grammar a person sees is one grammar.
 func ValidCronExpression(expression string) bool {
 	switch expression {
 	case "@hourly", "@daily", "@weekly", "@monthly", "@yearly":
@@ -162,7 +185,8 @@ func ValidCronExpression(expression string) bool {
 			return false
 		}
 	}
-	return true
+	_, err := cron.Parse(expression)
+	return err == nil
 }
 
 // ValidateDefinition runs the structural, workflow, integration (with a
@@ -209,8 +233,8 @@ func ValidateDefinition(definition Definition, options ValidateOptions) Report {
 		} else if !supported[step.Type] {
 			report.add(FieldError{
 				Path: path + "/type", Code: "NODE_TYPE_UNSUPPORTED", Severity: SeverityError,
-				Message: fmt.Sprintf("Step type %q cannot be executed yet.", step.Type),
-				Hint:    "Use action, condition, agent, create_issue, update_issue, approval or wait.",
+				Message: fmt.Sprintf("Step type %q cannot be executed on this deployment.", step.Type),
+				Hint:    "Use one of the supported step types.",
 			})
 		}
 		if step.OnError != "" && step.OnError != OnErrorFail && step.OnError != OnErrorSkip {
@@ -240,6 +264,7 @@ func ValidateDefinition(definition Definition, options ValidateOptions) Report {
 		report.errorf(stepPath(index[closing]), "STEP_GRAPH_CYCLE",
 			fmt.Sprintf("Step %q is part of a cycle.", closing))
 	}
+	bodies := foreachBodies(definition, index, &report)
 
 	for position, step := range definition.Steps {
 		if _, known := index[step.ID]; !known || index[step.ID] != position {
@@ -252,10 +277,132 @@ func ValidateDefinition(definition Definition, options ValidateOptions) Report {
 			steps:     definition.Steps,
 			options:   options,
 			report:    &report,
+			foreach:   bodies[step.ID],
 		}
 		validateStep(step, context)
 	}
+	validateSubworkflowGraph(definition, index, options, &report)
 	return report
+}
+
+// foreachBodies maps every body step to its loop and enforces the body
+// rules: a step belongs to at most one loop, is not an entry step, has a
+// type a loop may contain, and is depended on only from inside the loop.
+func foreachBodies(definition Definition, index map[string]int, report *Report) map[string]string {
+	bodies := map[string]string{}
+	entries := map[string]bool{}
+	for _, id := range definition.Entry {
+		entries[id] = true
+	}
+	for position, step := range definition.Steps {
+		if step.Type != StepForeach || step.Foreach == nil || index[step.ID] != position {
+			continue
+		}
+		path := stepPath(position)
+		if len(step.Foreach.Steps) == 0 {
+			report.errorf(path+"/steps", "FOREACH_BODY_EMPTY", "A foreach names at least one body step.")
+		}
+		for offset, id := range step.Foreach.Steps {
+			bodyPosition, known := index[id]
+			if !known {
+				continue
+			}
+			bodyPath := fmt.Sprintf("%s/steps/%d", path, offset)
+			if owner, taken := bodies[id]; taken && owner != step.ID {
+				report.errorf(bodyPath, "FOREACH_BODY_SHARED", fmt.Sprintf("Step %q is already the body of loop %q.", id, owner))
+				continue
+			}
+			bodies[id] = step.ID
+			if entries[id] {
+				report.errorf(bodyPath, "FOREACH_BODY_ENTRY", fmt.Sprintf("Body step %q cannot also be an entry step.", id))
+			}
+			if bodyType := definition.Steps[bodyPosition].Type; KnownStepTypes[bodyType] && !ForeachBodyTypes[bodyType] {
+				report.errorf(bodyPath, "FOREACH_BODY_TYPE",
+					fmt.Sprintf("A foreach body cannot contain a %s step.", bodyType))
+			}
+		}
+	}
+	for position, step := range definition.Steps {
+		if index[step.ID] != position {
+			continue
+		}
+		for offset, dependency := range step.DependsOn {
+			owner, inBody := bodies[dependency]
+			if inBody && bodies[step.ID] != owner {
+				report.errorf(fmt.Sprintf("%s/dependsOn/%d", stepPath(position), offset), "FOREACH_BODY_ESCAPE",
+					fmt.Sprintf("Step %q runs outside loop %q and cannot depend on its body step %q; read steps.%s.output.results instead.",
+						step.ID, owner, dependency, owner))
+			}
+		}
+		if step.Type == StepCondition || step.Type == StepSwitch {
+			for _, ref := range branchRefs(step) {
+				if owner, inBody := bodies[ref.id]; inBody {
+					report.errorf(fmt.Sprintf("%s/%s/%d", stepPath(position), ref.field, ref.offset), "FOREACH_BODY_ESCAPE",
+						fmt.Sprintf("Step %q cannot branch into body step %q of loop %q.", step.ID, ref.id, owner))
+				}
+			}
+		}
+	}
+	return bodies
+}
+
+// validateSubworkflowGraph follows subworkflow steps through the catalog:
+// a chain that comes back to a workflow already on the path is a cycle, one
+// that nests past MaxSubworkflowDepth is refused, and an unknown or inactive
+// child is reported on the step that names it.
+func validateSubworkflowGraph(definition Definition, index map[string]int, options ValidateOptions, report *Report) {
+	if options.Subworkflows == nil {
+		return
+	}
+	path := map[uuid.UUID]bool{}
+	if options.AutomationID != nil {
+		path[*options.AutomationID] = true
+	}
+	var visit func(current Definition, depth int, report func(code, message string, severity Severity))
+	visit = func(current Definition, depth int, report func(code, message string, severity Severity)) {
+		for _, step := range current.Steps {
+			if step.Type != StepSubworkflow || step.Subworkflow == nil {
+				continue
+			}
+			childID, err := uuid.Parse(step.Subworkflow.WorkflowID)
+			if err != nil || childID == uuid.Nil {
+				continue
+			}
+			if path[childID] {
+				report("SUBWORKFLOW_CYCLE", "The subworkflow chain leads back to this workflow.", SeverityError)
+				continue
+			}
+			if depth+1 > MaxSubworkflowDepth {
+				report("SUBWORKFLOW_DEPTH", fmt.Sprintf("Subworkflows nest at most %d levels deep.", MaxSubworkflowDepth), SeverityError)
+				continue
+			}
+			child, ok := options.Subworkflows.Subworkflow(childID)
+			if !ok {
+				report("SUBWORKFLOW_UNKNOWN", "The subworkflow does not exist in this workspace.", SeverityError)
+				continue
+			}
+			if !child.Active {
+				severity := SeverityWarning
+				if options.RequireConnections {
+					severity = SeverityError
+				}
+				report("SUBWORKFLOW_NOT_ACTIVE", "The subworkflow is not active; only an active workflow can be called.", severity)
+			}
+			path[childID] = true
+			visit(child.Definition, depth+1, report)
+			delete(path, childID)
+		}
+	}
+	for position, step := range definition.Steps {
+		if step.Type != StepSubworkflow || step.Subworkflow == nil || index[step.ID] != position {
+			continue
+		}
+		stepPath := stepPath(position) + "/workflowId"
+		single := Definition{Steps: []Step{step}}
+		visit(single, 0, func(code, message string, severity Severity) {
+			report.add(FieldError{Path: stepPath, Code: code, Message: message, Severity: severity})
+		})
+	}
 }
 
 func stepPath(position int) string {
@@ -494,17 +641,28 @@ type stepContext struct {
 	steps     []Step
 	options   ValidateOptions
 	report    *Report
+	// foreach is the loop this step is the body of, or empty.
+	foreach string
+	// allowItem admits the item reference outside a loop body: an event
+	// wait's filter reads the incoming event as item.
+	allowItem bool
 }
 
 // checkRefs validates the references inside one value and requires every
 // step reference to name an ancestor: reading the output of a step that has
-// not run yet, or runs on another branch, resolves to nothing.
+// not run yet, or runs on another branch, resolves to nothing. The item
+// reference is the current element inside a loop body and nothing elsewhere.
 func (context stepContext) checkRefs(path string, refs []string, err error) {
 	if err != nil {
 		context.report.errorf(path, "TEMPLATE_REF_INVALID", err.Error())
 		return
 	}
 	for _, ref := range refs {
+		if (ref == "item" || strings.HasPrefix(ref, "item.")) && context.foreach == "" && !context.allowItem {
+			context.report.errorf(path, "ITEM_REF_OUTSIDE_FOREACH",
+				fmt.Sprintf("Reference %q reads the loop item, but this step is not inside a foreach.", ref))
+			continue
+		}
 		producer, ok := ReferencedStep(ref)
 		if !ok {
 			continue
@@ -721,35 +879,56 @@ func validateStep(step Step, context stepContext) {
 					for _, finding := range wait.Event.Filter.Validate(path + "/event/filter") {
 						report.add(finding)
 					}
-					context.checkRefs(path+"/event/filter", wait.Event.Filter.References(), nil)
+					filterContext := context
+					filterContext.allowItem = true
+					filterContext.checkRefs(path+"/event/filter", wait.Event.Filter.References(), nil)
 				}
 			}
 		default:
 			report.errorf(path+"/mode", "WAIT_MODE_INCOMPLETE", "A wait is for a duration, until an instant, or for an event.")
 		}
 	case StepSwitch:
-		if step.Switch != nil {
-			context.checkValue(path+"/value", step.Switch.Value)
-			if len(step.Switch.Cases) == 0 {
-				report.errorf(path+"/cases", "SWITCH_CASES_EMPTY", "A switch needs at least one case.")
+		branch := step.Switch
+		if len(branch.Value) == 0 {
+			report.errorf(path+"/value", "STEP_FIELD_REQUIRED", "A switch names the value it branches on.")
+		} else {
+			context.checkValue(path+"/value", branch.Value)
+		}
+		if len(branch.Cases) == 0 {
+			report.errorf(path+"/cases", "SWITCH_CASES_EMPTY", "A switch needs at least one case.")
+		}
+		for offset, item := range branch.Cases {
+			casePath := fmt.Sprintf("%s/cases/%d", path, offset)
+			if len(item.Equals) == 0 {
+				report.errorf(casePath+"/equals", "STEP_FIELD_REQUIRED", "A case names the value it matches.")
+			} else {
+				context.checkValue(casePath+"/equals", item.Equals)
 			}
 		}
 	case StepForeach:
-		if step.Foreach != nil {
-			if _, ok := ParseReference(step.Foreach.Items); !ok {
-				report.errorf(path+"/items", "FOREACH_NOT_ITERABLE", "foreach iterates a reference to an array.")
-			} else {
-				context.checkValue(path+"/items", step.Foreach.Items)
-			}
+		loop := step.Foreach
+		if _, ok := ParseReference(loop.Items); !ok {
+			report.errorf(path+"/items", "FOREACH_NOT_ITERABLE", "foreach iterates a reference to an array.")
+		} else {
+			context.checkValue(path+"/items", loop.Items)
+		}
+		if loop.MaxItems < 0 || loop.MaxItems > MaxForeachItems {
+			report.errorf(path+"/maxItems", "FOREACH_LIMIT_INVALID",
+				fmt.Sprintf("maxItems is between 1 and %d (default %d).", MaxForeachItems, DefaultForeachItems))
 		}
 	case StepTransform:
-		if step.Transform != nil {
-			context.checkInputs(path+"/output", step.Transform.Output)
+		if len(step.Transform.Output) == 0 {
+			report.errorf(path+"/output", "TRANSFORM_OUTPUT_EMPTY", "A transform produces at least one output field.")
 		}
+		context.checkInputs(path+"/output", step.Transform.Output)
 	case StepSubworkflow:
-		if step.Subworkflow != nil {
-			context.checkInputs(path+"/input", step.Subworkflow.Input)
+		call := step.Subworkflow
+		if !validUUID(call.WorkflowID) {
+			report.errorf(path+"/workflowId", "STEP_FIELD_INVALID", "workflowId is the UUID of a workflow in this workspace.")
+		} else if context.options.AutomationID != nil && call.WorkflowID == context.options.AutomationID.String() {
+			report.errorf(path+"/workflowId", "SUBWORKFLOW_CYCLE", "A workflow cannot call itself.")
 		}
+		context.checkInputs(path+"/input", call.Input)
 	}
 }
 

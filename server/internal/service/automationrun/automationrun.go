@@ -51,6 +51,7 @@ type Store interface {
 	GetVersion(context.Context, uuid.UUID, int) (automationrepo.Version, error)
 	GetRun(context.Context, uuid.UUID) (automationrepo.Run, error)
 	GetRunWithSteps(context.Context, uuid.UUID) (automationrepo.Run, []automationrepo.StepRun, error)
+	CreateRun(context.Context, automationrepo.CreateRunParams) (automationrepo.Run, bool, error)
 	MarkRunning(context.Context, uuid.UUID, time.Time, func() uuid.UUID) (automationrepo.Run, automationrepo.Event, error)
 	MarkWaiting(context.Context, uuid.UUID, string, string, *time.Time, time.Time, func() uuid.UUID) (automationrepo.Run, automationrepo.Event, error)
 	Resume(context.Context, uuid.UUID, time.Time, func() uuid.UUID) (automationrepo.Run, automationrepo.Event, error)
@@ -104,6 +105,14 @@ type IssueRuns interface {
 // Artifacts lists what an issue run produced, for the step's output.
 type Artifacts interface {
 	ListRunArtifacts(context.Context, uuid.UUID, *collaboration.AttachmentCursor, int) ([]collaboration.Attachment, error)
+}
+
+// SubrunStarter hands a child run a subworkflow step created to whatever
+// executes runs. It is the Starter with the resume half left out, and it
+// is set after construction because the in-process starter wraps the
+// runner it serves.
+type SubrunStarter interface {
+	Start(ctx context.Context, runID uuid.UUID) error
 }
 
 // Responder is the one runtime call an inline agent step makes.
@@ -162,6 +171,26 @@ type Runner struct {
 	options  Options
 	mu       sync.Mutex
 	inflight map[uuid.UUID]struct{}
+	subruns  SubrunStarter
+}
+
+// SetSubrunStarter names what starts the child runs subworkflow steps
+// create. Called once at boot, after the starter that wraps this runner
+// exists; a runner without one fails subworkflow steps with
+// EXECUTOR_UNAVAILABLE rather than leaving a child pending forever.
+func (runner *Runner) SetSubrunStarter(starter SubrunStarter) {
+	if runner == nil {
+		return
+	}
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	runner.subruns = starter
+}
+
+func (runner *Runner) subrunStarter() SubrunStarter {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	return runner.subruns
 }
 
 // New validates the required dependencies.
@@ -291,7 +320,7 @@ func (runner *Runner) ApplySignal(ctx context.Context, runID uuid.UUID, signal R
 		runner.failRun(ctx, run, automationrepo.Failure{Code: "DEFINITION_INVALID", Message: bounded(err.Error())})
 		return nil
 	}
-	step, ok := findStep(definition, waiting.StepID)
+	step, ok := findStepRun(definition, waiting.StepID)
 	if !ok {
 		runner.failRun(ctx, run, automationrepo.Failure{Code: "DEFINITION_INVALID", Message: "The waiting step is not in the workflow version."})
 		return nil
@@ -324,7 +353,7 @@ func (runner *Runner) settle(
 				// The decision was the gate in front of the call; the call
 				// itself happens now, under the approval.
 				approvalID := signal.ID
-				scope := runner.scope(ctx, run, latestByStep(steps))
+				scope := runner.scope(ctx, run, definition, latestByStep(steps), row.StepID)
 				outcome, err = runner.executeStep(ctx, stepCall{
 					run: run, automation: item, step: step, row: row, scope: scope,
 					approved: true, approvalID: &approvalID,
@@ -340,6 +369,10 @@ func (runner *Runner) settle(
 			err = stepFailure("APPROVAL_INVALID", "The approval outcome is unknown.")
 		}
 	case SignalRun:
+		if step.Type == automation.StepSubworkflow {
+			outcome, err = runner.subworkflowOutcome(ctx, signal)
+			break
+		}
 		switch signal.Outcome {
 		case "completed":
 			outcome, err = runner.runOutcome(ctx, signal.ID)
@@ -392,7 +425,7 @@ func (runner *Runner) walk(ctx context.Context, run automationrepo.Run) {
 		runner.failRun(ctx, run, automationrepo.Failure{Code: "DEFINITION_INVALID", Message: bounded(err.Error())})
 		return
 	}
-	graph := buildGraph(definition)
+	static := buildGraph(definition)
 	for {
 		if ctx.Err() != nil {
 			return
@@ -410,6 +443,7 @@ func (runner *Runner) walk(ctx context.Context, run automationrepo.Run) {
 			// Something still waits; the signal that settles it continues.
 			return
 		}
+		graph := static.expand(state)
 		next, decision := graph.next(state)
 		switch decision {
 		case decisionPrune:
@@ -428,21 +462,21 @@ func (runner *Runner) walk(ctx context.Context, run automationrepo.Run) {
 			runner.failRun(ctx, current, automationrepo.Failure{Code: "WORKFLOW_STUCK", Message: "No step can run and the workflow has not finished."})
 			return
 		}
-		step, _ := findStep(definition, next)
+		step, _ := findStepRun(definition, next)
 		input, _ := json.Marshal(step)
 		row, event, err := runner.options.Store.StartStep(ctx, automationrepo.StartStepParams{
-			ID: runner.options.NewID(), RunID: run.ID, StepID: step.ID, StepType: step.Type,
-			Attempt: nextAttempt(state, step.ID), Input: input, Now: runner.now(), NewID: runner.options.NewID,
+			ID: runner.options.NewID(), RunID: run.ID, StepID: next, StepType: step.Type,
+			Attempt: nextAttempt(state, next), Input: input, Now: runner.now(), NewID: runner.options.NewID,
 		})
 		if err != nil {
 			// A conflict on the attempt key means another worker holds the
 			// step; a terminal run means someone cancelled it. Neither is
 			// ours to continue.
-			runner.options.Logger.Info("automation step not started", "runId", run.ID, "stepId", step.ID, "error", err)
+			runner.options.Logger.Info("automation step not started", "runId", run.ID, "stepId", next, "error", err)
 			return
 		}
 		runner.publish(ctx, event)
-		scope := runner.scope(ctx, current, state)
+		scope := runner.scope(ctx, current, definition, state, next)
 		outcome, execErr := runner.executeStep(ctx, stepCall{run: current, automation: item, step: step, row: row, scope: scope})
 		if !runner.record(ctx, current, graph, step, row, outcome, execErr) {
 			return
@@ -516,7 +550,7 @@ func (runner *Runner) record(
 			return false
 		}
 		runner.publish(ctx, event)
-		if step.Type == automation.StepCondition && step.Condition != nil {
+		if (step.Type == automation.StepCondition && step.Condition != nil) || (step.Type == automation.StepSwitch && step.Switch != nil) {
 			taken := map[string]bool{}
 			for _, id := range outcome.Next {
 				taken[id] = true
@@ -538,7 +572,7 @@ func (runner *Runner) record(
 // prune records the steps of a branch the run did not take as skipped.
 func (runner *Runner) prune(ctx context.Context, run automationrepo.Run, definition automation.Definition, ids []string) {
 	for _, id := range ids {
-		step, ok := findStep(definition, id)
+		step, ok := findStepRun(definition, id)
 		if !ok {
 			continue
 		}
@@ -610,6 +644,13 @@ func findStep(definition automation.Definition, id string) (automation.Step, boo
 		}
 	}
 	return automation.Step{}, false
+}
+
+// findStepRun resolves a stored step id, with or without a foreach index,
+// to the definition's step.
+func findStepRun(definition automation.Definition, stepRunID string) (automation.Step, bool) {
+	base, _, _ := automation.SplitStepRunID(stepRunID)
+	return findStep(definition, base)
 }
 
 // latestByStep keeps the highest attempt of every step.

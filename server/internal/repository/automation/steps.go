@@ -78,7 +78,7 @@ func getStep(ctx context.Context, queryer database, stepRunID uuid.UUID, lock bo
 // StartStep opens one attempt of a step on a running run, makes it the
 // current step and records workflow.step.started.
 func (repository *Repository) StartStep(ctx context.Context, params StartStepParams) (StepRun, Event, error) {
-	if params.ID == uuid.Nil || params.RunID == uuid.Nil || !automation.ValidStepID(params.StepID) ||
+	if params.ID == uuid.Nil || params.RunID == uuid.Nil || !automation.ValidStepRunID(params.StepID) ||
 		!automation.KnownStepTypes[params.StepType] || params.Now.IsZero() {
 		return StepRun{}, Event{}, errors.New("automation step start parameters are invalid")
 	}
@@ -227,7 +227,7 @@ func (repository *Repository) SkipStep(ctx context.Context, stepRunID uuid.UUID,
 // did not take — straight to skipped, with only workflow.step.skipped on the
 // ledger, so a reader can tell "not taken" from "attempted and abandoned".
 func (repository *Repository) RecordSkippedStep(ctx context.Context, params StartStepParams) (StepRun, Event, error) {
-	if params.ID == uuid.Nil || params.RunID == uuid.Nil || !automation.ValidStepID(params.StepID) ||
+	if params.ID == uuid.Nil || params.RunID == uuid.Nil || !automation.ValidStepRunID(params.StepID) ||
 		!automation.KnownStepTypes[params.StepType] || params.Now.IsZero() {
 		return StepRun{}, Event{}, errors.New("automation step skip parameters are invalid")
 	}

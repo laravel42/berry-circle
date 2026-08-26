@@ -56,6 +56,16 @@ func TestPlanningAndAutomationMigrationsAreAdditiveAndComplete(t *testing.T) {
 			"ALTER TABLE automation_trigger_receipts ADD COLUMN IF NOT EXISTS reason",
 			"automation_trigger_receipts_reason_ck",
 		},
+		"025_extended_nodes_and_triggers.up.sql": {
+			`(\[[0-9]{1,3}\])?$`,
+			"ADD COLUMN IF NOT EXISTS parent_run_id",
+			"ADD COLUMN IF NOT EXISTS parent_step_run_id",
+			"ADD COLUMN IF NOT EXISTS depth",
+			"automation_runs_depth_ck",
+			"'workflow.run.succeeded', 'workflow.run.failed', 'workflow.run.cancelled'",
+			"automations_active_integration_idx",
+			"CREATE TABLE IF NOT EXISTS agent_asks",
+		},
 	}
 	all, err := List()
 	if err != nil {

@@ -33,9 +33,9 @@ type ScheduleSpec struct {
 
 // Schedules is the seam through which activating, pausing and archiving a
 // schedule-triggered workflow reaches whatever fires it: Temporal Schedules
-// when the orchestration is enabled, the in-process scheduler otherwise.
-// Both land with the schedule trigger (P4.5); until then NoopSchedules
-// records nothing and the activation stays a recorded decision.
+// when the orchestration is enabled (orchestration.AutomationSchedules),
+// the in-process scheduler otherwise (InProcessSchedules). NoopSchedules
+// records nothing, for deployments that do not execute workflows.
 type Schedules interface {
 	Ensure(ctx context.Context, automationID uuid.UUID, spec ScheduleSpec) error
 	Pause(ctx context.Context, automationID uuid.UUID) error
@@ -72,7 +72,10 @@ func NewInProcessStarter(ctx context.Context, runner *Runner, workers, queueSize
 	if err != nil {
 		return nil, err
 	}
-	return &InProcessStarter{runner: runner, pool: pool}, nil
+	starter := &InProcessStarter{runner: runner, pool: pool}
+	// Child runs a subworkflow step creates go on the same pool.
+	runner.SetSubrunStarter(starter)
+	return starter, nil
 }
 
 // Start queues the run.

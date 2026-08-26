@@ -96,8 +96,8 @@ func (call stepCall) context(now func() uuid.UUID) automation.StepContext {
 	}
 }
 
-// executeStep runs one step natively. The MVP set (spec §42) executes; the
-// rest fail with NODE_TYPE_UNSUPPORTED until their executors land.
+// executeStep runs one step natively. A type outside the vocabulary fails
+// with NODE_TYPE_UNSUPPORTED.
 func (runner *Runner) executeStep(ctx context.Context, call stepCall) (automation.StepOutcome, error) {
 	if ctx.Err() != nil {
 		return automation.StepOutcome{}, wrapFailure("STEP_INTERRUPTED", "The step was interrupted.", ctx.Err())
@@ -117,9 +117,17 @@ func (runner *Runner) executeStep(ctx context.Context, call stepCall) (automatio
 		return runner.executeAgent(ctx, call)
 	case automation.StepAction:
 		return runner.executeAction(ctx, call)
+	case automation.StepSwitch:
+		return runner.executeSwitch(call)
+	case automation.StepTransform:
+		return runner.executeTransform(call)
+	case automation.StepForeach:
+		return runner.executeForeach(call)
+	case automation.StepSubworkflow:
+		return runner.executeSubworkflow(ctx, call)
 	default:
 		return automation.StepOutcome{}, stepFailure("NODE_TYPE_UNSUPPORTED",
-			fmt.Sprintf("Step type %q cannot be executed yet.", call.step.Type))
+			fmt.Sprintf("Step type %q cannot be executed on this deployment.", call.step.Type))
 	}
 }
 

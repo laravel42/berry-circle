@@ -1,6 +1,8 @@
 package automationrun
 
 import (
+	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/laravel42/berry-circle/server/internal/automation"
@@ -76,4 +78,81 @@ func (runner *Runner) executeWait(call stepCall) (automation.StepOutcome, error)
 	default:
 		return automation.StepOutcome{}, stepFailure("WAIT_INVALID", "The wait mode is unknown.")
 	}
+}
+
+// executeSwitch resolves the value and takes the first case whose equals
+// matches it, else the default branch; the runner prunes the rest.
+func (runner *Runner) executeSwitch(call stepCall) (automation.StepOutcome, error) {
+	branch := call.step.Switch
+	if branch == nil {
+		return automation.StepOutcome{}, stepFailure("DEFINITION_INVALID", "The switch step has no value.")
+	}
+	value, err := automation.ResolveValue(branch.Value, call.scope)
+	if err != nil {
+		return automation.StepOutcome{}, wrapFailure("INPUT_INVALID", "The switch value: "+err.Error(), err)
+	}
+	next := branch.DefaultSteps
+	var matched any
+	for index, item := range branch.Cases {
+		expected, err := automation.ResolveValue(item.Equals, call.scope)
+		if err != nil {
+			return automation.StepOutcome{}, wrapFailure("INPUT_INVALID", fmt.Sprintf("Case %d: %s", index, err.Error()), err)
+		}
+		if reflect.DeepEqual(value, expected) {
+			next = item.Steps
+			matched = index
+			break
+		}
+	}
+	if next == nil {
+		next = []string{}
+	}
+	outcome := succeeded(map[string]any{"value": value, "case": matched, "next": next})
+	outcome.Next = next
+	return outcome, nil
+}
+
+// executeTransform evaluates every output field through references and
+// templates; the result is the step's output and nothing else happens.
+func (runner *Runner) executeTransform(call stepCall) (automation.StepOutcome, error) {
+	transform := call.step.Transform
+	if transform == nil {
+		return automation.StepOutcome{}, stepFailure("DEFINITION_INVALID", "The transform step has no output.")
+	}
+	output, err := resolveInput(transform.Output, call.scope)
+	if err != nil {
+		return automation.StepOutcome{}, err
+	}
+	return succeeded(output), nil
+}
+
+// executeForeach resolves the items and records them; the runner then fans
+// the body out as one row per body step per item, in item order. An array
+// past maxItems fails rather than being cut short: silently dropping the
+// tail would hide the very rows a person expected to see.
+func (runner *Runner) executeForeach(call stepCall) (automation.StepOutcome, error) {
+	loop := call.step.Foreach
+	if loop == nil {
+		return automation.StepOutcome{}, stepFailure("DEFINITION_INVALID", "The foreach step has no items.")
+	}
+	value, err := automation.ResolveValue(loop.Items, call.scope)
+	if err != nil {
+		return automation.StepOutcome{}, wrapFailure("INPUT_INVALID", "The foreach items: "+err.Error(), err)
+	}
+	items, ok := value.([]any)
+	if !ok {
+		return automation.StepOutcome{}, stepFailure("FOREACH_NOT_ITERABLE", "The foreach items did not resolve to an array.")
+	}
+	limit := loop.MaxItems
+	if limit <= 0 {
+		limit = automation.DefaultForeachItems
+	}
+	if limit > automation.MaxForeachItems {
+		limit = automation.MaxForeachItems
+	}
+	if len(items) > limit {
+		return automation.StepOutcome{}, stepFailure("FOREACH_LIMIT_EXCEEDED",
+			fmt.Sprintf("The foreach received %d items; maxItems is %d.", len(items), limit))
+	}
+	return succeeded(map[string]any{"count": len(items), "items": items}), nil
 }

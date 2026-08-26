@@ -182,9 +182,14 @@ type RunResource struct {
 	WaitingOn       *string          `json:"waitingOn"`
 	Failure         *FailureResource `json:"failure"`
 	Usage           UsageResource    `json:"usage"`
-	CreatedAt       string           `json:"createdAt"`
-	StartedAt       *string          `json:"startedAt"`
-	CompletedAt     *string          `json:"completedAt"`
+	// ParentRunID and ParentStepRunID are set on a run a subworkflow step
+	// started; Depth is 0 for a run a trigger started.
+	ParentRunID     *uuid.UUID `json:"parentRunId"`
+	ParentStepRunID *uuid.UUID `json:"parentStepRunId"`
+	Depth           int        `json:"depth"`
+	CreatedAt       string     `json:"createdAt"`
+	StartedAt       *string    `json:"startedAt"`
+	CompletedAt     *string    `json:"completedAt"`
 	// Steps is present on the detail resource only; a list row omits it.
 	Steps *[]StepResource `json:"steps,omitempty"`
 }
@@ -195,6 +200,7 @@ func SerializeRun(run automationrepo.Run, steps []automationrepo.StepRun) RunRes
 		ID: run.ID, WorkspaceID: run.WorkspaceID, WorkflowID: run.AutomationID, WorkflowVersion: run.AutomationVersion, GoalID: run.GoalID,
 		Status: string(run.Status), TriggerType: string(run.TriggerType), TriggerPayload: nonEmpty(run.TriggerPayload),
 		CurrentStepID: run.CurrentStepID, WaitingOn: run.WaitingOn,
+		ParentRunID: run.ParentRunID, ParentStepRunID: run.ParentStepRunID, Depth: run.Depth,
 		Usage:     UsageResource{InputTokens: run.Usage.InputTokens, OutputTokens: run.Usage.OutputTokens, CostMicros: run.Usage.CostMicros},
 		CreatedAt: run.CreatedAt.UTC().Format(time.RFC3339Nano), StartedAt: formatTime(run.StartedAt), CompletedAt: formatTime(run.CompletedAt),
 	}

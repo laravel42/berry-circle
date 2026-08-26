@@ -95,7 +95,7 @@ func (runner *Runner) askAgent(ctx context.Context, call stepCall, spec agentSpe
 		Message:    message,
 		SenderID:   &senderID,
 		SenderName: &senderName,
-		RequestID:  "automation:" + call.run.ID.String() + ":" + call.step.ID,
+		RequestID:  "automation:" + call.run.ID.String() + ":" + call.row.StepID,
 	})
 	if err != nil {
 		failure := wrapFailure("AGENT_CALL_FAILED", "The agent did not answer.", err)
@@ -167,7 +167,7 @@ func (runner *Runner) runAgentOnIssue(ctx context.Context, call stepCall, spec a
 		return automation.StepOutcome{}, stepFailure("AGENT_MESSAGE_TOO_LARGE", "The instruction and input exceed the 64 KiB message limit.")
 	}
 	issue, err := runner.createIssue(ctx, call, issueSpec{
-		Title:         issueTitle(instruction, call.step.ID),
+		Title:         issueTitle(instruction, call.row.StepID),
 		Description:   description,
 		AssignAgentID: agent.ID.String(),
 	})
@@ -194,7 +194,7 @@ func (runner *Runner) admitRun(ctx context.Context, call stepCall, issueID, agen
 		WorkspaceID:    call.run.WorkspaceID,
 		AgentID:        &agentID,
 		RequestedBy:    requester,
-		RequestID:      "automation:" + call.run.ID.String() + ":" + call.step.ID,
+		RequestID:      "automation:" + call.run.ID.String() + ":" + call.row.StepID,
 		CreatedAt:      runner.now(),
 	}
 	if strings.TrimSpace(instructions) != "" {
@@ -279,7 +279,7 @@ func artifactRefs(artifacts []collaboration.Attachment) []map[string]any {
 
 func (runner *Runner) recordAgentEvent(ctx context.Context, call stepCall, agentID uuid.UUID, topic string, failure *automationrepo.Failure) {
 	event, err := runner.options.Store.RecordAgentEvent(ctx, automationrepo.AgentEventParams{
-		WorkspaceID: call.run.WorkspaceID, AgentID: agentID, RunID: call.run.ID, StepID: call.step.ID,
+		WorkspaceID: call.run.WorkspaceID, AgentID: agentID, RunID: call.run.ID, StepID: call.row.StepID,
 		Topic: topic, Failure: failure, OccurredAt: runner.now(), NewID: runner.options.NewID,
 	})
 	if err != nil {

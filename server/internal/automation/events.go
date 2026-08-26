@@ -15,6 +15,14 @@ var BerryEventTopics = []string{
 	"artifact.created", "integration.webhook.received", "plan.updated",
 }
 
+// DispatchTopics is everything the trigger dispatcher scans: every topic a
+// workflow may subscribe to, plus the workflow run outcomes a subworkflow
+// step waits on. Those three are deliberately not subscribable: a workflow
+// triggered by its own run outcomes would loop forever.
+var DispatchTopics = append(append([]string(nil), BerryEventTopics...),
+	"workflow.run.succeeded", "workflow.run.failed", "workflow.run.cancelled",
+)
+
 var berryEventIndex = func() map[string]bool {
 	index := make(map[string]bool, len(BerryEventTopics))
 	for _, topic := range BerryEventTopics {

@@ -73,6 +73,14 @@ func WaitKeys(topic string, aggregateID uuid.UUID, payload json.RawMessage, occu
 		signals = append(signals, with(base, SignalIssue, "completed"))
 	case "issue.deleted":
 		signals = append(signals, with(base, SignalIssue, "deleted"))
+	// A subworkflow step waits on its child run under the same run:<id>
+	// key an issue-mode agent step uses; the step type tells them apart.
+	case "workflow.run.succeeded":
+		signals = append(signals, with(base, SignalRun, "completed"))
+	case "workflow.run.failed":
+		signals = append(signals, with(base, SignalRun, "failed"))
+	case "workflow.run.cancelled":
+		signals = append(signals, with(base, SignalRun, "cancelled"))
 	}
 	signals = append(signals, with(base, SignalEvent, topic))
 	return signals

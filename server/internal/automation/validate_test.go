@@ -63,10 +63,12 @@ func TestStructuralAndWorkflowRules(t *testing.T) {
 			func(d map[string]any) { step(d, "pause")["id"] = "ticket" }, "STEP_ID_DUPLICATE", "/steps/5/id"},
 		"step id equal to the trigger id": {
 			func(d map[string]any) { step(d, "pause")["id"] = "on_done" }, "STEP_ID_DUPLICATE", "/steps/5/id"},
-		"unsupported node type": {
+		"foreach body escaping through a dependency": {
 			func(d map[string]any) {
-				d["steps"] = append(steps(d), map[string]any{"id": "each", "type": "foreach", "items": map[string]any{"ref": "trigger.rows"}, "steps": []any{"pause"}, "dependsOn": []any{"ticket"}})
-			}, "NODE_TYPE_UNSUPPORTED", "/steps/6/type"},
+				d["steps"] = append(steps(d),
+					map[string]any{"id": "each", "type": "foreach", "items": map[string]any{"ref": "trigger.rows"}, "steps": []any{"pause"}, "dependsOn": []any{"ticket"}},
+					map[string]any{"id": "after", "type": "wait", "mode": "duration", "duration": "PT1M", "dependsOn": []any{"pause"}})
+			}, "FOREACH_BODY_ESCAPE", "/steps/7/dependsOn/0"},
 		"dependsOn unknown step": {
 			func(d map[string]any) { step(d, "pause")["dependsOn"] = []any{"ghost"} }, "STEP_REF_UNKNOWN", "/steps/5/dependsOn/0"},
 		"branch to unknown step": {

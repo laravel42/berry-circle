@@ -39,6 +39,11 @@ type fakeStore struct {
 	agentEvents []automationrepo.AgentEventParams
 	origins     []automationrepo.IssueOriginParams
 	usage       []automation.Usage
+	// others are further workflows (subworkflow targets) with their
+	// current version; created records every CreateRun request.
+	others   map[uuid.UUID]automationrepo.Automation
+	versions map[uuid.UUID]automationrepo.Version
+	created  []automationrepo.CreateRunParams
 }
 
 func newFakeStore(item automationrepo.Automation, definition json.RawMessage) *fakeStore {
@@ -47,7 +52,50 @@ func newFakeStore(item automationrepo.Automation, definition json.RawMessage) *f
 		version:    automationrepo.Version{AutomationID: item.ID, Version: item.Version, Definition: definition},
 		runs:       map[uuid.UUID]*automationrepo.Run{},
 		steps:      map[uuid.UUID][]automationrepo.StepRun{},
+		others:     map[uuid.UUID]automationrepo.Automation{},
+		versions:   map[uuid.UUID]automationrepo.Version{},
 	}
+}
+
+// addAutomation registers another workflow a subworkflow step may call.
+func (store *fakeStore) addAutomation(item automationrepo.Automation, definition json.RawMessage) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.others[item.ID] = item
+	store.versions[item.ID] = automationrepo.Version{AutomationID: item.ID, Version: item.Version, Definition: definition}
+}
+
+// CreateRun mirrors the repository: only an active workflow runs, and a
+// second request with the same source key returns the first run.
+func (store *fakeStore) CreateRun(_ context.Context, params automationrepo.CreateRunParams) (automationrepo.Run, bool, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	item, ok := store.others[params.AutomationID]
+	if !ok && params.AutomationID == store.automation.ID {
+		item, ok = store.automation, true
+	}
+	if !ok {
+		return automationrepo.Run{}, false, automationrepo.ErrNotFound
+	}
+	if item.Status != automationrepo.StatusActive {
+		return automationrepo.Run{}, false, automationrepo.ErrNotActive
+	}
+	if params.SourceEventKey != nil {
+		for _, existing := range store.runs {
+			if existing.AutomationID == item.ID && existing.SourceEventKey != nil && *existing.SourceEventKey == *params.SourceEventKey {
+				return *existing, false, nil
+			}
+		}
+	}
+	store.created = append(store.created, params)
+	run := &automationrepo.Run{
+		ID: params.ID, WorkspaceID: item.WorkspaceID, AutomationID: item.ID, AutomationVersion: item.Version, GoalID: item.GoalID,
+		Status: automationrepo.RunPending, TriggerType: params.TriggerType, TriggerPayload: params.Payload,
+		SourceEventKey: params.SourceEventKey, RequestedBy: params.RequestedBy,
+		ParentRunID: params.ParentRunID, ParentStepRunID: params.ParentStepRunID, Depth: params.Depth, CreatedAt: params.CreatedAt,
+	}
+	store.runs[run.ID] = run
+	return *run, true, nil
 }
 
 func (store *fakeStore) event(topic string) automationrepo.Event {
@@ -56,6 +104,11 @@ func (store *fakeStore) event(topic string) automationrepo.Event {
 }
 
 func (store *fakeStore) Get(_ context.Context, id uuid.UUID) (automationrepo.Automation, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if other, ok := store.others[id]; ok {
+		return other, nil
+	}
 	if id != store.automation.ID {
 		return automationrepo.Automation{}, automationrepo.ErrNotFound
 	}
@@ -63,6 +116,11 @@ func (store *fakeStore) Get(_ context.Context, id uuid.UUID) (automationrepo.Aut
 }
 
 func (store *fakeStore) GetVersion(_ context.Context, id uuid.UUID, version int) (automationrepo.Version, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if other, ok := store.versions[id]; ok && other.Version == version {
+		return other, nil
+	}
 	if id != store.automation.ID || version != store.version.Version {
 		return automationrepo.Version{}, automationrepo.ErrNotFound
 	}
@@ -859,7 +917,7 @@ func TestRunnerApprovalOutcomes(t *testing.T) {
 	}
 }
 
-func TestRunnerFailsUnsupportedNodesAndHonoursOnError(t *testing.T) {
+func TestRunnerHonoursOnErrorAndRefusesUnknownNodes(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name     string
@@ -874,14 +932,14 @@ func TestRunnerFailsUnsupportedNodesAndHonoursOnError(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			fake := newFixture(t, definitionJSON(berryTrigger,
-				`{"id":"branch","type":"switch","value":{"ref":"trigger.kind"},"cases":[{"equals":"a","steps":["next"]}]`+test.onError+`}`,
-				`{"id":"next","type":"create_issue","title":"Next","dependsOn":["branch"]}`,
+				`{"id":"shape","type":"transform","output":{"x":{"ref":"trigger.missing"}}`+test.onError+`}`,
+				`{"id":"next","type":"create_issue","title":"Next","dependsOn":["shape"]}`,
 			), map[string]any{"kind": "a"})
 			fake.execute()
 			run := fake.run(t)
-			branch := fake.step(t, "branch")
-			if branch.Status != automationrepo.StepFailed || branch.Failure == nil || branch.Failure.Code != "NODE_TYPE_UNSUPPORTED" {
-				t.Fatalf("branch = %+v", branch)
+			shape := fake.step(t, "shape")
+			if shape.Status != automationrepo.StepFailed || shape.Failure == nil || shape.Failure.Code != "INPUT_INVALID" {
+				t.Fatalf("shape = %+v", shape)
 			}
 			if run.Status != test.wantRun {
 				t.Fatalf("run = %+v", run)
@@ -889,10 +947,20 @@ func TestRunnerFailsUnsupportedNodesAndHonoursOnError(t *testing.T) {
 			if test.wantNext != "" && fake.step(t, "next").Status != test.wantNext {
 				t.Fatalf("next = %+v", fake.step(t, "next"))
 			}
-			if test.wantRun == automationrepo.RunFailed && (run.Failure == nil || run.Failure.Code != "NODE_TYPE_UNSUPPORTED") {
+			if test.wantRun == automationrepo.RunFailed && (run.Failure == nil || run.Failure.Code != "INPUT_INVALID") {
 				t.Fatalf("run failure = %+v", run.Failure)
 			}
 		})
+	}
+	// A type the runner does not execute is refused with a stable code.
+	fake := newFixture(t, definitionJSON(berryTrigger, `{"id":"one","type":"create_issue","title":"One"}`), map[string]any{})
+	fake.setDefinition(t, `{"version":"1","trigger":`+berryTrigger+`,"entry":["one"],"steps":[{"id":"one","type":"create_issue","title":"One"}]}`)
+	definition, _ := automation.ParseDefinition([]byte(fake.store.version.Definition))
+	definition.Steps[0].Type = "teleport"
+	outcome, err := fake.runner.executeStep(context.Background(), stepCall{step: definition.Steps[0]})
+	var stepErr *StepError
+	if err == nil || !errors.As(err, &stepErr) || stepErr.Code != "NODE_TYPE_UNSUPPORTED" || outcome.Status != "" {
+		t.Fatalf("unknown type = %+v, %v", outcome, err)
 	}
 }
 
