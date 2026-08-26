@@ -158,7 +158,7 @@ Validation failures set `details.fields` to an array of field errors:
 | 503 | `DEPENDENCY_UNAVAILABLE` | Runtime dependency is unavailable or timed out |
 | 500 | `INTERNAL` | Unhandled server failure |
 
-Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_OPEN_EXISTS`, `PLAN_COMPILE_FAILED`, `PLANNER_UNAVAILABLE`, `BOARD_REQUIRED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOW_ENGINE_DISABLED`, and `WORKFLOWS_DISABLED`.
+Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_OPEN_EXISTS`, `PLAN_COMPILE_FAILED`, `PLANNER_UNAVAILABLE`, `BOARD_REQUIRED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOW_ENGINE_DISABLED`, `WORKFLOWS_DISABLED`, `AGENT_UNAVAILABLE`, and `ANSWER_INVALID`.
 
 ## Resource schemas
 
@@ -442,7 +442,26 @@ A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved;
 
 ### Workflow
 
-A workflow (Go and SQL identifiers say `automation`) is a stored `WorkflowDefinition v1`: `{ "version": "1", "trigger": Trigger, "steps": Step[], "entry": [stepId] }`. Step `type` values stay snake_case (`action`, `condition`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`; `switch`, `foreach`, `transform`, `subworkflow` parse but answer `NODE_TYPE_UNSUPPORTED` until their executors land). `WorkflowStatus` is one of `draft`, `active`, `paused`, `archived`.
+A workflow (Go and SQL identifiers say `automation`) is a stored `WorkflowDefinition v1`: `{ "version": "1", "trigger": Trigger, "steps": Step[], "entry": [stepId] }`. Step `type` values stay snake_case: `action`, `condition`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`, `switch`, `foreach`, `transform` and `subworkflow` all execute natively (a deployment that narrows the set answers `NODE_TYPE_UNSUPPORTED`). `WorkflowStatus` is one of `draft`, `active`, `paused`, `archived`.
+
+Triggers, `{ "id", "type", ... }`:
+
+| `type` | Fields | Fires when |
+|---|---|---|
+| `berry_event` | `event` (a published topic or `<aggregate>.*`), `config.filter`? | The fact is published in the workspace and the filter, evaluated over `trigger`, passes |
+| `integration` | `provider`, `operation` (a registered trigger tool, e.g. `github` / `issues.opened`, `berry` / `issue_completed`), `config.filter`? | A verified provider delivery arrives on `POST /api/v1/hooks/{provider}` with that event (`trigger.payload` is the delivery), or, for `berry`, the matching Berry topic is published |
+| `schedule` | `config.cron` (five fields or `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`), `config.timezone` (IANA) | Each fire instant computed on the timezone's wall clock (DST-safe; a skipped wall-clock time never fires, a repeated one fires once). One run per instant, idempotent on `schedule:<workflowId>:<instant>`; instants missed for longer than one hour are skipped, never replayed. `trigger` is `{ "scheduledAt", "cron", "timezone" }` |
+| `manual` | — | `POST /workflows/{id}/runs`; `trigger.input` is the body's input |
+| `webhook` | — | `POST /api/v1/hooks/workflows/{id}/{token}` |
+
+The extended nodes, beside the MVP set:
+
+| `type` | Fields | Semantics |
+|---|---|---|
+| `switch` | `value` (reference or template), `cases: [{ "equals": value, "steps": [stepId] }]`, `defaultSteps`? | The first case whose resolved `equals` is structurally equal to the resolved value hands control to its steps, else `defaultSteps`; every other branch is recorded as skipped. Output `{ "value", "case": index or null, "next": [stepId] }` |
+| `foreach` | `items` (a reference resolving to an array), `steps: [stepId]` (the body), `maxItems`? (1–100, default 25) | Records `{ "count", "items" }`, then every body step B runs once per item as the step row `B[i]`, items in order and one item at a time; inside the body `item` is the current element and `steps.<body>.output` the same item's outputs; after the loop `steps.<loop>.output.results[i]` holds item i's body outputs keyed by step id. More items than `maxItems` fails the loop with `FOREACH_LIMIT_EXCEEDED`. A body step may be `action`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`, `transform` or `subworkflow` (each may wait), belongs to one loop, is not an entry step, and is depended on only from inside its loop; `item` is valid only inside a body (and in an event wait's filter) |
+| `transform` | `output: { field: value }` | Resolves every field through references and templates into the step output; nothing else happens |
+| `subworkflow` | `workflowId` (Uuid of an active workflow in the workspace), `input`? | Starts a child run of the named workflow (`triggerType = manual`, `trigger.input` = the resolved input, `trigger.parent` = `{ workflowId, runId, stepRunId, stepId }`, `parentRunId`/`depth` on the run) and waits on `run:<childRunId>`; resumes with `{ "childRunId", "workflowId", "status", "steps": { stepId: output } }` or fails with `SUBWORKFLOW_FAILED (<child code>)` / `SUBWORKFLOW_CANCELLED`. Validation refuses a workflow calling itself or a chain that returns to it (`SUBWORKFLOW_CYCLE`), a chain deeper than 3 (`SUBWORKFLOW_DEPTH`), an unknown target (`SUBWORKFLOW_UNKNOWN`); an inactive target warns on a draft and blocks activation (`SUBWORKFLOW_NOT_ACTIVE`) |
 
 | Field | Type | Required | Constraints / meaning |
 |---|---|---:|---|
@@ -478,12 +497,14 @@ A workflow (Go and SQL identifiers say `automation`) is a stored `WorkflowDefini
 | `status` | `WorkflowRunStatus` | yes | |
 | `triggerType` | string | yes | |
 | `triggerPayload` | object | yes | |
-| `currentStepId`, `waitingOn` | string or null | yes | `waitingOn` is `approval:<id>`, `run:<id>`, `issue:<id>`, `timer` or `event:<topic>` |
+| `currentStepId`, `waitingOn` | string or null | yes | `waitingOn` is `approval:<id>`, `run:<id>` (an agent run or a subworkflow's child run), `issue:<id>`, `timer` or `event:<topic>` |
 | `failure` | `{ "code", "message" }` or null | yes | |
 | `usage` | `{ "inputTokens", "outputTokens": integer, "costMicros": integer or null }` | yes | Summed inline model usage |
+| `parentRunId`, `parentStepRunId` | `Uuid` or null | yes | Set on a run a `subworkflow` step started |
+| `depth` | integer | yes | 0 for a run a trigger started; a child run is its parent's depth plus one, at most 3 |
 | `createdAt` | `Timestamp` | yes | |
 | `startedAt`, `completedAt` | `Timestamp` or null | yes | |
-| `steps` | `WorkflowStepRun[]` | on reads of one run | `{ "id", "stepId", "stepType", "attempt", "status", "input", "output", "failure", "runId", "issueId", "approvalId", "usage", "startedAt", "completedAt" }` |
+| `steps` | `WorkflowStepRun[]` | on reads of one run | `{ "id", "stepId", "stepType", "attempt", "status", "input", "output", "failure", "runId", "issueId", "approvalId", "usage", "startedAt", "completedAt" }`; a foreach body row's `stepId` is `<stepId>[<index>]` |
 
 ## Endpoints
 
@@ -679,6 +700,19 @@ The registry view the planner reads, for the caller's current workspace, from th
 Accepts `instructions`, `description`, `provider` + `model`, and `skills` (string[], at most 50 names matching `^[a-z0-9-]{1,50}$`; replaces the list). Skills are Berry's own vocabulary and never travel to the runtime.
 
 - `400`: `SKILLS_INVALID`
+
+#### `POST /api/v1/agents/{agentId}/ask`
+
+One bounded question to a workspace agent, answered as a single JSON value (`product.write`; `Idempotency-Key` required). Request `{ "prompt": string (1–49152 bytes), "schema": object }` where `schema` is a JSON Schema in the subset Berry applies (`type`, `enum`, `const`, `required`, `properties`, `additionalProperties`, `items`, `minItems`/`maxItems`, `minLength`/`maxLength`, `pattern`, `format: uuid`, `minimum`/`maximum`, `anyOf`/`oneOf`/`allOf`, local `$ref` into `$defs`). The call is one chat completion on the runtime with the agent as the model and a JSON-object response format — a paid, unsafe call attempted exactly once and never retried; every ask, usable or not, is an `agent_asks` ledger row with its usage and cost.
+
+- `200`: `{ "id": Uuid, "agentId": Uuid, "answer": any, "usage": { "inputTokens", "outputTokens": integer, "costMicros": integer or null, "currency": "USD" or null }, "model": { "provider", "name": string or null }, "createdAt": Timestamp }`
+- `403`: `FORBIDDEN`
+- `404`: `NOT_FOUND`
+- `412`: `AGENT_UNAVAILABLE` with `details.status` — the agent is offline, unknown or archived on the runtime
+- `422`: `VALIDATION_FAILED` (prompt or schema), `ANSWER_INVALID` with `details.hint` (why the answer did not decode or match — the answer itself is never echoed), `details.askId` and `details.usage`
+- `429`: `RATE_LIMITED` when the agent's model is rate limited upstream
+- `502`: `DEPENDENCY_BAD_RESPONSE`
+- `503`: `DEPENDENCY_UNAVAILABLE`
 
 ### Runs
 
@@ -902,7 +936,7 @@ Archives; runs and versions stay readable.
 
 #### `POST /api/v1/workflows/{workflowId}/activate`
 
-Validates with every required connection present and records the activation. A `risk = high` workflow needs `settings.write`. Triggers start with the status: the trigger dispatcher matches Berry events only against active workflows, the hook and manual-run routes refuse inactive ones, and a `schedule` trigger is registered with the scheduler before the status changes (the scheduler itself lands with schedule triggers).
+Validates with every required connection present and records the activation. A `risk = high` workflow needs `settings.write`. Triggers start with the status: the trigger dispatcher matches Berry events and provider deliveries only against active workflows, the hook and manual-run routes refuse inactive ones, and a `schedule` trigger is registered before the status changes — as a Temporal Schedule (`automation-schedule:<id>`, one `berry.AutomationScheduledRun` per fire) when `TEMPORAL_ENABLED`, else as a cached next fire time the in-process scheduler claims every dispatcher tick. Pausing pauses the schedule; archiving deletes it. Both paths create the same run rows.
 
 - `200`: `Workflow`
 - `403`: `FORBIDDEN` with `details.reason = "destructive_actions"`
@@ -953,6 +987,20 @@ Receives one delivery for an active workflow whose current hook token matches (c
 - `404`: `NOT_FOUND`
 - `413`: `PAYLOAD_TOO_LARGE`
 - `429`: `RATE_LIMITED` with `Retry-After`
+
+#### `POST /api/v1/hooks/{provider}`
+
+Provider webhook ingestors for `github`, `slack` and `linear`, mounted beside the workflow hook route when at least one provider secret is configured (`GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, `LINEAR_WEBHOOK_SECRET`). The signature is verified over the raw body before anything is parsed: GitHub `X-Hub-Signature-256` (HMAC-SHA256, the SHA-1 header is not accepted), Slack `X-Slack-Signature` v0 with `X-Slack-Request-Timestamp` inside a five-minute window, Linear `Linear-Signature` (hex HMAC-SHA256). A verified delivery is deduplicated on the provider's delivery id (`X-GitHub-Delivery`; Slack `event_id`; `Linear-Delivery`, else `webhookId:webhookTimestamp`), recorded in `integration_webhook_deliveries`, and written once as the fact `integration.webhook.received { "provider", "event", "deliveryId", "payload" }` scoped to the workspace that owns the delivery; the trigger dispatcher then starts every active workflow whose `integration` trigger names `provider` and `event`, with the fact as `trigger` (`trigger.payload` is the provider's body). Nothing is retried: a redelivery is answered and dropped.
+
+The event is normalised as the `X-GitHub-Event` header joined with the payload `action` (`issues.opened`, `pull_request.closed`, `push`), the Slack `event.type` (`message`, `app_mention`), or the Linear `type.action` in lowercase (`issue.create`). The workspace is resolved from the delivery: Slack by `team_id` against the connection's account; GitHub by `repository.id` against a project's linked repository, then by the installation or owner id against the connection's account; Linear by `organizationId` against the connection's account. Because GitHub and Linear connections carry no account id at authorisation time, register those webhooks with `?workspaceId=<uuid>` on the URL: the delivery is then accepted only if that workspace holds a live connection to the provider. A Slack `url_verification` handshake answers `{ "challenge" }` after the signature check and is never ingested. Every way a delivery can fail to be trusted or routed — an unconfigured secret, a bad signature, an unknown provider, no workspace — is the same `404`, never a `500`. Each provider accepts 600 deliveries per minute per replica.
+
+- `202`: `{ "deliveryId", "eventId": Uuid, "event" }` — one `integration.webhook.received` fact was written
+- `200`: `{ "deliveryId", "status": "duplicate" }` for a redelivery, or `{ "challenge" }` for a Slack handshake
+- `400`: `INVALID_BODY` — not JSON, or the provider's required headers or fields are missing
+- `404`: `NOT_FOUND`
+- `413`: `PAYLOAD_TOO_LARGE` (256 KiB)
+- `429`: `RATE_LIMITED` with `Retry-After`
+- `503`: `DEPENDENCY_UNAVAILABLE` — the delivery could not be recorded; the provider should redeliver
 
 ### Workflow runs
 
@@ -1055,7 +1103,8 @@ Run sequences start at 0 and MUST be contiguous in the persisted stream. Deliver
 | `approval.requested`, `approval.approved`, `approval.rejected`, `approval.expired` | `{ "approval": Approval, "issueId"?, "actor"? }` | On the board stream too when the approval gates an issue |
 | `workflow.created`, `workflow.activated`, `workflow.paused`, `workflow.archived` | `{ "workflow": { "id", "workspaceId", "projectId", "goalId", "name", "status", "version", "revision", "triggerType", "risk", "engine", "updatedAt" }, "actor"? }` | Workspace stream |
 | `workflow.run.started`, `workflow.run.waiting`, `workflow.run.resumed`, `workflow.run.succeeded`, `workflow.run.failed`, `workflow.run.cancelled` | `{ "workflowId", "workflowRunId", "stepId"?, "waitingOn"?, "run": WorkflowRun summary, "actor"? }` | Also on the run's own ledger stream with `sequence` |
-| `workflow.step.started`, `workflow.step.succeeded`, `workflow.step.failed`, `workflow.step.skipped`, `workflow.step.waiting` | `{ "workflowId", "workflowRunId", "stepId", "waitingOn"?, "step": WorkflowStepRun summary }` | Input and output are omitted from the frame |
+| `workflow.step.started`, `workflow.step.succeeded`, `workflow.step.failed`, `workflow.step.skipped`, `workflow.step.waiting` | `{ "workflowId", "workflowRunId", "stepId", "waitingOn"?, "step": WorkflowStepRun summary }` | Input and output are omitted from the frame; a foreach body row's `stepId` carries its index (`note[2]`) |
+| `integration.webhook.received` | `{ "provider", "event", "deliveryId", "payload" }` | Written once per verified provider delivery by `POST /api/v1/hooks/{provider}`; consumed by the trigger dispatcher, subscribable as a `berry_event` |
 | `plan.approved`, `plan.compiled`, `plan.compile_failed` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, ... }` | `plan.compiled` carries `compiled` (the id map); `plan.compile_failed` carries `stage` and `message`. `plan.patched` arrives with conversational editing |
 | `plan.updated`, `plan.generated`, `plan.blocked` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, "stage", "status", ... }` | Workspace stream. `plan.updated` is emitted when each pipeline stage starts (`status: "running"`) and once more when generation fails (`status: "failed"`, `error`, `outcome`, `errors` codes when `PLAN_INVALID`); `plan.generated` closes a valid generation with `version`, `confidence`, `repairs`, `warnings` codes and `risk`; `plan.blocked` carries `questions: [{ "id", "question" }]`. None carries prompt text |
 

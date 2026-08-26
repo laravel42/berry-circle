@@ -407,6 +407,14 @@ func run() int {
 		logger.Error("automation runner setup failed", "error", err)
 		return 1
 	}
+	// Child runs of subworkflow steps executed on this worker start their
+	// own orchestration through the same Temporal client.
+	subrunStarter, err := orchestration.NewAutomationStarter(temporalClient, cfg.TemporalTaskQueue)
+	if err != nil {
+		logger.Error("automation subrun starter setup failed", "error", err)
+		return 1
+	}
+	runner.SetSubrunStarter(subrunStarter)
 
 	activities, err := orchestration.NewActivities(orchestration.Activities{
 		Intake:          intakeStore,

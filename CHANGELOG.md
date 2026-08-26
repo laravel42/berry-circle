@@ -20,6 +20,33 @@ and known issues.
 
 ### Added
 
+- Planning and workflows, phase 4.5 (server): the extended node set and triggers. `switch`
+  (first matching case, else the default; the other branches are recorded as skipped),
+  `foreach` (one step row per body step per item, `note[0]` … `note[N-1]`, walked in
+  item order with `item` in scope and the results aggregated under the loop's output;
+  `maxItems` 1–100, default 25; body steps may wait), `transform` (references and
+  templates into an output, no code) and `subworkflow` (a child run of another active
+  workflow in the workspace with the step input as `trigger.input`, parent and depth
+  recorded on the run, resumed through the child's `workflow.run.*` outcome; cycles and
+  chains deeper than 3 are refused at validation) now execute natively. Schedule
+  triggers fire: `internal/cron` parses five-field expressions and computes fire times
+  on the timezone's wall clock (DST-safe), the in-process scheduler claims due
+  workflows inside the dispatcher's loop, and with `TEMPORAL_ENABLED` activation
+  registers a Temporal Schedule whose every fire runs `berry.AutomationScheduledRun` —
+  both paths create one run per instant, idempotent on
+  `schedule:<workflowId>:<instant>`, and skip instants missed for more than an hour.
+  `POST /api/v1/agents/{id}/ask` answers one bounded question as JSON checked against
+  the caller's schema (one chat completion, never retried, recorded in `agent_asks`
+  with usage and cost; `422 ANSWER_INVALID` with a decode hint, `412 AGENT_UNAVAILABLE`).
+  `POST /api/v1/hooks/{provider}` ingests GitHub, Slack and Linear webhooks (signature
+  verified over the raw body, deduplicated on the provider's delivery id, one
+  `integration.webhook.received` fact scoped to the owning workspace, opaque `404` on
+  every refusal) and the dispatcher starts workflows whose `integration` trigger names
+  the provider and event; Berry's own provider matches `integration` triggers on its
+  topics too. Migration `025_extended_nodes_and_triggers` (indexed step ids, run
+  parent links, the dispatcher index with `workflow.run.*`, the integration trigger
+  index, `agent_asks`). The frontend half (node configuration UI, schedule trigger in the
+  dialog and canvas) follows separately.
 - Planning and workflows, phase 5a (server): the planner generates plans. `POST
   /api/v1/plans/generate` (202) turns a request into a BerryPlan v1 through four lean
   model-role agents Berry provisions on the runtime at boot (`model_role_agents`:

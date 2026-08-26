@@ -687,6 +687,14 @@ func run() int {
 			Configurer:    upstream,
 			Catalog:       modelCatalog,
 			Authorization: identityService,
+			// POST /{agentId}/ask: one JSON-object chat completion to the
+			// agent, recorded in agent_asks with its usage and priced
+			// through the same catalog the planner uses.
+			Chat:             upstream,
+			Asks:             agenthandlers.PostgresStore{Pool: dbPool},
+			Prices:           &modelgateway.CatalogPrices{Catalog: modelCatalog},
+			IdempotencyStore: idempotencyStore,
+			Logger:           logger,
 		})
 		if err != nil {
 			closeRunRoutes(runRoutes, logger)
@@ -1137,6 +1145,7 @@ func run() int {
 			workflowStarter   automationrun.Starter
 			workflowCanceller automationrun.Canceller
 			workflowSchedules automationrun.Schedules = automationrun.NoopSchedules{}
+			workflowScheduler triggerdispatch.Ticker
 		)
 		if cfg.AutomationEnabled {
 			automationMetrics, err := observability.NewAutomationMetrics(registry)
@@ -1199,6 +1208,21 @@ func run() int {
 				}
 				workflowStarter = temporalStarter
 				workflowCanceller = temporalStarter
+				// Child runs of subworkflow steps and schedule triggers go
+				// through Temporal too: a Temporal Schedule fires
+				// AutomationScheduledRun on the worker, which creates the
+				// run row and starts its orchestration.
+				runner.SetSubrunStarter(temporalStarter)
+				temporalSchedules, err := orchestration.NewAutomationSchedules(temporalClient.ScheduleClient(), cfg.TemporalTaskQueue)
+				if err != nil {
+					closeRunRoutes(runRoutes, logger)
+					_ = realtimeManager.Close()
+					closeValkey(valkeyClient)
+					closeDatabase(dbPool)
+					logger.Error("automation schedules setup failed", "error", err)
+					return 1
+				}
+				workflowSchedules = temporalSchedules
 				logger.Info(
 					"workflow runs routed through Temporal",
 					"namespace", cfg.TemporalNamespace,
@@ -1215,6 +1239,26 @@ func run() int {
 					return 1
 				}
 				workflowStarter = automationStarter
+				// Without Temporal the schedule trigger is a cached next fire
+				// time the scheduler claims from inside the dispatcher's loop.
+				workflowSchedules = automationrun.InProcessSchedules{Store: automationStore, Clock: time.Now}
+				scheduler, err := automationrun.NewScheduler(automationrun.SchedulerOptions{
+					Store:   automationStore,
+					Starter: workflowStarter,
+					Clock:   time.Now,
+					NewID:   uuid.New,
+					Logger:  logger,
+					Metrics: automationMetrics,
+				})
+				if err != nil {
+					closeRunRoutes(runRoutes, logger)
+					_ = realtimeManager.Close()
+					closeValkey(valkeyClient)
+					closeDatabase(dbPool)
+					logger.Error("automation scheduler setup failed", "error", err)
+					return 1
+				}
+				workflowScheduler = scheduler
 			}
 			dispatcher, err := triggerdispatch.New(triggerdispatch.Options{
 				Store:       automationStore,
@@ -1227,6 +1271,7 @@ func run() int {
 				Logger:      logger,
 				Metrics:     automationMetrics,
 				Health:      dispatchHealth,
+				Scheduler:   workflowScheduler,
 			})
 			if err != nil {
 				closeRunRoutes(runRoutes, logger)
@@ -1435,6 +1480,15 @@ func run() int {
 				Clock:   time.Now,
 				NewID:   uuid.New,
 				Logger:  logger,
+				// Provider ingestors: a provider with a configured secret
+				// answers on /api/v1/hooks/{provider}; the rest are 404.
+				Secrets: hookhandlers.IngestSecrets{
+					GitHub: cfg.GitHubWebhookSecret,
+					Slack:  cfg.SlackSigningSecret,
+					Linear: cfg.LinearWebhookSecret,
+				},
+				Resolver: hookhandlers.PostgresResolver{Pool: dbPool},
+				Ingestor: automationStore,
 			})
 			if err != nil {
 				closeRunRoutes(runRoutes, logger)
