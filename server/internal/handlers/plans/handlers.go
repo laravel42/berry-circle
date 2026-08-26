@@ -1,7 +1,7 @@
 // Package plans exports the authenticated /api/v1/plans mount for generated
-// plans: reading a plan and its history, validating it, and the approve →
-// compile step that turns it into rows. Generation itself arrives with the
-// planner.
+// plans: asking the planner for one (202, generation runs in the
+// background), reading a plan and its history while it generates, validating
+// it, and the approve → compile step that turns it into rows.
 package plans
 
 import (
@@ -25,7 +25,10 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
+	"github.com/laravel42/berry-circle/server/internal/modelgateway"
+	"github.com/laravel42/berry-circle/server/internal/planner"
 	"github.com/laravel42/berry-circle/server/internal/planner/ir"
+	"github.com/laravel42/berry-circle/server/internal/planner/validate"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
@@ -34,9 +37,29 @@ import (
 	planrepo "github.com/laravel42/berry-circle/server/internal/repository/plans"
 )
 
-// Authorizer is the narrow plan boundary.
+// Authorizer is the narrow plan boundary: a plan by id, or the workspace a
+// new plan is requested in.
 type Authorizer interface {
 	AuthorizePlan(context.Context, uuid.UUID, uuid.UUID, identity.Permission) (identity.Scope, error)
+	AuthorizeWorkspace(context.Context, uuid.UUID, uuid.UUID, identity.Permission) (identity.Role, error)
+}
+
+// Planner starts generations. Nil means the deployment has no planner and
+// POST /generate answers PLANNER_UNAVAILABLE.
+type Planner interface {
+	Generate(context.Context, planner.GenerateInput) (planrepo.PlanHeader, []ledger.Event, error)
+	Ready(context.Context) error
+}
+
+// Validator validates a stored plan with the workspace's agents, issues and
+// workflows. Nil falls back to the pure rules with the catalog alone.
+type Validator interface {
+	Report(context.Context, planrepo.PlanHeader, ir.Plan, validate.Permissions, automation.Catalog) validate.Report
+}
+
+// RoleReader lists the provisioned model roles for GET /roles.
+type RoleReader interface {
+	List(context.Context) ([]modelgateway.RoleAgent, error)
 }
 
 // Store is the generated-plan persistence these routes call.
@@ -80,6 +103,9 @@ type Options struct {
 	NewID            func() uuid.UUID
 	IdempotencyStore httpapi.IdempotencyStore
 	Broadcaster      realtime.Broadcaster
+	Planner          Planner
+	Validator        Validator
+	Roles            RoleReader
 }
 
 type handler struct {
@@ -137,6 +163,8 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	target := &handler{options: options}
 	router := httpapi.NewSubrouter()
 	router.Use(auth.RequireSession(options.Sessions))
+	router.Post("/generate", workmanagement.RequireIdempotency(options.IdempotencyStore, options.Clock, http.HandlerFunc(target.generate)).ServeHTTP)
+	router.Get("/roles", target.roles)
 	router.Get("/{planId}", target.get)
 	router.Get("/{planId}/versions", target.listVersions)
 	router.Get("/{planId}/events", target.listEvents)
@@ -159,12 +187,18 @@ type requiredConnectionResource struct {
 	Connected bool   `json:"connected"`
 }
 
+type ambiguityResource struct {
+	ID       string `json:"id"`
+	Question string `json:"question"`
+	Blocking bool   `json:"blocking"`
+}
+
 type validationResource struct {
 	Status               string                       `json:"status"`
 	Errors               []ir.Finding                 `json:"errors"`
 	Warnings             []ir.Finding                 `json:"warnings"`
 	RequiredConnections  []requiredConnectionResource `json:"requiredConnections"`
-	Ambiguities          []any                        `json:"ambiguities"`
+	Ambiguities          []ambiguityResource          `json:"ambiguities"`
 	Risk                 string                       `json:"risk"`
 	NeedsAdminActivation bool                         `json:"needsAdminActivation"`
 }
@@ -211,6 +245,23 @@ func (handler *handler) catalog(ctx context.Context, workspaceID uuid.UUID) auto
 	return automations.CatalogFor(ctx, handler.options.Registry, handler.options.Connections, workspaceID)
 }
 
+func permissionsOf(role identity.Role) validate.Permissions {
+	return validate.Permissions{
+		Role: string(role), CanWrite: role.Allows(identity.PermissionWrite),
+		CanActivateHighRisk: role.Allows(identity.PermissionSettingsWrite), Known: role != "",
+	}
+}
+
+// report validates the stored IR the way the planner does when a validator
+// is wired, and with the catalog alone otherwise.
+func (handler *handler) report(ctx context.Context, header planrepo.PlanHeader, plan ir.Plan, role identity.Role) validate.Report {
+	catalog := handler.catalog(ctx, header.WorkspaceID)
+	if handler.options.Validator != nil {
+		return handler.options.Validator.Report(ctx, header, plan, permissionsOf(role), catalog)
+	}
+	return validate.Validate(validate.Input{Plan: plan, Catalog: catalog, Permissions: permissionsOf(role), Workspace: validate.Workspace{ID: header.WorkspaceID}})
+}
+
 // serialize builds the plan resource. Validation findings and risk are
 // computed from the stored IR on every read: they are cheap, deterministic,
 // and the only way a plan whose catalog changed shows the change.
@@ -219,9 +270,9 @@ func (handler *handler) serialize(ctx context.Context, header planrepo.PlanHeade
 		ID: header.ID, WorkspaceID: header.WorkspaceID, GoalID: header.GoalID, ProjectID: header.ProjectID, Status: wireStatus(header.Status),
 		Source: string(header.Source), SourcePrompt: header.SourcePrompt, IRVersion: header.IRVersion, Version: header.CurrentVersion,
 		PlannerVersion: header.PlannerVersion, Confidence: header.Confidence,
-		Generation: generationResource{Status: header.GenerationStatus, Error: header.GenerationError},
+		Generation: generationResource{Status: header.GenerationStatus, Error: header.GenerationError, Stage: planrepo.CurrentStage(header)},
 		Validation: validationResource{Status: header.ValidationStatus, Errors: []ir.Finding{}, Warnings: []ir.Finding{},
-			RequiredConnections: []requiredConnectionResource{}, Ambiguities: []any{}, Risk: string(automation.RiskLow)},
+			RequiredConnections: []requiredConnectionResource{}, Ambiguities: []ambiguityResource{}, Risk: string(automation.RiskLow)},
 		Plan:      json.RawMessage(`null`),
 		CreatedAt: header.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: header.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
@@ -242,22 +293,21 @@ func (handler *handler) serialize(ctx context.Context, header planrepo.PlanHeade
 		out.Validation.Errors = append(out.Validation.Errors, ir.Finding{Path: "", Code: "PLAN_INVALID_JSON", Message: err.Error(), Severity: automation.SeverityError})
 		return out
 	}
-	catalog := handler.catalog(ctx, header.WorkspaceID)
-	for _, finding := range planrepo.Validate(plan, catalog) {
-		if finding.Severity == automation.SeverityWarning {
-			out.Validation.Warnings = append(out.Validation.Warnings, finding)
-		} else {
-			out.Validation.Errors = append(out.Validation.Errors, finding)
-		}
-	}
-	for _, connection := range plan.RequiredConnections {
+	report := handler.report(ctx, header, plan, role)
+	out.Validation.Errors = append(out.Validation.Errors, report.Errors...)
+	out.Validation.Warnings = append(out.Validation.Warnings, report.Warnings...)
+	for _, connection := range report.RequiredConnections {
 		out.Validation.RequiredConnections = append(out.Validation.RequiredConnections, requiredConnectionResource{
-			Provider: connection.Provider, Purpose: connection.Purpose, Connected: catalog != nil && catalog.Connected(connection.Provider),
+			Provider: connection.Provider, Purpose: connection.Purpose, Connected: connection.Connected,
 		})
 	}
-	risk := planrepo.PlanRisk(plan, catalog)
-	out.Validation.Risk = string(risk)
-	out.Validation.NeedsAdminActivation = risk == automation.RiskHigh && !role.Allows(identity.PermissionSettingsWrite)
+	for _, assumption := range plan.Assumptions {
+		if assumption.Blocking {
+			out.Validation.Ambiguities = append(out.Validation.Ambiguities, ambiguityResource{ID: assumption.ID, Question: assumption.Description, Blocking: true})
+		}
+	}
+	out.Validation.Risk = string(report.Risk)
+	out.Validation.NeedsAdminActivation = report.NeedsAdminActivation
 	if plan.Compiled != nil && out.Compile != nil {
 		out.Compile.IssueIDs = sortedValues(plan.Compiled.IssueIDs)
 		out.Compile.WorkflowIDs = sortedValues(plan.Compiled.WorkflowIDs)
@@ -406,8 +456,13 @@ func (handler *handler) validate(response http.ResponseWriter, request *http.Req
 	status := planrepo.ValidationUnknown
 	if len(header.IR) > 0 {
 		status = planrepo.ValidationInvalid
-		if plan, err := ir.Parse(header.IR); err == nil && ir.Valid(planrepo.Validate(plan, handler.catalog(request.Context(), header.WorkspaceID))) {
-			status = planrepo.ValidationValid
+		if plan, err := ir.Parse(header.IR); err == nil {
+			switch report := handler.report(request.Context(), header, plan, scope.Role); {
+			case report.Blocked():
+				status = planrepo.ValidationBlocked
+			case report.Valid():
+				status = planrepo.ValidationValid
+			}
 		}
 	}
 	if err := handler.options.Store.SetValidation(request.Context(), header.ID, status, handler.options.Clock().UTC()); err != nil {
@@ -456,9 +511,12 @@ func (handler *handler) approve(response http.ResponseWriter, request *http.Requ
 	}
 	user := auth.MustUser(request.Context())
 	now := handler.options.Clock().UTC()
+	if !handler.gate(response, request, header, scope.Role) {
+		return
+	}
 	if len(header.IR) > 0 && header.Status == planrepo.StatusDraft {
 		if plan, err := ir.Parse(header.IR); err == nil {
-			risk := planrepo.PlanRisk(plan, handler.catalog(request.Context(), header.WorkspaceID))
+			risk := handler.report(request.Context(), header, plan, scope.Role).Risk
 			if risk == automation.RiskHigh && !scope.Role.Allows(identity.PermissionSettingsWrite) {
 				title := "Start plan: " + plan.Goal.Title
 				var description *string
@@ -494,7 +552,37 @@ func (handler *handler) compile(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	user := auth.MustUser(request.Context())
+	if !handler.gate(response, request, header, scope.Role) {
+		return
+	}
 	handler.runCompile(response, request, header, scope, user.ID, handler.options.Clock().UTC())
+}
+
+// gate refuses to start a plan that is still generating, waits on answers,
+// or fails the full validator: an invalid plan can never execute.
+func (handler *handler) gate(response http.ResponseWriter, request *http.Request, header planrepo.PlanHeader, role identity.Role) bool {
+	if header.GenerationStatus == planrepo.GenerationRunning {
+		httpapi.WriteError(response, request, http.StatusConflict, "PLAN_BUSY", "The plan is still being generated.", nil)
+		return false
+	}
+	if header.ValidationStatus == planrepo.ValidationBlocked {
+		httpapi.WriteError(response, request, http.StatusConflict, "PLAN_INVALID", "The plan is waiting on answers before it can start.", nil)
+		return false
+	}
+	if len(header.IR) == 0 || header.CompileStatus == planrepo.CompileSucceeded {
+		return true
+	}
+	plan, err := ir.Parse(header.IR)
+	if err != nil {
+		httpapi.WriteError(response, request, http.StatusConflict, "PLAN_INVALID", "The stored plan is not valid BerryPlan JSON.", nil)
+		return false
+	}
+	if report := handler.report(request.Context(), header, plan, role); !report.Valid() {
+		httpapi.WriteError(response, request, http.StatusConflict, "PLAN_INVALID", "The plan does not pass validation and cannot be compiled.",
+			map[string]any{"fields": report.Errors})
+		return false
+	}
+	return true
 }
 
 func (handler *handler) runCompile(response http.ResponseWriter, request *http.Request, header planrepo.PlanHeader, scope identity.Scope, actorID uuid.UUID, now time.Time) {
@@ -594,6 +682,144 @@ func (handler *handler) reject(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	httpapi.WriteJSON(response, http.StatusOK, handler.serialize(request.Context(), rejected, scope.Role))
+}
+
+type generateBody struct {
+	WorkspaceID string                          `json:"workspaceId"`
+	Prompt      string                          `json:"prompt"`
+	GoalID      workmanagement.Optional[string] `json:"goalId"`
+	ProjectID   workmanagement.Optional[string] `json:"projectId"`
+	BoardID     workmanagement.Optional[string] `json:"boardId"`
+	Hint        workmanagement.Optional[string] `json:"hint"`
+}
+
+// generate asks the planner for a plan. The row exists when this returns;
+// the pipeline runs behind it and the caller follows GET /{planId} and the
+// workspace stream's plan.updated facts.
+func (handler *handler) generate(response http.ResponseWriter, request *http.Request) {
+	body, _, ok := workmanagement.DecodeJSON[generateBody](response, request)
+	if !ok {
+		return
+	}
+	var fields []httpapi.FieldError
+	workspaceID, valid := workmanagement.ParseCanonicalUUID(body.WorkspaceID)
+	if !valid {
+		fields = append(fields, httpapi.FieldError{Path: "/workspaceId", Code: "invalid", Message: "workspaceId must be a canonical UUID."})
+	}
+	prompt := strings.TrimSpace(body.Prompt)
+	if length := utf8.RuneCountInString(prompt); length < 1 || length > planner.MaxPromptLength {
+		fields = append(fields, httpapi.FieldError{Path: "/prompt", Code: "invalid", Message: "prompt must contain 1 to 20000 characters."})
+	}
+	optionalID := func(path string, value workmanagement.Optional[string]) *uuid.UUID {
+		if !value.Set || value.Null {
+			return nil
+		}
+		parsed, ok := workmanagement.ParseCanonicalUUID(value.Value)
+		if !ok {
+			fields = append(fields, httpapi.FieldError{Path: path, Code: "invalid", Message: path[1:] + " must be a canonical UUID."})
+			return nil
+		}
+		return &parsed
+	}
+	goalID := optionalID("/goalId", body.GoalID)
+	projectID := optionalID("/projectId", body.ProjectID)
+	boardID := optionalID("/boardId", body.BoardID)
+	hint := planner.HintAuto
+	if body.Hint.Set && !body.Hint.Null {
+		hint = planner.Hint(strings.TrimSpace(body.Hint.Value))
+		if !hint.Valid() {
+			fields = append(fields, httpapi.FieldError{Path: "/hint", Code: "invalid", Message: "hint is issue, workflow or auto."})
+		}
+	}
+	if len(fields) > 0 {
+		workmanagement.WriteValidation(response, request, fields...)
+		return
+	}
+	if handler.options.Planner == nil {
+		writePlannerUnavailable(response, request)
+		return
+	}
+	user := auth.MustUser(request.Context())
+	header, events, err := handler.options.Planner.Generate(request.Context(), planner.GenerateInput{
+		ActorID: user.ID, WorkspaceID: workspaceID, GoalID: goalID, ProjectID: projectID, BoardID: boardID, Prompt: prompt, Hint: hint,
+	})
+	if err != nil {
+		handler.writeGenerateError(response, request, err)
+		return
+	}
+	shared.PublishLedger(request.Context(), handler.options.Broadcaster, events)
+	role, _ := handler.options.Authorization.AuthorizeWorkspace(request.Context(), user.ID, workspaceID, identity.PermissionRead)
+	response.Header().Set("Location", "/api/v1/plans/"+header.ID.String())
+	httpapi.WriteJSON(response, http.StatusAccepted, handler.serialize(request.Context(), header, role))
+}
+
+func writePlannerUnavailable(response http.ResponseWriter, request *http.Request) {
+	httpapi.WriteError(response, request, http.StatusPreconditionFailed, "PLANNER_UNAVAILABLE",
+		"The planner is not available: no model roles are provisioned on this deployment.", nil)
+}
+
+func (handler *handler) writeGenerateError(response http.ResponseWriter, request *http.Request, err error) {
+	switch {
+	case errors.Is(err, identity.ErrForbidden):
+		httpapi.WriteError(response, request, http.StatusForbidden, "PLAN_FORBIDDEN", "Viewers cannot request plans.", nil)
+	case errors.Is(err, identity.ErrNotFound):
+		workmanagement.WriteNotFound(response, request, "Workspace")
+	case errors.Is(err, planner.ErrUnavailable):
+		writePlannerUnavailable(response, request)
+	case errors.Is(err, planrepo.ErrPlanOpen):
+		httpapi.WriteError(response, request, http.StatusConflict, "PLAN_OPEN_EXISTS", "The goal already has an open plan; regenerate or reject it first.", nil)
+	case errors.Is(err, planner.ErrNoBoard):
+		httpapi.WriteError(response, request, http.StatusConflict, "BOARD_REQUIRED", "The workspace has no board to plan onto.", nil)
+	case errors.Is(err, planner.ErrInvalidInput):
+		workmanagement.WriteValidation(response, request, httpapi.FieldError{Path: "/prompt", Code: "invalid", Message: "The request is not valid."})
+	case errors.Is(err, planrepo.ErrNotFound):
+		workmanagement.WriteNotFound(response, request, "Goal")
+	default:
+		handler.writeError(response, request, err)
+	}
+}
+
+type roleResource struct {
+	Role                string  `json:"role"`
+	Provider            string  `json:"provider"`
+	Model               string  `json:"model"`
+	PromptVersion       string  `json:"promptVersion"`
+	Status              string  `json:"status"`
+	MaxTokens           *int64  `json:"maxTokens"`
+	MaxLLMTokensPerHour *int64  `json:"maxLLMTokensPerHour"`
+	LastSyncedAt        *string `json:"lastSyncedAt"`
+}
+
+// roles lists the provisioned model roles for the caller's workspace admins.
+func (handler *handler) roles(response http.ResponseWriter, request *http.Request) {
+	user := auth.MustUser(request.Context())
+	if user.CurrentWorkspaceID == nil {
+		workmanagement.WriteNotFound(response, request, "Workspace")
+		return
+	}
+	if _, err := handler.options.Authorization.AuthorizeWorkspace(request.Context(), user.ID, *user.CurrentWorkspaceID, identity.PermissionSettingsWrite); !workmanagement.WriteAuthorization(response, request, err, "Workspace") {
+		return
+	}
+	nodes := []roleResource{}
+	if handler.options.Roles != nil {
+		found, err := handler.options.Roles.List(request.Context())
+		if err != nil {
+			workmanagement.WriteInternal(response, request)
+			return
+		}
+		for _, agent := range found {
+			item := roleResource{
+				Role: string(agent.Role), Provider: agent.Provider, Model: agent.Model, PromptVersion: agent.PromptVersion, Status: agent.Status,
+				MaxTokens: agent.MaxTokens, MaxLLMTokensPerHour: agent.MaxLLMTokensPerHour,
+			}
+			if agent.LastSyncedAt != nil {
+				value := agent.LastSyncedAt.UTC().Format(time.RFC3339Nano)
+				item.LastSyncedAt = &value
+			}
+			nodes = append(nodes, item)
+		}
+	}
+	httpapi.WriteJSON(response, http.StatusOK, map[string]any{"enabled": handler.options.Planner != nil, "roles": nodes})
 }
 
 func (handler *handler) writeError(response http.ResponseWriter, request *http.Request, err error) {

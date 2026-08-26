@@ -217,6 +217,11 @@ func TestP1aPlanningContract(t *testing.T) {
 	if _, err := planStore.SaveVersion(ctx, planrepo.SaveVersionParams{PlanID: header.ID, ExpectedVersion: 0, Origin: planrepo.OriginGenerated, IR: json.RawMessage(ir), ValidationStatus: planrepo.ValidationValid, CreatedAt: now}); err != nil {
 		t.Fatalf("SaveVersion: %v", err)
 	}
+	// A hand-inserted IR stands in for a finished generation; a plan still
+	// generating answers PLAN_BUSY on approve.
+	if err := planStore.FinishGeneration(ctx, planrepo.FinishGenerationParams{PlanID: header.ID, Status: planrepo.GenerationSucceeded, ValidationStatus: planrepo.ValidationValid, Now: now}); err != nil {
+		t.Fatalf("FinishGeneration: %v", err)
+	}
 	planPath := "/api/v1/plans/" + header.ID.String()
 	status, plan := call(memberID, http.MethodPost, planPath+"/approve", map[string]any{})
 	compile := plan["compile"].(map[string]any)

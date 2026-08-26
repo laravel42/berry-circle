@@ -1,0 +1,41 @@
+{
+  "name": "simple-workflow",
+  "category": "simple workflow",
+  "userPrompt": "Post to #engineering on Slack whenever an issue is completed.",
+  "hint": "workflow",
+  "context": {
+    "workspace": {"name": "Berry", "issuePrefix": "BER"},
+    "actorRole": "admin",
+    "members": [],
+    "agents": [],
+    "tools": [
+      {"provider": "slack", "operation": "post_message", "kind": "action", "effect": "external_side_effect", "description": "Post a message to a channel.", "connectionRequired": true, "requiredInputs": ["channel", "text"], "inputs": ["channel", "text"], "outputs": ["ts"]},
+      {"provider": "berry", "operation": "add_comment", "kind": "action", "effect": "write", "description": "Comment on an issue.", "connectionRequired": false, "requiredInputs": ["issue", "body"], "inputs": ["issue", "body"]}
+    ],
+    "connections": ["slack"],
+    "existingIssues": [],
+    "existingWorkflows": []
+  },
+  "modelReplies": {
+    "intent": "{\"goal\":\"Notify Slack when issues complete\",\"requirements\":[{\"id\":\"r1\",\"description\":\"Post to #engineering on Slack when an issue is completed\",\"nature\":\"event_driven\",\"entities\":[\"slack\",\"issue\"],\"explicitConstraints\":[\"#engineering channel\"]}],\"ambiguities\":[],\"language\":\"en\"}",
+    "planner": [
+      "{\"$schema\":\"berry-plan/1\",\"version\":\"1\",\"goal\":{\"tempId\":\"g_notify\",\"title\":\"Notify Slack when issues complete\"},\"assumptions\":[],\"requiredConnections\":[{\"provider\":\"slack\",\"purpose\":\"post the notification\",\"connected\":false}],\"issues\":[],\"workflows\":[{\"tempId\":\"w_notify\",\"name\":\"Notify #engineering when an issue completes\",\"trigger\":{\"id\":\"on_completed\",\"type\":\"berry_event\",\"event\":\"issue.completed\"},\"steps\":[{\"id\":\"post\",\"type\":\"action\",\"provider\":\"slack\",\"operation\":\"post_message\",\"input\":{\"channel\":\"#engineering\",\"text\":\"Done: {{ trigger.issue.identifier }} {{ trigger.issue.title }}\"}}],\"entry\":[\"post\"],\"activateOnApprove\":true}],\"approvals\":[],\"dependencies\":[],\"confidence\":0.9}"
+    ],
+    "repair": [],
+    "critic": ["{\"verdict\":\"accept\",\"problems\":[]}"]
+  },
+  "expectedProperties": {
+    "generationStatus": "succeeded",
+    "validationStatus": "valid",
+    "issueCount": 0,
+    "workflowCount": 1,
+    "approvalCount": 0,
+    "validationErrors": [],
+    "validationWarnings": [],
+    "requiredConnections": ["slack"],
+    "blocking": false,
+    "classification": {"w_notify": "workflow"},
+    "repairedWithin": 0,
+    "versions": 1
+  }
+}

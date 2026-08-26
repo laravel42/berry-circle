@@ -55,10 +55,13 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/integrations/oauth"
 	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/modelcatalog"
+	"github.com/laravel42/berry-circle/server/internal/modelgateway"
 	"github.com/laravel42/berry-circle/server/internal/observability"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/openrouter"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
+	"github.com/laravel42/berry-circle/server/internal/planner"
+	"github.com/laravel42/berry-circle/server/internal/planner/prompts"
 	"github.com/laravel42/berry-circle/server/internal/platform"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
@@ -300,6 +303,35 @@ func run() int {
 		}
 	}
 
+	// The planner's model roles are lean runtime agents Berry provisions the
+	// same way (D6): probe the recorded agent, spawn only on a definitive
+	// 404, correct model and prompt drift in place, warn when the manifest
+	// limits differ. Before the agent seed so the sync excludes them, and
+	// non-fatal: a role that cannot be provisioned leaves plan generation
+	// answering PLANNER_UNAVAILABLE.
+	var roleStore *modelgateway.PostgresStore
+	if dbPool != nil && cfg.PlannerEnabled {
+		store, err := modelgateway.NewStore(dbPool)
+		if err != nil {
+			logger.Warn("role agent store setup failed", "error", err)
+		} else {
+			roleStore = store
+			rolePrompts := map[modelgateway.Role]modelgateway.Prompt{}
+			for _, prompt := range prompts.All() {
+				rolePrompts[modelgateway.Role(prompt.Role)] = modelgateway.Prompt{Version: prompt.Version, Text: prompt.Text}
+			}
+			if err := modelgateway.EnsureRoleAgents(ctx, roleStore, upstream, upstream, modelgateway.RoleSpecs{
+				Classifier:      modelgateway.RoleSpec{Provider: cfg.ClassifierProvider, Model: cfg.ClassifierModel},
+				Planner:         modelgateway.RoleSpec{Provider: cfg.PlannerProvider, Model: cfg.PlannerModel},
+				Repair:          modelgateway.RoleSpec{Provider: cfg.RepairProvider, Model: cfg.RepairModel},
+				Critic:          modelgateway.RoleSpec{Provider: cfg.CriticProvider, Model: cfg.CriticModel},
+				MaxOutputTokens: cfg.PlannerMaxOutputTokens,
+			}, rolePrompts, uuid.New, logger); err != nil {
+				logger.Warn("role agent bootstrap incomplete", "error", err)
+			}
+		}
+	}
+
 	// Seed each workspace's agents from the runtime at boot. Without this the
 	// list is empty until somebody opens the agents page, which leaves intake
 	// with nothing to route to and the built-in orchestrator taking every task
@@ -378,6 +410,7 @@ func run() int {
 	}
 	var runRoutes *runhandlers.Handlers
 	var automationStarter *automationrun.InProcessStarter
+	var plannerService *planner.Service
 	if dbPool != nil {
 		sessions, err := coreauth.NewService(coreauth.ServiceOptions{
 			Pool:       dbPool,
@@ -631,22 +664,24 @@ func run() int {
 			logger.Error("board route setup failed", "error", err)
 			return 1
 		}
+		// The runtime's OpenRouter entries are compiled into its binary and
+		// go stale, so a model published since that build reads as
+		// unavailable and cannot be selected. Serve OpenRouter's live
+		// catalog for its own models and keep the runtime's for every other
+		// provider. Listing needs no credential. The planner prices its
+		// calls through the same catalog.
+		modelCatalog := &modelcatalog.Merged{
+			Runtime:    upstream,
+			OpenRouter: openrouter.New("", nil),
+		}
 		agentMount, err := agenthandlers.NewMount(agenthandlers.Options{
-			Pool:       dbPool,
-			Sessions:   authenticator,
-			Clock:      time.Now,
-			NewID:      uuid.New,
-			OpenFang:   upstream,
-			Configurer: upstream,
-			// The runtime's OpenRouter entries are compiled into its binary and
-			// go stale, so a model published since that build reads as
-			// unavailable and cannot be selected. Serve OpenRouter's live
-			// catalog for its own models and keep the runtime's for every other
-			// provider. Listing needs no credential.
-			Catalog: &modelcatalog.Merged{
-				Runtime:    upstream,
-				OpenRouter: openrouter.New("", nil),
-			},
+			Pool:          dbPool,
+			Sessions:      authenticator,
+			Clock:         time.Now,
+			NewID:         uuid.New,
+			OpenFang:      upstream,
+			Configurer:    upstream,
+			Catalog:       modelCatalog,
 			Authorization: identityService,
 		})
 		if err != nil {
@@ -1270,6 +1305,75 @@ func run() int {
 			logger.Error("workflow run route setup failed", "error", err)
 			return 1
 		}
+		// The planner (P5): intent, context, generate, validate, a bounded
+		// repair loop and a bounded critic round through the provisioned
+		// role agents. Generation runs in tracked goroutines bounded by
+		// PLANNER_TIMEOUT; POST /plans/generate answers 202 and the preview
+		// follows GET /plans/{id} and the workspace stream. With the planner
+		// disabled the mount still serves stored plans and answers
+		// PLANNER_UNAVAILABLE on generate.
+		var (
+			plannerSeam      planhandlers.Planner
+			plannerValidator planhandlers.Validator
+			plannerRoles     planhandlers.RoleReader
+		)
+		if cfg.PlannerEnabled && roleStore != nil {
+			plannerMetrics, err := observability.NewPlannerMetrics(registry)
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("planner metrics setup failed", "error", err)
+				return 1
+			}
+			modelGateway, err := modelgateway.NewOpenFang(upstream, roleStore, &modelgateway.CatalogPrices{Catalog: modelCatalog})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("model gateway setup failed", "error", err)
+				return 1
+			}
+			plannerSources := planner.PostgresSources{Pool: dbPool}
+			sources := planner.Sources{
+				Workspace: plannerSources, Agents: plannerSources, Issues: plannerSources, Workflows: plannerSources,
+				Goals: plannerSources, Project: plannerSources, Registry: providerRegistry,
+			}
+			if connectionReader != nil {
+				sources.Connections = connectionReader
+			}
+			if runCode != nil {
+				sources.Code = runCode
+			}
+			plannerService, err = planner.New(planner.Options{
+				Gateway:            modelGateway,
+				Store:              planStore,
+				Sources:            sources,
+				Authorization:      identityService,
+				Broadcaster:        realtimeManager,
+				Clock:              time.Now,
+				NewID:              uuid.New,
+				WorkerContext:      ctx,
+				PlannerVersion:     prompts.Planner().Version,
+				MaxRepairs:         cfg.PlannerMaxRepairs,
+				MaxCriticRounds:    cfg.PlannerMaxCriticRounds,
+				Timeout:            cfg.PlannerTimeout,
+				ContextBudgetBytes: cfg.PlannerContextBudgetBytes,
+				Logger:             logger,
+				Metrics:            plannerMetrics,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("planner setup failed", "error", err)
+				return 1
+			}
+			plannerSeam, plannerValidator, plannerRoles = plannerService, plannerService, roleStore
+		}
 		planMount, err := planhandlers.NewMount(planhandlers.Options{
 			Pool:             dbPool,
 			Store:            planStore,
@@ -1285,6 +1389,9 @@ func run() int {
 			NewID:            uuid.New,
 			IdempotencyStore: idempotencyStore,
 			Broadcaster:      realtimeManager,
+			Planner:          plannerSeam,
+			Validator:        plannerValidator,
+			Roles:            plannerRoles,
 		})
 		if err != nil {
 			closeRunRoutes(runRoutes, logger)
@@ -1439,6 +1546,15 @@ func run() int {
 		logger.Error("graceful HTTP shutdown failed", "error", err)
 		_ = server.Close()
 		exitCode = 1
+	}
+	// Running plan generations drain first: each is bounded by
+	// PLANNER_TIMEOUT, and when the shutdown window ends before they do the
+	// rest are cancelled and recorded as failed with "shutdown", which the
+	// preview shows and a person may regenerate.
+	if plannerService != nil {
+		if err := plannerService.Close(shutdownCtx); err != nil {
+			logger.Warn("planner shutdown cut running generations short", "error", err)
+		}
 	}
 	// Workflow workers stop before the run workers: a step that admitted an
 	// agent run has already handed it over, and nothing new may start once

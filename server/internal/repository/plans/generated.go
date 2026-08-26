@@ -96,6 +96,73 @@ type PlanHeader struct {
 	DecisionNote     *string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	// LastStage and LastOutcome are the newest planner_events row, from
+	// which the stage in progress is derived while generation runs.
+	LastStage   *string
+	LastOutcome *string
+}
+
+// Pipeline stages, as planner_events.stage spells them, plus the derived
+// finalize stage a reader sees once the critic is done.
+const (
+	StageIntent   = "intent"
+	StageContext  = "context"
+	StageGenerate = "generate"
+	StageValidate = "validate"
+	StageRepair   = "repair"
+	StageCritic   = "critic"
+	StageFinalize = "finalize"
+	StagePatch    = "patch"
+	StageApprove  = "approve"
+	StageCompile  = "compile"
+)
+
+// Event outcomes, as planner_events.outcome spells them.
+const (
+	OutcomeOK      = "ok"
+	OutcomeInvalid = "invalid"
+	OutcomeError   = "error"
+	OutcomeTimeout = "timeout"
+	OutcomeSkipped = "skipped"
+)
+
+// CurrentStage derives the stage in progress from the newest recorded stage
+// and its outcome. Every stage records its row when it finishes, so the
+// stage a reader sees running is the one that comes next.
+func CurrentStage(header PlanHeader) *string {
+	if header.GenerationStatus != GenerationRunning {
+		return nil
+	}
+	stage := StageIntent
+	if header.LastStage != nil {
+		outcome := ""
+		if header.LastOutcome != nil {
+			outcome = *header.LastOutcome
+		}
+		switch *header.LastStage {
+		case StageIntent:
+			stage = StageContext
+		case StageContext:
+			stage = StageGenerate
+		case StageGenerate:
+			stage = StageValidate
+			if outcome == OutcomeInvalid {
+				stage = StageRepair
+			}
+		case StageValidate:
+			stage = StageCritic
+			if outcome == OutcomeInvalid {
+				stage = StageRepair
+			}
+		case StageRepair:
+			stage = StageValidate
+		case StageCritic:
+			stage = StageFinalize
+		default:
+			stage = *header.LastStage
+		}
+	}
+	return &stage
 }
 
 // PlanVersion is one immutable IR snapshot with what was known about it.
@@ -209,7 +276,9 @@ const headerProjection = `
 	plan.confidence, plan.generation_status, plan.generation_error, plan.validation_status,
 	plan.compile_status, plan.compile_error, plan.compiled_at, plan.conversation_id,
 	plan.created_by, plan.approved_by, plan.approved_at, plan.decision_note,
-	plan.created_at, plan.updated_at`
+	plan.created_at, plan.updated_at,
+	(SELECT event.stage FROM planner_events AS event WHERE event.plan_id = plan.id ORDER BY event.sequence DESC LIMIT 1),
+	(SELECT event.outcome FROM planner_events AS event WHERE event.plan_id = plan.id ORDER BY event.sequence DESC LIMIT 1)`
 
 const headerSource = `
 	FROM plans AS plan
@@ -238,7 +307,7 @@ func scanHeader(row headerScanner) (PlanHeader, error) {
 		&header.Confidence, &header.GenerationStatus, &header.GenerationError, &header.ValidationStatus,
 		&header.CompileStatus, &header.CompileError, &header.CompiledAt, &header.ConversationID,
 		&header.CreatedBy, &header.ApprovedBy, &header.ApprovedAt, &header.DecisionNote,
-		&header.CreatedAt, &header.UpdatedAt,
+		&header.CreatedAt, &header.UpdatedAt, &header.LastStage, &header.LastOutcome,
 	); err != nil {
 		return PlanHeader{}, err
 	}
@@ -480,6 +549,101 @@ func (repository *Repository) SetGeneration(ctx context.Context, planID uuid.UUI
 		return ErrNotFound
 	}
 	return nil
+}
+
+// FinishGenerationParams closes one pipeline run on the header.
+type FinishGenerationParams struct {
+	PlanID           uuid.UUID
+	Status           string
+	Error            *string
+	ValidationStatus string
+	Confidence       *float64
+	PlannerVersion   *string
+	Now              time.Time
+}
+
+// FinishGeneration records how the pipeline ended: the generation status
+// and error, the validator's verdict, and the confidence after repairs.
+func (repository *Repository) FinishGeneration(ctx context.Context, params FinishGenerationParams) error {
+	if params.PlanID == uuid.Nil || params.Status == "" || params.Now.IsZero() {
+		return errors.New("finish generation parameters are invalid")
+	}
+	tag, err := repository.Pool.Exec(
+		ctx,
+		`UPDATE plans
+		    SET generation_status = $2, generation_error = $3,
+		        validation_status = COALESCE(NULLIF($4, ''), validation_status),
+		        confidence = COALESCE($5, confidence),
+		        planner_version = COALESCE($6, planner_version),
+		        updated_at = $7
+		  WHERE id = $1`,
+		params.PlanID, params.Status, params.Error, params.ValidationStatus, params.Confidence, params.PlannerVersion, params.Now.UTC(),
+	)
+	if err != nil {
+		return classifyGeneratedWrite("finish plan generation", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// EmitPlanEvent writes one plan.* fact to the outbox for the workspace
+// stream and returns it for the live broadcast. Progress facts are written
+// outside the stage transactions on purpose: a stage that fails still
+// leaves the fact that it ran.
+func (repository *Repository) EmitPlanEvent(
+	ctx context.Context,
+	planID uuid.UUID,
+	topic string,
+	detail map[string]any,
+	newID func() uuid.UUID,
+	now time.Time,
+) (ledger.Event, error) {
+	if planID == uuid.Nil || topic == "" || now.IsZero() {
+		return ledger.Event{}, errors.New("plan event parameters are invalid")
+	}
+	if newID == nil {
+		newID = uuid.New
+	}
+	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ledger.Event{}, errors.New("begin plan event")
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	header, err := getHeader(ctx, tx, planID, false)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	event, err := writePlanEvent(ctx, tx, topic, header, detail, newID, now)
+	if err != nil {
+		return ledger.Event{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ledger.Event{}, errors.New("commit plan event")
+	}
+	return event, nil
+}
+
+// DefaultBoard is the workspace's oldest board, where a plan lands when the
+// request names none.
+func (repository *Repository) DefaultBoard(ctx context.Context, workspaceID uuid.UUID) (uuid.UUID, error) {
+	if workspaceID == uuid.Nil {
+		return uuid.Nil, errors.New("workspace is required")
+	}
+	var boardID uuid.UUID
+	err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT id FROM boards WHERE workspace_id = $1 ORDER BY created_at ASC, id ASC LIMIT 1`,
+		workspaceID,
+	).Scan(&boardID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return uuid.Nil, ErrNotFound
+	}
+	if err != nil {
+		return uuid.Nil, errors.New("find default board")
+	}
+	return boardID, nil
 }
 
 // SetValidation records the validator's verdict on the current IR.

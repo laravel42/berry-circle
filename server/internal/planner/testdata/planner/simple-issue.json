@@ -1,0 +1,43 @@
+{
+  "name": "simple-issue",
+  "category": "simple issue",
+  "userPrompt": "Fix the login failure on Safari.",
+  "hint": "auto",
+  "context": {
+    "workspace": {"name": "Berry", "issuePrefix": "BER"},
+    "actorRole": "member",
+    "members": [],
+    "agents": [
+      {"id": "c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0", "name": "Coder", "skills": ["frontend", "debugging"], "tools": ["file_write", "shell_exec"], "status": "available"}
+    ],
+    "tools": [
+      {"provider": "berry", "operation": "add_comment", "kind": "action", "effect": "write", "description": "Comment on an issue.", "connectionRequired": false, "requiredInputs": ["issue", "body"], "inputs": ["issue", "body"]}
+    ],
+    "connections": [],
+    "existingIssues": [],
+    "existingWorkflows": []
+  },
+  "modelReplies": {
+    "intent": "{\"goal\":\"Fix the Safari login failure\",\"requirements\":[{\"id\":\"r1\",\"description\":\"Diagnose and fix the login failure on Safari\",\"nature\":\"finite_work\",\"entities\":[\"login\",\"safari\"],\"explicitConstraints\":[]}],\"ambiguities\":[],\"language\":\"en\"}",
+    "planner": [
+      "{\"$schema\":\"berry-plan/1\",\"version\":\"1\",\"goal\":{\"tempId\":\"g_login\",\"title\":\"Fix the login failure on Safari\"},\"assumptions\":[{\"id\":\"a_scope\",\"description\":\"Only the web app is affected.\",\"confidence\":\"medium\",\"userEditable\":true}],\"requiredConnections\":[],\"issues\":[{\"tempId\":\"i_reproduce\",\"title\":\"Reproduce and diagnose the Safari login failure\",\"type\":\"issue\",\"suggestedAgentId\":\"c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0\",\"requiredCapabilities\":[\"debugging\"],\"priority\":\"high\",\"expectedArtifacts\":[\"diagnosis note\"]},{\"tempId\":\"i_fix\",\"title\":\"Fix the Safari login failure and add a regression test\",\"type\":\"issue\",\"suggestedAgentId\":\"c0c0c0c0-c0c0-4c0c-8c0c-c0c0c0c0c0c0\",\"requiredCapabilities\":[\"frontend\"],\"dependsOn\":[\"i_reproduce\"],\"requiresReview\":true}],\"workflows\":[],\"approvals\":[],\"dependencies\":[{\"from\":\"i_fix\",\"to\":\"i_reproduce\",\"kind\":\"blocks\"}],\"confidence\":0.8}"
+    ],
+    "repair": [],
+    "critic": ["{\"verdict\":\"accept\",\"problems\":[]}"]
+  },
+  "expectedProperties": {
+    "generationStatus": "succeeded",
+    "validationStatus": "valid",
+    "issueCount": 2,
+    "workflowCount": 0,
+    "approvalCount": 0,
+    "validationErrors": [],
+    "validationWarnings": [],
+    "requiredConnections": [],
+    "blocking": false,
+    "classification": {"i_fix": "issue"},
+    "repairedWithin": 0,
+    "agentsBySkill": {"i_reproduce": "debugging", "i_fix": "frontend"},
+    "versions": 1
+  }
+}

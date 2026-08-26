@@ -23,7 +23,7 @@ import (
 )
 
 const planIR = `{"$schema":"berry-plan/1","version":"1","goal":{"tempId":"g_1","title":"Ship"},
-"issues":[{"tempId":"i_1","title":"Deploy to production","type":"issue"}],"confidence":0.7}`
+"issues":[{"tempId":"i_1","title":"Deploy to production","type":"issue","requiresApproval":true}],"confidence":0.7}`
 
 // A viewer hears PLAN_FORBIDDEN, a member approving a high-risk plan gets a
 // pending approval rather than a compile, compile refusals map to their
@@ -120,10 +120,18 @@ func (authorizer fakeAuthorizer) AuthorizePlan(_ context.Context, _, _ uuid.UUID
 	return identity.Scope{WorkspaceID: uuid.New(), Role: authorizer.role}, nil
 }
 
+func (authorizer fakeAuthorizer) AuthorizeWorkspace(_ context.Context, _, _ uuid.UUID, permission identity.Permission) (identity.Role, error) {
+	if !authorizer.role.Allows(permission) {
+		return authorizer.role, identity.ErrForbidden
+	}
+	return authorizer.role, nil
+}
+
 type sessions struct{}
 
 func (sessions) ResolveSession(context.Context, string) (auth.User, error) {
-	return auth.User{ID: uuid.New(), Role: auth.RoleMember}, nil
+	workspaceID := uuid.MustParse("99999999-9999-4999-8999-999999999999")
+	return auth.User{ID: uuid.New(), Role: auth.RoleMember, CurrentWorkspaceID: &workspaceID}, nil
 }
 
 type memoryIdempotency struct{}
@@ -136,12 +144,16 @@ func (memoryIdempotency) Complete(context.Context, uuid.UUID, httpapi.StoredResp
 }
 func (memoryIdempotency) Abandon(context.Context, uuid.UUID) error { return nil }
 
-func newTestMount(t *testing.T, store Store, role identity.Role) http.Handler {
+func newTestMount(t *testing.T, store Store, role identity.Role, extra ...func(*Options)) http.Handler {
 	t.Helper()
-	mount, err := NewMount(Options{
+	options := Options{
 		Store: store, Sessions: sessions{}, Authorization: fakeAuthorizer{role: role},
 		Clock: time.Now, NewID: uuid.New, IdempotencyStore: memoryIdempotency{},
-	})
+	}
+	for _, apply := range extra {
+		apply(&options)
+	}
+	mount, err := NewMount(options)
 	if err != nil {
 		t.Fatalf("NewMount() error = %v", err)
 	}

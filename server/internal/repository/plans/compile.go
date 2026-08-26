@@ -16,6 +16,7 @@ import (
 	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
 	"github.com/laravel42/berry-circle/server/internal/issueid"
 	"github.com/laravel42/berry-circle/server/internal/planner/ir"
+	"github.com/laravel42/berry-circle/server/internal/planner/validate"
 	"github.com/laravel42/berry-circle/server/internal/repository/approvals"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
@@ -537,43 +538,10 @@ func Validate(plan ir.Plan, catalog automation.Catalog) []ir.Finding {
 	return findings
 }
 
-// PlanRisk is the strongest risk class the plan carries: high when any
-// workflow derives high (destructive or approval-gated tools) or any issue
-// matches the destructive policy at high risk, medium when anything changes
-// state, low otherwise.
+// PlanRisk is the plan's risk class, shared with the planner's validator so
+// the approve gate and the preview agree.
 func PlanRisk(plan ir.Plan, catalog automation.Catalog) automation.Risk {
-	risk := automation.RiskLow
-	raise := func(level automation.Risk) {
-		if riskRank(level) > riskRank(risk) {
-			risk = level
-		}
-	}
-	for _, workflow := range plan.Workflows {
-		raise(automation.DeriveMetadata(workflow.Definition(), catalog).Risk)
-	}
-	for _, issue := range plan.Issues {
-		text := issue.Title
-		if issue.Description != nil {
-			text += "\n" + *issue.Description
-		}
-		if policy, ok := integrationcore.MatchPolicy(text); ok {
-			raise(automation.Risk(policy.Risk))
-		} else if issue.RequiresApproval {
-			raise(automation.RiskMedium)
-		}
-	}
-	return risk
-}
-
-func riskRank(level automation.Risk) int {
-	switch level {
-	case automation.RiskMedium:
-		return 1
-	case automation.RiskHigh:
-		return 2
-	default:
-		return 0
-	}
+	return validate.Risk(plan, catalog)
 }
 
 func prefixed(prefix string, findings []ir.Finding) []ir.Finding {

@@ -158,7 +158,7 @@ Validation failures set `details.fields` to an array of field errors:
 | 503 | `DEPENDENCY_UNAVAILABLE` | Runtime dependency is unavailable or timed out |
 | 500 | `INTERNAL` | Unhandled server failure |
 
-Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_COMPILE_FAILED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOW_ENGINE_DISABLED`, and `WORKFLOWS_DISABLED`.
+Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_OPEN_EXISTS`, `PLAN_COMPILE_FAILED`, `PLANNER_UNAVAILABLE`, `BOARD_REQUIRED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOW_ENGINE_DISABLED`, and `WORKFLOWS_DISABLED`.
 
 ## Resource schemas
 
@@ -414,8 +414,8 @@ A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved;
 | `irVersion` | string or null | yes | `"1"` |
 | `version` | integer | yes | Current IR version; every save appends one |
 | `plannerVersion`, `confidence` | string / number or null | yes | |
-| `generation` | `{ "status": idle \| running \| succeeded \| failed, "error": string or null, "stage": string or null }` | yes | |
-| `validation` | `{ "status": unknown \| valid \| invalid \| blocked, "errors": FieldError[], "warnings": FieldError[], "requiredConnections": [{ "provider", "purpose", "connected" }], "ambiguities": [], "risk": low \| medium \| high, "needsAdminActivation": boolean }` | yes | Errors and warnings are recomputed on every read from the stored IR; `path` values are JSON pointers into `plan` |
+| `generation` | `{ "status": idle \| running \| succeeded \| failed, "error": string or null, "stage": string or null }` | yes | `stage` is the pipeline stage in progress while `status` is `running` (`intent`, `context`, `generate`, `validate`, `repair`, `critic`, `finalize`) and null otherwise. `error` is `PLAN_INVALID` when the bounded repairs ran out (the last IR is kept for editing), `shutdown` when the server stopped mid-generation, or `<code> at <stage>` (`timeout`, `ROLE_RATE_LIMITED`, `PLANNER_UNAVAILABLE`, `REQUEST_TOO_LARGE`, `INTENT_INVALID`, `upstream error`) |
+| `validation` | `{ "status": unknown \| valid \| invalid \| blocked, "errors": FieldError[], "warnings": FieldError[], "requiredConnections": [{ "provider", "purpose", "connected" }], "ambiguities": [{ "id", "question", "blocking" }], "risk": low \| medium \| high, "needsAdminActivation": boolean }` | yes | Errors and warnings are recomputed on every read from the stored IR with the workspace's agents, issues and workflows; `path` values are JSON pointers into `plan`. `blocked` means the classifier found a blocking question: `plan` is a goal-only skeleton whose `assumptions` carry the questions (`blocking: true`) and `ambiguities` lists them; answering lands in a later phase |
 | `critic` | object or null | yes | |
 | `compile` | `{ "status": running \| succeeded \| failed, "error": string or null, "compiledAt": Timestamp or null, "goalId", "issueIds": Uuid[], "workflowIds": Uuid[], "approvalIds": Uuid[] }` or null | yes | Null until a compile was attempted |
 | `plan` | BerryPlan or null | yes | The current IR; after compile it carries `compiled` with the temporary-id map |
@@ -784,6 +784,21 @@ Links or unlinks an issue (id or identifier) in the goal's workspace. An issue b
 
 Generated plans only. Mutating routes answer `403 PLAN_FORBIDDEN` for viewers.
 
+#### `POST /api/v1/plans/generate`
+
+Asks the planner for a plan. Request `{ "workspaceId", "prompt" (1–20000 characters), "goalId"?, "projectId"?, "boardId"?, "hint"?: "issue" | "workflow" | "auto" }`, `Idempotency-Key` required (`product.write`). The plan row exists when the response returns; generation runs in the background through the model roles (intent → context → generate → validate → up to `PLANNER_MAX_REPAIRS` repairs → up to `PLANNER_MAX_CRITIC_ROUNDS` critic rounds) bounded by `PLANNER_TIMEOUT`. Follow it with `GET /plans/{planId}` (`generation.stage`) and the workspace stream's `plan.updated` / `plan.generated` / `plan.blocked` facts. Without `goalId` a draft goal is created for the plan; without `boardId` the workspace's oldest board is used. Nothing is created on the board until `POST /approve`.
+
+- `202`: `Plan` with `generation.status = "running"`; `Location: /api/v1/plans/{id}`
+- `403`: `PLAN_FORBIDDEN`
+- `409`: `PLAN_OPEN_EXISTS` (the goal already has a draft or pending plan), `BOARD_REQUIRED` (the workspace has no board)
+- `412`: `PLANNER_UNAVAILABLE` (no planner configured, or a model role is not provisioned)
+
+#### `GET /api/v1/plans/roles`
+
+The provisioned model roles (`settings.write`, resolved against the caller's current workspace).
+
+- `200`: `{ "enabled": boolean, "roles": [{ "role": classifier | planner | repair | critic, "provider", "model", "promptVersion", "status": available | offline | unknown, "maxTokens", "maxLLMTokensPerHour", "lastSyncedAt" }] }`
+
 #### `GET /api/v1/plans/{planId}`
 
 - `200`: `Plan`
@@ -810,7 +825,7 @@ Start Plan. Request `{ "note"? }`, `Idempotency-Key` required. Compiles the plan
 
 - `200`: `Plan` with `compile.status = "succeeded"`
 - `202`: `Plan` with `status = "pendingApproval"`
-- `409`: `PLAN_INVALID` (`details.fields`), `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_COMPILE_FAILED` with `details.stage`/`details.message` (the plan stays `approved` with `compile.status = "failed"`; retry with `POST /compile`)
+- `409`: `PLAN_INVALID` (`details.fields`; also while `validation.status` is `blocked`), `PLAN_NOT_OPEN`, `PLAN_BUSY` (still generating or compiling), `PLAN_COMPILE_FAILED` with `details.stage`/`details.message` (the plan stays `approved` with `compile.status = "failed"`; retry with `POST /compile`)
 
 #### `POST /api/v1/plans/{planId}/compile`
 
@@ -1041,7 +1056,8 @@ Run sequences start at 0 and MUST be contiguous in the persisted stream. Deliver
 | `workflow.created`, `workflow.activated`, `workflow.paused`, `workflow.archived` | `{ "workflow": { "id", "workspaceId", "projectId", "goalId", "name", "status", "version", "revision", "triggerType", "risk", "engine", "updatedAt" }, "actor"? }` | Workspace stream |
 | `workflow.run.started`, `workflow.run.waiting`, `workflow.run.resumed`, `workflow.run.succeeded`, `workflow.run.failed`, `workflow.run.cancelled` | `{ "workflowId", "workflowRunId", "stepId"?, "waitingOn"?, "run": WorkflowRun summary, "actor"? }` | Also on the run's own ledger stream with `sequence` |
 | `workflow.step.started`, `workflow.step.succeeded`, `workflow.step.failed`, `workflow.step.skipped`, `workflow.step.waiting` | `{ "workflowId", "workflowRunId", "stepId", "waitingOn"?, "step": WorkflowStepRun summary }` | Input and output are omitted from the frame |
-| `plan.approved`, `plan.compiled`, `plan.compile_failed` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, ... }` | `plan.compiled` carries `compiled` (the id map); `plan.compile_failed` carries `stage` and `message`. `plan.generated`, `plan.updated`, `plan.blocked`, `plan.patched` arrive with the planner |
+| `plan.approved`, `plan.compiled`, `plan.compile_failed` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, ... }` | `plan.compiled` carries `compiled` (the id map); `plan.compile_failed` carries `stage` and `message`. `plan.patched` arrives with conversational editing |
+| `plan.updated`, `plan.generated`, `plan.blocked` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, "stage", "status", ... }` | Workspace stream. `plan.updated` is emitted when each pipeline stage starts (`status: "running"`) and once more when generation fails (`status: "failed"`, `error`, `outcome`, `errors` codes when `PLAN_INVALID`); `plan.generated` closes a valid generation with `version`, `confidence`, `repairs`, `warnings` codes and `risk`; `plan.blocked` carries `questions: [{ "id", "question" }]`. None carries prompt text |
 
 `IssueMutation` is `{ "issue": Issue, "changedFields": string[], "previousStatus"?: IssueStatus, "actor"?: { "type": "user" | "agent", "id": Uuid } }`. `changedFields` is empty for `issue.created` and `issue.deleted`; `previousStatus` is present only when `status` changed; `actor` is the user who made the change and is absent when a run made it. The derived topics (`assigned`, `started`, `completed`) carry the same payload as the `issue.updated` they accompany and are ordered after it.
 

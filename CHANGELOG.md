@@ -20,6 +20,29 @@ and known issues.
 
 ### Added
 
+- Planning and workflows, phase 5a (server): the planner generates plans. `POST
+  /api/v1/plans/generate` (202) turns a request into a BerryPlan v1 through four lean
+  model-role agents Berry provisions on the runtime at boot (`model_role_agents`:
+  classifier, planner, repair, critic — spawned with the configured provider/model, the
+  `PLANNER_MAX_OUTPUT_TOKENS` output cap, a high hourly token budget and no tools;
+  model and prompt drift is patched in place, limit drift only warns). The pipeline runs
+  in a tracked goroutine bounded by `PLANNER_TIMEOUT`: intent extraction (blocking
+  questions stop before a plan exists, `validation.status = "blocked"`), a deterministic
+  context stage inside `PLANNER_CONTEXT_BUDGET_BYTES` (agents with skills, tools and
+  limits, open issues by entity term, live workflows, connections by status only, policies,
+  Berry events — never a credential), generation with a JSON-object response format, the
+  full validator (structural, workflow, agent, safety, scope, duplicate and permission
+  rules; `CONNECTION_MISSING` is a warning only for providers the plan declares under
+  `requiredConnections`), up to `PLANNER_MAX_REPAIRS` repair rounds with the exact
+  validator errors (the recorded exception to never retrying a paid call), and up to
+  `PLANNER_MAX_CRITIC_ROUNDS` critic rounds whose revisions are kept only when they
+  validate. Every stage is one `planner_events` row (stage, role, usage, cost, codes and
+  ids — no prompts) and a `plan.updated` fact on the workspace stream; `GET /plans/{id}`
+  shows `generation.stage` while running; exhausted repairs leave the last IR with
+  `generation.error = "PLAN_INVALID"` and approve/compile answer `409 PLAN_INVALID`
+  (`PLAN_BUSY` while generating). `GET /api/v1/plans/roles` (admins) lists the roles;
+  `PLANNER_UNAVAILABLE` (412) answers when none is provisioned. Prometheus:
+  `berry_planner_stage_duration_seconds{stage,outcome}`, `berry_planner_tokens_total{role,direction}`.
 - Planning and workflows, phase 1b (server): workflows execute. A native runner walks a
   run through the MVP node set (`condition`, `wait`, `approval`, `create_issue`,
   `update_issue`, `agent` inline and issue mode, `action` for Berry's own tools; the rest
