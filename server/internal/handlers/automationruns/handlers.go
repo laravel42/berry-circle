@@ -1,6 +1,6 @@
 // Package automationruns exports the authenticated /api/v1/workflow-runs
-// mount: the run ledger, read-only until execution lands, with the same SSE
-// shape the issue run ledger has.
+// mount: the run ledger, its cancellation, and the same SSE shape the issue
+// run ledger has.
 package automationruns
 
 import (
@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
+	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 )
 
 const (
@@ -58,9 +60,14 @@ type Options struct {
 	Clock         func() time.Time
 	NewID         func() uuid.UUID
 	Broadcaster   realtime.Broadcaster
-	Retention     time.Duration
-	Heartbeat     time.Duration
-	PollInterval  time.Duration
+	// Canceller tells the executor a run was cancelled, so an orchestration
+	// parked on a wait stops waiting. Nil when the executor needs no such
+	// call (the in-process runner refuses a terminal run on its next step).
+	Canceller    automationrun.Canceller
+	Logger       *slog.Logger
+	Retention    time.Duration
+	Heartbeat    time.Duration
+	PollInterval time.Duration
 }
 
 type handler struct {
@@ -97,6 +104,9 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	}
 	if options.PollInterval == 0 {
 		options.PollInterval = defaultPoll
+	}
+	if options.Logger == nil {
+		options.Logger = slog.Default()
 	}
 	if options.Retention < minimumRetention {
 		return httpapi.Mount{}, errors.New("workflow run event retention must be at least 24 hours")
@@ -330,6 +340,14 @@ func (handler *handler) cancel(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	shared.PublishLedger(request.Context(), handler.options.Broadcaster, []automationrepo.Event{event})
+	// The row is what was cancelled; the executor only learns to stop
+	// waiting. A signal that does not land leaves an orchestration that
+	// ends at its own timeout, never a run that comes back to life.
+	if handler.options.Canceller != nil {
+		if err := handler.options.Canceller.Cancel(context.WithoutCancel(request.Context()), runID); err != nil {
+			handler.options.Logger.Warn("workflow run cancellation not signalled", "runId", runID, "error", err)
+		}
+	}
 	httpapi.WriteJSON(response, http.StatusOK, SerializeRun(run, nil))
 }
 

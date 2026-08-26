@@ -158,7 +158,7 @@ Validation failures set `details.fields` to an array of field errors:
 | 503 | `DEPENDENCY_UNAVAILABLE` | Runtime dependency is unavailable or timed out |
 | 500 | `INTERNAL` | Unhandled server failure |
 
-Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_COMPILE_FAILED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, and `WORKFLOW_ENGINE_DISABLED`.
+Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_COMPILE_FAILED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOW_ENGINE_DISABLED`, and `WORKFLOWS_DISABLED`.
 
 ## Resource schemas
 
@@ -887,7 +887,7 @@ Archives; runs and versions stay readable.
 
 #### `POST /api/v1/workflows/{workflowId}/activate`
 
-Validates with every required connection present and records the activation. A `risk = high` workflow needs `settings.write`. Triggers start with the status once native execution lands; until then activation is the recorded decision.
+Validates with every required connection present and records the activation. A `risk = high` workflow needs `settings.write`. Triggers start with the status: the trigger dispatcher matches Berry events only against active workflows, the hook and manual-run routes refuse inactive ones, and a `schedule` trigger is registered with the scheduler before the status changes (the scheduler itself lands with schedule triggers).
 
 - `200`: `Workflow`
 - `403`: `FORBIDDEN` with `details.reason = "destructive_actions"`
@@ -898,6 +898,15 @@ Validates with every required connection present and records the activation. A `
 
 - `200`: `Workflow`
 - `409`: `WORKFLOW_NOT_ACTIVE`
+
+#### `POST /api/v1/workflows/{workflowId}/runs`
+
+Runs the workflow by hand (`runs.dispatch`; `Idempotency-Key` required). Request `{ "input"?: any }`; any trigger type may be run this way and the input becomes `trigger.input` in the run's scope (`null` when omitted). The run is created as `trigger_type = manual` and handed to the executor — Temporal when `TEMPORAL_ENABLED`, the in-process pool otherwise.
+
+- `202`: `WorkflowRun` (status `pending`, without `steps`); `Location: /api/v1/workflow-runs/{runId}`
+- `403`: `FORBIDDEN`
+- `409`: `WORKFLOW_NOT_ACTIVE` — drafts and paused workflows never run
+- `412`: `WORKFLOWS_DISABLED` — the deployment does not execute workflows (`AUTOMATION_ENABLED=false`)
 
 #### `GET /api/v1/workflows/{workflowId}/runs`
 
@@ -911,9 +920,24 @@ Query `status`, `first`, `after`.
 
 #### `POST /api/v1/workflows/{workflowId}/webhook`
 
-Rotates the hook token (`settings.write`). Only its digest is stored; the deliveries route lands with execution.
+Rotates the hook token (`settings.write`). Only its digest is stored; deliveries arrive on the public hooks route below.
 
 - `200`: `{ "url": "/api/v1/hooks/workflows/{id}/{token}", "secret": string }` returned once
+
+### Hooks
+
+`/api/v1/hooks` is a separate mount without a session: the token in the URL is the credential. It is mounted only where the deployment executes workflows.
+
+#### `POST /api/v1/hooks/workflows/{workflowId}/{token}`
+
+Receives one delivery for an active workflow whose current hook token matches (compared by digest). The body, at most 1 MiB, is JSON or empty; it becomes `trigger.input` (`null` when empty) beside `trigger.query` (first value per query parameter), `trigger.contentType`, `trigger.deliveryId` and `trigger.receivedAt`. An `X-Berry-Delivery-Id` header (at most 120 characters) makes the delivery idempotent: a redelivery answers `200` with the run it already created. Each workflow accepts 60 deliveries per minute. Every way a delivery can fail to name an active workflow with this token — unknown id, wrong token, paused or archived workflow — is the same `404`.
+
+- `202`: `{ "runId": Uuid }`; `Location: /api/v1/workflow-runs/{runId}`; the run is `trigger_type = webhook`
+- `200`: `{ "runId": Uuid }` for a redelivery
+- `400`: `INVALID_BODY`, `INVALID_REQUEST`
+- `404`: `NOT_FOUND`
+- `413`: `PAYLOAD_TOO_LARGE`
+- `429`: `RATE_LIMITED` with `Retry-After`
 
 ### Workflow runs
 
@@ -929,7 +953,7 @@ Query `workspaceId` (required), `status`, `workflowId`, `first`, `after`. Ordere
 
 #### `POST /api/v1/workflow-runs/{runId}/cancel`
 
-`runs.dispatch`.
+`runs.dispatch`. Cancels the run row, then tells the executor to stop waiting: with `TEMPORAL_ENABLED` the orchestration is signalled; in-process, the runner refuses the next step of a cancelled run on its own. A step already executing finishes recording its own outcome; nothing after it starts.
 
 - `200`: `WorkflowRun`
 - `409`: `RUN_TERMINAL`

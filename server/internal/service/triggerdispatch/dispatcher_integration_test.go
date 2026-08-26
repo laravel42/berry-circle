@@ -16,6 +16,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/laravel42/berry-circle/server/internal/automation"
+	"github.com/laravel42/berry-circle/server/internal/orchestration"
+	"github.com/laravel42/berry-circle/server/internal/orchestration/orchestrationtest"
 	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
 	corerepo "github.com/laravel42/berry-circle/server/internal/repository/core"
@@ -70,9 +72,34 @@ type fixture struct {
 	approvals   *approvalrepo.Repository
 	goals       *goalrepo.Repository
 	dispatcher  *Dispatcher
+	// temporal is set when the fixture runs through the Temporal starter.
+	temporal *orchestrationtest.Client
 }
 
+// starterMode selects how the fixture executes runs: inline, the way the
+// in-process pool does once the queue drains, or through the real Temporal
+// starter and orchestration over the test suite.
+type starterMode string
+
+const (
+	modeInProcess starterMode = "in-process"
+	modeTemporal  starterMode = "temporal"
+)
+
+// seeder builds a fixture; each scenario runs once per starter mode.
+type seeder func(t *testing.T, ctx context.Context) fixture
+
 func seed(t *testing.T, ctx context.Context) fixture {
+	t.Helper()
+	return seedWith(t, ctx, modeInProcess)
+}
+
+func seedTemporal(t *testing.T, ctx context.Context) fixture {
+	t.Helper()
+	return seedWith(t, ctx, modeTemporal)
+}
+
+func seedWith(t *testing.T, ctx context.Context, mode starterMode) fixture {
 	t.Helper()
 	databaseURL := os.Getenv("BERRY_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -150,9 +177,19 @@ func seed(t *testing.T, ctx context.Context) fixture {
 		Agents: directory, Boards: directory, Clock: seeded.clock.Now, NewID: uuid.New, Logger: logger,
 	})
 	must(err)
+	var starter automationrun.Starter = syncStarter{runner: runner}
+	if mode == modeTemporal {
+		seeded.temporal = orchestrationtest.NewClient(&orchestration.Activities{
+			Automations: runner, AutomationRuns: seeded.automations, ScheduledRuns: seeded.automations, Logger: logger,
+		})
+		t.Cleanup(seeded.temporal.Close)
+		temporal, err := orchestration.NewAutomationStarter(seeded.temporal, "berry-runs")
+		must(err)
+		starter = temporal
+	}
 	workspaceID := seeded.workspaceID
 	seeded.dispatcher, err = New(Options{
-		Store: seeded.automations, Issues: seeded.issues, Goals: seeded.goals, Starter: syncStarter{runner: runner},
+		Store: seeded.automations, Issues: seeded.issues, Goals: seeded.goals, Starter: starter,
 		Clock: seeded.clock.Now, NewID: uuid.New, Logger: logger, WorkspaceID: &workspaceID,
 	})
 	must(err)
@@ -260,8 +297,11 @@ const followUp = `{"version":"1","trigger":{"id":"on_done","type":"berry_event",
 // moved to done, one tick, a run with step rows, a created issue with its
 // provenance and goal link, and a matched receipt.
 func TestDispatcherMatchesEventsIntoRunsWithStepsAndReceipts(t *testing.T) {
-	ctx := context.Background()
-	seeded := seed(t, ctx)
+	matchScenario(t, context.Background(), seed)
+}
+
+func matchScenario(t *testing.T, ctx context.Context, newFixture seeder) {
+	seeded := newFixture(t, ctx)
 	goal, _, err := seeded.goals.Create(ctx, goalrepo.CreateParams{
 		ID: uuid.New(), WorkspaceID: seeded.workspaceID, Title: "Launch", Status: goalrepo.StatusActive,
 		Source: goalrepo.SourceManual, CreatedBy: seeded.userID, CreatedAt: seeded.clock.Now(),
@@ -322,11 +362,20 @@ func TestDispatcherMatchesEventsIntoRunsWithStepsAndReceipts(t *testing.T) {
 	if again := seeded.tick(t, ctx); again.Started != 0 || len(seeded.runsOf(t, ctx, item.ID)) != 1 {
 		t.Fatalf("second tick = %+v", again)
 	}
+	if seeded.temporal != nil {
+		workflowID := orchestration.AutomationRunWorkflowID(runs[0].ID)
+		if seeded.temporal.Starts() != 1 || seeded.temporal.Running(workflowID) {
+			t.Fatalf("temporal starts = %d, running = %v; want one finished orchestration", seeded.temporal.Starts(), seeded.temporal.Running(workflowID))
+		}
+	}
 }
 
 func TestDispatcherTriggerFilterAndIdempotency(t *testing.T) {
-	ctx := context.Background()
-	seeded := seed(t, ctx)
+	filterScenario(t, context.Background(), seed)
+}
+
+func filterScenario(t *testing.T, ctx context.Context, newFixture seeder) {
+	seeded := newFixture(t, ctx)
 	item := seeded.activeAutomation(t, ctx, `{"version":"1","trigger":{"id":"on_done","type":"berry_event","event":"issue.completed","config":{"filter":{"op":"equals","left":{"ref":"trigger.issue.priority"},"right":"urgent"}}},"entry":["notify"],"steps":[
 		{"id":"notify","type":"create_issue","title":"Urgent follow up"}
 	]}`, nil)
@@ -344,8 +393,11 @@ func TestDispatcherTriggerFilterAndIdempotency(t *testing.T) {
 
 // Two dispatchers claiming the same event at once create exactly one run.
 func TestDispatcherConcurrentTicksCreateOneRun(t *testing.T) {
-	ctx := context.Background()
-	seeded := seed(t, ctx)
+	concurrentScenario(t, context.Background(), seed)
+}
+
+func concurrentScenario(t *testing.T, ctx context.Context, newFixture seeder) {
+	seeded := newFixture(t, ctx)
 	item := seeded.activeAutomation(t, ctx, `{"version":"1","trigger":{"id":"on_done","type":"berry_event","event":"issue.completed"},"entry":["notify"],"steps":[
 		{"id":"notify","type":"create_issue","title":"Once"}
 	]}`, nil)
@@ -378,9 +430,16 @@ func TestDispatcherConcurrentTicksCreateOneRun(t *testing.T) {
 	if created != 1 {
 		t.Fatalf("issues titled Once = %d, want exactly one", created)
 	}
+	if seeded.temporal != nil && seeded.temporal.Starts() != 1 {
+		t.Fatalf("temporal starts = %d, want exactly one orchestration", seeded.temporal.Starts())
+	}
 }
 
 func TestDispatcherResumesApprovalWaits(t *testing.T) {
+	approvalScenario(t, context.Background(), seed)
+}
+
+func approvalScenario(t *testing.T, _ context.Context, newFixture seeder) {
 	definition := `{"version":"1","trigger":{"id":"on_done","type":"berry_event","event":"issue.completed"},"entry":["gate"],"steps":[
 		{"id":"gate","type":"approval","title":"Ship {{ trigger.issue.identifier }}?","approver":{"type":"role","role":"admin"},"timeout":"PT1H"},
 		{"id":"ship","type":"create_issue","title":"Shipped","dependsOn":["gate"]}
@@ -427,7 +486,7 @@ func TestDispatcherResumesApprovalWaits(t *testing.T) {
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
-			seeded := seed(t, ctx)
+			seeded := newFixture(t, ctx)
 			item := seeded.activeAutomation(t, ctx, definition, nil)
 			seeded.tick(t, ctx)
 			issue := seeded.createIssue(t, ctx, "Gate me", "todo")
@@ -466,8 +525,11 @@ func TestDispatcherResumesApprovalWaits(t *testing.T) {
 }
 
 func TestDispatcherResumesTimerWaits(t *testing.T) {
-	ctx := context.Background()
-	seeded := seed(t, ctx)
+	timerScenario(t, context.Background(), seed)
+}
+
+func timerScenario(t *testing.T, ctx context.Context, newFixture seeder) {
+	seeded := newFixture(t, ctx)
 	item := seeded.activeAutomation(t, ctx, `{"version":"1","trigger":{"id":"on_done","type":"berry_event","event":"issue.completed"},"entry":["pause"],"steps":[
 		{"id":"pause","type":"wait","mode":"duration","duration":"PT10M"},
 		{"id":"then","type":"create_issue","title":"Later","dependsOn":["pause"]}
@@ -490,6 +552,27 @@ func TestDispatcherResumesTimerWaits(t *testing.T) {
 	run, steps, _ := seeded.automations.GetRunWithSteps(ctx, runs[0].ID)
 	if run.Status != automationrepo.RunSucceeded || len(steps) != 2 || steps[1].Status != automationrepo.StepSucceeded {
 		t.Fatalf("run = %+v, steps = %+v", run, steps)
+	}
+}
+
+// The run scenarios again through the Temporal starter: the real starter
+// over the test suite, the real orchestration and activities, and the same
+// runner and rows the in-process path uses (TEMPORAL_ENABLED=true).
+func TestDispatcherScenariosThroughTemporal(t *testing.T) {
+	scenarios := []struct {
+		name string
+		run  func(*testing.T, context.Context, seeder)
+	}{
+		{"match", matchScenario},
+		{"filter", filterScenario},
+		{"concurrent", concurrentScenario},
+		{"approvals", approvalScenario},
+		{"timers", timerScenario},
+	}
+	for _, scenario := range scenarios {
+		t.Run(scenario.name, func(t *testing.T) {
+			scenario.run(t, context.Background(), seedTemporal)
+		})
 	}
 }
 

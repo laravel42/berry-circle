@@ -14,7 +14,10 @@ import (
 
 	"github.com/laravel42/berry-circle/server/internal/auth"
 	"github.com/laravel42/berry-circle/server/internal/identity"
+	"github.com/laravel42/berry-circle/server/internal/orchestration"
+	"github.com/laravel42/berry-circle/server/internal/orchestration/orchestrationtest"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
+	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 )
 
 // The run stream replays ledger frames in the workflow envelope and closes
@@ -63,8 +66,9 @@ func TestRunStreamReplaysLedgerAndClosesOnTerminalEvent(t *testing.T) {
 }
 
 type fakeStore struct {
-	run    automationrepo.Run
-	events []automationrepo.RunEvent
+	run       automationrepo.Run
+	events    []automationrepo.RunEvent
+	cancelled []uuid.UUID
 }
 
 func (store *fakeStore) ListRuns(context.Context, automationrepo.RunListFilter, *automationrepo.RunCursor, int) ([]automationrepo.Run, error) {
@@ -76,8 +80,24 @@ func (store *fakeStore) GetRun(context.Context, uuid.UUID) (automationrepo.Run, 
 func (store *fakeStore) GetRunWithSteps(context.Context, uuid.UUID) (automationrepo.Run, []automationrepo.StepRun, error) {
 	return store.run, []automationrepo.StepRun{}, nil
 }
-func (store *fakeStore) Cancel(context.Context, uuid.UUID, *uuid.UUID, time.Time, func() uuid.UUID) (automationrepo.Run, automationrepo.Event, error) {
-	return automationrepo.Run{}, automationrepo.Event{}, automationrepo.ErrRunTerminal
+func (store *fakeStore) Cancel(_ context.Context, runID uuid.UUID, _ *uuid.UUID, now time.Time, _ func() uuid.UUID) (automationrepo.Run, automationrepo.Event, error) {
+	if store.run.Status.Terminal() {
+		return automationrepo.Run{}, automationrepo.Event{}, automationrepo.ErrRunTerminal
+	}
+	store.cancelled = append(store.cancelled, runID)
+	run := store.run
+	run.Status = automationrepo.RunCancelled
+	run.CompletedAt = &now
+	return run, automationrepo.Event{ID: uuid.New(), Type: "workflow.run.cancelled", WorkspaceID: run.WorkspaceID, OccurredAt: now}, nil
+}
+
+type fakeCanceller struct {
+	cancelled []uuid.UUID
+}
+
+func (canceller *fakeCanceller) Cancel(_ context.Context, runID uuid.UUID) error {
+	canceller.cancelled = append(canceller.cancelled, runID)
+	return nil
 }
 func (store *fakeStore) ResolveRunCursor(context.Context, uuid.UUID, uuid.UUID, time.Time) (int64, error) {
 	return 0, nil
@@ -105,4 +125,49 @@ type sessions struct{}
 
 func (sessions) ResolveSession(context.Context, string) (auth.User, error) {
 	return auth.User{ID: uuid.New(), Role: auth.RoleMember}, nil
+}
+
+// Cancelling a run cancels the row, then tells the executor to stop waiting:
+// the in-process canceller records the id; the Temporal starter signals an
+// orchestration that, having already finished, is not there — which is not
+// an error, because the row is what was cancelled.
+func TestCancelSignalsTheExecutorAfterTheRow(t *testing.T) {
+	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
+	for _, mode := range []string{"in-process", "temporal"} {
+		t.Run(mode, func(t *testing.T) {
+			runID := uuid.New()
+			store := &fakeStore{run: automationrepo.Run{ID: runID, AutomationID: uuid.New(), WorkspaceID: uuid.New(), Status: automationrepo.RunWaiting, CreatedAt: now}}
+			recorder := &fakeCanceller{}
+			var canceller automationrun.Canceller = recorder
+			if mode == "temporal" {
+				client := orchestrationtest.NewClient(&orchestration.Activities{})
+				t.Cleanup(client.Close)
+				starter, err := orchestration.NewAutomationStarter(client, "berry-runs")
+				if err != nil {
+					t.Fatalf("NewAutomationStarter() error = %v", err)
+				}
+				canceller = starter
+			}
+			mount, err := NewMount(Options{Store: store, Sessions: sessions{}, Authorization: fakeAuthorizer{}, Clock: func() time.Time { return now }, NewID: uuid.New, Canceller: canceller})
+			if err != nil {
+				t.Fatalf("NewMount() error = %v", err)
+			}
+			request := httptest.NewRequest(http.MethodPost, "/"+runID.String()+"/cancel", nil)
+			request.Header.Set("Authorization", "Bearer "+base64.RawURLEncoding.EncodeToString(make([]byte, 32)))
+			response := httptest.NewRecorder()
+			mount.Handler.ServeHTTP(response, request)
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"status":"cancelled"`) || len(store.cancelled) != 1 {
+				t.Fatalf("cancel = %d %s (rows %v)", response.Code, response.Body.String(), store.cancelled)
+			}
+			if mode == "in-process" && (len(recorder.cancelled) != 1 || recorder.cancelled[0] != runID) {
+				t.Fatalf("canceller = %v, want %s", recorder.cancelled, runID)
+			}
+			store.run.Status = automationrepo.RunCancelled
+			response = httptest.NewRecorder()
+			mount.Handler.ServeHTTP(response, request)
+			if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "RUN_TERMINAL") {
+				t.Fatalf("second cancel = %d %s", response.Code, response.Body.String())
+			}
+		})
+	}
 }

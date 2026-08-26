@@ -20,6 +20,26 @@ and known issues.
 
 ### Added
 
+- Planning and workflows, phase 1b (server): workflows execute. A native runner walks a
+  run through the MVP node set (`condition`, `wait`, `approval`, `create_issue`,
+  `update_issue`, `agent` inline and issue mode, `action` for Berry's own tools; the rest
+  answer `NODE_TYPE_UNSUPPORTED`), records every step attempt on the run ledger and parks
+  the run on what a step waits for — an approval, an agent run (resumed only by
+  `run.completed`/`run.failed`, never by the per-turn `done`), an issue, a timer or an
+  event. A second outbox consumer, the trigger dispatcher, turns `issue.*` and the other
+  Berry facts into runs with a receipt per event, resumes parked runs, releases dependent
+  issues (`blocked → todo`) when their blocker completes and moves goals with their
+  issues; an expiry sweep closes approvals nobody decided (`APPROVAL_EXPIRED`); `agent.*`
+  and `artifact.created` facts reach the outbox. With `TEMPORAL_ENABLED` runs execute
+  through the `berry.AutomationOrchestration` Temporal workflow on the worker (step
+  activities are never retried; cancelling a run signals its orchestration), otherwise on
+  an in-process pool; both drive one runner. `POST /api/v1/workflows/{id}/runs` runs a
+  workflow by hand (`202`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOWS_DISABLED`), activation and
+  pause start and stop triggers where a runtime call is needed (the schedule seam), and
+  `POST /api/v1/hooks/workflows/{id}/{token}` receives webhook-trigger deliveries without
+  a session (digest-compared token, 1 MiB cap, `X-Berry-Delivery-Id` idempotency, 60
+  deliveries per minute per workflow). Provider actions without a native client fail with
+  `TOOL_NOT_EXECUTABLE` before any approval is requested.
 - Planning and workflows, phase 1a (server): goals, plans, approvals and workflows as
   product state. `GET|POST /api/v1/goals` with lifecycle, issue links, and progress
   (issues, active workflows, pending approvals); `/api/v1/plans/{id}` read, versions,

@@ -9,7 +9,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sort"
 	"strconv"
@@ -32,6 +34,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
+	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 )
 
 // Authorizer is the narrow workspace/workflow boundary.
@@ -52,6 +55,7 @@ type Store interface {
 	RotateWebhookSecret(context.Context, uuid.UUID, string, time.Time) error
 	ListRuns(context.Context, automationrepo.RunListFilter, *automationrepo.RunCursor, int) ([]automationrepo.Run, error)
 	CountRuns(context.Context, uuid.UUID) (automationrepo.RunCounts, error)
+	CreateRun(context.Context, automationrepo.CreateRunParams) (automationrepo.Run, bool, error)
 }
 
 // ConnectionReader lists a workspace's provider connections without opening
@@ -73,6 +77,14 @@ type Options struct {
 	NewID            func() uuid.UUID
 	IdempotencyStore httpapi.IdempotencyStore
 	Broadcaster      realtime.Broadcaster
+	// Starter executes the runs a manual request creates. Nil means the
+	// deployment does not execute workflows; manual runs answer
+	// WORKFLOWS_DISABLED rather than leaving a run nobody will start.
+	Starter automationrun.Starter
+	// Schedules registers schedule triggers with whatever fires them; nil
+	// records nothing.
+	Schedules automationrun.Schedules
+	Logger    *slog.Logger
 	// Random mints webhook tokens; nil uses crypto/rand.
 	Random io.Reader
 }
@@ -111,6 +123,12 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	if options.Random == nil {
 		options.Random = rand.Reader
 	}
+	if options.Schedules == nil {
+		options.Schedules = automationrun.NoopSchedules{}
+	}
+	if options.Logger == nil {
+		options.Logger = slog.Default()
+	}
 	target := &handler{options: options}
 	router := httpapi.NewSubrouter()
 	router.Use(auth.RequireSession(options.Sessions))
@@ -122,6 +140,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Post("/{workflowId}/activate", target.activate)
 	router.Post("/{workflowId}/pause", target.pause)
 	router.Get("/{workflowId}/runs", target.listRuns)
+	router.Post("/{workflowId}/runs", workmanagement.RequireIdempotency(options.IdempotencyStore, options.Clock, http.HandlerFunc(target.run)).ServeHTTP)
 	router.Get("/{workflowId}/versions", target.listVersions)
 	router.Post("/{workflowId}/webhook", target.rotateWebhook)
 	return httpapi.Mount{Prefix: "/api/v1/workflows", Handler: router}, nil
@@ -634,6 +653,13 @@ func (handler *handler) archive(response http.ResponseWriter, request *http.Requ
 		return
 	}
 	shared.PublishLedger(request.Context(), handler.options.Broadcaster, []automationrepo.Event{event})
+	// Best effort: the archived row already refuses runs, so a schedule
+	// that outlives it fires into ErrNotActive; it is only noise to remove.
+	if item.Trigger.Type == automation.TriggerSchedule {
+		if err := handler.options.Schedules.Delete(context.WithoutCancel(request.Context()), item.ID); err != nil {
+			handler.options.Logger.Warn("workflow schedule not deleted", "workflowId", item.ID, "error", err)
+		}
+	}
 	response.WriteHeader(http.StatusNoContent)
 }
 
@@ -665,15 +691,23 @@ type ActivationParams struct {
 	ActorID    uuid.UUID
 	Catalog    automation.Catalog
 	Engine     automation.Engine
-	Now        time.Time
-	NewID      func() uuid.UUID
+	// Schedules receives schedule triggers; nil registers nothing.
+	Schedules automationrun.Schedules
+	Now       time.Time
+	NewID     func() uuid.UUID
 }
 
 // Activate applies the activation rule: the definition must validate with
 // every required connection present, a high-risk workflow needs
 // settings.write, and a workflow mirrored in an external engine needs that
-// engine. It records nothing on failure. Triggers start with the status in
-// P1b; here activation is the recorded decision.
+// engine. It records nothing on failure.
+//
+// Triggers start with the status. Berry event, manual and webhook triggers
+// need no runtime call — the trigger dispatcher, the manual run route and
+// the hook route all consult the status on every request — while a
+// schedule trigger is registered through the Schedules seam before the
+// status changes, so a schedule that exists for a workflow that failed to
+// activate fires into a refused run rather than the other way round.
 func Activate(ctx context.Context, store Store, params ActivationParams) (automationrepo.Automation, []automationrepo.Event, error) {
 	item := params.Automation
 	if item.Status == automationrepo.StatusActive {
@@ -710,6 +744,15 @@ func Activate(ctx context.Context, store Store, params ActivationParams) (automa
 		}
 		if _, err := engine.EnsureFlow(ctx, automation.FlowSpec{AutomationID: item.ID, WorkspaceID: item.WorkspaceID, Name: item.Name, Version: item.Version, Definition: definition}); err != nil {
 			return automationrepo.Automation{}, nil, err
+		}
+	}
+	if definition.Trigger.Type == automation.TriggerSchedule && params.Schedules != nil {
+		spec := automationrun.ScheduleSpec{}
+		if definition.Trigger.Config != nil {
+			spec = automationrun.ScheduleSpec{Cron: definition.Trigger.Config.Cron, Timezone: definition.Trigger.Config.Timezone}
+		}
+		if err := params.Schedules.Ensure(ctx, item.ID, spec); err != nil {
+			return automationrepo.Automation{}, nil, fmt.Errorf("register workflow schedule: %w", err)
 		}
 	}
 	activated, event, err := store.SetStatus(ctx, item.ID, automationrepo.StatusActive, params.ActorID, params.Now, params.NewID)
@@ -758,7 +801,7 @@ func (handler *handler) activate(response http.ResponseWriter, request *http.Req
 	catalog := handler.catalog(request.Context(), item.WorkspaceID)
 	activated, events, err := Activate(request.Context(), handler.options.Store, ActivationParams{
 		Automation: item, Role: scope.Role, ActorID: user.ID, Catalog: catalog, Engine: handler.options.Engine,
-		Now: handler.options.Clock().UTC(), NewID: handler.options.NewID,
+		Schedules: handler.options.Schedules, Now: handler.options.Clock().UTC(), NewID: handler.options.NewID,
 	})
 	if err != nil {
 		WriteActivationError(response, request, err)
@@ -805,7 +848,68 @@ func (handler *handler) pause(response http.ResponseWriter, request *http.Reques
 	if event.ID != uuid.Nil {
 		shared.PublishLedger(request.Context(), handler.options.Broadcaster, []automationrepo.Event{event})
 	}
+	// Best effort, after the status: a paused row already refuses runs, so
+	// a schedule that fires before this lands creates nothing.
+	if item.Trigger.Type == automation.TriggerSchedule {
+		if err := handler.options.Schedules.Pause(context.WithoutCancel(request.Context()), item.ID); err != nil {
+			handler.options.Logger.Warn("workflow schedule not paused", "workflowId", item.ID, "error", err)
+		}
+	}
 	httpapi.WriteJSON(response, http.StatusOK, handler.serialize(request.Context(), paused, handler.catalog(request.Context(), item.WorkspaceID), true))
+}
+
+type runBody struct {
+	Input json.RawMessage `json:"input"`
+}
+
+// run starts a workflow by hand. Any trigger type may be run this way; the
+// body's input becomes trigger.input in the run's scope. The run row is
+// durable before the starter sees it, so a starter that refuses the handoff
+// leaves a pending run for reconciliation rather than losing the request.
+func (handler *handler) run(response http.ResponseWriter, request *http.Request) {
+	item, _, ok := handler.authorize(response, request, identity.PermissionRunsDispatch)
+	if !ok {
+		return
+	}
+	body, _, ok := workmanagement.DecodeJSON[runBody](response, request)
+	if !ok {
+		return
+	}
+	if handler.options.Starter == nil {
+		httpapi.WriteError(response, request, http.StatusPreconditionFailed, "WORKFLOWS_DISABLED",
+			"Workflow execution is disabled on this deployment.", nil)
+		return
+	}
+	if item.Status != automationrepo.StatusActive {
+		handler.writeError(response, request, automationrepo.ErrNotActive)
+		return
+	}
+	input := body.Input
+	if len(input) == 0 {
+		input = json.RawMessage(`null`)
+	}
+	payload, err := json.Marshal(map[string]json.RawMessage{"input": input})
+	if err != nil {
+		workmanagement.WriteInternal(response, request)
+		return
+	}
+	user := auth.MustUser(request.Context())
+	runID := handler.options.NewID()
+	run, created, err := handler.options.Store.CreateRun(request.Context(), automationrepo.CreateRunParams{
+		ID: runID, AutomationID: item.ID, TriggerType: automation.TriggerManual, Payload: payload,
+		RequestedBy: &user.ID, RequestID: "manual:" + runID.String(), CreatedAt: handler.options.Clock().UTC(),
+	})
+	if err != nil {
+		handler.writeError(response, request, err)
+		return
+	}
+	if created {
+		if err := handler.options.Starter.Start(context.WithoutCancel(request.Context()), run.ID); err != nil {
+			handler.options.Logger.Error("manual workflow run not started", "runId", run.ID, "workflowId", item.ID, "error", err)
+		}
+	}
+	response.Header().Set("Location", "/api/v1/workflow-runs/"+run.ID.String())
+	httpapi.WriteJSON(response, http.StatusAccepted, automationruns.SerializeRun(run, nil))
 }
 
 func (handler *handler) listRuns(response http.ResponseWriter, request *http.Request) {
@@ -921,6 +1025,8 @@ func (handler *handler) writeError(response http.ResponseWriter, request *http.R
 		httpapi.WriteError(response, request, http.StatusConflict, "WORKFLOW_ACTIVE", "Pause the workflow before changing its definition.", nil)
 	case errors.Is(err, automationrepo.ErrInvalidTransition):
 		httpapi.WriteError(response, request, http.StatusConflict, "WORKFLOW_NOT_ACTIVE", "Only an active workflow can be paused.", nil)
+	case errors.Is(err, automationrepo.ErrNotActive):
+		httpapi.WriteError(response, request, http.StatusConflict, "WORKFLOW_NOT_ACTIVE", "Only an active workflow can run; activate it first.", nil)
 	case errors.Is(err, automationrepo.ErrConflict):
 		httpapi.WriteError(response, request, http.StatusConflict, "CONFLICT", "The workflow could not be written because its state conflicts.", nil)
 	default:

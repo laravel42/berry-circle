@@ -35,6 +35,7 @@ import (
 	conversationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/conversations"
 	eventhandlers "github.com/laravel42/berry-circle/server/internal/handlers/events"
 	goalhandlers "github.com/laravel42/berry-circle/server/internal/handlers/goals"
+	hookhandlers "github.com/laravel42/berry-circle/server/internal/handlers/hooks"
 	identityhandlers "github.com/laravel42/berry-circle/server/internal/handlers/identity"
 	integrationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/integrations"
 	"github.com/laravel42/berry-circle/server/internal/handlers/issues"
@@ -431,8 +432,9 @@ func run() int {
 		// survives the process that accepted it. Nil keeps the in-process pool,
 		// which remains a supported configuration.
 		var runDispatcher runadmission.Dispatcher
+		var temporalClient temporalclient.Client
 		if cfg.TemporalEnabled {
-			temporalClient, dialErr := temporalclient.Dial(temporalclient.Options{
+			dialled, dialErr := temporalclient.Dial(temporalclient.Options{
 				HostPort:  cfg.TemporalHostPort,
 				Namespace: cfg.TemporalNamespace,
 			})
@@ -447,6 +449,7 @@ func run() int {
 				}
 				logger.Warn("optional Temporal unavailable; using in-process dispatch", "error", dialErr)
 			} else {
+				temporalClient = dialled
 				defer temporalClient.Close()
 				dispatcher, dispatchErr := orchestration.NewTemporalDispatcher(
 					temporalClient, cfg.TemporalTaskQueue,
@@ -1085,75 +1088,17 @@ func run() int {
 			logger.Error("approval route setup failed", "error", err)
 			return 1
 		}
-		workflowMount, err := automationhandlers.NewMount(automationhandlers.Options{
-			Pool:             dbPool,
-			Store:            automationStore,
-			Registry:         providerRegistry,
-			Connections:      connectionReader,
-			Engine:           workflowEngine,
-			Sessions:         authenticator,
-			Authorization:    identityService,
-			Clock:            time.Now,
-			NewID:            uuid.New,
-			IdempotencyStore: idempotencyStore,
-			Broadcaster:      realtimeManager,
-		})
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("workflow route setup failed", "error", err)
-			return 1
-		}
-		workflowRunMount, err := automationrunhandlers.NewMount(automationrunhandlers.Options{
-			Pool:          dbPool,
-			Store:         automationStore,
-			Sessions:      authenticator,
-			Authorization: identityService,
-			Clock:         time.Now,
-			NewID:         uuid.New,
-			Broadcaster:   realtimeManager,
-		})
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("workflow run route setup failed", "error", err)
-			return 1
-		}
-		planMount, err := planhandlers.NewMount(planhandlers.Options{
-			Pool:             dbPool,
-			Store:            planStore,
-			Goals:            goalStore,
-			Automations:      automationStore,
-			Approvals:        approvalStore,
-			Registry:         providerRegistry,
-			Connections:      connectionReader,
-			Engine:           workflowEngine,
-			Sessions:         authenticator,
-			Authorization:    identityService,
-			Clock:            time.Now,
-			NewID:            uuid.New,
-			IdempotencyStore: idempotencyStore,
-			Broadcaster:      realtimeManager,
-		})
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("plan route setup failed", "error", err)
-			return 1
-		}
-
-		// Native workflow execution (P1b): the runner walks runs, the
-		// in-process starter executes them on a bounded pool, the trigger
-		// dispatcher turns outbox facts into runs and resumes, and the
-		// expiry sweep closes approvals nobody decided. The Temporal starter
-		// replaces the in-process one when the orchestration lands; until
-		// then runs execute in this process even with TEMPORAL_ENABLED.
+		// Native workflow execution (P1b): the runner walks runs, a starter
+		// executes them — Temporal when it is connected, the in-process pool
+		// otherwise — the trigger dispatcher turns outbox facts into runs and
+		// resumes, and the expiry sweep closes approvals nobody decided. The
+		// routes below hand runs to the same starter; with
+		// AUTOMATION_ENABLED=false they stay readable and refuse manual runs.
+		var (
+			workflowStarter   automationrun.Starter
+			workflowCanceller automationrun.Canceller
+			workflowSchedules automationrun.Schedules = automationrun.NoopSchedules{}
+		)
 		if cfg.AutomationEnabled {
 			automationMetrics, err := observability.NewAutomationMetrics(registry)
 			if err != nil {
@@ -1199,23 +1144,44 @@ func run() int {
 				logger.Error("automation runner setup failed", "error", err)
 				return 1
 			}
-			automationStarter, err = automationrun.NewInProcessStarter(ctx, runner, cfg.AutomationMaxConcurrent, 0)
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("automation starter setup failed", "error", err)
-				return 1
-			}
-			if cfg.TemporalEnabled {
-				logger.Warn("workflow runs execute in-process; the Temporal automation orchestration is not wired yet")
+			// Through Temporal a run — above all one parked on a person —
+			// survives this process; the worker drives the same runner from
+			// its activities. Without it the in-process pool executes runs
+			// and shutdown drains it.
+			if temporalClient != nil {
+				temporalStarter, err := orchestration.NewAutomationStarter(temporalClient, cfg.TemporalTaskQueue)
+				if err != nil {
+					closeRunRoutes(runRoutes, logger)
+					_ = realtimeManager.Close()
+					closeValkey(valkeyClient)
+					closeDatabase(dbPool)
+					logger.Error("automation starter setup failed", "error", err)
+					return 1
+				}
+				workflowStarter = temporalStarter
+				workflowCanceller = temporalStarter
+				logger.Info(
+					"workflow runs routed through Temporal",
+					"namespace", cfg.TemporalNamespace,
+					"taskQueue", cfg.TemporalTaskQueue,
+				)
+			} else {
+				automationStarter, err = automationrun.NewInProcessStarter(ctx, runner, cfg.AutomationMaxConcurrent, 0)
+				if err != nil {
+					closeRunRoutes(runRoutes, logger)
+					_ = realtimeManager.Close()
+					closeValkey(valkeyClient)
+					closeDatabase(dbPool)
+					logger.Error("automation starter setup failed", "error", err)
+					return 1
+				}
+				workflowStarter = automationStarter
 			}
 			dispatcher, err := triggerdispatch.New(triggerdispatch.Options{
 				Store:       automationStore,
 				Issues:      coreStore,
 				Goals:       goalStore,
-				Starter:     automationStarter,
+				Starter:     workflowStarter,
 				Broadcaster: realtimeManager,
 				Clock:       time.Now,
 				NewID:       uuid.New,
@@ -1261,6 +1227,74 @@ func run() int {
 			}()
 		}
 
+		workflowMount, err := automationhandlers.NewMount(automationhandlers.Options{
+			Pool:             dbPool,
+			Store:            automationStore,
+			Registry:         providerRegistry,
+			Connections:      connectionReader,
+			Engine:           workflowEngine,
+			Sessions:         authenticator,
+			Authorization:    identityService,
+			Clock:            time.Now,
+			NewID:            uuid.New,
+			IdempotencyStore: idempotencyStore,
+			Broadcaster:      realtimeManager,
+			Starter:          workflowStarter,
+			Schedules:        workflowSchedules,
+			Logger:           logger,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("workflow route setup failed", "error", err)
+			return 1
+		}
+		workflowRunMount, err := automationrunhandlers.NewMount(automationrunhandlers.Options{
+			Pool:          dbPool,
+			Store:         automationStore,
+			Sessions:      authenticator,
+			Authorization: identityService,
+			Clock:         time.Now,
+			NewID:         uuid.New,
+			Broadcaster:   realtimeManager,
+			Canceller:     workflowCanceller,
+			Logger:        logger,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("workflow run route setup failed", "error", err)
+			return 1
+		}
+		planMount, err := planhandlers.NewMount(planhandlers.Options{
+			Pool:             dbPool,
+			Store:            planStore,
+			Goals:            goalStore,
+			Automations:      automationStore,
+			Approvals:        approvalStore,
+			Registry:         providerRegistry,
+			Connections:      connectionReader,
+			Engine:           workflowEngine,
+			Sessions:         authenticator,
+			Authorization:    identityService,
+			Clock:            time.Now,
+			NewID:            uuid.New,
+			IdempotencyStore: idempotencyStore,
+			Broadcaster:      realtimeManager,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("plan route setup failed", "error", err)
+			return 1
+		}
+
 		productMounts := []httpapi.Mount{
 			authMount,
 			boardMount,
@@ -1280,6 +1314,27 @@ func run() int {
 			workflowRunMount,
 		}
 		productMounts = append(productMounts, integrationMounts...)
+		// The public hook route exists only where a delivery can be run: a
+		// deployment that does not execute workflows must not accept work it
+		// would leave pending forever.
+		if workflowStarter != nil {
+			hookMount, err := hookhandlers.NewMount(hookhandlers.Options{
+				Store:   automationStore,
+				Starter: workflowStarter,
+				Clock:   time.Now,
+				NewID:   uuid.New,
+				Logger:  logger,
+			})
+			if err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("hook route setup failed", "error", err)
+				return 1
+			}
+			productMounts = append(productMounts, hookMount)
+		}
 		// The inbound channel webhook is mounted only when Infobip is
 		// configured. An unconfigured deployment must not expose a public
 		// endpoint that creates messages attributed to users.

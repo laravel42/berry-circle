@@ -20,7 +20,10 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
 	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
+	"github.com/laravel42/berry-circle/server/internal/orchestration"
+	"github.com/laravel42/berry-circle/server/internal/orchestration/orchestrationtest"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
+	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 )
 
 const draftDefinition = `{"version":"1","trigger":{"id":"on_done","type":"berry_event","event":"issue.completed"},
@@ -114,6 +117,7 @@ type fakeStore struct {
 	created   *automationrepo.Automation
 	status    automationrepo.Status
 	updateErr error
+	runs      []automationrepo.CreateRunParams
 }
 
 func (store *fakeStore) List(context.Context, uuid.UUID, automationrepo.ListFilter, *automationrepo.Cursor, int) ([]automationrepo.Automation, error) {
@@ -162,6 +166,47 @@ func (store *fakeStore) ListRuns(context.Context, automationrepo.RunListFilter, 
 func (store *fakeStore) CountRuns(context.Context, uuid.UUID) (automationrepo.RunCounts, error) {
 	return automationrepo.RunCounts{}, nil
 }
+func (store *fakeStore) CreateRun(_ context.Context, params automationrepo.CreateRunParams) (automationrepo.Run, bool, error) {
+	if store.created == nil || store.created.Status != automationrepo.StatusActive {
+		return automationrepo.Run{}, false, automationrepo.ErrNotActive
+	}
+	store.runs = append(store.runs, params)
+	return automationrepo.Run{
+		ID: params.ID, WorkspaceID: store.created.WorkspaceID, AutomationID: params.AutomationID, AutomationVersion: store.created.Version,
+		Status: automationrepo.RunPending, TriggerType: params.TriggerType, TriggerPayload: params.Payload, RequestedBy: params.RequestedBy, CreatedAt: params.CreatedAt,
+	}, true, nil
+}
+
+type fakeStarter struct {
+	started []uuid.UUID
+}
+
+func (starter *fakeStarter) Start(_ context.Context, runID uuid.UUID) error {
+	starter.started = append(starter.started, runID)
+	return nil
+}
+func (starter *fakeStarter) Resume(context.Context, uuid.UUID, automationrun.ResumeSignal) error {
+	return nil
+}
+
+type fakeSchedules struct {
+	ensured []automationrun.ScheduleSpec
+	paused  []uuid.UUID
+	deleted []uuid.UUID
+}
+
+func (schedules *fakeSchedules) Ensure(_ context.Context, _ uuid.UUID, spec automationrun.ScheduleSpec) error {
+	schedules.ensured = append(schedules.ensured, spec)
+	return nil
+}
+func (schedules *fakeSchedules) Pause(_ context.Context, id uuid.UUID) error {
+	schedules.paused = append(schedules.paused, id)
+	return nil
+}
+func (schedules *fakeSchedules) Delete(_ context.Context, id uuid.UUID) error {
+	schedules.deleted = append(schedules.deleted, id)
+	return nil
+}
 
 type fakeAuthorizer struct {
 	role identity.Role
@@ -199,10 +244,19 @@ func (memoryIdempotency) Abandon(context.Context, uuid.UUID) error { return nil 
 
 func newTestMount(t *testing.T, store Store, role identity.Role, authErr error) http.Handler {
 	t.Helper()
-	mount, err := NewMount(Options{
+	return newTestMountWith(t, store, role, authErr, nil)
+}
+
+func newTestMountWith(t *testing.T, store Store, role identity.Role, authErr error, configure func(*Options)) http.Handler {
+	t.Helper()
+	options := Options{
 		Store: store, Registry: registry(t), Sessions: sessions{}, Authorization: fakeAuthorizer{role: role, err: authErr},
 		Clock: time.Now, NewID: uuid.New, IdempotencyStore: memoryIdempotency{},
-	})
+	}
+	if configure != nil {
+		configure(&options)
+	}
+	mount, err := NewMount(options)
 	if err != nil {
 		t.Fatalf("NewMount() error = %v", err)
 	}
@@ -217,4 +271,119 @@ func do(handler http.Handler, method, path, body string) *httptest.ResponseRecor
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+// A manual run needs runs.dispatch and an active workflow; it records the
+// body as trigger.input, answers 202 with the run's location, and hands the
+// run to the starter — the in-process pool or, over the test suite, the
+// real Temporal starter and orchestration.
+func TestManualRunsCreateAndStartTheRun(t *testing.T) {
+	for _, mode := range []string{"in-process", "temporal"} {
+		t.Run(mode, func(t *testing.T) {
+			store := &fakeStore{}
+			recorder := &fakeStarter{}
+			runner := orchestrationtest.NewRunner()
+			var (
+				starter automationrun.Starter = recorder
+				client  *orchestrationtest.Client
+			)
+			if mode == "temporal" {
+				client = orchestrationtest.NewClient(&orchestration.Activities{Automations: runner, AutomationRuns: runner})
+				t.Cleanup(client.Close)
+				temporal, err := orchestration.NewAutomationStarter(client, "berry-runs")
+				if err != nil {
+					t.Fatalf("NewAutomationStarter() error = %v", err)
+				}
+				starter = temporal
+			}
+			mount := newTestMountWith(t, store, identity.RoleMember, nil, func(options *Options) { options.Starter = starter })
+			workspaceID := uuid.New()
+			if response := do(mount, http.MethodPost, "/", `{"workspaceId":"`+workspaceID.String()+`","name":"Thank donors","definition":`+draftDefinition+`}`); response.Code != http.StatusCreated {
+				t.Fatalf("create = %d %s", response.Code, response.Body.String())
+			}
+			path := "/" + store.created.ID.String() + "/runs"
+			if response := do(mount, http.MethodPost, path, `{"input":{"amount":5}}`); response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), "WORKFLOW_NOT_ACTIVE") {
+				t.Fatalf("draft run = %d %s", response.Code, response.Body.String())
+			}
+			store.created.Status = automationrepo.StatusActive
+			response := do(mount, http.MethodPost, path, `{"input":{"amount":5}}`)
+			if response.Code != http.StatusAccepted || len(store.runs) != 1 {
+				t.Fatalf("run = %d %s (runs %d)", response.Code, response.Body.String(), len(store.runs))
+			}
+			created := store.runs[0]
+			if created.TriggerType != automation.TriggerManual || string(created.Payload) != `{"input":{"amount":5}}` || created.RequestedBy == nil || created.AutomationID != store.created.ID {
+				t.Fatalf("run params = %+v", created)
+			}
+			if response.Header().Get("Location") != "/api/v1/workflow-runs/"+created.ID.String() ||
+				!strings.Contains(response.Body.String(), `"triggerType":"manual"`) || !strings.Contains(response.Body.String(), `"status":"pending"`) {
+				t.Fatalf("run response = %s %s", response.Header().Get("Location"), response.Body.String())
+			}
+			if mode == "temporal" {
+				if executed := runner.Executed(); len(executed) != 1 || executed[0] != created.ID || client.Starts() != 1 {
+					t.Fatalf("temporal executed = %v, starts = %d", executed, client.Starts())
+				}
+			} else if len(recorder.started) != 1 || recorder.started[0] != created.ID {
+				t.Fatalf("in-process started = %v", recorder.started)
+			}
+			// The body is optional in content but not in presence: input null.
+			if response := do(mount, http.MethodPost, path, `{}`); response.Code != http.StatusAccepted || string(store.runs[1].Payload) != `{"input":null}` {
+				t.Fatalf("empty run = %d %s payload %s", response.Code, response.Body.String(), store.runs[1].Payload)
+			}
+		})
+	}
+}
+
+// Without a starter the deployment does not execute workflows and says so;
+// a viewer may not dispatch at all.
+func TestManualRunsRefuseWhenDisabledOrForbidden(t *testing.T) {
+	store := &fakeStore{}
+	mount := newTestMount(t, store, identity.RoleMember, nil)
+	if response := do(mount, http.MethodPost, "/", `{"workspaceId":"`+uuid.NewString()+`","name":"x","definition":`+draftDefinition+`}`); response.Code != http.StatusCreated {
+		t.Fatalf("create = %d", response.Code)
+	}
+	store.created.Status = automationrepo.StatusActive
+	path := "/" + store.created.ID.String() + "/runs"
+	if response := do(mount, http.MethodPost, path, `{}`); response.Code != http.StatusPreconditionFailed || !strings.Contains(response.Body.String(), "WORKFLOWS_DISABLED") || len(store.runs) != 0 {
+		t.Fatalf("disabled run = %d %s", response.Code, response.Body.String())
+	}
+	viewer := newTestMountWith(t, store, identity.RoleViewer, nil, func(options *Options) { options.Starter = &fakeStarter{} })
+	if response := do(viewer, http.MethodPost, path, `{}`); response.Code != http.StatusForbidden || len(store.runs) != 0 {
+		t.Fatalf("viewer run = %d %s", response.Code, response.Body.String())
+	}
+}
+
+// A schedule trigger is registered through the seam when the workflow
+// activates, paused with it and removed when it is archived; the other
+// trigger types need no runtime call.
+func TestActivationDrivesTheScheduleSeam(t *testing.T) {
+	schedules := &fakeSchedules{}
+	store := &fakeStore{}
+	mount := newTestMountWith(t, store, identity.RoleAdmin, nil, func(options *Options) { options.Schedules = schedules })
+	weekly := `{"version":"1","trigger":{"id":"t","type":"schedule","config":{"cron":"0 9 * * 1","timezone":"Europe/Rome"}},
+	  "steps":[{"id":"notify","type":"create_issue","title":"Weekly"}],"entry":["notify"]}`
+	if response := do(mount, http.MethodPost, "/", `{"workspaceId":"`+uuid.NewString()+`","name":"Weekly","definition":`+weekly+`}`); response.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", response.Code, response.Body.String())
+	}
+	id := store.created.ID.String()
+	if response := do(mount, http.MethodPost, "/"+id+"/activate", ""); response.Code != http.StatusOK {
+		t.Fatalf("activate = %d %s", response.Code, response.Body.String())
+	}
+	if len(schedules.ensured) != 1 || schedules.ensured[0] != (automationrun.ScheduleSpec{Cron: "0 9 * * 1", Timezone: "Europe/Rome"}) {
+		t.Fatalf("ensured = %+v", schedules.ensured)
+	}
+	store.created.Status = automationrepo.StatusActive
+	if response := do(mount, http.MethodPost, "/"+id+"/pause", ""); response.Code != http.StatusOK || len(schedules.paused) != 1 {
+		t.Fatalf("pause = %d %s paused %v", response.Code, response.Body.String(), schedules.paused)
+	}
+	if response := do(mount, http.MethodDelete, "/"+id, ""); response.Code != http.StatusNoContent || len(schedules.deleted) != 1 {
+		t.Fatalf("archive = %d deleted %v", response.Code, schedules.deleted)
+	}
+	event := &fakeStore{}
+	plain := newTestMountWith(t, event, identity.RoleAdmin, nil, func(options *Options) { options.Schedules = schedules })
+	if response := do(plain, http.MethodPost, "/", `{"workspaceId":"`+uuid.NewString()+`","name":"x","definition":`+draftDefinition+`}`); response.Code != http.StatusCreated {
+		t.Fatalf("create = %d", response.Code)
+	}
+	if response := do(plain, http.MethodPost, "/"+event.created.ID.String()+"/activate", ""); response.Code != http.StatusOK || len(schedules.ensured) != 1 {
+		t.Fatalf("event activate = %d ensured %v", response.Code, schedules.ensured)
+	}
 }

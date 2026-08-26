@@ -510,3 +510,33 @@ func TestReceiptSurvivesAnEventWhoseWorkspaceIsGone(t *testing.T) {
 		t.Fatalf("receipt workspaces = %v, %v; want null for the orphan and the workspace for the live event", orphanWorkspace, liveWorkspace)
 	}
 }
+
+// A hook delivery is recorded once per workflow: the same caller-supplied
+// id is new for another workflow and a duplicate for the same one.
+func TestHookDeliveriesAreRecordedOncePerWorkflow(t *testing.T) {
+	ctx := context.Background()
+	repository, seeded := seed(t, ctx)
+	first, second := uuid.New(), uuid.New()
+	inserted, err := repository.RecordHookDelivery(ctx, first, seeded.workspaceID, "evt_1", seeded.now)
+	if err != nil || !inserted {
+		t.Fatalf("RecordHookDelivery() = %v, %v, want a new row", inserted, err)
+	}
+	again, err := repository.RecordHookDelivery(ctx, first, seeded.workspaceID, "evt_1", seeded.now.Add(time.Second))
+	if err != nil || again {
+		t.Fatalf("duplicate RecordHookDelivery() = %v, %v, want the existing row", again, err)
+	}
+	other, err := repository.RecordHookDelivery(ctx, second, seeded.workspaceID, "evt_1", seeded.now)
+	if err != nil || !other {
+		t.Fatalf("RecordHookDelivery() for another workflow = %v, %v, want a new row", other, err)
+	}
+	if _, err := repository.RecordHookDelivery(ctx, first, seeded.workspaceID, "", seeded.now); err == nil {
+		t.Fatal("an empty delivery id should be refused")
+	}
+	var count int
+	if err := seeded.pool.QueryRow(ctx,
+		`SELECT count(*) FROM integration_webhook_deliveries WHERE provider = $1 AND workspace_id = $2 AND event_type = 'workflow.hook'`,
+		HookProvider, seeded.workspaceID,
+	).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("ledger rows = %d, %v, want 2", count, err)
+	}
+}
