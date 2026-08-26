@@ -3,6 +3,7 @@
 import { BerryMark } from '@/components/brand/berry-mark';
 import { DescriptionTextarea } from '@/components/common/editor/description-textarea';
 import { ProjectSelector } from '@/components/layout/sidebar/create-new-issue/project-selector';
+import { AutoGateToggle } from './auto-gate-toggle';
 import { Button } from '@/components/ui/button';
 import {
    Dialog,
@@ -44,6 +45,7 @@ export function CreatePlanDialog() {
 
    const [prompt, setPrompt] = useState('');
    const [project, setProject] = useState<Project | undefined>();
+   const [autoGate, setAutoGate] = useState(false);
    const [pending, setPending] = useState(false);
    const promptRef = useRef<HTMLDivElement>(null);
 
@@ -55,6 +57,7 @@ export function CreatePlanDialog() {
             ? projects.find((candidate) => candidate.id === prefill.projectId)
             : undefined
       );
+      setAutoGate(false);
       setPending(false);
       // `projects` is read once when the dialog opens; a later hydration
       // must not reset what the person typed.
@@ -80,6 +83,7 @@ export function CreatePlanDialog() {
             projectId: project?.id,
             boardId: boardId ?? undefined,
             hint: prefill.hint,
+            autoGate,
          });
          upsertRecord(record);
          closeModal();
@@ -157,6 +161,7 @@ export function CreatePlanDialog() {
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 pt-3">
                      <ProjectSelector project={project} onChange={setProject} />
+                     <AutoGateToggle enabled={autoGate} onChange={setAutoGate} />
                   </div>
                </div>
 

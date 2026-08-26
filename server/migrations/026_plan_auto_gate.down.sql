@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS issue_auto_reviews;
+ALTER TABLE issues DROP COLUMN IF EXISTS auto_gate;
+ALTER TABLE plans DROP COLUMN IF EXISTS auto_gate;

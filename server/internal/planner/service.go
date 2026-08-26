@@ -68,6 +68,9 @@ type GenerateInput struct {
 	ConversationID *uuid.UUID
 	Prompt         string
 	Hint           Hint
+	// AutoGate lets this plan's issues close on a peer agent's review instead
+	// of waiting for a person.
+	AutoGate bool
 }
 
 // Authorizer is the workspace permission check.
@@ -191,7 +194,8 @@ func (service *Service) Generate(ctx context.Context, input GenerateInput) (plan
 	}
 	header, events, err := service.options.Store.CreateGenerated(ctx, plans.CreateGeneratedParams{
 		ID: service.options.NewID(), WorkspaceID: input.WorkspaceID, GoalID: input.GoalID, BoardID: boardID, ProjectID: input.ProjectID,
-		Prompt: prompt, ActorID: input.ActorID, ConversationID: input.ConversationID, CreatedAt: service.options.Clock().UTC(), NewID: service.options.NewID,
+		Prompt: prompt, ActorID: input.ActorID, ConversationID: input.ConversationID, AutoGate: input.AutoGate,
+		CreatedAt: service.options.Clock().UTC(), NewID: service.options.NewID,
 	})
 	if err != nil {
 		return plans.PlanHeader{}, nil, err

@@ -257,7 +257,7 @@ func (repository *Repository) compile(ctx context.Context, params CompileParams,
 		}
 		if err := insertCompiledIssue(ctx, tx, compiledIssue{
 			ID: issueID, BoardID: boardID, Issue: issue, Status: status, Assignee: assignee,
-			ActorID: params.ActorID, Now: now,
+			ActorID: params.ActorID, AutoGate: header.AutoGate, Now: now,
 		}); err != nil {
 			return CompileResult{}, &CompileError{Stage: stageIssues, Message: safeMessage(err), Err: err}
 		}
@@ -692,6 +692,7 @@ type compiledIssue struct {
 	Status   string
 	Assignee *core.AssigneeInput
 	ActorID  uuid.UUID
+	AutoGate bool
 	Now      time.Time
 }
 
@@ -716,10 +717,10 @@ func insertCompiledIssue(ctx context.Context, tx pgx.Tx, item compiledIssue) err
 		ctx,
 		`INSERT INTO issues (
 		    id, board_id, number, title, description, status, priority, sort_order,
-		    assignee_type, assignee_id, created_by, created_at, updated_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6::issue_status, $7::issue_priority, 0, $8::assignee_type, $9, $10, $11, $11)`,
+		    assignee_type, assignee_id, created_by, auto_gate, created_at, updated_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6::issue_status, $7::issue_priority, 0, $8::assignee_type, $9, $10, $11, $12, $12)`,
 		item.ID, item.BoardID, number, strings.TrimSpace(item.Issue.Title), item.Issue.Description, item.Status, priority,
-		assigneeType, assigneeID, item.ActorID, item.Now,
+		assigneeType, assigneeID, item.ActorID, item.AutoGate, item.Now,
 	); err != nil {
 		return classifyCompileWrite("insert issue", err)
 	}

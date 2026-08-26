@@ -24,6 +24,7 @@ import (
 	"go.temporal.io/sdk/worker"
 
 	"github.com/laravel42/berry-circle/server/internal/artifacts"
+	"github.com/laravel42/berry-circle/server/internal/autogate"
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
@@ -429,6 +430,17 @@ func run() int {
 	}
 	runner.SetSubrunStarter(subrunStarter)
 
+	// AutoGate: a plan may let its issues close on a peer agent's review. The
+	// review is one recorded ask on the runtime's chat route, so it needs the
+	// runtime and the pool and nothing else.
+	autoReview := &autogate.Service{
+		Store:  autogate.PostgresStore{Pool: pool},
+		Chat:   upstream,
+		Clock:  time.Now,
+		NewID:  uuid.New,
+		Logger: logger,
+	}
+
 	activities, err := orchestration.NewActivities(orchestration.Activities{
 		Intake:          intakeStore,
 		Runs:            dispatcher,
@@ -438,6 +450,7 @@ func run() int {
 		Artifacts:       promoter,
 		ArtifactRuns:    artifactRuns,
 		Delivery:        runDeliveries,
+		AutoReview:      autoReview,
 		DeliverableRuns: deliverableRows,
 		Automations:     runner,
 		AutomationRuns:  automationStore,

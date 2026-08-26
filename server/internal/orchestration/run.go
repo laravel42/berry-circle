@@ -123,6 +123,18 @@ func RunOrchestration(ctx workflow.Context, runID string) error {
 		logger.Warn("delivery failed", "runId", runID, "error", err)
 	}
 
+	// The gate, last: the reviewer is shown the artifacts promotion stored and
+	// the pull request delivery opened, so both must have had their turn first.
+	reviewCtx := workflow.WithActivityOptions(ctx, ledgerActivityOptions())
+	if err := workflow.ExecuteActivity(
+		reviewCtx,
+		(*Activities).AutoReviewRunOutput,
+		runID,
+	).Get(ctx, nil); err != nil {
+		// A review that could not run leaves the issue in review for a person.
+		logger.Warn("auto review failed", "runId", runID, "error", err)
+	}
+
 	logger.Info("run orchestration finished", "runId", runID)
 	return nil
 }

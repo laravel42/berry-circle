@@ -320,6 +320,8 @@ export const planRecordSchema = z.object({
    workspaceId: z.string(),
    goalId: z.string().nullish(),
    projectId: z.string().nullish(),
+   /** True when this plan's tasks close on a peer agent's review. */
+   autoGate: z.boolean().default(false),
    status: planStatusSchema,
    source: z.string(),
    sourcePrompt: z.string().nullish(),
@@ -394,6 +396,8 @@ export interface GeneratePlanInput {
    projectId?: string;
    boardId?: string;
    hint?: 'issue' | 'workflow' | 'auto';
+   /** Let this plan's tasks close on a peer agent's review, not a person's. */
+   autoGate?: boolean;
 }
 
 /**
@@ -403,7 +407,7 @@ export interface GeneratePlanInput {
  * `PLAN_OPEN_EXISTS`, `BOARD_REQUIRED`) so the dialog can say why.
  */
 export async function generatePlan(input: GeneratePlanInput): Promise<PlanRecord> {
-   const body: Record<string, string> = {
+   const body: Record<string, string | boolean> = {
       workspaceId: input.workspaceId,
       prompt: input.prompt,
    };
@@ -411,6 +415,7 @@ export async function generatePlan(input: GeneratePlanInput): Promise<PlanRecord
    if (input.projectId) body.projectId = input.projectId;
    if (input.boardId) body.boardId = input.boardId;
    if (input.hint) body.hint = input.hint;
+   if (input.autoGate) body.autoGate = true;
 
    const json: unknown = await apiFetch('/api/v1/plans/generate', {
       method: 'POST',

@@ -96,6 +96,9 @@ type PlanHeader struct {
 	DecisionNote     *string
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	// AutoGate lets this plan's issues reach done on an agent's review rather
+	// than a person's. Off unless somebody turned it on for this plan.
+	AutoGate bool
 	// LastStage and LastOutcome are the newest planner_events row, from
 	// which the stage in progress is derived while generation runs.
 	LastStage   *string
@@ -215,6 +218,8 @@ type CreateGeneratedParams struct {
 	ActorID        uuid.UUID
 	ConversationID *uuid.UUID
 	CreatedAt      time.Time
+	// AutoGate lets this plan's issues close on a peer agent's review.
+	AutoGate bool
 	// NewID mints the goal id and its event id; nil falls back to random ids.
 	NewID func() uuid.UUID
 }
@@ -276,7 +281,7 @@ const headerProjection = `
 	plan.confidence, plan.generation_status, plan.generation_error, plan.validation_status,
 	plan.compile_status, plan.compile_error, plan.compiled_at, plan.conversation_id,
 	plan.created_by, plan.approved_by, plan.approved_at, plan.decision_note,
-	plan.created_at, plan.updated_at,
+	plan.created_at, plan.updated_at, plan.auto_gate,
 	(SELECT event.stage FROM planner_events AS event WHERE event.plan_id = plan.id ORDER BY event.sequence DESC LIMIT 1),
 	(SELECT event.outcome FROM planner_events AS event WHERE event.plan_id = plan.id ORDER BY event.sequence DESC LIMIT 1)`
 
@@ -307,7 +312,8 @@ func scanHeader(row headerScanner) (PlanHeader, error) {
 		&header.Confidence, &header.GenerationStatus, &header.GenerationError, &header.ValidationStatus,
 		&header.CompileStatus, &header.CompileError, &header.CompiledAt, &header.ConversationID,
 		&header.CreatedBy, &header.ApprovedBy, &header.ApprovedAt, &header.DecisionNote,
-		&header.CreatedAt, &header.UpdatedAt, &header.LastStage, &header.LastOutcome,
+		&header.CreatedAt, &header.UpdatedAt, &header.AutoGate,
+		&header.LastStage, &header.LastOutcome,
 	); err != nil {
 		return PlanHeader{}, err
 	}
@@ -419,10 +425,10 @@ func (repository *Repository) CreateGenerated(
 		`INSERT INTO plans (
 		    id, workspace_id, goal_id, board_id, status, source, source_prompt,
 		    generation_status, validation_status, compile_status, conversation_id,
-		    briefed_by, created_by, created_at, updated_at
-		 ) VALUES ($1, $2, $3, $4, 'draft', 'ai', $5, 'running', 'unknown', 'not_started', $6, $7, $7, $8, $8)`,
+		    briefed_by, created_by, auto_gate, created_at, updated_at
+		 ) VALUES ($1, $2, $3, $4, 'draft', 'ai', $5, 'running', 'unknown', 'not_started', $6, $7, $7, $8, $9, $9)`,
 		params.ID, params.WorkspaceID, goalID, params.BoardID, params.Prompt,
-		params.ConversationID, params.ActorID, params.CreatedAt.UTC(),
+		params.ConversationID, params.ActorID, params.AutoGate, params.CreatedAt.UTC(),
 	); err != nil {
 		return PlanHeader{}, nil, classifyGeneratedWrite("insert generated plan", err)
 	}

@@ -49,6 +49,7 @@ type Activities struct {
 	// Delivery opens a pull request for what a run produced. Optional: without
 	// it a run still promotes its artifacts and simply delivers nothing.
 	Delivery        RunDelivery
+	AutoReview      AutoReviewer
 	DeliverableRuns DeliverableRuns
 	// Automations executes workflow runs and AutomationRuns reads them back;
 	// ScheduledRuns creates the run a schedule fires. A worker without them

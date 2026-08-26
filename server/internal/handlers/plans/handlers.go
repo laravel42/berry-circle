@@ -218,6 +218,7 @@ type resource struct {
 	WorkspaceID    uuid.UUID          `json:"workspaceId"`
 	GoalID         *uuid.UUID         `json:"goalId"`
 	ProjectID      *uuid.UUID         `json:"projectId"`
+	AutoGate       bool               `json:"autoGate"`
 	Status         string             `json:"status"`
 	Source         string             `json:"source"`
 	SourcePrompt   *string            `json:"sourcePrompt"`
@@ -267,7 +268,8 @@ func (handler *handler) report(ctx context.Context, header planrepo.PlanHeader, 
 // and the only way a plan whose catalog changed shows the change.
 func (handler *handler) serialize(ctx context.Context, header planrepo.PlanHeader, role identity.Role) resource {
 	out := resource{
-		ID: header.ID, WorkspaceID: header.WorkspaceID, GoalID: header.GoalID, ProjectID: header.ProjectID, Status: wireStatus(header.Status),
+		ID: header.ID, WorkspaceID: header.WorkspaceID, GoalID: header.GoalID, ProjectID: header.ProjectID,
+		AutoGate: header.AutoGate, Status: wireStatus(header.Status),
 		Source: string(header.Source), SourcePrompt: header.SourcePrompt, IRVersion: header.IRVersion, Version: header.CurrentVersion,
 		PlannerVersion: header.PlannerVersion, Confidence: header.Confidence,
 		Generation: generationResource{Status: header.GenerationStatus, Error: header.GenerationError, Stage: planrepo.CurrentStage(header)},
@@ -691,6 +693,7 @@ type generateBody struct {
 	ProjectID   workmanagement.Optional[string] `json:"projectId"`
 	BoardID     workmanagement.Optional[string] `json:"boardId"`
 	Hint        workmanagement.Optional[string] `json:"hint"`
+	AutoGate    bool                            `json:"autoGate"`
 }
 
 // generate asks the planner for a plan. The row exists when this returns;
@@ -741,7 +744,8 @@ func (handler *handler) generate(response http.ResponseWriter, request *http.Req
 	}
 	user := auth.MustUser(request.Context())
 	header, events, err := handler.options.Planner.Generate(request.Context(), planner.GenerateInput{
-		ActorID: user.ID, WorkspaceID: workspaceID, GoalID: goalID, ProjectID: projectID, BoardID: boardID, Prompt: prompt, Hint: hint,
+		ActorID: user.ID, WorkspaceID: workspaceID, GoalID: goalID, ProjectID: projectID, BoardID: boardID,
+		Prompt: prompt, Hint: hint, AutoGate: body.AutoGate,
 	})
 	if err != nil {
 		handler.writeGenerateError(response, request, err)
