@@ -48,6 +48,9 @@ func (registry *Registry) Register(provider Provider) error {
 		if !tool.Effect.Valid() {
 			return fmt.Errorf("tool %q has unknown effect %q", tool.Name, tool.Effect)
 		}
+		if !tool.Kind.Valid() {
+			return fmt.Errorf("tool %q has unknown kind %q", tool.Name, tool.Kind)
+		}
 		// A destructive tool that is on by default would be granted by any
 		// workspace that never looked at its settings.
 		if tool.Effect == EffectDestructive && tool.EnabledByDefault {
@@ -115,4 +118,45 @@ func (registry *Registry) Tool(name string) (Tool, bool) {
 		}
 	}
 	return Tool{}, false
+}
+
+// ListTools flattens every registered provider's tools, ordered by provider
+// then name. An empty kind returns every kind; an empty provider every
+// provider. The returned tools carry their normalized kind, so a consumer
+// never has to know that an unset kind means action.
+func (registry *Registry) ListTools(kind ToolKind, provider string) []Tool {
+	if registry == nil {
+		return nil
+	}
+	out := make([]Tool, 0)
+	for _, registered := range registry.List() {
+		if provider != "" && registered.ID() != provider {
+			continue
+		}
+		tools := registered.Tools()
+		sort.SliceStable(tools, func(a, b int) bool { return tools[a].Name < tools[b].Name })
+		for _, tool := range tools {
+			tool.Kind = tool.Kind.Normalized()
+			if kind != "" && tool.Kind != kind {
+				continue
+			}
+			out = append(out, tool)
+		}
+	}
+	return out
+}
+
+// ToolByOperation finds one tool by provider, operation and kind, which is
+// the lookup a workflow definition needs: the definition names the operation,
+// not the prefixed name.
+func (registry *Registry) ToolByOperation(provider, operation string, kind ToolKind) (Tool, bool) {
+	tool, ok := registry.Tool(provider + "." + operation)
+	if !ok {
+		return Tool{}, false
+	}
+	tool.Kind = tool.Kind.Normalized()
+	if kind != "" && tool.Kind != kind.Normalized() {
+		return Tool{}, false
+	}
+	return tool, true
 }

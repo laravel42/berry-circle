@@ -22,6 +22,11 @@ func tool(name, description string, effect core.Effect, opts ...func(*core.Tool)
 		Description:      description,
 		Effect:           effect,
 		EnabledByDefault: true,
+		// Every provider in this package is reached through a workspace
+		// connection; Berry's own provider (berry.go) is the exception and
+		// declares its tools itself.
+		ConnectionRequired: true,
+		Kind:               core.ToolAction,
 	}
 	for _, opt := range opts {
 		opt(&built)

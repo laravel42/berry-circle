@@ -12,6 +12,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,6 +111,32 @@ func (connection Connection) NeedsRefresh(now time.Time, margin time.Duration) b
 	return !connection.ExpiresAt.After(now.Add(margin))
 }
 
+// ToolKind distinguishes what a tool is used for inside a workflow: a trigger
+// starts a run when the provider reports something, an action is called by a
+// step. The registry rejects any other value.
+type ToolKind string
+
+const (
+	// ToolAction is a callable operation; the default when a tool says nothing.
+	ToolAction ToolKind = "action"
+	// ToolTrigger is an event source a workflow trigger may subscribe to.
+	ToolTrigger ToolKind = "trigger"
+)
+
+// Valid reports whether the kind is one this package defines. Empty is valid
+// and reads as action so providers written before kinds existed still register.
+func (kind ToolKind) Valid() bool {
+	return kind == "" || kind == ToolAction || kind == ToolTrigger
+}
+
+// Normalized maps the empty kind to action.
+func (kind ToolKind) Normalized() ToolKind {
+	if kind == "" {
+		return ToolAction
+	}
+	return kind
+}
+
 // Tool is one agent-callable operation on a provider.
 type Tool struct {
 	// Name is provider-prefixed and stable: "github.create_pull_request".
@@ -130,6 +157,21 @@ type Tool struct {
 	EnabledByDefault bool
 	// Provider owns the tool.
 	Provider string
+	// Kind says whether a workflow uses the tool as a trigger or an action.
+	// Empty reads as action.
+	Kind ToolKind
+	// ConnectionRequired is true when the tool runs through a workspace
+	// connection to the provider and false for providers Berry executes
+	// itself, which is what lets a workflow over Berry's own tools validate
+	// and activate with nothing connected.
+	ConnectionRequired bool
+}
+
+// Operation is the part of the name after the provider prefix, which is how a
+// workflow definition refers to the tool.
+func (tool Tool) Operation() string {
+	_, operation, _ := strings.Cut(tool.Name, ".")
+	return operation
 }
 
 // Provider is one integration Berry can offer.
