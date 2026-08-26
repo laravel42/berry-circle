@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BerryApiError, apiFetch } from './api';
 import { connectionSchema, newIdempotencyKey } from './api-schemas';
+import { describeCron } from './cron';
 import {
    describeBerryEvent,
    describePlanTrigger,
@@ -432,20 +433,37 @@ export function describeWorkflowStatus(status: string): string {
    }
 }
 
-/** "When a task is completed", "Run by hand", "When a webhook arrives", "Slack · post_message". */
-export function describeWorkflowTrigger(trigger: {
-   type: string;
-   provider?: string | null;
-   operation?: string | null;
-   event?: string | null;
-   cron?: string | null;
-   timezone?: string | null;
-   config?: { cron?: string | null; timezone?: string | null } | null;
-}): string {
+/**
+ * "When a task is completed", "Run by hand", "When a webhook arrives",
+ * "Every weekday at 09:00 · Europe/Rome", "GitHub · issues.opened". The
+ * provider's display name comes from the caller, which has the catalog.
+ */
+export function describeWorkflowTrigger(
+   trigger: {
+      type: string;
+      provider?: string | null;
+      operation?: string | null;
+      event?: string | null;
+      cron?: string | null;
+      timezone?: string | null;
+      config?: { cron?: string | null; timezone?: string | null } | null;
+   },
+   options: { providerName?: string | null } = {}
+): string {
    if (trigger.type === 'berry_event') {
       return `When ${describeWorkflowEvent(trigger.event ?? '')}`;
    }
    if (trigger.type === 'manual') return 'Run by hand';
+   if (trigger.type === 'schedule') {
+      const cron = trigger.cron ?? trigger.config?.cron ?? '';
+      const timezone = trigger.timezone ?? trigger.config?.timezone;
+      return describeCron(cron, timezone);
+   }
+   if (trigger.type === 'integration') {
+      const what = trigger.operation ?? trigger.event ?? '';
+      const who = options.providerName ?? trigger.provider ?? 'integration';
+      return what ? `${who} · ${what}` : who;
+   }
    const planTrigger = planTriggerSchema.safeParse({
       id: 'trigger',
       type: trigger.type,
@@ -459,6 +477,23 @@ export function describeWorkflowTrigger(trigger: {
    });
    return planTrigger.success ? describePlanTrigger(planTrigger.data) : trigger.type;
 }
+
+/** Where a workflow's hook deliveries go; the token is the part only a rotation reveals. */
+export function workflowHookPath(workflowId: string, token = '{token}'): string {
+   return `/api/v1/hooks/workflows/${encodeURIComponent(workflowId)}/${token}`;
+}
+
+/** The fields a webhook delivery becomes under `trigger`, in the order the contract lists them. */
+export const WEBHOOK_DELIVERY_FIELDS: { field: string; meaning: string }[] = [
+   { field: 'trigger.input', meaning: 'the JSON body, or null when the body is empty' },
+   { field: 'trigger.query', meaning: 'the query string, first value per parameter' },
+   { field: 'trigger.contentType', meaning: 'the Content-Type header' },
+   {
+      field: 'trigger.deliveryId',
+      meaning: 'the X-Berry-Delivery-Id header, which makes a redelivery idempotent',
+   },
+   { field: 'trigger.receivedAt', meaning: 'when the delivery arrived' },
+];
 
 /** A definition may be changed while it is a draft or paused. */
 export function isWorkflowEditable(workflow: Pick<Workflow, 'status'>): boolean {

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BerryApiError, apiFetch } from './api';
 import { connectionSchema } from './api-schemas';
+import { formatInstant } from './cron';
 import { streamWorkflowRunEvents, type EventEnvelope } from './events';
 import { formatRunDuration } from './runs';
 
@@ -58,6 +59,11 @@ export const workflowRunSchema = z.object({
       outputTokens: z.number().default(0),
       costMicros: z.number().nullish(),
    }),
+   /** Set on a run a `subworkflow` step started. */
+   parentRunId: z.string().nullish(),
+   parentStepRunId: z.string().nullish(),
+   /** 0 for a run a trigger started; a child run is one deeper than its parent. */
+   depth: z.number().default(0),
    createdAt: z.string(),
    startedAt: z.string().nullish(),
    completedAt: z.string().nullish(),
@@ -273,7 +279,7 @@ export function describeWaitingOn(waitingOn: string | null | undefined): string 
       case 'approval':
          return 'waiting for an approval';
       case 'run':
-         return 'waiting for an agent run';
+         return 'waiting for a run';
       case 'issue':
          return 'waiting for a task to finish';
       case 'timer':
@@ -380,4 +386,115 @@ export function describeWorkflowRunFailure(error: unknown): string {
 /** A short handle for a run in crumbs and lists: the first 8 hex characters. */
 export function shortRunId(runId: string): string {
    return runId.slice(0, 8);
+}
+
+// ---------------------------------------------------------------------------
+// What started a run, and what a run started
+
+const STEP_RUN_ID = /^([a-z][a-z0-9_]{0,63})(?:\[([0-9]{1,3})\])?$/;
+
+/** `note[2]` → the body step `note` and iteration 2; a plain id has no index. */
+export function splitStepRunId(stepId: string): { base: string; index: number | null } {
+   const match = STEP_RUN_ID.exec(stepId);
+   if (!match) return { base: stepId, index: null };
+   return { base: match[1], index: match[2] === undefined ? null : Number(match[2]) };
+}
+
+function recordOf(value: unknown): Record<string, unknown> | null {
+   return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+}
+
+function stringAt(value: unknown, key: string): string | null {
+   const record = recordOf(value);
+   const found = record?.[key];
+   return typeof found === 'string' ? found : null;
+}
+
+export interface RunParent {
+   workflowId: string;
+   runId: string;
+   stepRunId: string | null;
+   stepId: string | null;
+}
+
+/** The subworkflow step that started this run, from its trigger payload, or null. */
+export function runParent(
+   run: Pick<WorkflowRun, 'triggerPayload' | 'parentRunId'>
+): RunParent | null {
+   const parent = recordOf(recordOf(run.triggerPayload)?.parent);
+   const runId = stringAt(parent, 'runId') ?? run.parentRunId ?? null;
+   const workflowId = stringAt(parent, 'workflowId');
+   if (!runId || !workflowId) return null;
+   return {
+      workflowId,
+      runId,
+      stepRunId: stringAt(parent, 'stepRunId'),
+      stepId: stringAt(parent, 'stepId'),
+   };
+}
+
+export interface ChildRunRef {
+   runId: string;
+   workflowId: string;
+}
+
+/** The child run a `subworkflow` step started, from its output, or null. */
+export function childRunOf(step: Pick<WorkflowStepRun, 'stepType' | 'output'>): ChildRunRef | null {
+   if (step.stepType !== 'subworkflow') return null;
+   const runId = stringAt(step.output, 'childRunId');
+   const workflowId = stringAt(step.output, 'workflowId');
+   return runId && workflowId ? { runId, workflowId } : null;
+}
+
+export interface RunTriggerSummary {
+   /** The kind, as a short noun: "Schedule", "GitHub", "Run by hand". */
+   kind: string;
+   /** The instance: the fire instant, the event, the calling step; null when there is none. */
+   detail: string | null;
+}
+
+/**
+ * What started a run, read from its trigger payload: a schedule's instant
+ * on its own wall clock, an integration's provider and event, the parent
+ * step of a child run. A Berry event's payload is the fact itself, so the
+ * caller passes the workflow's event when it knows it.
+ */
+export function describeRunTrigger(
+   run: Pick<WorkflowRun, 'triggerType' | 'triggerPayload'>,
+   options: { providerName?: (provider: string) => string | undefined; event?: string | null } = {}
+): RunTriggerSummary {
+   const payload = recordOf(run.triggerPayload);
+   switch (run.triggerType) {
+      case 'schedule': {
+         const timezone = stringAt(payload, 'timezone');
+         const at = stringAt(payload, 'scheduledAt');
+         return {
+            kind: 'Schedule',
+            detail: at ? `${formatInstant(at, timezone)}${timezone ? ` ${timezone}` : ''}` : null,
+         };
+      }
+      case 'integration': {
+         const provider = stringAt(payload, 'provider') ?? 'integration';
+         return {
+            kind: options.providerName?.(provider) ?? provider,
+            detail: stringAt(payload, 'event'),
+         };
+      }
+      case 'manual': {
+         const parent = recordOf(payload?.parent);
+         if (parent) {
+            const stepId = stringAt(parent, 'stepId');
+            return { kind: 'Child run', detail: stepId ? `from step ${stepId}` : null };
+         }
+         return { kind: 'Run by hand', detail: null };
+      }
+      case 'webhook':
+         return { kind: 'Webhook', detail: stringAt(payload, 'deliveryId') };
+      case 'berry_event':
+         return { kind: 'Berry event', detail: options.event ?? null };
+      default:
+         return { kind: describeTriggerType(run.triggerType), detail: null };
+   }
 }

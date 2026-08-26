@@ -119,6 +119,17 @@ export function apiUrl(path: string): string {
    return `${API_BASE_URL}${normalizedPath}`;
 }
 
+/**
+ * The same path as a URL another system can be given: absolute when the
+ * API base is, else on this page's origin. On the server there is no origin,
+ * so the relative form is returned as it is.
+ */
+export function absoluteApiUrl(path: string): string {
+   const resolved = apiUrl(path);
+   if (/^https?:/i.test(resolved)) return resolved;
+   return typeof window !== 'undefined' ? `${window.location.origin}${resolved}` : resolved;
+}
+
 async function errorPayload(
    response: Response,
    headerRequestId?: string

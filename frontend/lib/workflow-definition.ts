@@ -54,7 +54,8 @@ export function stringList(value: unknown): string[] {
       : [];
 }
 
-function caseList(value: unknown): { equals: unknown; steps: string[] }[] {
+/** A switch's cases from a loosely typed field: each with its match value and target steps. */
+export function caseList(value: unknown): { equals: unknown; steps: string[] }[] {
    if (!Array.isArray(value)) return [];
    return value.map((entry) => {
       const record =
@@ -428,6 +429,44 @@ export function definitionProblems(definition: WorkflowDefinitionInput): Definit
          severity: 'error',
          message: `Steps form a loop: ${cycle.join(' → ')}.`,
       });
+   }
+   const entry = new Set(definition.entry);
+   const bodyOf = new Map<string, string>();
+   for (const step of definition.steps) {
+      if (step.type === 'switch' && caseList(step.cases).length === 0) {
+         problems.push({
+            stepId: step.id,
+            severity: 'error',
+            message: 'A switch needs at least one case.',
+         });
+      }
+      if (step.type !== 'foreach') continue;
+      const body = stringList(step.steps);
+      if (body.length === 0) {
+         problems.push({
+            stepId: step.id,
+            severity: 'error',
+            message: 'Connect at least one step to the loop’s "each" handle.',
+         });
+      }
+      for (const id of body) {
+         if (entry.has(id)) {
+            problems.push({
+               stepId: id,
+               severity: 'error',
+               message: `A loop body step cannot also be an entry step; disconnect it from the trigger.`,
+            });
+         }
+         const owner = bodyOf.get(id);
+         if (owner && owner !== step.id) {
+            problems.push({
+               stepId: id,
+               severity: 'error',
+               message: `A step belongs to one loop, but "${owner}" and "${step.id}" both repeat it.`,
+            });
+         }
+         bodyOf.set(id, step.id);
+      }
    }
    const reachable = reachableSteps(definition);
    for (const step of definition.steps) {

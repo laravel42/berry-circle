@@ -172,6 +172,45 @@ export function actionTools(provider: Provider): ProviderTool[] {
    return provider.tools.filter((tool) => tool.effect !== 'read');
 }
 
+/** The events a provider can start a workflow on: its tools of kind `trigger`. */
+export function triggerTools(provider: Provider): ProviderTool[] {
+   return provider.tools.filter((tool) => toolKind(tool) === 'trigger');
+}
+
+/**
+ * True for a provider whose deliveries Berry ingests at
+ * `/api/v1/hooks/{provider}`: it publishes trigger events and is not Berry
+ * itself, whose triggers are the workspace's own facts.
+ */
+export function supportsInboundDeliveries(provider: Provider): boolean {
+   return provider.id !== BUILT_IN_PROVIDER && triggerTools(provider).length > 0;
+}
+
+/** Providers that carry no account id at authorisation, so their hook URL names the workspace. */
+const WORKSPACE_ROUTED_PROVIDERS = new Set(['github', 'linear']);
+
+/** The ingestor path to register with the provider, workspace query included where routing needs it. */
+export function providerHookPath(providerId: string, workspaceId: string): string {
+   const base = `/api/v1/hooks/${encodeURIComponent(providerId)}`;
+   return WORKSPACE_ROUTED_PROVIDERS.has(providerId)
+      ? `${base}?workspaceId=${encodeURIComponent(workspaceId)}`
+      : base;
+}
+
+/** Which deployment secret verifies a provider's deliveries, for the note beside the URL. */
+export function providerHookSecretName(providerId: string): string | null {
+   switch (providerId) {
+      case 'github':
+         return 'GITHUB_WEBHOOK_SECRET';
+      case 'slack':
+         return 'SLACK_SIGNING_SECRET';
+      case 'linear':
+         return 'LINEAR_WEBHOOK_SECRET';
+      default:
+         return null;
+   }
+}
+
 export function describeToolEffect(effect: string): string {
    switch (effect) {
       case 'read':
