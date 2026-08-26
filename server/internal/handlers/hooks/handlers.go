@@ -59,6 +59,12 @@ type Options struct {
 	Clock   func() time.Time
 	NewID   func() uuid.UUID
 	Logger  *slog.Logger
+	// Secrets, Resolver and Ingestor serve the provider ingestors on
+	// /{provider}. The routes are mounted only when all three exist; a
+	// provider without a secret answers 404.
+	Secrets  IngestSecrets
+	Resolver WorkspaceResolver
+	Ingestor Ingestor
 }
 
 type handler struct {
@@ -86,6 +92,9 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	target := &handler{options: options}
 	router := httpapi.NewSubrouter()
 	router.Post("/workflows/{workflowId}/{token}", target.receive)
+	if options.Secrets.configured() && options.Resolver != nil && options.Ingestor != nil {
+		router.Post("/{provider}", target.ingest)
+	}
 	return httpapi.Mount{Prefix: "/api/v1/hooks", Handler: router}, nil
 }
 

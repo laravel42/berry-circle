@@ -27,6 +27,13 @@ func (Slack) Scopes() []string {
 
 func (Slack) Tools() []core.Tool {
 	return withProvider("slack", []core.Tool{
+		// Triggers: Events API event types, as the /api/v1/hooks/slack
+		// ingestor normalises them.
+		trigger("slack.message", "A message was posted in a channel the bot is in."),
+		trigger("slack.app_mention", "The bot was mentioned."),
+		trigger("slack.reaction_added", "A reaction was added to a message."),
+		trigger("slack.member_joined_channel", "Someone joined a channel."),
+
 		tool("slack.list_channels", "Channels the bot can see.", core.EffectRead),
 		tool("slack.get_channel", "One channel's metadata.", core.EffectRead),
 		tool("slack.search_messages", "Search messages the bot can read.", core.EffectRead),

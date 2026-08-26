@@ -246,7 +246,10 @@ func (handler *handler) serialize(ctx context.Context, item automationrepo.Autom
 		out.CreatedBy = &core.ActorKey{Type: "user", ID: *item.CreatedBy}
 	}
 	if definition, findings := automation.ParseDefinition(item.Definition); len(findings) == 0 {
-		report := automation.ValidateDefinition(definition, automation.ValidateOptions{Catalog: catalog})
+		itemID := item.ID
+		report := automation.ValidateDefinition(definition, automation.ValidateOptions{
+			Catalog: catalog, Subworkflows: Subworkflows(ctx, handler.options.Store, item.WorkspaceID), AutomationID: &itemID,
+		})
 		out.Validation = validationResource{Errors: prefixDefinition(report.Errors), Warnings: prefixDefinition(report.Warnings)}
 		out.RequiredConnections = RequiredConnections(definition, catalog)
 	}
@@ -406,9 +409,9 @@ type createBody struct {
 }
 
 // parseDefinition decodes and validates a definition against the workspace
-// catalog. Draft saves only warn about missing connections; activation is
-// where they refuse.
-func parseDefinition(response http.ResponseWriter, request *http.Request, raw json.RawMessage, catalog automation.Catalog) (automation.Definition, bool) {
+// catalog. Draft saves only warn about missing connections and inactive
+// subworkflows; activation is where they refuse.
+func parseDefinition(response http.ResponseWriter, request *http.Request, raw json.RawMessage, options automation.ValidateOptions) (automation.Definition, bool) {
 	if len(raw) == 0 {
 		writeDefinitionInvalid(response, request, []automation.FieldError{{Path: "/definition", Code: "STEP_FIELD_REQUIRED", Message: "A workflow needs a definition.", Severity: automation.SeverityError}})
 		return automation.Definition{}, false
@@ -418,12 +421,41 @@ func parseDefinition(response http.ResponseWriter, request *http.Request, raw js
 		writeDefinitionInvalid(response, request, prefixDefinition(findings))
 		return automation.Definition{}, false
 	}
-	report := automation.ValidateDefinition(definition, automation.ValidateOptions{Catalog: catalog})
+	report := automation.ValidateDefinition(definition, options)
 	if !report.Valid() {
 		writeDefinitionInvalid(response, request, prefixDefinition(report.Errors))
 		return automation.Definition{}, false
 	}
 	return definition, true
+}
+
+// SubworkflowCatalog resolves the workflows subworkflow steps name, for
+// the validator: a workflow of the same workspace that is not archived.
+type SubworkflowCatalog struct {
+	Store       Store
+	WorkspaceID uuid.UUID
+	ctx         context.Context
+}
+
+// Subworkflows builds the validator's subworkflow lookup for one workspace.
+func Subworkflows(ctx context.Context, store Store, workspaceID uuid.UUID) automation.SubworkflowCatalog {
+	return SubworkflowCatalog{Store: store, WorkspaceID: workspaceID, ctx: ctx}
+}
+
+// Subworkflow implements automation.SubworkflowCatalog.
+func (catalog SubworkflowCatalog) Subworkflow(id uuid.UUID) (automation.SubworkflowRef, bool) {
+	if catalog.Store == nil {
+		return automation.SubworkflowRef{}, false
+	}
+	item, err := catalog.Store.Get(catalog.ctx, id)
+	if err != nil || item.WorkspaceID != catalog.WorkspaceID || item.Status == automationrepo.StatusArchived {
+		return automation.SubworkflowRef{}, false
+	}
+	definition, findings := automation.ParseDefinition(item.Definition)
+	if len(findings) > 0 {
+		return automation.SubworkflowRef{}, false
+	}
+	return automation.SubworkflowRef{Definition: definition, Active: item.Status == automationrepo.StatusActive}, true
 }
 
 func writeDefinitionInvalid(response http.ResponseWriter, request *http.Request, fields []automation.FieldError) {
@@ -490,7 +522,9 @@ func (handler *handler) create(response http.ResponseWriter, request *http.Reque
 		return
 	}
 	catalog := handler.catalog(request.Context(), workspaceID)
-	definition, ok := parseDefinition(response, request, body.Definition, catalog)
+	definition, ok := parseDefinition(response, request, body.Definition, automation.ValidateOptions{
+		Catalog: catalog, Subworkflows: Subworkflows(request.Context(), handler.options.Store, workspaceID),
+	})
 	if !ok {
 		return
 	}
@@ -626,7 +660,10 @@ func (handler *handler) update(response http.ResponseWriter, request *http.Reque
 	}
 	catalog := handler.catalog(request.Context(), item.WorkspaceID)
 	if len(body.Definition) > 0 {
-		definition, ok := parseDefinition(response, request, body.Definition, catalog)
+		itemID := item.ID
+		definition, ok := parseDefinition(response, request, body.Definition, automation.ValidateOptions{
+			Catalog: catalog, Subworkflows: Subworkflows(request.Context(), handler.options.Store, item.WorkspaceID), AutomationID: &itemID,
+		})
 		if !ok {
 			return
 		}
@@ -690,7 +727,10 @@ type ActivationParams struct {
 	Role       identity.Role
 	ActorID    uuid.UUID
 	Catalog    automation.Catalog
-	Engine     automation.Engine
+	// Subworkflows resolves the workflows subworkflow steps call; nil skips
+	// the chain rules.
+	Subworkflows automation.SubworkflowCatalog
+	Engine       automation.Engine
 	// Schedules receives schedule triggers; nil registers nothing.
 	Schedules automationrun.Schedules
 	Now       time.Time
@@ -717,7 +757,10 @@ func Activate(ctx context.Context, store Store, params ActivationParams) (automa
 	if len(findings) > 0 {
 		return automationrepo.Automation{}, nil, &DefinitionInvalidError{Fields: prefixDefinition(findings)}
 	}
-	report := automation.ValidateDefinition(definition, automation.ValidateOptions{Catalog: params.Catalog, RequireConnections: true})
+	itemID := item.ID
+	report := automation.ValidateDefinition(definition, automation.ValidateOptions{
+		Catalog: params.Catalog, RequireConnections: true, Subworkflows: params.Subworkflows, AutomationID: &itemID,
+	})
 	if !report.Valid() {
 		var missing []string
 		var other []automation.FieldError
@@ -801,7 +844,8 @@ func (handler *handler) activate(response http.ResponseWriter, request *http.Req
 	catalog := handler.catalog(request.Context(), item.WorkspaceID)
 	activated, events, err := Activate(request.Context(), handler.options.Store, ActivationParams{
 		Automation: item, Role: scope.Role, ActorID: user.ID, Catalog: catalog, Engine: handler.options.Engine,
-		Schedules: handler.options.Schedules, Now: handler.options.Clock().UTC(), NewID: handler.options.NewID,
+		Subworkflows: Subworkflows(request.Context(), handler.options.Store, item.WorkspaceID),
+		Schedules:    handler.options.Schedules, Now: handler.options.Clock().UTC(), NewID: handler.options.NewID,
 	})
 	if err != nil {
 		WriteActivationError(response, request, err)

@@ -71,6 +71,36 @@ func BerryTriggerTopic(operation string) (string, bool) {
 	return topic, ok
 }
 
+// BerryTriggerOperations lists the trigger operations one outbox topic
+// satisfies, sorted, so the dispatcher can match integration triggers on
+// Berry's own provider the way it matches Berry event triggers.
+func BerryTriggerOperations(topic string) []string {
+	var operations []string
+	for operation, subscribed := range berryTriggers {
+		if subscribed == topic {
+			operations = append(operations, operation)
+		}
+	}
+	sort.Strings(operations)
+	return operations
+}
+
+// BerryTriggerMatches reports whether a published fact satisfies a Berry
+// trigger operation beyond its topic: issue_status_changed is issue.updated
+// narrowed to changes that touched status.
+func BerryTriggerMatches(operation string, payload map[string]any) bool {
+	if operation != "issue_status_changed" {
+		return true
+	}
+	changed, _ := payload["changedFields"].([]any)
+	for _, field := range changed {
+		if field == "status" {
+			return true
+		}
+	}
+	return false
+}
+
 // Tools lists every trigger and action. Triggers are reads; actions are
 // classified like any other provider's so the permission model and the
 // workflow validator treat them the same way.

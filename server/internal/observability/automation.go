@@ -15,6 +15,7 @@ type AutomationMetrics struct {
 	dispatchEvents *prometheus.CounterVec
 	runs           *prometheus.CounterVec
 	expiryLastRun  prometheus.Gauge
+	scheduleLag    prometheus.Gauge
 }
 
 // NewAutomationMetrics registers the workflow instruments on the registry.
@@ -50,12 +51,19 @@ func NewAutomationMetrics(registerer prometheus.Registerer) (*AutomationMetrics,
 			Name:      "expiry_last_run_timestamp",
 			Help:      "Unix time of the last successful approval expiry sweep.",
 		}),
+		scheduleLag: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "berry",
+			Subsystem: "automation",
+			Name:      "scheduler_lag_seconds",
+			Help:      "Age of the oldest schedule trigger the in-process scheduler has not fired.",
+		}),
 	}
 	for _, collector := range []prometheus.Collector{
 		metrics.dispatchLag,
 		metrics.dispatchEvents,
 		metrics.runs,
 		metrics.expiryLastRun,
+		metrics.scheduleLag,
 	} {
 		if err := registerer.Register(collector); err != nil {
 			return nil, err
@@ -97,4 +105,15 @@ func (metrics *AutomationMetrics) SetExpiryRun(at time.Time) {
 		return
 	}
 	metrics.expiryLastRun.Set(float64(at.Unix()))
+}
+
+// ObserveScheduleLag records how far behind the in-process scheduler is.
+func (metrics *AutomationMetrics) ObserveScheduleLag(lag time.Duration) {
+	if metrics == nil {
+		return
+	}
+	if lag < 0 {
+		lag = 0
+	}
+	metrics.scheduleLag.Set(lag.Seconds())
 }

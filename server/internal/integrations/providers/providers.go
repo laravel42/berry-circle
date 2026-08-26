@@ -34,6 +34,22 @@ func tool(name, description string, effect core.Effect, opts ...func(*core.Tool)
 	return built
 }
 
+// trigger declares an event the provider's webhook ingestor emits (the
+// operation is the normalised event name the ingestor produces) so a
+// workflow may start on it. Triggers observe, so they are reads; they still
+// need the connection, which is how a delivery is routed to a workspace.
+func trigger(name, description string) core.Tool {
+	return core.Tool{
+		Name:               name,
+		Description:        description,
+		Effect:             core.EffectRead,
+		EnabledByDefault:   true,
+		ConnectionRequired: true,
+		Kind:               core.ToolTrigger,
+		InputSchema:        map[string]any{"type": "object"},
+	}
+}
+
 // optIn keeps a tool out of a workspace's default grant.
 func optIn(t *core.Tool) { t.EnabledByDefault = false }
 

@@ -23,6 +23,21 @@ func (GitHub) Scopes() []string {
 
 func (GitHub) Tools() []core.Tool {
 	return withProvider("github", []core.Tool{
+		// Triggers: the X-GitHub-Event header joined with the payload's
+		// action, as the /api/v1/hooks/github ingestor normalises them.
+		trigger("github.push", "Commits were pushed to a branch."),
+		trigger("github.issues.opened", "An issue was opened."),
+		trigger("github.issues.closed", "An issue was closed."),
+		trigger("github.issues.labeled", "A label was added to an issue."),
+		trigger("github.issue_comment.created", "Someone commented on an issue or pull request."),
+		trigger("github.pull_request.opened", "A pull request was opened."),
+		trigger("github.pull_request.closed", "A pull request was closed or merged."),
+		trigger("github.pull_request.synchronize", "New commits were pushed to a pull request."),
+		trigger("github.pull_request_review.submitted", "A review was submitted on a pull request."),
+		trigger("github.check_run.completed", "A check run finished."),
+		trigger("github.workflow_run.completed", "A GitHub Actions workflow run finished."),
+		trigger("github.release.published", "A release was published."),
+
 		tool("github.list_repositories", "Repositories the installation can see.", core.EffectRead),
 		tool("github.get_repository", "One repository's metadata.", core.EffectRead),
 		tool("github.get_issue", "One issue by number.", core.EffectRead),

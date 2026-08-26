@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/laravel42/berry-circle/server/internal/automation"
+	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/observability"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
@@ -61,6 +62,13 @@ type GoalStore interface {
 	Transition(context.Context, uuid.UUID, goals.Status, *uuid.UUID, time.Time, func() uuid.UUID) (goals.Goal, goals.Event, error)
 }
 
+// Ticker is the in-process scheduler, ticked at the start of every
+// dispatcher tick so schedule triggers fire from the same loop the
+// readiness probe watches. Nil when Temporal Schedules fire them.
+type Ticker interface {
+	Tick(ctx context.Context, limit int) (int, error)
+}
+
 // Options are explicit dependencies. Issues and Goals are optional: without
 // them the dispatcher only starts and resumes runs.
 type Options struct {
@@ -75,8 +83,11 @@ type Options struct {
 	Metrics     *observability.AutomationMetrics
 	// Health receives every successful tick; nil disables the probe.
 	Health *Health
-	// Topics overrides the outbox topics scanned; nil selects every Berry
-	// event topic a workflow can subscribe to.
+	// Scheduler fires due schedule triggers each tick; nil when another
+	// scheduler (Temporal) owns them.
+	Scheduler Ticker
+	// Topics overrides the outbox topics scanned; nil selects every topic a
+	// workflow can subscribe to plus the run outcomes subworkflows wait on.
 	Topics []string
 	// WorkspaceID narrows claims to one workspace. Nil, the production
 	// setting, serves every workspace; tests use it to keep a shared
@@ -92,11 +103,12 @@ type Dispatcher struct {
 
 // Result is what one tick did.
 type Result struct {
-	Events   int
-	Started  int
-	Resumed  int
-	Released int
-	Timers   int
+	Events    int
+	Started   int
+	Resumed   int
+	Released  int
+	Timers    int
+	Scheduled int
 }
 
 // New validates the required dependencies.
@@ -115,7 +127,7 @@ func New(options Options) (*Dispatcher, error) {
 		options.Logger = slog.Default()
 	}
 	if len(options.Topics) == 0 {
-		options.Topics = append([]string(nil), automation.BerryEventTopics...)
+		options.Topics = append([]string(nil), automation.DispatchTopics...)
 	}
 	return &Dispatcher{options: options}, nil
 }
@@ -167,14 +179,22 @@ type deferred struct {
 	signal automationrun.ResumeSignal
 }
 
-// RunOnce resumes elapsed timers, then claims one batch of events and
-// handles each: match, resume, release, goal progress, receipt.
+// RunOnce fires due schedules and resumes elapsed timers, then claims one
+// batch of events and handles each: match, resume, release, goal progress,
+// receipt.
 func (dispatcher *Dispatcher) RunOnce(ctx context.Context, limit int) (Result, error) {
 	if limit < 1 || limit > 500 {
 		return Result{}, errors.New("trigger dispatcher batch size is invalid")
 	}
 	now := dispatcher.now()
 	result := Result{}
+	if dispatcher.options.Scheduler != nil {
+		scheduled, err := dispatcher.options.Scheduler.Tick(ctx, limit)
+		if err != nil {
+			return result, err
+		}
+		result.Scheduled = scheduled
+	}
 	timers, err := dispatcher.resumeTimers(ctx, now, limit)
 	if err != nil {
 		return result, err
@@ -280,16 +300,19 @@ func (dispatcher *Dispatcher) handle(
 		acted   bool
 	)
 
-	// (a) Berry event triggers.
-	items, err := batch.MatchActive(ctx, workspaceID, event.Topic)
+	// (a) Triggers: Berry event triggers on the topic, integration triggers
+	// on Berry's own provider for the same topic, and integration triggers
+	// on the provider a webhook delivery names.
+	matches, err := dispatcher.matchTriggers(ctx, batch, workspaceID, event, scope)
 	if err != nil {
-		return handled{}, fmt.Errorf("match automations for %s: %w", event.ID, err)
+		return handled{}, err
 	}
 	payload, err := json.Marshal(scope)
 	if err != nil {
 		return handled{outcome: automationrepo.ReceiptFailed, reason: "event payload cannot be encoded"}, nil
 	}
-	for _, item := range items {
+	for _, match := range matches {
+		item := match.item
 		definition, findings := automation.ParseDefinition(item.Definition)
 		if len(findings) > 0 {
 			reasons = append(reasons, "workflow "+item.ID.String()+": definition does not parse")
@@ -309,7 +332,7 @@ func (dispatcher *Dispatcher) handle(
 		}
 		key := event.ID.String()
 		run, created, err := batch.CreateRun(ctx, automationrepo.CreateRunParams{
-			ID: dispatcher.options.NewID(), AutomationID: item.ID, TriggerType: automation.TriggerBerryEvent,
+			ID: dispatcher.options.NewID(), AutomationID: item.ID, TriggerType: match.triggerType,
 			Payload: payload, SourceEventKey: &key, RequestedBy: item.CreatedBy,
 			RequestID: "trigger:" + event.ID.String(), CreatedAt: now,
 		})
@@ -404,6 +427,62 @@ func (dispatcher *Dispatcher) handle(
 		result.outcome = automationrepo.ReceiptUnmatched
 	}
 	return result, nil
+}
+
+// triggerMatch is one workflow a fact starts and the trigger type its run
+// records.
+type triggerMatch struct {
+	item        automationrepo.Automation
+	triggerType automation.TriggerType
+}
+
+// matchTriggers lists the active workflows one fact starts. A workflow
+// appears once even when several of its trigger forms match.
+func (dispatcher *Dispatcher) matchTriggers(
+	ctx context.Context,
+	batch *automationrepo.TriggerBatch,
+	workspaceID uuid.UUID,
+	event automationrepo.TriggerEvent,
+	scope map[string]any,
+) ([]triggerMatch, error) {
+	var matches []triggerMatch
+	seen := map[uuid.UUID]bool{}
+	add := func(items []automationrepo.Automation, kind automation.TriggerType) {
+		for _, item := range items {
+			if seen[item.ID] {
+				continue
+			}
+			seen[item.ID] = true
+			matches = append(matches, triggerMatch{item: item, triggerType: kind})
+		}
+	}
+	items, err := batch.MatchActive(ctx, workspaceID, event.Topic)
+	if err != nil {
+		return nil, fmt.Errorf("match automations for %s: %w", event.ID, err)
+	}
+	add(items, automation.TriggerBerryEvent)
+	for _, operation := range providers.BerryTriggerOperations(event.Topic) {
+		if !providers.BerryTriggerMatches(operation, scope) {
+			continue
+		}
+		items, err := batch.MatchIntegration(ctx, workspaceID, providers.ProviderBerry, operation)
+		if err != nil {
+			return nil, fmt.Errorf("match berry triggers for %s: %w", event.ID, err)
+		}
+		add(items, automation.TriggerIntegration)
+	}
+	if event.Topic == automationrepo.WebhookReceivedTopic {
+		provider, _ := scope["provider"].(string)
+		operation, _ := scope["event"].(string)
+		if provider != "" && operation != "" && provider != providers.ProviderBerry {
+			items, err := batch.MatchIntegration(ctx, workspaceID, provider, operation)
+			if err != nil {
+				return nil, fmt.Errorf("match integration triggers for %s: %w", event.ID, err)
+			}
+			add(items, automation.TriggerIntegration)
+		}
+	}
+	return matches, nil
 }
 
 // eventFilterPasses evaluates the waiting step's event filter. The filter

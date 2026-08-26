@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -18,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/laravel42/berry-circle/server/internal/auth"
+	"github.com/laravel42/berry-circle/server/internal/handlers/workmanagement"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
@@ -41,6 +43,18 @@ type Options struct {
 	// not mounted and model changes are refused, so a deployment cannot offer a
 	// picker it has no catalog to validate against.
 	Catalog openfang.Catalog
+	// Chat answers POST /{agentId}/ask through the runtime's chat route.
+	// Optional: without it the ask route is not mounted.
+	Chat openfang.Compatibility
+	// Asks records every ask with its usage; Prices prices it. Both
+	// optional: an unrecorded ask is logged, an unpriced one has no cost.
+	Asks   AskStore
+	Prices PriceLookup
+	// IdempotencyStore makes an ask replayable: a paid call must not be
+	// repeated by a retried request. Optional; without it the key is not
+	// required.
+	IdempotencyStore httpapi.IdempotencyStore
+	Logger           *slog.Logger
 }
 
 // Authorizer is the narrow workspace/agent boundary consumed by agent routes.
@@ -93,6 +107,13 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	if options.Configurer != nil && options.Catalog != nil {
 		router.Put("/{agentId}/config", configHandler(store, options))
 		router.Get("/models", modelsHandler(options.Catalog, options))
+	}
+	if options.Chat != nil {
+		ask := askHandler(store, options)
+		if options.IdempotencyStore != nil {
+			ask = workmanagement.RequireIdempotency(options.IdempotencyStore, options.Clock, ask).ServeHTTP
+		}
+		router.Post("/{agentId}/ask", ask)
 	}
 	return httpapi.Mount{Prefix: "/api/v1/agents", Handler: router}, nil
 }

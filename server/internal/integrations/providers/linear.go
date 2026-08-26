@@ -15,6 +15,14 @@ func (Linear) Scopes() []string { return []string{"read", "write", "issues:creat
 
 func (Linear) Tools() []core.Tool {
 	return withProvider("linear", []core.Tool{
+		// Triggers: the payload's type and action, as the /api/v1/hooks/linear
+		// ingestor normalises them.
+		trigger("linear.issue.create", "An issue was created."),
+		trigger("linear.issue.update", "An issue changed."),
+		trigger("linear.issue.remove", "An issue was removed."),
+		trigger("linear.comment.create", "A comment was added."),
+		trigger("linear.project.update", "A project changed."),
+
 		tool("linear.get_issue", "One issue by id or identifier.", core.EffectRead),
 		tool("linear.list_issues", "Issues on a team or project.", core.EffectRead),
 		tool("linear.search_issues", "Search issues by text.", core.EffectRead),

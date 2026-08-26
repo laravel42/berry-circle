@@ -123,6 +123,7 @@ func seedWith(t *testing.T, ctx context.Context, mode starterMode) fixture {
 		cleanup := context.Background()
 		for _, statement := range []string{
 			`DELETE FROM outbox_events WHERE workspace_id = $1`,
+			`DELETE FROM integration_webhook_deliveries WHERE workspace_id = $1`,
 			`DELETE FROM boards WHERE workspace_id = $1`,
 			`DELETE FROM agents WHERE workspace_id = $1 AND NOT protected`,
 			`DELETE FROM automations WHERE workspace_id = $1`,
@@ -187,6 +188,8 @@ func seedWith(t *testing.T, ctx context.Context, mode starterMode) fixture {
 		must(err)
 		starter = temporal
 	}
+	// Child runs a subworkflow step starts go through the same starter.
+	runner.SetSubrunStarter(starter)
 	workspaceID := seeded.workspaceID
 	seeded.dispatcher, err = New(Options{
 		Store: seeded.automations, Issues: seeded.issues, Goals: seeded.goals, Starter: starter,
