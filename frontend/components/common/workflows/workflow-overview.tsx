@@ -8,20 +8,22 @@ import { WORKFLOW_RUN_STATUS, statusLook } from '@/lib/catalog';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { findTool } from '@/lib/integrations';
 import { describePlanStep, orderPlanSteps, type FieldError } from '@/lib/plans';
+import { describeCron } from '@/lib/cron';
 import { describeWorkflowEvent, isWorkflowEditable, type Workflow } from '@/lib/workflows';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useGoalsStore } from '@/store/goals-store';
 import { useMembersStore } from '@/store/members-store';
 import { useProvidersStore } from '@/store/providers-store';
+import { useWorkflowsStore } from '@/store/workflows-store';
 import { BerryMark } from '@/components/brand/berry-mark';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import { WebhookTriggerNotes } from './webhook-trigger-notes';
 import { WorkflowStatusBadge } from './workflow-status-badge';
 import { WorkflowTriggerLabel } from './workflow-trigger-label';
-import { WorkflowWebhookDialog } from './workflow-webhook-dialog';
 
 function whenText(iso: string | null | undefined): string {
    if (!iso) return '—';
@@ -71,12 +73,56 @@ function Findings({ workflow }: { workflow: Workflow }) {
    );
 }
 
+/** The provider and event an integration trigger listens for, and whether it can hear it. */
+function IntegrationTriggerNote({ workflow }: { workflow: Workflow }) {
+   const params = useParams<{ orgId?: string }>();
+   const orgId = params?.orgId || WORKSPACE_SLUG;
+   const trigger = workflow.definition.trigger;
+   const provider = useProvidersStore((state) =>
+      state.providers.find((candidate) => candidate.id === trigger.provider)
+   );
+   const tool = provider
+      ? findTool([provider], provider.id, trigger.operation ?? '')?.tool
+      : undefined;
+   const connection = workflow.requiredConnections.find(
+      (candidate) => candidate.provider === trigger.provider
+   );
+   const connected = provider
+      ? provider.connected || provider.id === 'berry'
+      : connection?.connected;
+   return (
+      <div className="mt-1 text-muted-foreground">
+         <p>
+            {provider?.name ?? trigger.provider} publishes{' '}
+            <code className="font-mono">{trigger.operation}</code>
+            {tool?.description && ` — ${tool.description}`} The delivery is{' '}
+            <code className="font-mono">trigger.payload</code>.
+         </p>
+         {connected === false && (
+            <p className="mt-1 flex flex-wrap items-center gap-2 text-status-warning">
+               <BerryMark size="sm" tone="attention" state="hollow" />
+               {provider?.name ?? trigger.provider} is not connected, so no delivery can reach this
+               workflow.
+               <Button asChild size="xs" variant="secondary">
+                  <Link
+                     href={`/${orgId}/settings/integrations?provider=${encodeURIComponent(trigger.provider ?? '')}`}
+                  >
+                     Connect
+                  </Link>
+               </Button>
+            </p>
+         )}
+      </div>
+   );
+}
+
 /** The steps in reading order, with what each reaches outside Berry. */
 function Steps({ workflow }: { workflow: Workflow }) {
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId || WORKSPACE_SLUG;
    const agents = useAgentsStore((state) => state.agents);
    const providers = useProvidersStore((state) => state.providers);
+   const workflows = useWorkflowsStore((state) => state.workflows);
    const steps = orderPlanSteps(workflow.definition);
    return (
       <section className="mt-8">
@@ -104,6 +150,10 @@ function Steps({ workflow }: { workflow: Workflow }) {
                      : undefined;
                const destructive = tool?.effect === 'destructive';
                const needsApproval = summary.approval || Boolean(tool?.requiresApproval);
+               const target =
+                  step.type === 'subworkflow'
+                     ? workflows.find((candidate) => candidate.id === step.workflowId)
+                     : undefined;
                return (
                   <li key={step.id} className="flex items-start gap-3 py-2">
                      <span className="w-4 shrink-0 text-right tabular-nums text-muted-foreground">
@@ -126,10 +176,28 @@ function Steps({ workflow }: { workflow: Workflow }) {
                               </span>
                            )}
                         </div>
-                        {summary.text && (
+                        {step.type === 'subworkflow' ? (
                            <p className="mt-0.5 break-words text-muted-foreground">
-                              {summary.text}
+                              {target ? (
+                                 <Link
+                                    href={`/${orgId}/workflow/${target.id}/overview`}
+                                    className="underline-offset-2 hover:underline"
+                                 >
+                                    {target.name}
+                                 </Link>
+                              ) : (
+                                 summary.text
+                              )}
+                              {target && target.status !== 'active' && (
+                                 <span className="text-status-warning"> · {target.status}</span>
+                              )}
                            </p>
+                        ) : (
+                           summary.text && (
+                              <p className="mt-0.5 break-words text-muted-foreground">
+                                 {summary.text}
+                              </p>
+                           )
                         )}
                      </div>
                   </li>
@@ -154,7 +222,6 @@ function Properties({ workflow }: { workflow: Workflow }) {
          ? state.members.find((member) => member.id === workflow.createdBy?.id)
          : undefined
    );
-   const [webhookOpen, setWebhookOpen] = useState(false);
    const missing = workflow.requiredConnections.filter((connection) => !connection.connected);
    const lastRun = workflow.lastRun
       ? statusLook(WORKFLOW_RUN_STATUS, workflow.lastRun.status)
@@ -264,29 +331,6 @@ function Properties({ workflow }: { workflow: Workflow }) {
                View history
             </Link>
          </div>
-
-         {workflow.trigger.type === 'webhook' && (
-            <div>
-               <span className="text-muted-foreground">Webhook</span>
-               <p className="mt-1 text-muted-foreground">
-                  Deliveries start a run while the workflow is active. The secret is shown once when
-                  rotated.
-               </p>
-               <Button
-                  size="xs"
-                  variant="secondary"
-                  className="mt-2"
-                  onClick={() => setWebhookOpen(true)}
-               >
-                  Rotate secret
-               </Button>
-               <WorkflowWebhookDialog
-                  workflowId={workflow.id}
-                  open={webhookOpen}
-                  onOpenChange={setWebhookOpen}
-               />
-            </div>
-         )}
       </div>
    );
 }
@@ -337,7 +381,8 @@ export default function WorkflowOverview({ workflowId }: { workflowId: string })
                   {workflow.status === 'draft' && (
                      <p className="mt-4 rounded-md border border-border/60 bg-background px-4 py-3 text-muted-foreground">
                         A draft never runs. Activate it when the steps are right; a manual trigger
-                        then runs from the header, and a Berry event or webhook fires on its own.
+                        then runs from the header, and a Berry event, schedule, integration event or
+                        webhook fires on its own.
                      </p>
                   )}
 
@@ -359,11 +404,21 @@ export default function WorkflowOverview({ workflowId }: { workflowId: string })
                               <code className="font-mono">trigger.input</code>.
                            </p>
                         )}
-                        {trigger.type === 'webhook' && (
+                        {trigger.type === 'schedule' && (
                            <p className="mt-1 text-muted-foreground">
-                              A delivery to the hook URL starts a run; the body becomes{' '}
-                              <code className="font-mono">trigger.input</code>.
+                              {describeCron(trigger.config?.cron ?? '')} · cron{' '}
+                              <code className="font-mono">{trigger.config?.cron}</code> ·{' '}
+                              {trigger.config?.timezone}
+                              {workflow.status === 'active'
+                                 ? '. Fires on that clock while active; an instant missed for over an hour is skipped.'
+                                 : '. Fires only while the workflow is active.'}
                            </p>
+                        )}
+                        {trigger.type === 'integration' && (
+                           <IntegrationTriggerNote workflow={workflow} />
+                        )}
+                        {trigger.type === 'webhook' && (
+                           <WebhookTriggerNotes workflowId={workflow.id} className="mt-3" />
                         )}
                      </div>
                   </section>

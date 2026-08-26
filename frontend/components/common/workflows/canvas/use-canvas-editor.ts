@@ -32,6 +32,7 @@ import {
    newStepDraft,
    stepDraftProblem,
    toStepInput,
+   triggerInputProblem,
    type StepKind,
 } from '../create-workflow-steps';
 import {
@@ -318,6 +319,8 @@ export function useCanvasEditor(workflow: Workflow): CanvasEditor {
          const problem = draft ? stepDraftProblem(draft) : null;
          if (problem) pushFinding(map, step.id, { message: problem, severity: 'error' });
       }
+      const triggerProblem = triggerInputProblem(state.working.trigger);
+      if (triggerProblem) pushFinding(map, null, { message: triggerProblem, severity: 'error' });
       if (serverErrors.fields.length > 0) {
          placeFieldErrors(map, serverErrors.fields, serverErrors.stepIds);
       } else if (!dirty) {
@@ -330,6 +333,7 @@ export function useCanvasEditor(workflow: Workflow): CanvasEditor {
 
    const blocked = useMemo(() => {
       if (problems.some((problem) => problem.severity === 'error')) return true;
+      if (triggerInputProblem(state.working.trigger)) return true;
       return state.working.steps.some((step) => {
          const draft = draftFromStep(step);
          return draft ? stepDraftProblem(draft) !== null : false;

@@ -51,11 +51,18 @@ import {
    StepEditor,
    buildDefinition,
    newStepDraft,
+   stepDraftLineProblem,
    stepDraftProblem,
+   toTriggerInput,
+   triggerInputProblem,
+   type SiblingStep,
    type StepDraft,
    type StepKind,
    type TriggerDraft,
 } from './create-workflow-steps';
+import { IntegrationTriggerFields } from './integration-trigger-fields';
+import { ScheduleFields, defaultSchedule } from './schedule-fields';
+import { WebhookTriggerNotes } from './webhook-trigger-notes';
 
 const TRIGGERS: { type: TriggerDraft['type']; label: string; hint: string }[] = [
    { type: 'manual', label: 'By hand', hint: 'Run now from the workflow page' },
@@ -64,8 +71,26 @@ const TRIGGERS: { type: TriggerDraft['type']; label: string; hint: string }[] = 
       label: 'A Berry event',
       hint: 'When something happens in this workspace',
    },
+   { type: 'schedule', label: 'A schedule', hint: 'Every hour, every day at, or a cron' },
+   {
+      type: 'integration',
+      label: 'An integration event',
+      hint: 'GitHub, Slack, Linear… from the catalog',
+   },
    { type: 'webhook', label: 'A webhook', hint: 'When a delivery reaches the hook URL' },
 ];
+
+function newTriggerDraft(): TriggerDraft {
+   const schedule = defaultSchedule();
+   return {
+      type: 'manual',
+      event: 'issue.completed',
+      cron: schedule.cron,
+      timezone: schedule.timezone,
+      provider: '',
+      operation: '',
+   };
+}
 
 /**
  * New workflow, trigger first: pick what starts it, then the steps in
@@ -87,10 +112,7 @@ export function CreateWorkflowDialog() {
 
    const [name, setName] = useState('');
    const [description, setDescription] = useState('');
-   const [trigger, setTrigger] = useState<TriggerDraft>({
-      type: 'manual',
-      event: 'issue.completed',
-   });
+   const [trigger, setTrigger] = useState<TriggerDraft>(() => newTriggerDraft());
    const [steps, setSteps] = useState<StepDraft[]>([]);
    const [pending, setPending] = useState(false);
    const [serverErrors, setServerErrors] = useState<FieldError[]>([]);
@@ -99,7 +121,7 @@ export function CreateWorkflowDialog() {
       if (!isOpen) return;
       setName(prefill.name ?? '');
       setDescription('');
-      setTrigger({ type: 'manual', event: 'issue.completed' });
+      setTrigger(newTriggerDraft());
       setSteps([newStepDraft('create_issue')]);
       setPending(false);
       setServerErrors([]);
@@ -137,6 +159,15 @@ export function CreateWorkflowDialog() {
       });
    const addStep = (type: StepKind) => setSteps((current) => [...current, newStepDraft(type)]);
 
+   /** The steps after one, as a branch may lead to them. */
+   const siblingsAfter = (index: number): SiblingStep[] =>
+      steps.slice(index + 1).map((step, offset) => ({
+         key: step.key,
+         label: `${index + offset + 2} · ${
+            STEP_KINDS.find((kind) => kind.type === step.type)?.label ?? step.type
+         }`,
+      }));
+
    const submit = async () => {
       const trimmed = name.trim();
       if (!trimmed) {
@@ -147,12 +178,17 @@ export function CreateWorkflowDialog() {
          toast.error('Workspace is not ready');
          return;
       }
+      const triggerProblem = triggerInputProblem(toTriggerInput(trigger));
+      if (triggerProblem) {
+         toast.error(`Trigger: ${triggerProblem}`);
+         return;
+      }
       if (steps.length === 0) {
          toast.error('Add at least one step');
          return;
       }
       for (const [index, step] of steps.entries()) {
-         const problem = stepDraftProblem(step);
+         const problem = stepDraftProblem(step) ?? stepDraftLineProblem(step);
          if (problem) {
             toast.error(`Step ${index + 1}: ${problem}`);
             return;
@@ -273,7 +309,7 @@ export function CreateWorkflowDialog() {
                         <Zap className="size-3.5 text-muted-foreground" />
                         Starts when
                      </h3>
-                     <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                     <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
                         {TRIGGERS.map((option) => {
                            const on = trigger.type === option.type;
                            return (
@@ -316,11 +352,36 @@ export function CreateWorkflowDialog() {
                            <code className="font-mono text-muted-foreground">{trigger.event}</code>
                         </div>
                      )}
+                     {trigger.type === 'schedule' && (
+                        <div className="mt-3 rounded-md border border-border/60 bg-background px-4 py-3">
+                           <ScheduleFields
+                              value={{ cron: trigger.cron, timezone: trigger.timezone }}
+                              onChange={(value) =>
+                                 setTrigger({
+                                    ...trigger,
+                                    cron: value.cron,
+                                    timezone: value.timezone,
+                                 })
+                              }
+                           />
+                        </div>
+                     )}
+                     {trigger.type === 'integration' && (
+                        <div className="mt-3 rounded-md border border-border/60 bg-background px-4 py-3">
+                           <IntegrationTriggerFields
+                              value={{ provider: trigger.provider, operation: trigger.operation }}
+                              onChange={(value) =>
+                                 setTrigger({
+                                    ...trigger,
+                                    provider: value.provider,
+                                    operation: value.operation,
+                                 })
+                              }
+                           />
+                        </div>
+                     )}
                      {trigger.type === 'webhook' && (
-                        <p className="mt-2 text-muted-foreground">
-                           Rotate the secret on the workflow page to get the hook URL. The body of
-                           each delivery becomes <code className="font-mono">trigger.input</code>.
-                        </p>
+                        <WebhookTriggerNotes className="mt-3 rounded-md border border-border/60 bg-background px-4 py-3" />
                      )}
                      {trigger.type === 'manual' && (
                         <p className="mt-2 text-muted-foreground">
@@ -370,6 +431,7 @@ export function CreateWorkflowDialog() {
                                  index={index}
                                  count={steps.length}
                                  errors={errorsFor(index)}
+                                 siblings={siblingsAfter(index)}
                                  onChange={(patch) => updateStep(step.key, patch)}
                                  onRemove={() => removeStep(step.key)}
                                  onMove={(direction) => moveStep(step.key, direction)}
@@ -379,8 +441,10 @@ export function CreateWorkflowDialog() {
                      )}
                      {steps.length > 1 && (
                         <p className="mt-2 text-muted-foreground">
-                           Steps run in order; an If step lets the next one run only when its check
-                           passes.
+                           Steps run in order. An If step lets the next one run only when its check
+                           passes; a Switch sends the run to the step each case names, or the next
+                           one; a For each repeats the steps you tick, then carries on. The canvas
+                           can rewire any of it later.
                         </p>
                      )}
                   </section>

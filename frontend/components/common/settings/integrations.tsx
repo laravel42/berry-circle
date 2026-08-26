@@ -11,8 +11,10 @@ import {
    AlertDialogHeader,
    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { UrlBox } from '@/components/common/workflows/copy-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { absoluteApiUrl } from '@/lib/api';
 import {
    BUILT_IN_PROVIDER,
    describeConnectionResult,
@@ -23,9 +25,13 @@ import {
    listConnections,
    listGrants,
    listProviders,
+   providerHookPath,
+   providerHookSecretName,
    startAuthorize,
+   supportsInboundDeliveries,
    toolKind,
    toolOperation,
+   triggerTools,
    type Provider,
    type ProviderConnection,
    type ProviderTool,
@@ -164,12 +170,45 @@ function ToolsTable({ provider, grants }: { provider: Provider; grants: ToolGran
    );
 }
 
+/** Where the provider sends its events, and what Berry does with them. */
+function InboundDeliveries({ provider, workspaceId }: { provider: Provider; workspaceId: string }) {
+   const secret = providerHookSecretName(provider.id);
+   const events = triggerTools(provider);
+   return (
+      <div className="border-t border-border/60 px-4 py-3">
+         <p className="font-medium">Inbound deliveries</p>
+         <p className="mt-0.5 text-muted-foreground">
+            Register this URL as the {provider.name} webhook. A verified delivery becomes the
+            workspace fact <code className="font-mono">integration.webhook.received</code> and
+            starts every active workflow whose trigger names its event
+            {events.length > 0 &&
+               ` (${events.length} event${events.length === 1 ? '' : 's'} to choose from)`}
+            .
+         </p>
+         <div className="mt-2">
+            <UrlBox
+               label={`${provider.name} webhook URL`}
+               url={absoluteApiUrl(providerHookPath(provider.id, workspaceId))}
+            />
+         </div>
+         <p className="mt-1.5 text-muted-foreground">
+            {secret
+               ? `Deliveries are verified with ${secret} on the deployment; without it the route answers 404.`
+               : 'Deliveries are verified with the provider’s secret on the deployment.'}
+            {!provider.connected &&
+               ' Connect the provider first: a delivery is routed to this workspace through its connection.'}
+         </p>
+      </div>
+   );
+}
+
 function ProviderCard({
    provider,
    connection,
    grants,
    highlighted,
    busy,
+   workspaceId,
    onConnect,
    onDisconnect,
 }: {
@@ -178,6 +217,7 @@ function ProviderCard({
    grants: ToolGrant[];
    highlighted: boolean;
    busy: boolean;
+   workspaceId: string;
    onConnect: () => void;
    onDisconnect: () => void;
 }) {
@@ -290,6 +330,9 @@ function ProviderCard({
             )}
          </button>
          {toolsOpen && <ToolsTable provider={provider} grants={grants} />}
+         {supportsInboundDeliveries(provider) && (
+            <InboundDeliveries provider={provider} workspaceId={workspaceId} />
+         )}
       </section>
    );
 }
@@ -441,6 +484,7 @@ function IntegrationsDirectory() {
                   grants={grants}
                   highlighted={highlighted === provider.id}
                   busy={busy === provider.id}
+                  workspaceId={workspace?.id ?? ''}
                   onConnect={() => void connect(provider)}
                   onDisconnect={() => setDisconnecting(provider)}
                />

@@ -4,13 +4,14 @@ import { BerryApiError } from '@/lib/api';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { subscribeWorkspaceEvents } from '@/lib/events';
 import {
-   describeTriggerType,
+   describeRunTrigger,
    describeWorkflowRunDuration,
    listWorkflowRuns,
    shortRunId,
    type WorkflowRun,
 } from '@/lib/workflow-runs';
 import { cn } from '@/lib/utils';
+import { useProvidersStore } from '@/store/providers-store';
 import { useSessionStore } from '@/store/session-store';
 import { useWorkflowRunsFilterStore } from '@/store/workflow-runs-filter-store';
 import { useWorkflowRunsStore } from '@/store/workflow-runs-store';
@@ -66,7 +67,7 @@ export function WorkflowRunsTable({
                         'px-6 py-2.5 font-normal text-muted-foreground sm:px-8',
                         column === 'run' && 'w-[120px]',
                         column === 'status' && 'w-[140px]',
-                        column === 'trigger' && 'hidden w-[140px] sm:table-cell',
+                        column === 'trigger' && 'hidden w-[260px] sm:table-cell',
                         column === 'when' && 'w-[140px]',
                         column === 'duration' && 'hidden w-[100px] text-right md:table-cell'
                      )}
@@ -104,6 +105,15 @@ export function WorkflowRunsTable({
                            </td>
                         )}
                         <td className="px-6 py-2.5 font-mono sm:px-8">
+                           {run.depth > 0 && (
+                              <span
+                                 className="mr-1 text-muted-foreground"
+                                 title={`child run, depth ${run.depth}`}
+                                 aria-label={`child run, depth ${run.depth}`}
+                              >
+                                 ↳
+                              </span>
+                           )}
                            <Link
                               href={`/${orgId}/workflow/${run.workflowId}/run/${run.id}`}
                               onClick={(event) => event.stopPropagation()}
@@ -116,8 +126,8 @@ export function WorkflowRunsTable({
                         <td className="px-6 py-2.5 sm:px-8">
                            <WorkflowRunStatusBadge status={run.status} />
                         </td>
-                        <td className="hidden px-6 py-2.5 text-muted-foreground sm:table-cell sm:px-8">
-                           {describeTriggerType(run.triggerType)}
+                        <td className="hidden max-w-0 truncate px-6 py-2.5 sm:table-cell sm:px-8">
+                           <RunTriggerCell run={run} />
                         </td>
                         <td className="px-6 py-2.5 text-muted-foreground sm:px-8">
                            {relativeTime(run.createdAt)}
@@ -131,6 +141,27 @@ export function WorkflowRunsTable({
             )}
          </tbody>
       </table>
+   );
+}
+
+/** What started the run: the kind, then the instant, event or calling step in muted text. */
+function RunTriggerCell({ run }: { run: WorkflowRun }) {
+   const providers = useProvidersStore((state) => state.providers);
+   const event = useWorkflowsStore(
+      (state) => state.workflows.find((workflow) => workflow.id === run.workflowId)?.trigger.event
+   );
+   const summary = describeRunTrigger(run, {
+      providerName: (id) => providers.find((provider) => provider.id === id)?.name,
+      event,
+   });
+   return (
+      <span
+         className="text-muted-foreground"
+         title={summary.detail ? `${summary.kind} · ${summary.detail}` : summary.kind}
+      >
+         <span className="text-foreground">{summary.kind}</span>
+         {summary.detail && ` · ${summary.detail}`}
+      </span>
    );
 }
 

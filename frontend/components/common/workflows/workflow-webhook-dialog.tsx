@@ -9,41 +9,16 @@ import {
    DialogHeader,
    DialogTitle,
 } from '@/components/ui/dialog';
-import { apiUrl } from '@/lib/api';
+import { absoluteApiUrl } from '@/lib/api';
 import type { WebhookSecret } from '@/lib/workflows';
-import { Check, Copy } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { toast } from 'sonner';
+import { CopyButton } from './copy-button';
 import { useWorkflowActions } from './use-workflow-actions';
 
 interface WorkflowWebhookDialogProps {
    workflowId: string;
    open: boolean;
    onOpenChange: (open: boolean) => void;
-}
-
-function CopyButton({ label, text }: { label: string; text: string }) {
-   const [copied, setCopied] = useState(false);
-   return (
-      <Button
-         type="button"
-         size="xs"
-         variant="secondary"
-         aria-label={`Copy ${label}`}
-         onClick={() => {
-            void navigator.clipboard
-               .writeText(text)
-               .then(() => {
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-               })
-               .catch(() => toast.error('Could not access the clipboard'));
-         }}
-      >
-         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-         {copied ? 'Copied' : 'Copy'}
-      </Button>
-   );
 }
 
 /**
@@ -63,12 +38,6 @@ export function WorkflowWebhookDialog({
       if (!open) setSecret(null);
    }, [open]);
 
-   const absoluteUrl = (path: string) => {
-      const resolved = apiUrl(path);
-      if (/^https?:/i.test(resolved)) return resolved;
-      return typeof window !== 'undefined' ? `${window.location.origin}${resolved}` : resolved;
-   };
-
    return (
       <Dialog open={open} onOpenChange={onOpenChange}>
          <DialogContent className="sm:max-w-lg">
@@ -86,9 +55,9 @@ export function WorkflowWebhookDialog({
                      <p className="mb-1 text-muted-foreground">Hook URL</p>
                      <div className="flex items-start gap-2">
                         <code className="min-w-0 flex-1 break-all rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 font-mono">
-                           {absoluteUrl(secret.url)}
+                           {absoluteApiUrl(secret.url)}
                         </code>
-                        <CopyButton label="hook URL" text={absoluteUrl(secret.url)} />
+                        <CopyButton label="hook URL" text={absoluteApiUrl(secret.url)} />
                      </div>
                   </div>
                   <div>

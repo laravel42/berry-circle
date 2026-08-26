@@ -13,12 +13,19 @@ import type { WorkflowDefinitionInput, WorkflowStepInput } from '@/lib/workflows
 import { cn } from '@/lib/utils';
 import { BerryMark } from '@/components/brand/berry-mark';
 import { Trash2, X } from 'lucide-react';
-import { useState } from 'react';
-import { StepFields, draftFromStep, toStepInput, type StepDraft } from '../create-workflow-steps';
+import { useEffect, useState } from 'react';
+import {
+   StepFields,
+   draftFromStep,
+   syncDraftLinks,
+   toStepInput,
+   type StepDraft,
+} from '../create-workflow-steps';
 import { GROUP_TONE, nodeKind } from './nodes/node-kinds';
 import { describeHandle, incomingOf, outgoingOf, type CanvasFinding } from './to-flow';
 
 interface StepPanelProps {
+   workflowId: string;
    step: WorkflowStepInput;
    definition: WorkflowDefinitionInput;
    findings: CanvasFinding[];
@@ -29,9 +36,14 @@ interface StepPanelProps {
    onSelect: (nodeId: string) => void;
 }
 
-/** The type's fields from the draft, with the links and error policy the draft does not carry. */
+/**
+ * The type's fields from the draft, with the links and error policy the
+ * draft does not carry. A switch's cases and a loop's body are edges on
+ * the canvas, so they are read from the step as it is now, not from the
+ * draft as it was taken.
+ */
 function applyDraft(step: WorkflowStepInput, draft: StepDraft): WorkflowStepInput {
-   const built = toStepInput(draft, step.id);
+   const built = toStepInput(syncDraftLinks(draft, step), step.id);
    if (Array.isArray(step.dependsOn)) built.dependsOn = stringList(step.dependsOn);
    if (step.onError) built.onError = step.onError;
    if (built.type === 'condition') {
@@ -124,6 +136,7 @@ function LinkRow({
  * trailing space is not trimmed out from under them.
  */
 export function StepPanel({
+   workflowId,
    step,
    definition,
    findings,
@@ -134,6 +147,11 @@ export function StepPanel({
    onSelect,
 }: StepPanelProps) {
    const [draft, setDraft] = useState<StepDraft | null>(() => draftFromStep(step));
+   // An edge connected or broken on the canvas changes the step under the
+   // panel; the draft follows so a later keystroke does not undo it.
+   useEffect(() => {
+      setDraft((current) => (current ? syncDraftLinks(current, step) : current));
+   }, [step]);
    const kind = nodeKind(step.type);
    const Icon = kind.icon;
    const incoming = incomingOf(definition, step.id);
@@ -178,13 +196,18 @@ export function StepPanel({
 
          <fieldset disabled={!editable} className="flex min-w-0 flex-col gap-3">
             {draft ? (
-               <StepFields step={draft} onChange={change} errors={[]} />
+               <StepFields
+                  step={draft}
+                  onChange={change}
+                  errors={[]}
+                  currentWorkflowId={workflowId}
+               />
             ) : (
                <div>
                   <p className="text-muted-foreground">
                      {kind.supported
                         ? 'This step has no form yet.'
-                        : `${kind.label} steps run in a later phase; the fields are shown as stored.`}
+                        : `This build has no form for a ${kind.label} step; its fields are shown as stored.`}
                   </p>
                   <pre className="mt-2 max-h-72 overflow-auto rounded-md border border-border/60 bg-background px-3 py-2 font-mono leading-5 whitespace-pre-wrap break-all">
                      {JSON.stringify(rest, null, 2)}

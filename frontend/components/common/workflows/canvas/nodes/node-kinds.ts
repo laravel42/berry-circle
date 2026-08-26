@@ -29,7 +29,7 @@ export interface NodeKind {
    hint: string;
    group: NodeGroup;
    icon: LucideIcon;
-   /** True for the types Berry runs today; the rest parse but wait for their executors. */
+   /** True for the types this build has a form for; an unknown type is shown as stored. */
    supported: boolean;
 }
 
@@ -119,7 +119,7 @@ export const NODE_KINDS: NodeKind[] = [
       hint: 'One branch per value',
       group: 'logic',
       icon: Split,
-      supported: false,
+      supported: true,
    },
    {
       type: 'foreach',
@@ -127,7 +127,7 @@ export const NODE_KINDS: NodeKind[] = [
       hint: 'Repeat steps over a list',
       group: 'logic',
       icon: Repeat,
-      supported: false,
+      supported: true,
    },
    {
       type: 'transform',
@@ -135,7 +135,7 @@ export const NODE_KINDS: NodeKind[] = [
       hint: 'Shape values for the next step',
       group: 'logic',
       icon: Braces,
-      supported: false,
+      supported: true,
    },
    {
       type: 'subworkflow',
@@ -143,7 +143,7 @@ export const NODE_KINDS: NodeKind[] = [
       hint: 'Hand off to another workflow',
       group: 'actions',
       icon: Workflow,
-      supported: false,
+      supported: true,
    },
 ];
 

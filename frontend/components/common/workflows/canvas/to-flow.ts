@@ -15,7 +15,7 @@ import {
    type WorkflowTriggerInput,
 } from '@/lib/workflows';
 import { MarkerType, type Edge, type Node } from '@xyflow/react';
-import type { CanvasLayout } from './layout';
+import { NODE_HEIGHT, NODE_WIDTH, type CanvasLayout } from './layout';
 import { nodeKind } from './nodes/node-kinds';
 
 /**
@@ -55,9 +55,18 @@ export type TriggerNodeData = {
    [key: string]: unknown;
 };
 
+export type LoopNodeData = {
+   kind: 'loop';
+   /** The foreach step whose body the frame holds. */
+   stepId: string;
+   label: string;
+   [key: string]: unknown;
+};
+
 export type StepFlowNode = Node<StepNodeData, 'step'>;
 export type TriggerFlowNode = Node<TriggerNodeData, 'trigger'>;
-export type CanvasNode = StepFlowNode | TriggerFlowNode;
+export type LoopFlowNode = Node<LoopNodeData, 'loop'>;
+export type CanvasNode = StepFlowNode | TriggerFlowNode | LoopFlowNode;
 
 export type CanvasEdgeData = {
    link: StepLink;
@@ -72,17 +81,28 @@ export interface ToFlowOptions {
    findings: Map<string | null, CanvasFinding[]>;
    agents: { id: string; name: string }[];
    providers: Provider[];
+   /** Other workflows in the workspace, so a subworkflow node can say which one it calls. */
+   workflows: { id: string; name: string }[];
    selectedNodeId: string | null;
    selectedEdgeId: string | null;
+}
+
+/** The id of the frame drawn around a loop's body, from the loop's own id. */
+export function loopNodeId(stepId: string): string {
+   return `loop:${stepId}`;
+}
+
+export function isLoopNodeId(nodeId: string): boolean {
+   return nodeId.startsWith('loop:');
 }
 
 export function edgeId(link: StepLink): string {
    return `${link.source}:${link.handle}->${link.target}`;
 }
 
-/** "true", "false", "default", "each", or "= value" for a switch case. */
+/** "true", "false", "default", "each", "then", or "= value" for a switch case. */
 export function describeHandle(step: WorkflowStepInput, handle: LinkHandle): string {
-   if (handle === 'next') return '';
+   if (handle === 'next') return step.type === 'foreach' ? 'then' : '';
    if (handle.startsWith('case:')) {
       const index = Number.parseInt(handle.slice('case:'.length), 10);
       const cases = Array.isArray(step.cases) ? step.cases : [];
@@ -96,7 +116,10 @@ export function describeHandle(step: WorkflowStepInput, handle: LinkHandle): str
    return handle;
 }
 
-function summarise(step: WorkflowStepInput): {
+function summarise(
+   step: WorkflowStepInput,
+   options: ToFlowOptions
+): {
    label: string;
    text: string;
    external: boolean;
@@ -108,9 +131,15 @@ function summarise(step: WorkflowStepInput): {
       return { label: kind.label, text: '', external: false, approval: step.type === 'approval' };
    }
    const summary = describePlanStep(parsed.data);
+   let text = summary.text;
+   if (parsed.data.type === 'subworkflow') {
+      const workflowId = parsed.data.workflowId;
+      const target = options.workflows.find((workflow) => workflow.id === workflowId);
+      text = target ? target.name : workflowId ? 'a workflow this list does not know' : '';
+   }
    return {
       label: kind.label,
-      text: summary.text,
+      text,
       external: summary.external,
       approval: summary.approval,
    };
@@ -121,7 +150,7 @@ function stepNode(
    layout: CanvasLayout,
    options: ToFlowOptions
 ): StepFlowNode {
-   const summary = summarise(step);
+   const summary = summarise(step, options);
    const agentId =
       step.type === 'agent'
          ? step.agentId
@@ -168,11 +197,49 @@ function stepNode(
    };
 }
 
+// The frame has to fit between the layout's rows (a 36px gap): a little
+// room above for the label, a little below, and nothing that reaches the
+// neighbours.
+const LOOP_PAD = 8;
+const LOOP_LABEL = 18;
+
+/** A dashed frame around every step a loop repeats, sized from their positions. */
+function loopNode(step: WorkflowStepInput, layout: CanvasLayout): LoopFlowNode | null {
+   const body = stringList(step.steps).filter((id) => layout[id]);
+   if (body.length === 0) return null;
+   const xs = body.map((id) => layout[id].x);
+   const ys = body.map((id) => layout[id].y);
+   const left = Math.min(...xs) - LOOP_PAD;
+   const top = Math.min(...ys) - LOOP_PAD - LOOP_LABEL;
+   const right = Math.max(...xs) + NODE_WIDTH + LOOP_PAD;
+   const bottom = Math.max(...ys) + NODE_HEIGHT + LOOP_PAD;
+   return {
+      id: loopNodeId(step.id),
+      type: 'loop',
+      position: { x: left, y: top },
+      style: { width: right - left, height: bottom - top, pointerEvents: 'none' },
+      zIndex: -1,
+      selectable: false,
+      draggable: false,
+      connectable: false,
+      deletable: false,
+      focusable: false,
+      data: {
+         kind: 'loop',
+         stepId: step.id,
+         label: `for each · ${step.id}`,
+      },
+   };
+}
+
 export function toFlow(
    definition: WorkflowDefinitionInput,
    layout: CanvasLayout,
    options: ToFlowOptions
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+   const providerName = definition.trigger.provider
+      ? options.providers.find((provider) => provider.id === definition.trigger.provider)?.name
+      : undefined;
    const trigger: TriggerFlowNode = {
       id: TRIGGER_NODE_ID,
       type: 'trigger',
@@ -184,18 +251,27 @@ export function toFlow(
       data: {
          kind: 'trigger',
          trigger: definition.trigger,
-         label: describeWorkflowTrigger({
-            type: definition.trigger.type,
-            provider: definition.trigger.provider,
-            operation: definition.trigger.operation,
-            event: definition.trigger.event,
-            config: definition.trigger.config,
-         }),
+         label: describeWorkflowTrigger(
+            {
+               type: definition.trigger.type,
+               provider: definition.trigger.provider,
+               operation: definition.trigger.operation,
+               event: definition.trigger.event,
+               config: definition.trigger.config,
+            },
+            { providerName }
+         ),
          findings: options.findings.get(null) ?? [],
          editable: options.editable,
       },
    };
+   // Frames first, so they paint beneath the steps they hold.
+   const loops = definition.steps
+      .filter((step) => step.type === 'foreach')
+      .map((step) => loopNode(step, layout))
+      .filter((node): node is LoopFlowNode => node !== null);
    const nodes: CanvasNode[] = [
+      ...loops,
       trigger,
       ...definition.steps.map((step) => stepNode(step, layout, options)),
    ];

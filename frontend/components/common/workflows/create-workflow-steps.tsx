@@ -12,35 +12,70 @@ import {
    SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { scheduleProblem } from '@/lib/cron';
 import { actionTools, describeToolEffect, toolOperation } from '@/lib/integrations';
 import type { FieldError } from '@/lib/plans';
 import {
    BERRY_EVENTS,
    type WorkflowDefinitionInput,
    type WorkflowStepInput,
+   type WorkflowTriggerInput,
    type WorkflowTriggerType,
 } from '@/lib/workflows';
-import { stepIdBase } from '@/lib/workflow-definition';
+import { caseList, stepIdBase, stringList } from '@/lib/workflow-definition';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useMembersStore } from '@/store/members-store';
 import { useProvidersStore } from '@/store/providers-store';
+import { useWorkflowsStore } from '@/store/workflows-store';
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import { useId, type ReactNode } from 'react';
 
 /** The step kinds the trigger-first builder offers: the set Berry runs natively. */
 export type StepKind =
-   'create_issue' | 'update_issue' | 'agent' | 'condition' | 'wait' | 'approval' | 'action';
+   | 'create_issue'
+   | 'update_issue'
+   | 'agent'
+   | 'condition'
+   | 'switch'
+   | 'foreach'
+   | 'transform'
+   | 'wait'
+   | 'approval'
+   | 'action'
+   | 'subworkflow';
 
 export const STEP_KINDS: { type: StepKind; label: string; hint: string }[] = [
    { type: 'create_issue', label: 'Create task', hint: 'Put a task on the board' },
    { type: 'update_issue', label: 'Update task', hint: 'Change status, priority or assignee' },
    { type: 'agent', label: 'Ask an agent', hint: 'One bounded instruction' },
    { type: 'condition', label: 'If', hint: 'Continue only when a value matches' },
+   { type: 'switch', label: 'Switch', hint: 'One branch per value' },
+   { type: 'foreach', label: 'For each', hint: 'Repeat steps over a list' },
+   { type: 'transform', label: 'Transform', hint: 'Shape values for the next step' },
    { type: 'wait', label: 'Wait', hint: 'A duration, an instant or an event' },
    { type: 'approval', label: 'Approval', hint: 'A person decides before it goes on' },
    { type: 'action', label: 'Action', hint: 'A tool from a connected provider' },
+   { type: 'subworkflow', label: 'Run workflow', hint: 'Hand off to another workflow' },
 ];
+
+/** The most body steps a loop may run over, and what it runs over when unsaid. */
+export const FOREACH_MAX_ITEMS = 100;
+export const FOREACH_DEFAULT_ITEMS = 25;
+
+export interface KeyValueRow {
+   key: string;
+   value: string;
+}
+
+export interface SwitchCaseDraft {
+   /** The value to match, as typed: text, a number, true/false, or {{ a.ref }}. */
+   equals: string;
+   /** The steps the case leads to; edges on the canvas, resolved from `targetKey` in the dialog. */
+   steps: string[];
+   /** In the dialog, the draft key of the step this case leads to, or empty for the next step. */
+   targetKey: string;
+}
 
 export interface StepDraft {
    key: string;
@@ -64,6 +99,19 @@ export interface StepDraft {
    left: string;
    op: string;
    right: string;
+   // switch
+   switchValue: string;
+   cases: SwitchCaseDraft[];
+   defaultSteps: string[];
+   defaultTargetKey: string;
+   // foreach
+   items: string;
+   maxItems: string;
+   /** The body; edges on the canvas, resolved from `bodyKeys` in the dialog. */
+   bodySteps: string[];
+   bodyKeys: string[];
+   // transform
+   outputRows: KeyValueRow[];
    // wait
    waitMode: 'duration' | 'until' | 'event';
    duration: string;
@@ -76,15 +124,20 @@ export interface StepDraft {
    approverRole: string;
    approverUserId: string;
    timeout: string;
-   // action
+   // action and subworkflow
    provider: string;
    operation: string;
-   inputRows: { key: string; value: string }[];
+   workflowId: string;
+   inputRows: KeyValueRow[];
 }
 
 export interface TriggerDraft {
-   type: Extract<WorkflowTriggerType, 'manual' | 'berry_event' | 'webhook'>;
+   type: WorkflowTriggerType;
    event: string;
+   cron: string;
+   timezone: string;
+   provider: string;
+   operation: string;
 }
 
 let draftCounter = 0;
@@ -109,6 +162,15 @@ export function newStepDraft(type: StepKind): StepDraft {
       left: 'trigger.issue.priority',
       op: 'equals',
       right: '',
+      switchValue: 'trigger.issue.priority',
+      cases: [{ equals: '', steps: [], targetKey: '' }],
+      defaultSteps: [],
+      defaultTargetKey: '',
+      items: 'trigger.input.items',
+      maxItems: '',
+      bodySteps: [],
+      bodyKeys: [],
+      outputRows: [{ key: '', value: '' }],
       waitMode: 'duration',
       duration: 'PT10M',
       until: '',
@@ -121,6 +183,7 @@ export function newStepDraft(type: StepKind): StepDraft {
       timeout: '',
       provider: '',
       operation: '',
+      workflowId: '',
       inputRows: [{ key: '', value: '' }],
    };
 }
@@ -137,10 +200,28 @@ export function isStepKind(type: string): type is StepKind {
 
 const TEMPLATE_REF = /^\{\{\s*([a-z][\w.]*)\s*\}\}$/;
 
+/** The server's grammar for a bare reference path: the trigger, a step's output, the item… */
+export const REFERENCE_PATH =
+   /^(trigger|steps\.[a-z][a-z0-9_]{0,63}\.output|connections\.[a-z0-9_]+|goal|item)(\.[A-Za-z0-9_]+)*$/;
+
 /** `{{ trigger.issue.id }}` alone becomes a typed reference; anything else stays text. */
 function valueOrRef(text: string): unknown {
    const match = TEMPLATE_REF.exec(text.trim());
    return match ? { ref: match[1] } : text;
+}
+
+/** A bare path or a `{{ path }}` becomes a reference; other text stays a template string. */
+function pathOrTemplate(text: string): unknown {
+   const trimmed = text.trim();
+   if (REFERENCE_PATH.test(trimmed)) return { ref: trimmed };
+   return valueOrRef(text);
+}
+
+/** The path inside `{{ }}` or as typed, trimmed, for fields that take a reference only. */
+export function referencePath(text: string): string {
+   const trimmed = text.trim();
+   const match = TEMPLATE_REF.exec(trimmed);
+   return match ? match[1] : trimmed;
 }
 
 /** Numbers and booleans compare as such; everything else is a string. */
@@ -151,6 +232,20 @@ function literal(text: string): unknown {
    if (trimmed === 'null') return null;
    if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
    return text;
+}
+
+/** A case's match: a reference when written as one, else a scalar. */
+function caseValue(text: string): unknown {
+   const match = TEMPLATE_REF.exec(text.trim());
+   return match ? { ref: match[1] } : literal(text);
+}
+
+function rowsToRecord(rows: KeyValueRow[]): Record<string, unknown> {
+   const out: Record<string, unknown> = {};
+   for (const row of rows) {
+      if (row.key.trim()) out[row.key.trim()] = valueOrRef(row.value);
+   }
+   return out;
 }
 
 /** What is missing before this step can be sent, or null. */
@@ -170,6 +265,29 @@ export function stepDraftProblem(step: StepDraft): string | null {
          if (!step.left.trim()) return 'Name the value to check.';
          if (step.op !== 'exists' && !step.right.trim()) return 'Give the value to compare with.';
          return null;
+      case 'switch':
+         if (!step.switchValue.trim()) return 'Name the value to branch on.';
+         if (step.cases.length === 0) return 'Add at least one case.';
+         if (step.cases.some((entry) => !entry.equals.trim())) return 'Give each case a value.';
+         return null;
+      case 'foreach': {
+         const path = referencePath(step.items);
+         if (!path) return 'Name the list to repeat over, such as trigger.input.items.';
+         if (!REFERENCE_PATH.test(path)) {
+            return 'The list is a reference: trigger…, steps.<id>.output…, goal… or connections….';
+         }
+         if (step.maxItems.trim()) {
+            const limit = Number(step.maxItems);
+            if (!Number.isInteger(limit) || limit < 1 || limit > FOREACH_MAX_ITEMS) {
+               return `Max items is a whole number between 1 and ${FOREACH_MAX_ITEMS}.`;
+            }
+         }
+         return null;
+      }
+      case 'transform':
+         return step.outputRows.some((row) => row.key.trim())
+            ? null
+            : 'Add at least one output field.';
       case 'wait':
          if (step.waitMode === 'duration' && !step.duration.trim()) return 'Give a duration.';
          if (step.waitMode === 'until' && !step.until.trim()) return 'Give an instant.';
@@ -182,7 +300,21 @@ export function stepDraftProblem(step: StepDraft): string | null {
       case 'action':
          if (!step.provider || !step.operation) return 'Pick a tool.';
          return null;
+      case 'subworkflow':
+         return step.workflowId ? null : 'Pick a workflow to run.';
    }
+}
+
+/**
+ * What the dialog's straight line cannot send: a loop with nothing ticked
+ * to repeat. On the canvas the body is wired with edges instead, so this
+ * is asked only where the ticks are.
+ */
+export function stepDraftLineProblem(step: StepDraft): string | null {
+   if (step.type === 'foreach' && step.bodyKeys.length === 0) {
+      return 'Tick at least one later step for the loop to repeat.';
+   }
+   return null;
 }
 
 /** The wire step a draft describes. Only the type's own fields; links are the caller's. */
@@ -221,6 +353,29 @@ export function toStepInput(step: StepDraft, id: string): WorkflowStepInput {
          if (step.op !== 'exists') expression.right = literal(step.right);
          return { id, type: 'condition', expression, trueSteps: [], falseSteps: [] };
       }
+      case 'switch':
+         return {
+            id,
+            type: 'switch',
+            value: pathOrTemplate(step.switchValue),
+            cases: step.cases.map((entry) => ({
+               equals: caseValue(entry.equals),
+               steps: entry.steps.slice(),
+            })),
+            defaultSteps: step.defaultSteps.slice(),
+         };
+      case 'foreach': {
+         const out: WorkflowStepInput = {
+            id,
+            type: 'foreach',
+            items: { ref: referencePath(step.items) },
+            steps: step.bodySteps.slice(),
+         };
+         if (step.maxItems.trim()) out.maxItems = Number(step.maxItems);
+         return out;
+      }
+      case 'transform':
+         return { id, type: 'transform', output: rowsToRecord(step.outputRows) };
       case 'wait': {
          const out: WorkflowStepInput = { id, type: 'wait', mode: step.waitMode };
          if (step.waitMode === 'duration') out.duration = step.duration.trim();
@@ -242,12 +397,19 @@ export function toStepInput(step: StepDraft, id: string): WorkflowStepInput {
          if (step.timeout.trim()) out.timeout = step.timeout.trim();
          return out;
       }
-      case 'action': {
-         const input: Record<string, unknown> = {};
-         for (const row of step.inputRows) {
-            if (row.key.trim()) input[row.key.trim()] = valueOrRef(row.value);
-         }
-         return { id, type: 'action', provider: step.provider, operation: step.operation, input };
+      case 'action':
+         return {
+            id,
+            type: 'action',
+            provider: step.provider,
+            operation: step.operation,
+            input: rowsToRecord(step.inputRows),
+         };
+      case 'subworkflow': {
+         const out: WorkflowStepInput = { id, type: 'subworkflow', workflowId: step.workflowId };
+         const input = rowsToRecord(step.inputRows);
+         if (Object.keys(input).length > 0) out.input = input;
+         return out;
       }
    }
 }
@@ -268,10 +430,27 @@ function refText(value: unknown): string {
    return JSON.stringify(value);
 }
 
+/** `{ ref }` to its bare path, for fields that read one; text as it is. */
+function pathText(value: unknown): string {
+   if (typeof value === 'object' && value !== null && 'ref' in value) {
+      const ref = (value as { ref?: unknown }).ref;
+      return typeof ref === 'string' ? ref : '';
+   }
+   return refText(value);
+}
+
 function record(value: unknown): Record<string, unknown> {
    return typeof value === 'object' && value !== null && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : {};
+}
+
+function rowsFrom(value: unknown): KeyValueRow[] {
+   const rows = Object.entries(record(value)).map(([key, entry]) => ({
+      key,
+      value: refText(entry),
+   }));
+   return rows.length > 0 ? rows : [{ key: '', value: '' }];
 }
 
 /**
@@ -312,6 +491,26 @@ export function draftFromStep(step: WorkflowStepInput): StepDraft | null {
          draft.right = refText(expression.right);
          break;
       }
+      case 'switch': {
+         draft.switchValue = pathText(step.value);
+         const cases = caseList(step.cases);
+         draft.cases = cases.map((entry) => ({
+            equals: refText(entry.equals),
+            steps: entry.steps,
+            targetKey: '',
+         }));
+         if (draft.cases.length === 0) draft.cases = [{ equals: '', steps: [], targetKey: '' }];
+         draft.defaultSteps = stringList(step.defaultSteps);
+         break;
+      }
+      case 'foreach':
+         draft.items = pathText(step.items);
+         draft.maxItems = typeof step.maxItems === 'number' ? String(step.maxItems) : '';
+         draft.bodySteps = stringList(step.steps);
+         break;
+      case 'transform':
+         draft.outputRows = rowsFrom(step.output);
+         break;
       case 'wait': {
          const mode = step.mode;
          draft.waitMode = mode === 'until' ? 'until' : mode === 'event' ? 'event' : 'duration';
@@ -334,46 +533,142 @@ export function draftFromStep(step: WorkflowStepInput): StepDraft | null {
          draft.timeout = text(step.timeout);
          break;
       }
-      case 'action': {
+      case 'action':
          draft.provider = text(step.provider);
          draft.operation = text(step.operation);
-         const rows = Object.entries(record(step.input)).map(([key, value]) => ({
-            key,
-            value: refText(value),
-         }));
-         draft.inputRows = rows.length > 0 ? rows : [{ key: '', value: '' }];
+         draft.inputRows = rowsFrom(step.input);
          break;
-      }
+      case 'subworkflow':
+         draft.workflowId = text(step.workflowId);
+         draft.inputRows = rowsFrom(step.input);
+         break;
    }
    return draft;
 }
 
 /**
- * A straight line of steps: each runs after the one before it. A condition
- * hands the next step its true branch, so the run takes it only when the
- * check passes and prunes it otherwise.
+ * The branch lists a canvas edge may have changed since the draft was
+ * taken, copied back in: a switch's case targets and default, a loop's
+ * body. Fields a person types are left alone.
+ */
+export function syncDraftLinks(draft: StepDraft, step: WorkflowStepInput): StepDraft {
+   if (draft.type === 'switch' && step.type === 'switch') {
+      const cases = caseList(step.cases);
+      const aligned =
+         cases.length === draft.cases.length
+            ? draft.cases.map((entry, index) => ({ ...entry, steps: cases[index].steps }))
+            : draft.cases;
+      return { ...draft, cases: aligned, defaultSteps: stringList(step.defaultSteps) };
+   }
+   if (draft.type === 'foreach' && step.type === 'foreach') {
+      return { ...draft, bodySteps: stringList(step.steps) };
+   }
+   return draft;
+}
+
+/** What is missing before a trigger can be sent, or null. */
+export function triggerInputProblem(trigger: WorkflowTriggerInput): string | null {
+   switch (trigger.type) {
+      case 'berry_event':
+         return trigger.event ? null : 'Pick the event that starts the workflow.';
+      case 'schedule':
+         return scheduleProblem(trigger.config ?? {});
+      case 'integration':
+         if (!trigger.provider) return 'Pick a provider.';
+         if (!trigger.operation) return 'Pick the event that starts the workflow.';
+         return null;
+      default:
+         return null;
+   }
+}
+
+/** The trigger a draft describes: the type's own fields and nothing else. */
+export function toTriggerInput(trigger: TriggerDraft): WorkflowTriggerInput {
+   const out: WorkflowTriggerInput = { id: 'trigger', type: trigger.type };
+   if (trigger.type === 'berry_event') out.event = trigger.event;
+   if (trigger.type === 'schedule') {
+      out.config = { cron: trigger.cron.trim(), timezone: trigger.timezone };
+   }
+   if (trigger.type === 'integration') {
+      out.provider = trigger.provider;
+      out.operation = trigger.operation;
+   }
+   return out;
+}
+
+/**
+ * The dialog's straight line, made into a graph. Each step runs after the
+ * one before it, except where a branching step hands it over instead: an
+ * If gives the next step its true branch; a Switch gives it its default
+ * unless a case or the default names another step; a For each repeats the
+ * steps ticked as its body (chained in order inside the loop) and the next
+ * unticked step runs after the loop.
  */
 export function buildDefinition(
    trigger: TriggerDraft,
    steps: StepDraft[]
 ): WorkflowDefinitionInput {
    const ids = steps.map((step, index) => stepIdFor(step, index));
+   const idOfKey = new Map(steps.map((step, index) => [step.key, ids[index]]));
+   const resolve = (key: string): string | undefined => (key ? idOfKey.get(key) : undefined);
    const built = steps.map((step, index) => toStepInput(step, ids[index]));
+   // Steps a branch hands control to: they do not also follow the line.
+   const targeted = new Set<string>();
+   const loopOf = new Map<string, string>();
+   steps.forEach((step, index) => {
+      const out = built[index];
+      if (step.type === 'switch') {
+         out.cases = step.cases.map((entry) => {
+            const target = resolve(entry.targetKey);
+            if (target) targeted.add(target);
+            return { equals: caseValue(entry.equals), steps: target ? [target] : [] };
+         });
+         const fallback = resolve(step.defaultTargetKey);
+         out.defaultSteps = fallback ? [fallback] : [];
+         if (fallback) targeted.add(fallback);
+      }
+      if (step.type === 'foreach') {
+         const body = step.bodyKeys
+            .map(resolve)
+            .filter((id): id is string => typeof id === 'string');
+         out.steps = body;
+         for (const id of body) {
+            targeted.add(id);
+            loopOf.set(id, out.id);
+         }
+      }
+   });
    for (let index = 1; index < built.length; index += 1) {
+      const current = built[index];
       const previous = built[index - 1];
+      if (loopOf.has(current.id)) {
+         // Inside a loop the ticked steps run one after another.
+         const loop = loopOf.get(current.id);
+         const earlier = built
+            .slice(0, index)
+            .filter((step) => loopOf.get(step.id) === loop)
+            .pop();
+         if (earlier) current.dependsOn = [earlier.id];
+         continue;
+      }
+      if (targeted.has(current.id)) continue;
       if (previous.type === 'condition') {
-         previous.trueSteps = [ids[index]];
+         previous.trueSteps = [current.id];
+      } else if (previous.type === 'switch') {
+         previous.defaultSteps = [...stringList(previous.defaultSteps), current.id];
+      } else if (loopOf.has(previous.id)) {
+         // The first step after a loop's body runs once the loop is done.
+         current.dependsOn = [loopOf.get(previous.id) as string];
       } else {
-         built[index].dependsOn = [ids[index - 1]];
+         current.dependsOn = [previous.id];
       }
    }
-   const triggerInput: WorkflowDefinitionInput['trigger'] = { id: 'trigger', type: trigger.type };
-   if (trigger.type === 'berry_event') triggerInput.event = trigger.event;
+   const entry = built.find((step) => !targeted.has(step.id));
    return {
       version: '1',
-      trigger: triggerInput,
+      trigger: toTriggerInput(trigger),
       steps: built,
-      entry: ids.length > 0 ? [ids[0]] : [],
+      entry: entry ? [entry.id] : [],
    };
 }
 
@@ -480,6 +775,70 @@ function OptionSelect({
    );
 }
 
+/** Field and value pairs, one row each, as an action's input or a transform's output. */
+function KeyValueRows({
+   rows,
+   onChange,
+   name,
+   valuePlaceholder = 'value',
+}: {
+   rows: KeyValueRow[];
+   onChange: (rows: KeyValueRow[]) => void;
+   name: string;
+   valuePlaceholder?: string;
+}) {
+   return (
+      <div className="flex flex-col gap-1.5">
+         {rows.map((row, index) => (
+            <div key={index} className="flex items-center gap-1.5">
+               <Input
+                  value={row.key}
+                  onChange={(event) => {
+                     const next = rows.slice();
+                     next[index] = { ...row, key: event.target.value };
+                     onChange(next);
+                  }}
+                  placeholder="field"
+                  aria-label={`${name} field ${index + 1} name`}
+                  className="h-8 w-40 font-mono"
+               />
+               <Input
+                  value={row.value}
+                  onChange={(event) => {
+                     const next = rows.slice();
+                     next[index] = { ...row, value: event.target.value };
+                     onChange(next);
+                  }}
+                  placeholder={valuePlaceholder}
+                  aria-label={`${name} field ${index + 1} value`}
+                  className="h-8 flex-1"
+               />
+               <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label={`Remove ${name} field`}
+                  onClick={() => onChange(rows.filter((_, position) => position !== index))}
+               >
+                  <Trash2 className="size-3.5" />
+               </Button>
+            </div>
+         ))}
+         <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="w-fit"
+            onClick={() => onChange([...rows, { key: '', value: '' }])}
+         >
+            <Plus className="size-3.5" />
+            Add field
+         </Button>
+      </div>
+   );
+}
+
 function ActionFields({
    step,
    update,
@@ -528,58 +887,11 @@ function ActionFields({
             </p>
          )}
          <Field label="Input" hint="Values may use templates such as {{ trigger.input.text }}.">
-            <div className="flex flex-col gap-1.5">
-               {step.inputRows.map((row, index) => (
-                  <div key={index} className="flex items-center gap-1.5">
-                     <Input
-                        value={row.key}
-                        onChange={(event) => {
-                           const rows = step.inputRows.slice();
-                           rows[index] = { ...row, key: event.target.value };
-                           update({ inputRows: rows });
-                        }}
-                        placeholder="field"
-                        aria-label={`Input field ${index + 1} name`}
-                        className="h-8 w-40 font-mono"
-                     />
-                     <Input
-                        value={row.value}
-                        onChange={(event) => {
-                           const rows = step.inputRows.slice();
-                           rows[index] = { ...row, value: event.target.value };
-                           update({ inputRows: rows });
-                        }}
-                        placeholder="value"
-                        aria-label={`Input field ${index + 1} value`}
-                        className="h-8 flex-1"
-                     />
-                     <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="size-8 shrink-0"
-                        aria-label="Remove input field"
-                        onClick={() =>
-                           update({
-                              inputRows: step.inputRows.filter((_, position) => position !== index),
-                           })
-                        }
-                     >
-                        <Trash2 className="size-3.5" />
-                     </Button>
-                  </div>
-               ))}
-               <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="w-fit"
-                  onClick={() => update({ inputRows: [...step.inputRows, { key: '', value: '' }] })}
-               >
-                  <Plus className="size-3.5" />
-                  Add field
-               </Button>
-            </div>
+            <KeyValueRows
+               rows={step.inputRows}
+               onChange={(inputRows) => update({ inputRows })}
+               name="Input"
+            />
          </Field>
       </>
    );
@@ -636,11 +948,334 @@ function ApproverFields({
    );
 }
 
+/** A step later in the dialog's line that a branch may lead to. */
+export interface SiblingStep {
+   key: string;
+   label: string;
+}
+
+const NEXT_STEP = '__next__';
+
+function TargetSelect({
+   value,
+   onChange,
+   siblings,
+   nextLabel,
+   label,
+}: {
+   value: string;
+   onChange: (value: string) => void;
+   siblings: SiblingStep[];
+   nextLabel: string;
+   label: string;
+}) {
+   return (
+      <Select
+         value={value || NEXT_STEP}
+         onValueChange={(next) => onChange(next === NEXT_STEP ? '' : next)}
+      >
+         <SelectTrigger className="h-8 w-full" aria-label={label}>
+            <SelectValue />
+         </SelectTrigger>
+         <SelectContent>
+            <SelectItem value={NEXT_STEP}>{nextLabel}</SelectItem>
+            {siblings.map((sibling) => (
+               <SelectItem key={sibling.key} value={sibling.key}>
+                  {sibling.label}
+               </SelectItem>
+            ))}
+         </SelectContent>
+      </Select>
+   );
+}
+
+function SwitchFields({
+   step,
+   update,
+   siblings,
+}: {
+   step: StepDraft;
+   update: (patch: Partial<StepDraft>) => void;
+   siblings?: SiblingStep[];
+}) {
+   const setCase = (index: number, patch: Partial<SwitchCaseDraft>) => {
+      const cases = step.cases.slice();
+      cases[index] = { ...cases[index], ...patch };
+      update({ cases });
+   };
+   return (
+      <>
+         <Field
+            label="Branch on"
+            hint="A reference such as trigger.issue.priority, or a template such as {{ trigger.input.kind }}-{{ trigger.input.size }}"
+         >
+            <Input
+               value={step.switchValue}
+               onChange={(event) => update({ switchValue: event.target.value })}
+               className="h-8 font-mono"
+            />
+         </Field>
+         <Field label="Cases" hint="The first case whose value matches wins; the rest are skipped.">
+            <div className="flex flex-col gap-1.5">
+               {step.cases.map((entry, index) => (
+                  <div key={index} className="flex items-center gap-1.5">
+                     <span className="w-8 shrink-0 text-muted-foreground">is</span>
+                     <Input
+                        value={entry.equals}
+                        onChange={(event) => setCase(index, { equals: event.target.value })}
+                        placeholder="urgent"
+                        aria-label={`Case ${index + 1} value`}
+                        className="h-8 flex-1"
+                     />
+                     {siblings ? (
+                        <div className="w-52 shrink-0">
+                           <TargetSelect
+                              value={entry.targetKey}
+                              onChange={(targetKey) => setCase(index, { targetKey })}
+                              siblings={siblings}
+                              nextLabel="then nothing more"
+                              label={`Case ${index + 1} leads to`}
+                           />
+                        </div>
+                     ) : (
+                        <span className="shrink-0 text-muted-foreground">
+                           → {entry.steps.length > 0 ? entry.steps.join(', ') : 'not connected'}
+                        </span>
+                     )}
+                     <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0"
+                        aria-label={`Remove case ${index + 1}`}
+                        disabled={step.cases.length === 1}
+                        onClick={() =>
+                           update({ cases: step.cases.filter((_, position) => position !== index) })
+                        }
+                     >
+                        <Trash2 className="size-3.5" />
+                     </Button>
+                  </div>
+               ))}
+               <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="w-fit"
+                  onClick={() =>
+                     update({ cases: [...step.cases, { equals: '', steps: [], targetKey: '' }] })
+                  }
+               >
+                  <Plus className="size-3.5" />
+                  Add case
+               </Button>
+            </div>
+         </Field>
+         {siblings ? (
+            <Field label="Otherwise" hint="Where the run goes when no case matches.">
+               <TargetSelect
+                  value={step.defaultTargetKey}
+                  onChange={(defaultTargetKey) => update({ defaultTargetKey })}
+                  siblings={siblings}
+                  nextLabel="the next step"
+                  label="Default leads to"
+               />
+            </Field>
+         ) : (
+            <p className="text-muted-foreground">
+               Drag from each case’s handle, and from “default”, to the step it leads to.
+               {step.defaultSteps.length > 0 && ` Default → ${step.defaultSteps.join(', ')}.`}
+            </p>
+         )}
+      </>
+   );
+}
+
+function ForeachFields({
+   step,
+   update,
+   siblings,
+}: {
+   step: StepDraft;
+   update: (patch: Partial<StepDraft>) => void;
+   siblings?: SiblingStep[];
+}) {
+   return (
+      <>
+         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_8rem]">
+            <Field
+               label="Repeat over"
+               hint="A reference to an array: trigger.input.items, steps.fetch.output.rows"
+            >
+               <Input
+                  value={step.items}
+                  onChange={(event) => update({ items: event.target.value })}
+                  placeholder="trigger.input.items"
+                  className="h-8 font-mono"
+               />
+            </Field>
+            <Field
+               label="Max items"
+               hint={`1–${FOREACH_MAX_ITEMS}; more than this fails the loop.`}
+            >
+               <Input
+                  value={step.maxItems}
+                  onChange={(event) => update({ maxItems: event.target.value })}
+                  placeholder={String(FOREACH_DEFAULT_ITEMS)}
+                  inputMode="numeric"
+                  className="h-8 font-mono"
+               />
+            </Field>
+         </div>
+         {siblings ? (
+            <Field
+               label="Repeat these steps"
+               hint="Inside them, item is the current element and steps.<id>.output that item’s results."
+            >
+               {siblings.length === 0 ? (
+                  <p className="text-muted-foreground">Add a step after this one to repeat it.</p>
+               ) : (
+                  <ul className="flex flex-col gap-1">
+                     {siblings.map((sibling) => {
+                        const on = step.bodyKeys.includes(sibling.key);
+                        return (
+                           <li key={sibling.key}>
+                              <label className="flex items-center gap-2">
+                                 <Checkbox
+                                    checked={on}
+                                    onCheckedChange={(checked) =>
+                                       update({
+                                          bodyKeys:
+                                             checked === true
+                                                ? [...step.bodyKeys, sibling.key]
+                                                : step.bodyKeys.filter(
+                                                     (key) => key !== sibling.key
+                                                  ),
+                                       })
+                                    }
+                                 />
+                                 <span>{sibling.label}</span>
+                              </label>
+                           </li>
+                        );
+                     })}
+                  </ul>
+               )}
+            </Field>
+         ) : (
+            <p className="text-muted-foreground">
+               Drag from the “each” handle to every step the loop repeats; “then” leads on once the
+               loop is done. Inside the body, <code className="font-mono">item</code> is the current
+               element.
+               {step.bodySteps.length > 0 && ` Body: ${step.bodySteps.join(', ')}.`}
+            </p>
+         )}
+      </>
+   );
+}
+
+function TransformFields({
+   step,
+   update,
+}: {
+   step: StepDraft;
+   update: (patch: Partial<StepDraft>) => void;
+}) {
+   return (
+      <Field
+         label="Output"
+         hint="Each value is a reference such as {{ trigger.input.total }} or a template such as {{ item.name }} ({{ item.id }}); later steps read steps.<id>.output.<field>."
+      >
+         <KeyValueRows
+            rows={step.outputRows}
+            onChange={(outputRows) => update({ outputRows })}
+            name="Output"
+            valuePlaceholder="{{ item }}"
+         />
+      </Field>
+   );
+}
+
+function WorkflowSelect({
+   value,
+   onChange,
+   excludeWorkflowId,
+}: {
+   value: string;
+   onChange: (value: string) => void;
+   excludeWorkflowId?: string;
+}) {
+   const workflows = useWorkflowsStore((state) => state.workflows);
+   const loaded = useWorkflowsStore((state) => state.loaded);
+   const callable = workflows.filter(
+      (workflow) => workflow.status === 'active' && workflow.id !== excludeWorkflowId
+   );
+   const chosen = workflows.find((workflow) => workflow.id === value);
+   const options = callable.map((workflow) => ({ value: workflow.id, label: workflow.name }));
+   if (value && !callable.some((workflow) => workflow.id === value)) {
+      options.unshift({
+         value,
+         label: chosen ? `${chosen.name} · ${chosen.status}` : `${value.slice(0, 8)}… · unknown`,
+      });
+   }
+   return (
+      <OptionSelect
+         value={value}
+         onChange={onChange}
+         options={options}
+         placeholder={
+            loaded
+               ? callable.length > 0
+                  ? 'Pick an active workflow'
+                  : 'No other workflow is active'
+               : 'Loading workflows…'
+         }
+      />
+   );
+}
+
+function SubworkflowFields({
+   step,
+   update,
+   currentWorkflowId,
+}: {
+   step: StepDraft;
+   update: (patch: Partial<StepDraft>) => void;
+   currentWorkflowId?: string;
+}) {
+   return (
+      <>
+         <Field
+            label="Workflow"
+            hint="Only an active workflow can be called, three levels deep at most; a paused or draft target blocks activation."
+         >
+            <WorkflowSelect
+               value={step.workflowId}
+               onChange={(workflowId) => update({ workflowId })}
+               excludeWorkflowId={currentWorkflowId}
+            />
+         </Field>
+         <Field
+            label="Input"
+            hint="Becomes trigger.input in the child run; this step’s output carries the child’s step outputs."
+         >
+            <KeyValueRows
+               rows={step.inputRows}
+               onChange={(inputRows) => update({ inputRows })}
+               name="Input"
+            />
+         </Field>
+      </>
+   );
+}
+
 interface StepEditorProps {
    step: StepDraft;
    index: number;
    count: number;
    errors: FieldError[];
+   /** The steps after this one, for a branch to lead to. */
+   siblings: SiblingStep[];
    onChange: (patch: Partial<StepDraft>) => void;
    onRemove: () => void;
    onMove: (direction: -1 | 1) => void;
@@ -652,6 +1287,7 @@ export function StepEditor({
    index,
    count,
    errors,
+   siblings,
    onChange,
    onRemove,
    onMove,
@@ -707,7 +1343,7 @@ export function StepEditor({
          </div>
 
          <div className="mt-3 flex flex-col gap-3 pl-7">
-            <StepFields step={step} onChange={onChange} errors={errors} />
+            <StepFields step={step} onChange={onChange} errors={errors} siblings={siblings} />
          </div>
       </li>
    );
@@ -717,6 +1353,13 @@ interface StepFieldsProps {
    step: StepDraft;
    errors: FieldError[];
    onChange: (patch: Partial<StepDraft>) => void;
+   /**
+    * The steps a branch may lead to, in the dialog's line. Absent on the
+    * canvas, where branches are edges and the form only says so.
+    */
+   siblings?: SiblingStep[];
+   /** The workflow being edited, which a subworkflow step must not call. */
+   currentWorkflowId?: string;
 }
 
 /**
@@ -724,7 +1367,13 @@ interface StepFieldsProps {
  * underneath. Shared by the create dialog's list and the canvas panel, so
  * a step reads the same whichever way it was reached.
  */
-export function StepFields({ step, errors, onChange }: StepFieldsProps) {
+export function StepFields({
+   step,
+   errors,
+   onChange,
+   siblings,
+   currentWorkflowId,
+}: StepFieldsProps) {
    return (
       <>
          {step.type === 'create_issue' && (
@@ -883,6 +1532,16 @@ export function StepFields({ step, errors, onChange }: StepFieldsProps) {
             </div>
          )}
 
+         {step.type === 'switch' && (
+            <SwitchFields step={step} update={onChange} siblings={siblings} />
+         )}
+
+         {step.type === 'foreach' && (
+            <ForeachFields step={step} update={onChange} siblings={siblings} />
+         )}
+
+         {step.type === 'transform' && <TransformFields step={step} update={onChange} />}
+
          {step.type === 'wait' && (
             <div className="grid gap-3 sm:grid-cols-2">
                <Field label="Wait for">
@@ -967,6 +1626,14 @@ export function StepFields({ step, errors, onChange }: StepFieldsProps) {
          )}
 
          {step.type === 'action' && <ActionFields step={step} update={onChange} />}
+
+         {step.type === 'subworkflow' && (
+            <SubworkflowFields
+               step={step}
+               update={onChange}
+               currentWorkflowId={currentWorkflowId}
+            />
+         )}
 
          {errors.length > 0 && (
             <ul className="flex flex-col gap-1" role="alert">

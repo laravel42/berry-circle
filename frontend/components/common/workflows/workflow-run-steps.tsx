@@ -3,22 +3,29 @@
 import { Pill } from '@/components/common/plans/plan-sections';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import {
+   childRunOf,
    describeRunEvent,
    describeStepType,
    describeWorkflowRunDuration,
    isTerminalWorkflowRunEvent,
+   shortRunId,
+   splitStepRunId,
    streamWorkflowRunEvents,
    type WorkflowRun,
    type WorkflowStepRun,
 } from '@/lib/workflow-runs';
+import { stringList } from '@/lib/workflow-definition';
 import type { EventEnvelope } from '@/lib/events';
 import { BerryApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useIssuesStore } from '@/store/issues-store';
+import { useWorkflowsStore } from '@/store/workflows-store';
 import { format, parseISO } from 'date-fns';
+import { Repeat } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { GROUP_TONE, nodeKind } from './canvas/nodes/node-kinds';
 import { StepRunStatusMark } from './workflow-status-badge';
 
 function timeText(iso: string | null | undefined): string {
@@ -53,21 +60,35 @@ function Payload({ label, value }: { label: string; value: unknown }) {
    );
 }
 
+function payloadNumber(value: unknown, key: string): number | null {
+   if (typeof value !== 'object' || value === null) return null;
+   const found = (value as Record<string, unknown>)[key];
+   return typeof found === 'number' ? found : null;
+}
+
 function StepRow({
    step,
    orgId,
-   workflowId,
+   iteration = false,
 }: {
    step: WorkflowStepRun;
    orgId: string;
-   workflowId: string;
+   /** One pass of a loop body: the index is the row's name. */
+   iteration?: boolean;
 }) {
    const issue = useIssuesStore((state) =>
       step.issueId ? state.issues.find((candidate) => candidate.id === step.issueId) : undefined
    );
+   const child = childRunOf(step);
+   const childWorkflow = useWorkflowsStore((state) =>
+      child ? state.workflows.find((candidate) => candidate.id === child.workflowId) : undefined
+   );
    const duration = describeWorkflowRunDuration(step);
    const hasDetail =
       pretty(step.input) !== null || pretty(step.output) !== null || step.failure !== null;
+   const { base, index } = splitStepRunId(step.stepId);
+   const kind = nodeKind(step.stepType);
+   const Icon = kind.icon;
    const links: { href: string; label: string }[] = [];
    if (step.issueId) {
       links.push({
@@ -75,13 +96,18 @@ function StepRow({
          label: issue ? `${issue.identifier} ${issue.title}` : 'task',
       });
    }
-   if (step.runId) {
+   if (child) {
+      links.push({
+         href: `/${orgId}/workflow/${child.workflowId}/run/${child.runId}`,
+         label: `child run ${shortRunId(child.runId)}${childWorkflow ? ` · ${childWorkflow.name}` : ''}`,
+      });
+   } else if (step.runId) {
       links.push({ href: `/${orgId}/runs?run=${step.runId}`, label: 'agent run' });
    }
    if (step.approvalId) {
       links.push({ href: `/${orgId}/approvals?approval=${step.approvalId}`, label: 'approval' });
    }
-   void workflowId;
+   const count = step.stepType === 'foreach' ? payloadNumber(step.output, 'count') : null;
 
    return (
       <li className="border-b border-border/60 last:border-b-0">
@@ -95,9 +121,27 @@ function StepRow({
                <StepRunStatusMark status={step.status} className="mt-1" />
                <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                     <span className="font-medium">{describeStepType(step.stepType)}</span>
-                     <span className="text-muted-foreground">{step.stepId}</span>
+                     {iteration ? (
+                        <span className="font-mono">
+                           {base}
+                           <span className="text-muted-foreground">[{index}]</span>
+                        </span>
+                     ) : (
+                        <>
+                           <Icon
+                              className={cn('size-3.5 shrink-0', GROUP_TONE[kind.group])}
+                              aria-hidden
+                           />
+                           <span className="font-medium">{describeStepType(step.stepType)}</span>
+                           <span className="text-muted-foreground">{step.stepId}</span>
+                        </>
+                     )}
                      {step.attempt > 1 && <Pill>attempt {step.attempt}</Pill>}
+                     {count !== null && (
+                        <Pill>
+                           {count} item{count === 1 ? '' : 's'}
+                        </Pill>
+                     )}
                      {step.status === 'skipped' && <Pill>skipped</Pill>}
                      {step.status === 'waiting' && <Pill tone="attention">waiting</Pill>}
                   </div>
@@ -137,10 +181,91 @@ function StepRow({
    );
 }
 
+type StepGroup =
+   | { kind: 'step'; step: WorkflowStepRun }
+   | { kind: 'loop'; base: string; stepType: string; iterations: WorkflowStepRun[] };
+
+/**
+ * The rows in the order they ran, with every pass of a loop body (`note[0]`,
+ * `note[1]`, …) gathered under the body step it belongs to. A group sits
+ * where its first pass was recorded, which is right after its loop began.
+ */
+export function groupStepRuns(steps: WorkflowStepRun[]): StepGroup[] {
+   const rows: StepGroup[] = [];
+   const groups = new Map<string, Extract<StepGroup, { kind: 'loop' }>>();
+   for (const step of steps) {
+      const { base, index } = splitStepRunId(step.stepId);
+      if (index === null) {
+         rows.push({ kind: 'step', step });
+         continue;
+      }
+      let group = groups.get(base);
+      if (!group) {
+         group = { kind: 'loop', base, stepType: step.stepType, iterations: [] };
+         groups.set(base, group);
+         rows.push(group);
+      }
+      group.iterations.push(step);
+   }
+   return rows;
+}
+
+/** The passes of one loop body, with the loop they belong to when the definition says. */
+function LoopBodyRows({
+   group,
+   orgId,
+   loopId,
+}: {
+   group: Extract<StepGroup, { kind: 'loop' }>;
+   orgId: string;
+   loopId: string | null;
+}) {
+   const kind = nodeKind(group.stepType);
+   const Icon = kind.icon;
+   const failed = group.iterations.filter((step) => step.status === 'failed').length;
+   const done = group.iterations.filter((step) => step.status === 'succeeded').length;
+   const open = group.iterations.length <= 10;
+   return (
+      <li className="border-b border-border/60 last:border-b-0">
+         <details open={open || failed > 0}>
+            <summary className="flex cursor-pointer list-none items-start gap-3 px-1 py-2.5 hover:bg-accent/40">
+               <Repeat className="mt-1 size-3.5 shrink-0 text-status-info" aria-hidden />
+               <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                     <Icon
+                        className={cn('size-3.5 shrink-0', GROUP_TONE[kind.group])}
+                        aria-hidden
+                     />
+                     <span className="font-medium">{describeStepType(group.stepType)}</span>
+                     <span className="text-muted-foreground">{group.base}</span>
+                     <Pill>
+                        {group.iterations.length} pass{group.iterations.length === 1 ? '' : 'es'}
+                     </Pill>
+                     {loopId && <span className="text-muted-foreground">in loop {loopId}</span>}
+                     {failed > 0 && <Pill tone="danger">{failed} failed</Pill>}
+                  </div>
+                  <p className="mt-0.5 text-muted-foreground">
+                     {done} of {group.iterations.length} succeeded
+                  </p>
+               </div>
+            </summary>
+            <ol className="ml-4 border-l border-dashed border-border/60 pl-3">
+               {group.iterations.map((step) => (
+                  <StepRow key={step.id} step={step} orgId={orgId} iteration />
+               ))}
+            </ol>
+         </details>
+      </li>
+   );
+}
+
 /** The step attempts of one run, in the order they ran, each openable to its payloads. */
 export function WorkflowRunSteps({ run }: { run: WorkflowRun }) {
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId || WORKSPACE_SLUG;
+   const workflow = useWorkflowsStore((state) =>
+      state.workflows.find((candidate) => candidate.id === run.workflowId)
+   );
    const steps = run.steps ?? [];
    if (steps.length === 0) {
       return (
@@ -149,11 +274,26 @@ export function WorkflowRunSteps({ run }: { run: WorkflowRun }) {
          </p>
       );
    }
+   const loopOf = (bodyId: string): string | null => {
+      const loop = workflow?.definitionSource.steps.find(
+         (step) => step.type === 'foreach' && stringList(step.steps).includes(bodyId)
+      );
+      return loop?.id ?? null;
+   };
    return (
       <ol className="rounded-md border border-border/60 bg-background px-2">
-         {steps.map((step) => (
-            <StepRow key={step.id} step={step} orgId={orgId} workflowId={run.workflowId} />
-         ))}
+         {groupStepRuns(steps).map((row) =>
+            row.kind === 'step' ? (
+               <StepRow key={row.step.id} step={row.step} orgId={orgId} />
+            ) : (
+               <LoopBodyRows
+                  key={`loop:${row.base}`}
+                  group={row}
+                  orgId={orgId}
+                  loopId={loopOf(row.base)}
+               />
+            )
+         )}
       </ol>
    );
 }

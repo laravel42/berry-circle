@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useProvidersStore } from '@/store/providers-store';
 import { useSessionStore } from '@/store/session-store';
+import { useWorkflowsStore } from '@/store/workflows-store';
 import {
    Background,
    BackgroundVariant,
@@ -41,15 +42,16 @@ import { LayoutGrid, Pause, Plus } from 'lucide-react';
 import { useCallback, useEffect, useMemo } from 'react';
 import { useWorkflowActions } from '../use-workflow-actions';
 import { GROUP_LABEL, GROUP_TONE, NODE_KINDS, type NodeGroup } from './nodes/node-kinds';
+import { LoopNode } from './nodes/loop-node';
 import { StepNode } from './nodes/step-node';
 import { TriggerNode } from './nodes/trigger-node';
 import { FindingList, StepPanel } from './step-panel';
-import { toFlow, type CanvasEdge, type CanvasNode } from './to-flow';
+import { isLoopNodeId, toFlow, type CanvasEdge, type CanvasNode } from './to-flow';
 import { TriggerPanel } from './trigger-panel';
 import { useCanvasEditor, type CanvasEditor } from './use-canvas-editor';
 import type { StepKind } from '../create-workflow-steps';
 
-const nodeTypes: NodeTypes = { trigger: TriggerNode, step: StepNode };
+const nodeTypes: NodeTypes = { trigger: TriggerNode, step: StepNode, loop: LoopNode };
 
 const PALETTE: NodeGroup[] = ['work', 'logic', 'actions'];
 
@@ -257,6 +259,11 @@ function Editor({ workflow }: { workflow: Workflow }) {
    const editor = useCanvasEditor(workflow);
    const agents = useAgentsStore((state) => state.agents);
    const providers = useProvidersStore((state) => state.providers);
+   const allWorkflows = useWorkflowsStore((state) => state.workflows);
+   const workflowNames = useMemo(
+      () => allWorkflows.map((entry) => ({ id: entry.id, name: entry.name })),
+      [allWorkflows]
+   );
    const { fitView } = useReactFlow();
 
    const { nodes, edges } = useMemo(
@@ -266,6 +273,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
             findings: editor.findings,
             agents,
             providers,
+            workflows: workflowNames,
             selectedNodeId: editor.selectedNodeId,
             selectedEdgeId: editor.selectedEdgeId,
          }),
@@ -278,6 +286,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
          editor.selectedEdgeId,
          agents,
          providers,
+         workflowNames,
       ]
    );
 
@@ -307,6 +316,8 @@ function Editor({ workflow }: { workflow: Workflow }) {
          // deselect of the old node must not undo the select of the new one.
          let selected: string | null | undefined;
          for (const change of changes) {
+            // A loop's frame is drawn from its body's positions, never moved or picked itself.
+            if ('id' in change && isLoopNodeId(change.id)) continue;
             if (change.type === 'position' && change.position) {
                editor.moveNode(change.id, change.position, change.dragging === false);
             } else if (change.type === 'select') {
@@ -410,6 +421,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
             {editor.selectedNodeId === TRIGGER_NODE_ID ? (
                <TriggerPanel
                   key={`trigger-${editor.resetKey}`}
+                  workflowId={workflow.id}
                   trigger={editor.working.trigger}
                   findings={editor.findings.get(null) ?? []}
                   editable={editor.editable}
@@ -418,6 +430,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
             ) : selectedStep ? (
                <StepPanel
                   key={`${selectedStep.id}-${editor.resetKey}`}
+                  workflowId={workflow.id}
                   step={selectedStep}
                   definition={editor.working}
                   findings={editor.findings.get(selectedStep.id) ?? []}

@@ -5,15 +5,19 @@ import { useWorkflowRun } from '@/hooks/use-workflow-run';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import {
    cancelWorkflowRun,
+   childRunOf,
+   describeRunTrigger,
    describeTriggerType,
    describeWaitingOn,
    describeWorkflowRunDuration,
    describeWorkflowRunFailure,
    isTerminalWorkflowRunStatus,
+   runParent,
    shortRunId,
    waitingOnHref,
    type WorkflowRun,
 } from '@/lib/workflow-runs';
+import { useProvidersStore } from '@/store/providers-store';
 import { cn } from '@/lib/utils';
 import { useWorkflowRunsStore } from '@/store/workflow-runs-store';
 import { useWorkflowsStore } from '@/store/workflows-store';
@@ -91,6 +95,11 @@ export function WorkflowRunDetail({ runId, compact = false, className }: Workflo
    const workflow = useWorkflowsStore((state) =>
       run ? state.workflows.find((candidate) => candidate.id === run.workflowId) : undefined
    );
+   const parent = run ? runParent(run) : null;
+   const parentWorkflow = useWorkflowsStore((state) =>
+      parent ? state.workflows.find((candidate) => candidate.id === parent.workflowId) : undefined
+   );
+   const providers = useProvidersStore((state) => state.providers);
 
    if (!run) {
       return (
@@ -104,12 +113,34 @@ export function WorkflowRunDetail({ runId, compact = false, className }: Workflo
    }
 
    const duration = describeWorkflowRunDuration(run);
-   const waiting = describeWaitingOn(run.waitingOn);
-   const waitingHref = waitingOnHref(run.waitingOn, orgId);
+   // A subworkflow step waits on its child's run, which has a page of its own.
+   const currentStep = run.steps?.find((step) => step.stepId === run.currentStepId);
+   const waitingChild =
+      run.waitingOn?.startsWith('run:') && currentStep ? childRunOf(currentStep) : null;
+   const waiting = waitingChild
+      ? 'waiting for a child workflow run'
+      : describeWaitingOn(run.waitingOn);
+   const waitingHref = waitingChild
+      ? `/${orgId}/workflow/${waitingChild.workflowId}/run/${waitingChild.runId}`
+      : waitingOnHref(run.waitingOn, orgId);
    const tokens = run.usage.inputTokens + run.usage.outputTokens;
+   const triggerSummary = describeRunTrigger(run, {
+      providerName: (id) => providers.find((provider) => provider.id === id)?.name,
+      event: workflow?.trigger.event,
+   });
    const facts: { label: string; value: ReactNode }[] = [
       { label: 'Status', value: <WorkflowRunStatusBadge status={run.status} /> },
-      { label: 'Trigger', value: describeTriggerType(run.triggerType) },
+      {
+         label: 'Trigger',
+         value: (
+            <span title={triggerSummary.detail ?? undefined}>
+               {triggerSummary.kind}
+               {triggerSummary.detail && (
+                  <span className="text-muted-foreground"> · {triggerSummary.detail}</span>
+               )}
+            </span>
+         ),
+      },
       { label: 'Version', value: `v${run.workflowVersion}` },
       { label: 'Created', value: whenText(run.createdAt) },
       { label: 'Started', value: whenText(run.startedAt) },
@@ -118,6 +149,22 @@ export function WorkflowRunDetail({ runId, compact = false, className }: Workflo
    ];
    if (run.currentStepId && !isTerminalWorkflowRunStatus(run.status)) {
       facts.push({ label: 'Current step', value: run.currentStepId });
+   }
+   if (parent) {
+      facts.push({
+         label: 'Parent',
+         value: (
+            <Link
+               href={`/${orgId}/workflow/${parent.workflowId}/run/${parent.runId}`}
+               className="underline-offset-2 hover:underline"
+               title={parentWorkflow?.name}
+            >
+               run {shortRunId(parent.runId)}
+               {parent.stepId && ` · step ${parent.stepId}`}
+            </Link>
+         ),
+      });
+      facts.push({ label: 'Depth', value: `${run.depth} of 3` });
    }
    const payload = pretty(run.triggerPayload);
 
@@ -129,7 +176,9 @@ export function WorkflowRunDetail({ runId, compact = false, className }: Workflo
                   {workflow?.name ?? 'Workflow'} · run {shortRunId(run.id)}
                </h1>
                <p className="mt-1 text-muted-foreground">
-                  {describeTriggerType(run.triggerType)}
+                  {parent
+                     ? `Started by ${parentWorkflow?.name ?? 'a workflow'} · step ${parent.stepId ?? '?'}`
+                     : describeTriggerType(run.triggerType)}
                   {duration && ` · ${duration}`}
                </p>
             </div>
