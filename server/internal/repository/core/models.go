@@ -39,6 +39,13 @@ var (
 	ErrForbidden = errors.New("core operation forbidden")
 	// ErrRevisionConflict represents a stale optimistic comment write.
 	ErrRevisionConflict = errors.New("comment revision conflict")
+	// ErrApprovalRequired means a database gate refused to queue the issue:
+	// its plan (010) or its own issue_start approval (020) is not approved.
+	// Both raise restrict_violation, so one classification covers both.
+	ErrApprovalRequired = errors.New("issue is waiting for approval")
+	// ErrDependencyCycle means an issue dependency edge would make an issue
+	// wait on itself, directly or through other issues.
+	ErrDependencyCycle = errors.New("issue dependency cycle")
 )
 
 // BoardColumn is the persisted and public ordered workflow-column shape.

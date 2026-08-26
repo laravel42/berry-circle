@@ -49,6 +49,8 @@ func classifyWrite(operation string, err error) error {
 			return ErrNotFound
 		case "23505", "23P01":
 			return ErrConflict
+		case "23001":
+			return ErrApprovalRequired
 		}
 	}
 	return fmt.Errorf("%s: %w", operation, err)

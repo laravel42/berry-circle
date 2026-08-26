@@ -16,6 +16,9 @@ var (
 	ErrRevisionConflict = errors.New("saved view revision conflict")
 	ErrInvalidOrder     = errors.New("pin order does not match current pins")
 	ErrQueryTimeout     = errors.New("p2 query timed out")
+	// ErrApprovalRequired means the issue-status gate (010 plan approval or
+	// 020 issue_start approval) refused a batch move to todo.
+	ErrApprovalRequired = errors.New("issue is waiting for approval")
 )
 
 type SavedView struct {
