@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -128,5 +129,53 @@ func TestCurrentStageDerivesTheStageInProgress(t *testing.T) {
 	}
 	if got := plans.CurrentStage(plans.PlanHeader{GenerationStatus: plans.GenerationSucceeded}); got != nil {
 		t.Fatalf("finished plan stage = %v", *got)
+	}
+}
+
+// A brief is bounded before the budget sees it.
+//
+// fitBudget discards the repository, then open issues, then tools — never the
+// project. An unbounded brief would therefore push the context over budget and
+// be answered by deleting everything except the cause.
+func TestALongProjectBriefIsCutRatherThanStarvingTheRestOfTheContext(t *testing.T) {
+	t.Parallel()
+	brief := strings.Repeat("The application must be secure and fast. ", 900)
+	if len(brief) <= MaxProjectBriefBytes {
+		t.Fatalf("fixture brief is %d bytes; make it longer than the cap", len(brief))
+	}
+	bounded, cut := boundBrief(brief)
+	if !cut {
+		t.Fatal("a brief past the cap reported no truncation")
+	}
+	if len(bounded) > MaxProjectBriefBytes+120 {
+		t.Errorf("bounded brief is %d bytes, want about %d", len(bounded), MaxProjectBriefBytes)
+	}
+	if !strings.Contains(bounded, "truncated") {
+		t.Error("a cut brief must say it was cut; a brief that just stops reads as a complete one")
+	}
+}
+
+// Cutting mid-rune would hand the model invalid UTF-8.
+func TestBoundBriefCutsOnARuneBoundary(t *testing.T) {
+	t.Parallel()
+	bounded, cut := boundBrief(strings.Repeat("è", MaxProjectBriefBytes))
+	if !cut {
+		t.Fatal("want truncation")
+	}
+	if !utf8.ValidString(bounded) {
+		t.Error("bounded brief is not valid UTF-8")
+	}
+}
+
+// A brief inside the cap is passed through untouched, punctuation and all.
+func TestAShortBriefIsLeftAlone(t *testing.T) {
+	t.Parallel()
+	brief := "Build a password generator.\n\nIt must work offline."
+	bounded, cut := boundBrief("  " + brief + "  ")
+	if cut {
+		t.Error("a short brief was reported as truncated")
+	}
+	if bounded != brief {
+		t.Errorf("bounded = %q, want %q", bounded, brief)
 	}
 }

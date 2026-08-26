@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -28,6 +29,15 @@ const (
 	RepositoryTreeBytes = 8 * 1024
 	RepositoryFileBytes = 24 * 1024
 	RepositoryMaxFiles  = 6
+	// MaxProjectBriefBytes bounds the project description the planner reads.
+	//
+	// The column allows 20 KB, which is larger than the whole context budget
+	// on a small workspace. Unbounded it would push the budget over on its own
+	// and fitBudget would answer by discarding the repository, the open issues
+	// and the tool list — everything except the thing that caused it. A brief
+	// long enough to hit this cap has said what the plan is about several
+	// times over.
+	MaxProjectBriefBytes = 6 * 1024
 )
 
 // WorkspaceData is what the workspace source answers.
@@ -289,11 +299,18 @@ func BuildContext(ctx context.Context, sources Sources, input BuildInput) (Conte
 	if rendered.Workspace.ID == uuid.Nil {
 		rendered.Workspace.ID = input.WorkspaceID
 	}
-	var project *ProjectData
+	var (
+		project    *ProjectData
+		earlyTrims []string
+	)
 	if input.ProjectID != nil && sources.Project != nil {
 		if data, err := sources.Project.Project(ctx, input.WorkspaceID, *input.ProjectID); err == nil {
 			project = &data
-			rendered.Project = &ProjectSummary{ID: data.ID, Name: data.Name, Description: data.Description, Repository: data.Repository}
+			brief, cut := boundBrief(data.Description)
+			if cut {
+				earlyTrims = append(earlyTrims, "projectBrief")
+			}
+			rendered.Project = &ProjectSummary{ID: data.ID, Name: data.Name, Description: brief, Repository: data.Repository}
 			out.Workspace.HasProject = true
 			out.Workspace.HasRepository = data.Repository != ""
 		}
@@ -375,7 +392,7 @@ func BuildContext(ctx context.Context, sources Sources, input BuildInput) (Conte
 	sort.Slice(rendered.Connections, func(i, j int) bool { return rendered.Connections[i].Provider < rendered.Connections[j].Provider })
 
 	rendered, trimmed, size := fitBudget(rendered, input.BudgetBytes)
-	out.Detail.Trimmed = trimmed
+	out.Detail.Trimmed = append(earlyTrims, trimmed...)
 	out.Detail.Bytes = size
 	out.Rendered = rendered
 	out.Detail.IssueIDs = nonNilIDs(idsOf(rendered.ExistingIssues))
@@ -384,6 +401,26 @@ func BuildContext(ctx context.Context, sources Sources, input BuildInput) (Conte
 	out.Detail.ToolNames = nonNil(namesOf(rendered.Tools))
 	out.Detail.ExampleIDs = []string{}
 	return out, nil
+}
+
+// boundBrief caps the project description, cutting on a rune boundary and
+// saying so in the text rather than stopping mid-sentence: a model handed a
+// brief that ends abruptly will infer the requirements simply stop there.
+func boundBrief(description string) (string, bool) {
+	description = strings.TrimSpace(description)
+	if len(description) <= MaxProjectBriefBytes {
+		return description, false
+	}
+	cut := description[:MaxProjectBriefBytes]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	// Back up to the last paragraph break so the brief ends where its author
+	// ended a thought, when one is close enough to the cap to be worth it.
+	if boundary := strings.LastIndex(cut, "\n\n"); boundary > MaxProjectBriefBytes/2 {
+		cut = cut[:boundary]
+	}
+	return strings.TrimSpace(cut) + "\n\n[Brief truncated: it continues beyond what the planner reads.]", true
 }
 
 // fitBudget trims Repository, then ExistingIssues, then Tools — in that
