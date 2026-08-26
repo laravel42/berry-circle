@@ -856,8 +856,9 @@ export function describeApprover(approver: {
 
 /**
  * Steps in a sensible reading order: entry steps first, then whatever they
- * branch or depend into, then anything left in declaration order. A step is
- * listed once, however many paths reach it.
+ * branch into or that waits on them, then anything left in declaration
+ * order. A step is listed once, however many paths reach it — the same
+ * left-to-right reading the canvas lays out.
  */
 export function orderPlanSteps(workflow: { steps: PlanStep[]; entry: string[] }): PlanStep[] {
    const byId = new Map(workflow.steps.map((step) => [step.id, step]));
@@ -869,6 +870,9 @@ export function orderPlanSteps(workflow: { steps: PlanStep[]; entry: string[] })
       seen.add(id);
       ordered.push(step);
       for (const next of successors(step)) visit(next);
+      for (const dependent of workflow.steps) {
+         if (dependent.dependsOn.includes(id)) visit(dependent.id);
+      }
    };
    for (const id of workflow.entry) visit(id);
    for (const step of workflow.steps) {

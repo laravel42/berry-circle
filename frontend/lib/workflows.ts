@@ -37,7 +37,7 @@ export const workflowDefinitionSchema = z.object({
    entry: z.array(z.string()).default([]),
 });
 
-export const workflowSchema = z.object({
+const workflowRecordSchema = z.object({
    id: z.string(),
    workspaceId: z.string(),
    projectId: z.string().nullish(),
@@ -47,7 +47,7 @@ export const workflowSchema = z.object({
    status: workflowStatusSchema,
    version: z.number(),
    revision: z.number(),
-   definition: workflowDefinitionSchema,
+   definition: z.unknown(),
    layout: z.record(z.unknown()).default({}),
    trigger: z.object({
       type: workflowTriggerTypeSchema,
@@ -78,7 +78,7 @@ export const workflowSchema = z.object({
       .default({ total: 0, succeeded: 0, failed: 0 }),
 });
 
-const workflowConnectionSchema = connectionSchema(workflowSchema);
+const workflowConnectionSchema = connectionSchema(workflowRecordSchema);
 
 export const workflowVersionSchema = z.object({
    id: z.string(),
@@ -92,7 +92,18 @@ export type WorkflowStatus = z.infer<typeof workflowStatusSchema>;
 export type WorkflowTriggerType = z.infer<typeof workflowTriggerTypeSchema>;
 export type WorkflowRisk = z.infer<typeof workflowRiskSchema>;
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
-export type Workflow = z.infer<typeof workflowSchema>;
+/**
+ * A workflow as read: `definition` is the typed view every list and summary
+ * renders; `definitionSource` is the same definition exactly as stored, for
+ * the canvas to edit and send back. The typed view normalises a step it
+ * cannot place (a known type missing a required field, or a type this build
+ * does not know) into an `unknown` row, which is right for reading and wrong
+ * for writing — a draft with a validation error must round-trip untouched.
+ */
+export type Workflow = Omit<z.infer<typeof workflowRecordSchema>, 'definition'> & {
+   definition: WorkflowDefinition;
+   definitionSource: WorkflowDefinitionInput;
+};
 export type WorkflowVersion = z.infer<typeof workflowVersionSchema>;
 export type WorkflowStep = PlanStep;
 export type WorkflowTrigger = PlanTrigger;
@@ -114,8 +125,25 @@ export type WorkflowStepInput = {
    id: string;
    type: string;
    dependsOn?: string[];
-   onError?: 'fail' | 'skip';
+   onError?: 'fail' | 'skip' | null;
 } & Record<string, unknown>;
+
+const editableStepSchema = z
+   .object({
+      id: z.string(),
+      type: z.string(),
+      dependsOn: z.array(z.string()).optional(),
+      onError: z.enum(['fail', 'skip']).nullish(),
+   })
+   .passthrough();
+
+/** The stored definition with every field kept, whether or not this build knows it. */
+export const editableDefinitionSchema = z.object({
+   version: z.string(),
+   trigger: planTriggerSchema.passthrough(),
+   steps: z.array(editableStepSchema).default([]),
+   entry: z.array(z.string()).default([]),
+});
 
 export interface WorkflowDefinitionInput {
    version: '1';
@@ -158,12 +186,48 @@ export function describeWorkflowEvent(topic: string): string {
 // ---------------------------------------------------------------------------
 // Calls
 
+function toDefinitionInput(
+   source: z.infer<typeof editableDefinitionSchema>
+): WorkflowDefinitionInput {
+   const { config, ...trigger } = source.trigger;
+   const triggerInput: WorkflowTriggerInput = {
+      ...trigger,
+      id: trigger.id,
+      type: trigger.type,
+      provider: trigger.provider ?? undefined,
+      operation: trigger.operation ?? undefined,
+      event: trigger.event ?? undefined,
+   };
+   if (config) {
+      triggerInput.config = {
+         cron: config.cron ?? undefined,
+         timezone: config.timezone ?? undefined,
+         filter: config.filter ?? undefined,
+      };
+   }
+   return {
+      version: '1',
+      trigger: triggerInput,
+      steps: source.steps.map((step) => ({ ...step })),
+      entry: source.entry.slice(),
+   };
+}
+
+/** Both views of a record's definition, or undefined when it is not a definition at all. */
+function fromRecord(record: z.infer<typeof workflowRecordSchema>): Workflow | undefined {
+   const typed = workflowDefinitionSchema.safeParse(record.definition);
+   const source = editableDefinitionSchema.safeParse(record.definition);
+   if (!typed.success || !source.success) return undefined;
+   return { ...record, definition: typed.data, definitionSource: toDefinitionInput(source.data) };
+}
+
 function parseWorkflow(json: unknown): Workflow {
-   const parsed = workflowSchema.safeParse(json);
-   if (!parsed.success) {
+   const parsed = workflowRecordSchema.safeParse(json);
+   const workflow = parsed.success ? fromRecord(parsed.data) : undefined;
+   if (!workflow) {
       throw new Error('Workflow response was not recognized');
    }
-   return parsed.data;
+   return workflow;
 }
 
 export interface WorkflowsQuery {
@@ -195,7 +259,10 @@ export async function listWorkspaceWorkflows(
       if (!parsed.success) {
          throw new Error('Workflow list was not recognized');
       }
-      collected.push(...parsed.data.nodes);
+      for (const node of parsed.data.nodes) {
+         const workflow = fromRecord(node);
+         if (workflow) collected.push(workflow);
+      }
       const { hasNextPage, endCursor } = parsed.data.pageInfo;
       if (!hasNextPage || !endCursor || parsed.data.nodes.length === 0) break;
       if (collected.length >= limit) break;

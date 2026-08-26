@@ -8,7 +8,7 @@ import { WORKFLOW_RUN_STATUS, statusLook } from '@/lib/catalog';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { findTool } from '@/lib/integrations';
 import { describePlanStep, orderPlanSteps, type FieldError } from '@/lib/plans';
-import { describeWorkflowEvent, type Workflow } from '@/lib/workflows';
+import { describeWorkflowEvent, isWorkflowEditable, type Workflow } from '@/lib/workflows';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useGoalsStore } from '@/store/goals-store';
@@ -73,12 +73,22 @@ function Findings({ workflow }: { workflow: Workflow }) {
 
 /** The steps in reading order, with what each reaches outside Berry. */
 function Steps({ workflow }: { workflow: Workflow }) {
+   const params = useParams<{ orgId?: string }>();
+   const orgId = params?.orgId || WORKSPACE_SLUG;
    const agents = useAgentsStore((state) => state.agents);
    const providers = useProvidersStore((state) => state.providers);
    const steps = orderPlanSteps(workflow.definition);
    return (
       <section className="mt-8">
-         <SectionHeading title="Steps" count={steps.length} />
+         <div className="flex items-center justify-between gap-3">
+            <SectionHeading title="Steps" count={steps.length} />
+            <Link
+               href={`/${orgId}/workflow/${workflow.id}/canvas`}
+               className="text-muted-foreground underline-offset-2 hover:underline"
+            >
+               {isWorkflowEditable(workflow) ? 'Edit on canvas' : 'View on canvas'}
+            </Link>
+         </div>
          <ol className="mt-2 rounded-md border border-border/60 bg-background px-4 py-2">
             {steps.map((step, index) => {
                const summary = describePlanStep(step);
@@ -193,7 +203,11 @@ function Properties({ workflow }: { workflow: Workflow }) {
                <span className="text-muted-foreground">Connections</span>
                {missing.length > 0 && (
                   <Button asChild size="xs" variant="secondary">
-                     <Link href={`/${orgId}/settings/integrations`}>Connect</Link>
+                     <Link
+                        href={`/${orgId}/settings/integrations?provider=${encodeURIComponent(missing[0].provider)}`}
+                     >
+                        Connect
+                     </Link>
                   </Button>
                )}
             </div>
@@ -279,8 +293,7 @@ function Properties({ workflow }: { workflow: Workflow }) {
 
 /**
  * A workflow at a glance: what starts it, what it does, and what it needs.
- * The definition is read-only here; the canvas edits it, and until the
- * canvas lands the API is the way to change steps.
+ * The definition is read-only here; the canvas tab edits it.
  */
 export default function WorkflowOverview({ workflowId }: { workflowId: string }) {
    const inDrawer = useInDetailDrawer();

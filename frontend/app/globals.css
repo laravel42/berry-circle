@@ -30,7 +30,7 @@
 :root {
    color-scheme: light;
 
-   --brand-void: #18181B;
+   --brand-void: #18181b;
    --brand-base: #1a1a1d;
    --brand-ember: #1c1811;
    --brand-thicket: #151917;
@@ -531,15 +531,86 @@ input[type='search'] {
    display: inline-flex;
    padding: 1px;
    border-radius: calc(var(--radius-md) + 1px);
-   background: linear-gradient(
-      90deg,
-      #f472b6,
-      #a78bfa,
-      #60a5fa,
-      #34d399,
-      #fbbf24,
-      #f472b6
-   );
+   background: linear-gradient(90deg, #f472b6, #a78bfa, #60a5fa, #34d399, #fbbf24, #f472b6);
    background-size: 300% 100%;
    animation: ai-border-flow 4s linear infinite;
+}
+
+/*
+ * Workflow canvas. React Flow paints from its own custom properties; each is
+ * pointed at a Berry token here so the graph follows the theme like any
+ * other surface and the component file never carries a colour of its own.
+ * Nodes are Berry components already; this covers the pane, edges, handles
+ * and controls the library draws itself.
+ */
+.berry-canvas {
+   --xy-background-color: var(--background);
+   --xy-background-pattern-color: color-mix(in oklab, var(--foreground) 14%, transparent);
+   --xy-node-background-color: var(--container);
+   --xy-node-color: var(--foreground);
+   --xy-node-border: 1px solid var(--border);
+   --xy-node-border-radius: var(--radius-md);
+   --xy-edge-stroke: var(--muted-foreground);
+   --xy-edge-stroke-selected: var(--foreground);
+   --xy-edge-stroke-width: 1.5;
+   --xy-edge-label-background-color: var(--container);
+   --xy-edge-label-color: var(--muted-foreground);
+   --xy-connectionline-stroke: var(--ring);
+   --xy-connectionline-stroke-width: 1.5;
+   --xy-handle-background-color: var(--container);
+   --xy-handle-border-color: var(--border);
+   --xy-controls-button-background-color: var(--container);
+   --xy-controls-button-background-color-hover: var(--accent);
+   --xy-controls-button-color: var(--foreground);
+   --xy-controls-button-color-hover: var(--foreground);
+   --xy-controls-button-border-color: var(--border);
+   --xy-controls-box-shadow: none;
+   --xy-attribution-background-color: transparent;
+   --xy-minimap-background-color: var(--container);
+}
+
+.berry-canvas .react-flow__attribution a {
+   color: var(--muted-foreground);
+}
+
+.berry-canvas .react-flow__edge .react-flow__edge-path {
+   stroke: var(--xy-edge-stroke);
+}
+
+.berry-canvas .react-flow__edge.selected .react-flow__edge-path,
+.berry-canvas .react-flow__edge:focus .react-flow__edge-path {
+   stroke: var(--xy-edge-stroke-selected);
+   stroke-width: 2;
+}
+
+/* The arrowhead follows the edge: the marker is drawn by the library and
+   only knows a literal colour, so it reads the same token here. */
+.berry-canvas .react-flow__arrowhead polyline {
+   fill: var(--muted-foreground);
+   stroke: var(--muted-foreground);
+}
+
+.berry-canvas .react-flow__edge.selected .react-flow__arrowhead polyline {
+   fill: var(--foreground);
+   stroke: var(--foreground);
+}
+
+.berry-canvas .react-flow__edge-text {
+   font-family: var(--font-mono);
+}
+
+.berry-canvas .react-flow__controls {
+   border: 1px solid var(--border);
+   border-radius: var(--radius-md);
+   overflow: hidden;
+}
+
+.berry-canvas .react-flow__handle {
+   transition: transform 120ms ease;
+}
+
+.berry-canvas .react-flow__handle.connectionindicator:hover,
+.berry-canvas .react-flow__handle.connectionindicator.valid {
+   transform: translate(-50%, -50%) scale(1.3);
+   border-color: var(--ring) !important;
 }

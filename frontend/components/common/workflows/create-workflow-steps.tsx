@@ -20,6 +20,7 @@ import {
    type WorkflowStepInput,
    type WorkflowTriggerType,
 } from '@/lib/workflows';
+import { stepIdBase } from '@/lib/workflow-definition';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useMembersStore } from '@/store/members-store';
@@ -124,19 +125,14 @@ export function newStepDraft(type: StepKind): StepDraft {
    };
 }
 
-const STEP_ID_BASE: Record<StepKind, string> = {
-   create_issue: 'create_task',
-   update_issue: 'update_task',
-   agent: 'ask_agent',
-   condition: 'check',
-   wait: 'wait',
-   approval: 'approve',
-   action: 'act',
-};
-
 /** Step ids follow the server grammar (`^[a-z][a-z0-9_]{0,63}$`) and read in order. */
 export function stepIdFor(step: StepDraft, index: number): string {
-   return `${STEP_ID_BASE[step.type]}_${index + 1}`;
+   return `${stepIdBase(step.type)}_${index + 1}`;
+}
+
+/** True for a wire step type the editors below have a form for. */
+export function isStepKind(type: string): type is StepKind {
+   return STEP_KINDS.some((kind) => kind.type === type);
 }
 
 const TEMPLATE_REF = /^\{\{\s*([a-z][\w.]*)\s*\}\}$/;
@@ -189,7 +185,8 @@ export function stepDraftProblem(step: StepDraft): string | null {
    }
 }
 
-function toStepInput(step: StepDraft, id: string): WorkflowStepInput {
+/** The wire step a draft describes. Only the type's own fields; links are the caller's. */
+export function toStepInput(step: StepDraft, id: string): WorkflowStepInput {
    switch (step.type) {
       case 'create_issue': {
          const out: WorkflowStepInput = { id, type: 'create_issue', title: step.title.trim() };
@@ -253,6 +250,102 @@ function toStepInput(step: StepDraft, id: string): WorkflowStepInput {
          return { id, type: 'action', provider: step.provider, operation: step.operation, input };
       }
    }
+}
+
+function text(value: unknown): string {
+   return typeof value === 'string' ? value : '';
+}
+
+/** `{ ref }` back to `{{ ref }}`, scalars to their text, anything else to JSON. */
+function refText(value: unknown): string {
+   if (typeof value === 'string') return value;
+   if (value === null || value === undefined) return '';
+   if (typeof value === 'object' && 'ref' in value) {
+      const ref = (value as { ref?: unknown }).ref;
+      return typeof ref === 'string' ? `{{ ${ref} }}` : '';
+   }
+   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+   return JSON.stringify(value);
+}
+
+function record(value: unknown): Record<string, unknown> {
+   return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+}
+
+/**
+ * A draft for an existing step, so the canvas edits a saved step with the
+ * same form the create dialog uses. Null for a type the form does not
+ * cover; the caller shows those read-only.
+ */
+export function draftFromStep(step: WorkflowStepInput): StepDraft | null {
+   if (!isStepKind(step.type)) return null;
+   const draft = newStepDraft(step.type);
+   draft.key = step.id;
+   switch (step.type) {
+      case 'create_issue':
+         draft.title = text(step.title);
+         draft.description = text(step.description);
+         draft.assignAgentId = text(step.assignAgentId);
+         draft.priority = text(step.priority);
+         draft.waitForCompletion = step.waitForCompletion === true;
+         break;
+      case 'update_issue': {
+         const patch = record(step.patch);
+         draft.issueRef = refText(step.issue);
+         draft.patchStatus = text(patch.status);
+         draft.patchPriority = text(patch.priority);
+         draft.patchAssignAgentId = text(patch.assignAgentId);
+         break;
+      }
+      case 'agent':
+         draft.instruction = text(step.instruction);
+         draft.agentId = text(step.agentId);
+         draft.issueMode = step.issueMode === 'issue' ? 'issue' : 'inline';
+         break;
+      case 'condition': {
+         const expression = record(step.expression);
+         const left = expression.left;
+         draft.left = typeof left === 'string' ? left : text(record(left).ref) || refText(left);
+         draft.op = text(expression.op) || 'equals';
+         draft.right = refText(expression.right);
+         break;
+      }
+      case 'wait': {
+         const mode = step.mode;
+         draft.waitMode = mode === 'until' ? 'until' : mode === 'event' ? 'event' : 'duration';
+         draft.duration = text(step.duration) || draft.duration;
+         draft.until = text(step.until);
+         draft.waitEvent = text(record(step.event).event) || draft.waitEvent;
+         break;
+      }
+      case 'approval': {
+         const approver = record(step.approver);
+         draft.approvalTitle = text(step.title);
+         draft.approvalDescription = text(step.description);
+         if (approver.type === 'user') {
+            draft.approverType = 'user';
+            draft.approverUserId = text(approver.userId);
+         } else {
+            draft.approverType = 'role';
+            draft.approverRole = text(approver.role) || 'admin';
+         }
+         draft.timeout = text(step.timeout);
+         break;
+      }
+      case 'action': {
+         draft.provider = text(step.provider);
+         draft.operation = text(step.operation);
+         const rows = Object.entries(record(step.input)).map(([key, value]) => ({
+            key,
+            value: refText(value),
+         }));
+         draft.inputRows = rows.length > 0 ? rows : [{ key: '', value: '' }];
+         break;
+      }
+   }
+   return draft;
 }
 
 /**
@@ -614,263 +707,277 @@ export function StepEditor({
          </div>
 
          <div className="mt-3 flex flex-col gap-3 pl-7">
-            {step.type === 'create_issue' && (
-               <>
-                  <Field
-                     label="Title"
-                     hint="Templates work: Follow up {{ trigger.issue.identifier }}"
-                  >
-                     <Input
-                        value={step.title}
-                        onChange={(event) => onChange({ title: event.target.value })}
-                        placeholder="Task title"
-                        className="h-8"
-                     />
-                  </Field>
-                  <Field label="Description">
-                     <Textarea
-                        value={step.description}
-                        onChange={(event) => onChange({ description: event.target.value })}
-                        placeholder="Optional"
-                        rows={2}
-                        className="min-h-0"
-                     />
-                  </Field>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                     <Field label="Assign to">
-                        <AgentSelect
-                           value={step.assignAgentId}
-                           onChange={(value) => onChange({ assignAgentId: value })}
-                           placeholder="Nobody"
-                        />
-                     </Field>
-                     <Field label="Priority">
-                        <OptionSelect
-                           value={step.priority}
-                           onChange={(value) => onChange({ priority: value })}
-                           options={PRIORITIES}
-                           placeholder="Default"
-                        />
-                     </Field>
-                  </div>
-                  <label className="flex items-center gap-2">
-                     <Checkbox
-                        checked={step.waitForCompletion}
-                        onCheckedChange={(checked) =>
-                           onChange({ waitForCompletion: checked === true })
-                        }
-                     />
-                     <span>Wait for the task to finish before the next step</span>
-                  </label>
-               </>
-            )}
-
-            {step.type === 'update_issue' && (
-               <>
-                  <Field
-                     label="Task"
-                     hint="A task id, identifier or template such as {{ trigger.issue.id }}"
-                  >
-                     <Input
-                        value={step.issueRef}
-                        onChange={(event) => onChange({ issueRef: event.target.value })}
-                        className="h-8 font-mono"
-                     />
-                  </Field>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                     <Field label="Status">
-                        <OptionSelect
-                           value={step.patchStatus}
-                           onChange={(value) => onChange({ patchStatus: value })}
-                           options={STATUSES}
-                           placeholder="Leave as is"
-                        />
-                     </Field>
-                     <Field label="Priority">
-                        <OptionSelect
-                           value={step.patchPriority}
-                           onChange={(value) => onChange({ patchPriority: value })}
-                           options={PRIORITIES}
-                           placeholder="Leave as is"
-                        />
-                     </Field>
-                     <Field label="Assign to">
-                        <AgentSelect
-                           value={step.patchAssignAgentId}
-                           onChange={(value) => onChange({ patchAssignAgentId: value })}
-                           placeholder="Leave as is"
-                        />
-                     </Field>
-                  </div>
-               </>
-            )}
-
-            {step.type === 'agent' && (
-               <>
-                  <Field label="Instruction">
-                     <Textarea
-                        value={step.instruction}
-                        onChange={(event) => onChange({ instruction: event.target.value })}
-                        placeholder="What should the agent do with {{ trigger.input }}?"
-                        rows={3}
-                        className="min-h-0"
-                     />
-                  </Field>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                     <Field label="Agent">
-                        <AgentSelect
-                           value={step.agentId}
-                           onChange={(value) => onChange({ agentId: value })}
-                           placeholder="Any capable agent"
-                        />
-                     </Field>
-                     <Field label="How">
-                        <OptionSelect
-                           value={step.issueMode}
-                           onChange={(value) =>
-                              onChange({ issueMode: value === 'issue' ? 'issue' : 'inline' })
-                           }
-                           options={[
-                              { value: 'inline', label: 'Inline · one bounded reply' },
-                              { value: 'issue', label: 'As a task · waits for the run' },
-                           ]}
-                           placeholder="Inline"
-                           allowNone={false}
-                        />
-                     </Field>
-                  </div>
-               </>
-            )}
-
-            {step.type === 'condition' && (
-               <div className="grid gap-3 sm:grid-cols-3">
-                  <Field label="Value" hint="A reference such as trigger.issue.priority">
-                     <Input
-                        value={step.left}
-                        onChange={(event) => onChange({ left: event.target.value })}
-                        className="h-8 font-mono"
-                     />
-                  </Field>
-                  <Field label="Check">
-                     <OptionSelect
-                        value={step.op}
-                        onChange={(value) => onChange({ op: value || 'equals' })}
-                        options={OPERATORS}
-                        placeholder="is"
-                        allowNone={false}
-                     />
-                  </Field>
-                  {step.op !== 'exists' && (
-                     <Field label="Compared with">
-                        <Input
-                           value={step.right}
-                           onChange={(event) => onChange({ right: event.target.value })}
-                           placeholder="urgent"
-                           className="h-8"
-                        />
-                     </Field>
-                  )}
-               </div>
-            )}
-
-            {step.type === 'wait' && (
-               <div className="grid gap-3 sm:grid-cols-2">
-                  <Field label="Wait for">
-                     <OptionSelect
-                        value={step.waitMode}
-                        onChange={(value) =>
-                           onChange({
-                              waitMode:
-                                 value === 'until'
-                                    ? 'until'
-                                    : value === 'event'
-                                      ? 'event'
-                                      : 'duration',
-                           })
-                        }
-                        options={[
-                           { value: 'duration', label: 'A duration' },
-                           { value: 'until', label: 'An instant' },
-                           { value: 'event', label: 'A Berry event' },
-                        ]}
-                        placeholder="A duration"
-                        allowNone={false}
-                     />
-                  </Field>
-                  {step.waitMode === 'duration' && (
-                     <Field label="Duration" hint="ISO 8601: PT10M, PT2H, P1D">
-                        <Input
-                           value={step.duration}
-                           onChange={(event) => onChange({ duration: event.target.value })}
-                           className="h-8 font-mono"
-                        />
-                     </Field>
-                  )}
-                  {step.waitMode === 'until' && (
-                     <Field label="Until" hint="RFC 3339, or a template that renders one">
-                        <Input
-                           value={step.until}
-                           onChange={(event) => onChange({ until: event.target.value })}
-                           placeholder="2026-09-01T09:00:00Z"
-                           className="h-8 font-mono"
-                        />
-                     </Field>
-                  )}
-                  {step.waitMode === 'event' && (
-                     <Field label="Event">
-                        <OptionSelect
-                           value={step.waitEvent}
-                           onChange={(value) => onChange({ waitEvent: value })}
-                           options={BERRY_EVENTS.map((entry) => ({
-                              value: entry.topic,
-                              label: entry.label,
-                           }))}
-                           placeholder="Pick an event"
-                           allowNone={false}
-                        />
-                     </Field>
-                  )}
-               </div>
-            )}
-
-            {step.type === 'approval' && (
-               <>
-                  <Field label="What is being approved">
-                     <Input
-                        value={step.approvalTitle}
-                        onChange={(event) => onChange({ approvalTitle: event.target.value })}
-                        placeholder="Deploy to production?"
-                        className="h-8"
-                     />
-                  </Field>
-                  <Field label="Details">
-                     <Textarea
-                        value={step.approvalDescription}
-                        onChange={(event) => onChange({ approvalDescription: event.target.value })}
-                        placeholder="Optional"
-                        rows={2}
-                        className="min-h-0"
-                     />
-                  </Field>
-                  <ApproverFields step={step} update={onChange} />
-               </>
-            )}
-
-            {step.type === 'action' && <ActionFields step={step} update={onChange} />}
-
-            {errors.length > 0 && (
-               <ul className="flex flex-col gap-1" role="alert">
-                  {errors.map((error, position) => (
-                     <li key={`${error.code}-${position}`} className="text-status-danger">
-                        {error.message}
-                        {error.hint && (
-                           <span className="text-muted-foreground"> · {error.hint}</span>
-                        )}
-                     </li>
-                  ))}
-               </ul>
-            )}
+            <StepFields step={step} onChange={onChange} errors={errors} />
          </div>
       </li>
+   );
+}
+
+interface StepFieldsProps {
+   step: StepDraft;
+   errors: FieldError[];
+   onChange: (patch: Partial<StepDraft>) => void;
+}
+
+/**
+ * The fields of one step, by type, with the validator's findings for it
+ * underneath. Shared by the create dialog's list and the canvas panel, so
+ * a step reads the same whichever way it was reached.
+ */
+export function StepFields({ step, errors, onChange }: StepFieldsProps) {
+   return (
+      <>
+         {step.type === 'create_issue' && (
+            <>
+               <Field label="Title" hint="Templates work: Follow up {{ trigger.issue.identifier }}">
+                  <Input
+                     value={step.title}
+                     onChange={(event) => onChange({ title: event.target.value })}
+                     placeholder="Task title"
+                     className="h-8"
+                  />
+               </Field>
+               <Field label="Description">
+                  <Textarea
+                     value={step.description}
+                     onChange={(event) => onChange({ description: event.target.value })}
+                     placeholder="Optional"
+                     rows={2}
+                     className="min-h-0"
+                  />
+               </Field>
+               <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Assign to">
+                     <AgentSelect
+                        value={step.assignAgentId}
+                        onChange={(value) => onChange({ assignAgentId: value })}
+                        placeholder="Nobody"
+                     />
+                  </Field>
+                  <Field label="Priority">
+                     <OptionSelect
+                        value={step.priority}
+                        onChange={(value) => onChange({ priority: value })}
+                        options={PRIORITIES}
+                        placeholder="Default"
+                     />
+                  </Field>
+               </div>
+               <label className="flex items-center gap-2">
+                  <Checkbox
+                     checked={step.waitForCompletion}
+                     onCheckedChange={(checked) =>
+                        onChange({ waitForCompletion: checked === true })
+                     }
+                  />
+                  <span>Wait for the task to finish before the next step</span>
+               </label>
+            </>
+         )}
+
+         {step.type === 'update_issue' && (
+            <>
+               <Field
+                  label="Task"
+                  hint="A task id, identifier or template such as {{ trigger.issue.id }}"
+               >
+                  <Input
+                     value={step.issueRef}
+                     onChange={(event) => onChange({ issueRef: event.target.value })}
+                     className="h-8 font-mono"
+                  />
+               </Field>
+               <div className="grid gap-3 sm:grid-cols-3">
+                  <Field label="Status">
+                     <OptionSelect
+                        value={step.patchStatus}
+                        onChange={(value) => onChange({ patchStatus: value })}
+                        options={STATUSES}
+                        placeholder="Leave as is"
+                     />
+                  </Field>
+                  <Field label="Priority">
+                     <OptionSelect
+                        value={step.patchPriority}
+                        onChange={(value) => onChange({ patchPriority: value })}
+                        options={PRIORITIES}
+                        placeholder="Leave as is"
+                     />
+                  </Field>
+                  <Field label="Assign to">
+                     <AgentSelect
+                        value={step.patchAssignAgentId}
+                        onChange={(value) => onChange({ patchAssignAgentId: value })}
+                        placeholder="Leave as is"
+                     />
+                  </Field>
+               </div>
+            </>
+         )}
+
+         {step.type === 'agent' && (
+            <>
+               <Field label="Instruction">
+                  <Textarea
+                     value={step.instruction}
+                     onChange={(event) => onChange({ instruction: event.target.value })}
+                     placeholder="What should the agent do with {{ trigger.input }}?"
+                     rows={3}
+                     className="min-h-0"
+                  />
+               </Field>
+               <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Agent">
+                     <AgentSelect
+                        value={step.agentId}
+                        onChange={(value) => onChange({ agentId: value })}
+                        placeholder="Any capable agent"
+                     />
+                  </Field>
+                  <Field label="How">
+                     <OptionSelect
+                        value={step.issueMode}
+                        onChange={(value) =>
+                           onChange({ issueMode: value === 'issue' ? 'issue' : 'inline' })
+                        }
+                        options={[
+                           { value: 'inline', label: 'Inline · one bounded reply' },
+                           { value: 'issue', label: 'As a task · waits for the run' },
+                        ]}
+                        placeholder="Inline"
+                        allowNone={false}
+                     />
+                  </Field>
+               </div>
+            </>
+         )}
+
+         {step.type === 'condition' && (
+            <div className="grid gap-3 sm:grid-cols-3">
+               <Field label="Value" hint="A reference such as trigger.issue.priority">
+                  <Input
+                     value={step.left}
+                     onChange={(event) => onChange({ left: event.target.value })}
+                     className="h-8 font-mono"
+                  />
+               </Field>
+               <Field label="Check">
+                  <OptionSelect
+                     value={step.op}
+                     onChange={(value) => onChange({ op: value || 'equals' })}
+                     options={OPERATORS}
+                     placeholder="is"
+                     allowNone={false}
+                  />
+               </Field>
+               {step.op !== 'exists' && (
+                  <Field label="Compared with">
+                     <Input
+                        value={step.right}
+                        onChange={(event) => onChange({ right: event.target.value })}
+                        placeholder="urgent"
+                        className="h-8"
+                     />
+                  </Field>
+               )}
+            </div>
+         )}
+
+         {step.type === 'wait' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+               <Field label="Wait for">
+                  <OptionSelect
+                     value={step.waitMode}
+                     onChange={(value) =>
+                        onChange({
+                           waitMode:
+                              value === 'until'
+                                 ? 'until'
+                                 : value === 'event'
+                                   ? 'event'
+                                   : 'duration',
+                        })
+                     }
+                     options={[
+                        { value: 'duration', label: 'A duration' },
+                        { value: 'until', label: 'An instant' },
+                        { value: 'event', label: 'A Berry event' },
+                     ]}
+                     placeholder="A duration"
+                     allowNone={false}
+                  />
+               </Field>
+               {step.waitMode === 'duration' && (
+                  <Field label="Duration" hint="ISO 8601: PT10M, PT2H, P1D">
+                     <Input
+                        value={step.duration}
+                        onChange={(event) => onChange({ duration: event.target.value })}
+                        className="h-8 font-mono"
+                     />
+                  </Field>
+               )}
+               {step.waitMode === 'until' && (
+                  <Field label="Until" hint="RFC 3339, or a template that renders one">
+                     <Input
+                        value={step.until}
+                        onChange={(event) => onChange({ until: event.target.value })}
+                        placeholder="2026-09-01T09:00:00Z"
+                        className="h-8 font-mono"
+                     />
+                  </Field>
+               )}
+               {step.waitMode === 'event' && (
+                  <Field label="Event">
+                     <OptionSelect
+                        value={step.waitEvent}
+                        onChange={(value) => onChange({ waitEvent: value })}
+                        options={BERRY_EVENTS.map((entry) => ({
+                           value: entry.topic,
+                           label: entry.label,
+                        }))}
+                        placeholder="Pick an event"
+                        allowNone={false}
+                     />
+                  </Field>
+               )}
+            </div>
+         )}
+
+         {step.type === 'approval' && (
+            <>
+               <Field label="What is being approved">
+                  <Input
+                     value={step.approvalTitle}
+                     onChange={(event) => onChange({ approvalTitle: event.target.value })}
+                     placeholder="Deploy to production?"
+                     className="h-8"
+                  />
+               </Field>
+               <Field label="Details">
+                  <Textarea
+                     value={step.approvalDescription}
+                     onChange={(event) => onChange({ approvalDescription: event.target.value })}
+                     placeholder="Optional"
+                     rows={2}
+                     className="min-h-0"
+                  />
+               </Field>
+               <ApproverFields step={step} update={onChange} />
+            </>
+         )}
+
+         {step.type === 'action' && <ActionFields step={step} update={onChange} />}
+
+         {errors.length > 0 && (
+            <ul className="flex flex-col gap-1" role="alert">
+               {errors.map((error, position) => (
+                  <li key={`${error.code}-${position}`} className="text-status-danger">
+                     {error.message}
+                     {error.hint && <span className="text-muted-foreground"> · {error.hint}</span>}
+                  </li>
+               ))}
+            </ul>
+         )}
+      </>
    );
 }
