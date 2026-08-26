@@ -250,13 +250,17 @@ func run() int {
 
 	upstreamHTTP := &http.Client{
 		Transport: &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			DialContext:           (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ResponseHeaderTimeout: 30 * time.Second,
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+			ForceAttemptHTTP2:   true,
+			MaxIdleConns:        100,
+			IdleConnTimeout:     90 * time.Second,
+			TLSHandshakeTimeout: 10 * time.Second,
+			// A non-streaming chat completion sends its headers only when the
+			// whole reply is ready, so the header timeout must cover a model turn
+			// (the client bounds chat calls at five minutes); metadata calls stay
+			// bounded by their own 30 s request context.
+			ResponseHeaderTimeout: 5 * time.Minute,
 		},
 	}
 	upstream, err := openfang.New(
