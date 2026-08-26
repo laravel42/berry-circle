@@ -250,6 +250,13 @@ type AgentPatcher interface {
 	PatchAgent(context.Context, uuid.UUID, PatchAgentRequest) error
 }
 
+// AgentDeleter removes an agent from the runtime. Provisioning uses it to
+// replace a role agent whose manifest changed, since manifest limits cannot
+// be patched in place.
+type AgentDeleter interface {
+	DeleteAgent(context.Context, uuid.UUID) error
+}
+
 // maxSystemPromptBytes bounds an authored prompt well below the manifest limit.
 const maxSystemPromptBytes = 20000
 

@@ -156,6 +156,25 @@ func ensureRole(
 		_ = store.SetStatus(ctx, role, StatusOffline, now)
 		return fmt.Errorf("probe role agent: %w", err)
 	}
+	if recorded.ManifestRevision != ManifestRevision {
+		// The manifest shape changed since this agent was spawned (a limit,
+		// the history cap). Limits cannot be patched, so the role is replaced:
+		// the old agent goes first so a crash in between leaks nothing, and
+		// the row keeps pointing at it until the new one is recorded.
+		deleter, ok := provisioner.(openfang.AgentDeleter)
+		if !ok {
+			logger.Warn("role agent manifest is outdated and the runtime seam cannot delete; keeping it",
+				"role", role, "recordedRevision", recorded.ManifestRevision, "wantRevision", ManifestRevision)
+		} else {
+			if err := deleter.DeleteAgent(ctx, recorded.OpenFangAgentID); err != nil && !isMissingUpstream(err) {
+				_ = store.SetStatus(ctx, role, StatusOffline, now)
+				return fmt.Errorf("replace role agent: %w", err)
+			}
+			logger.Info("role agent manifest outdated; re-spawning", "role", role,
+				"recordedRevision", recorded.ManifestRevision, "wantRevision", ManifestRevision, "upstreamAgentId", recorded.OpenFangAgentID)
+			return spawnRole(ctx, store, provisioner, specs, spec, role, prompt, newID, now, logger)
+		}
+	}
 	if driftsFrom(detail, spec, prompt) {
 		if patcher == nil {
 			logger.Warn("role agent drifted and no patcher is configured", "role", role)
@@ -225,7 +244,7 @@ func spawnRole(
 	agent := RoleAgent{
 		Role: role, OpenFangAgentID: spawned.AgentID, UpstreamName: name,
 		Provider: strings.TrimSpace(spec.Provider), Model: strings.TrimSpace(spec.Model), PromptVersion: prompt.Version,
-		MaxTokens: &maxTokens, MaxLLMTokensPerHour: &tokensPerHour, Status: StatusAvailable,
+		MaxTokens: &maxTokens, MaxLLMTokensPerHour: &tokensPerHour, ManifestRevision: ManifestRevision, Status: StatusAvailable,
 	}
 	if err := store.Upsert(ctx, agent, now); err != nil {
 		return err
@@ -268,6 +287,16 @@ func isMissingUpstream(err error) bool {
 	return false
 }
 
+// ManifestRevision names the shape of the manifest this binary spawns. It is
+// recorded on the role row; a role whose recorded revision differs is
+// re-spawned, because the runtime neither reports manifest limits back nor
+// lets them be patched. Bump it whenever Manifest's limits or keys change.
+const ManifestRevision = "2026-08-26.2"
+
+// RoleHistoryMessages caps the runtime session a role agent keeps between
+// calls: one message, i.e. only the task it is answering.
+const RoleHistoryMessages = 1
+
 // Manifest builds the TOML the runtime expects for a role agent: a model,
 // its output cap, the system prompt, an hourly budget, and no tools. Keys
 // live where the bundled manifests put them ([model] max_tokens and
@@ -296,6 +325,14 @@ func Manifest(name string, role Role, spec RoleSpec, prompt Prompt, maxOutputTok
 	builder.WriteString("description = \"Berry ")
 	builder.WriteString(tomlEscape(string(role)))
 	builder.WriteString(" model role. No tools.\"\n")
+	// Top-level max_history_messages is the only placement the runtime
+	// honours (verified on the pinned build: prompt tokens stay flat call
+	// after call, while [model]/[memory]/[resources] placements keep growing).
+	// A role answers one task per call and must never see its earlier
+	// answers, which biased it toward repeating them verbatim.
+	builder.WriteString("max_history_messages = ")
+	builder.WriteString(strconv.Itoa(RoleHistoryMessages))
+	builder.WriteString("\n")
 	builder.WriteString("[model]\n")
 	builder.WriteString("provider = \"")
 	builder.WriteString(tomlEscape(strings.TrimSpace(spec.Provider)))

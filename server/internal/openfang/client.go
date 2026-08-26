@@ -564,6 +564,27 @@ func (client *Client) PatchAgent(
 	return nil
 }
 
+// DeleteAgent removes an agent Berry owns from the runtime. Deleting is
+// idempotent upstream, so it is classified RetryIdempotentWrite; a 404
+// surfaces as an UpstreamError the caller may treat as already gone.
+func (client *Client) DeleteAgent(ctx context.Context, agentID uuid.UUID) error {
+	if agentID == uuid.Nil {
+		return errors.New("runtime agent ID is required")
+	}
+	callCtx, cancel := context.WithTimeout(ctx, client.requestTimeout)
+	defer cancel()
+	httpRequest, err := client.NewJSONRequest(callCtx, http.MethodDelete, "/api/agents/"+agentID.String(), nil)
+	if err != nil {
+		return err
+	}
+	response, err := client.Do(callCtx, httpRequest, RetryIdempotentWrite)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	return nil
+}
+
 // SendAgentMessage runs one agent turn and waits for the whole answer.
 //
 // The streaming sibling exists for issue runs, where tool activity must stay

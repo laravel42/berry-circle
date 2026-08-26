@@ -77,11 +77,11 @@ func TestPostgresStoreRoundTripsRoleAgents(t *testing.T) {
 	if err := store.SetStatus(ctx, RoleCritic, StatusOffline, now); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("SetStatus(critic) = %v", err)
 	}
-	if err := store.Upsert(ctx, RoleAgent{Role: RoleClassifier, OpenFangAgentID: uuid.New(), UpstreamName: "berry-classifier-" + uuid.NewString()[:8], Provider: "p", Model: "m", PromptVersion: "intent-v1", Status: StatusAvailable}, now); err != nil {
+	if err := store.Upsert(ctx, RoleAgent{Role: RoleClassifier, OpenFangAgentID: uuid.New(), UpstreamName: "berry-classifier-" + uuid.NewString()[:8], Provider: "p", Model: "m", PromptVersion: "intent-v1", ManifestRevision: "rev-test", Status: StatusAvailable}, now); err != nil {
 		t.Fatalf("Upsert(classifier) error = %v", err)
 	}
 	rows, err := store.List(ctx)
-	if err != nil || len(rows) != 2 || rows[0].Role != RoleClassifier || rows[1].Role != RolePlanner || rows[1].Model != "m2" || rows[1].Status != StatusOffline {
+	if err != nil || len(rows) != 2 || rows[0].Role != RoleClassifier || rows[0].ManifestRevision != "rev-test" || rows[1].Role != RolePlanner || rows[1].Model != "m2" || rows[1].Status != StatusOffline {
 		t.Fatalf("List() = %+v, %v", rows, err)
 	}
 	if err := store.Upsert(ctx, RoleAgent{Role: Role("oracle"), OpenFangAgentID: uuid.New(), UpstreamName: "x", Provider: "p", Model: "m", PromptVersion: "v"}, now); err == nil {

@@ -32,10 +32,13 @@ type RoleAgent struct {
 	PromptVersion       string
 	MaxTokens           *int64
 	MaxLLMTokensPerHour *int64
-	Status              string
-	LastSyncedAt        *time.Time
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// ManifestRevision is the revision of the manifest Berry spawned the agent
+	// with; provisioning re-spawns the role when the binary's revision differs.
+	ManifestRevision string
+	Status           string
+	LastSyncedAt     *time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 }
 
 // Store persists role agents. Global by design: one row per role serves
@@ -60,7 +63,7 @@ func NewStore(pool *pgxpool.Pool) (*PostgresStore, error) {
 }
 
 const roleProjection = `role, openfang_agent_id, upstream_name, model_provider, model_name, prompt_version,
-	max_tokens, max_llm_tokens_per_hour, status, last_synced_at, created_at, updated_at`
+	max_tokens, max_llm_tokens_per_hour, manifest_revision, status, last_synced_at, created_at, updated_at`
 
 type roleScanner interface {
 	Scan(...any) error
@@ -74,7 +77,7 @@ func scanRoleAgent(row roleScanner) (RoleAgent, error) {
 	)
 	if err := row.Scan(
 		&role, &id, &agent.UpstreamName, &agent.Provider, &agent.Model, &agent.PromptVersion,
-		&agent.MaxTokens, &agent.MaxLLMTokensPerHour, &agent.Status, &agent.LastSyncedAt, &agent.CreatedAt, &agent.UpdatedAt,
+		&agent.MaxTokens, &agent.MaxLLMTokensPerHour, &agent.ManifestRevision, &agent.Status, &agent.LastSyncedAt, &agent.CreatedAt, &agent.UpdatedAt,
 	); err != nil {
 		return RoleAgent{}, err
 	}
@@ -149,8 +152,8 @@ func (store *PostgresStore) Upsert(ctx context.Context, agent RoleAgent, now tim
 		ctx,
 		`INSERT INTO model_role_agents (
 		    role, openfang_agent_id, upstream_name, model_provider, model_name, prompt_version,
-		    max_tokens, max_llm_tokens_per_hour, status, last_synced_at, created_at, updated_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $10)
+		    max_tokens, max_llm_tokens_per_hour, manifest_revision, status, last_synced_at, created_at, updated_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, $11)
 		 ON CONFLICT (role) DO UPDATE SET
 		    openfang_agent_id = EXCLUDED.openfang_agent_id,
 		    upstream_name = EXCLUDED.upstream_name,
@@ -159,11 +162,12 @@ func (store *PostgresStore) Upsert(ctx context.Context, agent RoleAgent, now tim
 		    prompt_version = EXCLUDED.prompt_version,
 		    max_tokens = EXCLUDED.max_tokens,
 		    max_llm_tokens_per_hour = EXCLUDED.max_llm_tokens_per_hour,
+		    manifest_revision = EXCLUDED.manifest_revision,
 		    status = EXCLUDED.status,
 		    last_synced_at = EXCLUDED.last_synced_at,
 		    updated_at = EXCLUDED.updated_at`,
 		string(agent.Role), agent.OpenFangAgentID.String(), agent.UpstreamName, agent.Provider, agent.Model, agent.PromptVersion,
-		agent.MaxTokens, agent.MaxLLMTokensPerHour, status, now.UTC(),
+		agent.MaxTokens, agent.MaxLLMTokensPerHour, agent.ManifestRevision, status, now.UTC(),
 	); err != nil {
 		return errors.New("upsert model role agent")
 	}

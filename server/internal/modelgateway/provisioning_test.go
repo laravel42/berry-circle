@@ -58,6 +58,7 @@ type fakeRuntime struct {
 	probeErr  error
 	spawned   []string
 	patched   []openfang.PatchAgentRequest
+	deleted   []uuid.UUID
 	spawnFail error
 }
 
@@ -96,6 +97,12 @@ func (runtime *fakeRuntime) PatchAgent(_ context.Context, _ uuid.UUID, request o
 	return nil
 }
 
+func (runtime *fakeRuntime) DeleteAgent(_ context.Context, id uuid.UUID) error {
+	runtime.deleted = append(runtime.deleted, id)
+	delete(runtime.agents, id)
+	return nil
+}
+
 func testSpecs() RoleSpecs {
 	pair := RoleSpec{Provider: "openrouter", Model: "minimax/minimax-m2.7:free"}
 	return RoleSpecs{Classifier: pair, Planner: pair, Repair: pair, Critic: pair, MaxOutputTokens: 16384, TokensPerHour: 4_000_000}
@@ -124,7 +131,7 @@ func TestEnsureRoleAgentsSpawnsOncePerRole(t *testing.T) {
 		t.Fatalf("spawned %d agents, want 4", len(runtime.spawned))
 	}
 	for _, manifest := range runtime.spawned {
-		for _, want := range []string{"[model]", `provider = "openrouter"`, `model = "minimax/minimax-m2.7:free"`, "max_tokens = 16384", "[resources]", "max_llm_tokens_per_hour = 4000000", "system_prompt = "} {
+		for _, want := range []string{"max_history_messages = 1\n[model]", `provider = "openrouter"`, `model = "minimax/minimax-m2.7:free"`, "max_tokens = 16384", "[resources]", "max_llm_tokens_per_hour = 4000000", "system_prompt = "} {
 			if !strings.Contains(manifest, want) {
 				t.Fatalf("manifest missing %q:\n%s", want, manifest)
 			}
@@ -179,7 +186,7 @@ func TestEnsureRoleAgentsHandlesDriftMissingAndTransportFailures(t *testing.T) {
 	runtime.agents[classifier] = openfang.AgentDetail{ID: classifier, Model: openfang.AgentModel{Provider: "openrouter", Model: "minimax/minimax-m2.7:free"}, SystemPrompt: "classify"}
 	runtime.agents[critic] = openfang.AgentDetail{ID: critic, Model: openfang.AgentModel{Provider: "openrouter", Model: "minimax/minimax-m2.7:free"}, SystemPrompt: "review"}
 	for role, id := range map[Role]uuid.UUID{RolePlanner: planner, RoleClassifier: classifier, RoleRepair: repair, RoleCritic: critic} {
-		store.rows[role] = RoleAgent{Role: role, OpenFangAgentID: id, UpstreamName: "berry-" + string(role) + "-old", Provider: "openrouter", Model: "x", PromptVersion: "v0", Status: StatusUnknown}
+		store.rows[role] = RoleAgent{Role: role, OpenFangAgentID: id, UpstreamName: "berry-" + string(role) + "-old", Provider: "openrouter", Model: "x", PromptVersion: "v0", ManifestRevision: ManifestRevision, Status: StatusUnknown}
 	}
 	if err := EnsureRoleAgents(context.Background(), store, runtime, runtime, testSpecs(), testPrompts(), uuid.New, logger); err != nil {
 		t.Fatalf("EnsureRoleAgents() error = %v", err)
@@ -270,5 +277,50 @@ func TestOnlyNotFoundAuthorisesSpawn(t *testing.T) {
 	}
 	if isMissingUpstream(errors.New("connection refused")) {
 		t.Error("a transport failure must not authorise provisioning")
+	}
+}
+
+// A role whose recorded manifest revision is older than the binary's is
+// replaced — the runtime cannot patch manifest limits such as the history
+// cap — by deleting the old agent first and spawning a fresh one; a role on
+// the current revision is left alone.
+func TestEnsureRoleAgentsReplacesAgentsWithAnOutdatedManifest(t *testing.T) {
+	store := newMemoryStore()
+	runtime := &fakeRuntime{agents: map[uuid.UUID]openfang.AgentDetail{}}
+	logger := slog.New(slog.DiscardHandler)
+	outdated, current := uuid.New(), uuid.New()
+	for _, id := range []uuid.UUID{outdated, current} {
+		runtime.agents[id] = openfang.AgentDetail{ID: id, Model: openfang.AgentModel{Provider: "openrouter", Model: "minimax/minimax-m2.7:free"}, SystemPrompt: "classify"}
+	}
+	runtime.agents[current] = openfang.AgentDetail{ID: current, Model: openfang.AgentModel{Provider: "openrouter", Model: "minimax/minimax-m2.7:free"}, SystemPrompt: "review"}
+	store.rows[RoleClassifier] = RoleAgent{Role: RoleClassifier, OpenFangAgentID: outdated, UpstreamName: "berry-classifier-old", Provider: "openrouter",
+		Model: "minimax/minimax-m2.7:free", PromptVersion: "intent-v1", ManifestRevision: "", Status: StatusAvailable}
+	store.rows[RoleCritic] = RoleAgent{Role: RoleCritic, OpenFangAgentID: current, UpstreamName: "berry-critic-current", Provider: "openrouter",
+		Model: "minimax/minimax-m2.7:free", PromptVersion: "critic-v1", ManifestRevision: ManifestRevision, Status: StatusAvailable}
+	if err := EnsureRoleAgents(context.Background(), store, runtime, runtime, testSpecs(), testPrompts(), uuid.New, logger); err != nil {
+		t.Fatalf("EnsureRoleAgents() error = %v", err)
+	}
+	if len(runtime.deleted) != 1 || runtime.deleted[0] != outdated {
+		t.Fatalf("deleted = %v, want only the outdated classifier %s", runtime.deleted, outdated)
+	}
+	classifierRow := store.rows[RoleClassifier]
+	if classifierRow.OpenFangAgentID == outdated || classifierRow.ManifestRevision != ManifestRevision || classifierRow.Status != StatusAvailable ||
+		!strings.HasPrefix(classifierRow.UpstreamName, "berry-classifier-") {
+		t.Fatalf("classifier row = %+v, want a fresh agent on revision %s", classifierRow, ManifestRevision)
+	}
+	if criticRow := store.rows[RoleCritic]; criticRow.OpenFangAgentID != current {
+		t.Fatalf("critic row = %+v, want the current agent kept", criticRow)
+	}
+	spawnedClassifier := 0
+	for _, manifest := range runtime.spawned {
+		if strings.Contains(manifest, "berry-classifier-") {
+			spawnedClassifier++
+			if !strings.Contains(manifest, "max_history_messages = 1\n[model]") {
+				t.Fatalf("re-spawned manifest lacks the top-level history cap:\n%s", manifest)
+			}
+		}
+	}
+	if spawnedClassifier != 1 {
+		t.Fatalf("spawned %d classifier agents, want 1 (spawned: %d manifests)", spawnedClassifier, len(runtime.spawned))
 	}
 }
