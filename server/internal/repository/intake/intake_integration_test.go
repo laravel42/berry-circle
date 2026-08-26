@@ -24,7 +24,10 @@ func TestCandidatesSkipIssuesWithOpenBlockers(t *testing.T) {
 		t.Fatalf("open BERRY_TEST_DATABASE_URL: %v", err)
 	}
 	t.Cleanup(pool.Close)
-	now := time.Date(2026, time.August, 25, 21, 0, 0, 0, time.UTC)
+	// Candidates is a global first page ordered by created_at; the fixture is
+	// stamped far in the past so rows leaked by other suites on a shared test
+	// database can never crowd it out of that page.
+	now := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 	userID, workspaceID, boardID, agentID := uuid.New(), uuid.New(), uuid.New(), uuid.New()
 	blockerID, dependentID := uuid.New(), uuid.New()
 	t.Cleanup(func() {
