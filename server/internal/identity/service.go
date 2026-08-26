@@ -160,6 +160,61 @@ func (service *Service) AuthorizeAgent(
 	return authorizeScope(scope, err, permission)
 }
 
+// AuthorizeGoal hides missing, archived and cross-workspace goals behind
+// ErrNotFound.
+func (service *Service) AuthorizeGoal(
+	ctx context.Context,
+	userID, goalID uuid.UUID,
+	permission Permission,
+) (Scope, error) {
+	scope, err := service.repository.GoalScope(ctx, userID, goalID)
+	return authorizeScope(scope, err, permission)
+}
+
+// AuthorizePlan hides missing and cross-workspace plans behind ErrNotFound.
+func (service *Service) AuthorizePlan(
+	ctx context.Context,
+	userID, planID uuid.UUID,
+	permission Permission,
+) (Scope, error) {
+	scope, err := service.repository.PlanScope(ctx, userID, planID)
+	return authorizeScope(scope, err, permission)
+}
+
+// AuthorizeApproval hides missing and cross-workspace approvals behind
+// ErrNotFound. Whether the caller is the addressee is a product rule decided
+// by the approvals service, not a membership question.
+func (service *Service) AuthorizeApproval(
+	ctx context.Context,
+	userID, approvalID uuid.UUID,
+	permission Permission,
+) (Scope, error) {
+	scope, err := service.repository.ApprovalScope(ctx, userID, approvalID)
+	return authorizeScope(scope, err, permission)
+}
+
+// AuthorizeAutomation hides missing and cross-workspace workflows behind
+// ErrNotFound.
+func (service *Service) AuthorizeAutomation(
+	ctx context.Context,
+	userID, automationID uuid.UUID,
+	permission Permission,
+) (Scope, error) {
+	scope, err := service.repository.AutomationScope(ctx, userID, automationID)
+	return authorizeScope(scope, err, permission)
+}
+
+// AuthorizeAutomationRun hides missing and cross-workspace workflow runs
+// behind ErrNotFound.
+func (service *Service) AuthorizeAutomationRun(
+	ctx context.Context,
+	userID, runID uuid.UUID,
+	permission Permission,
+) (Scope, error) {
+	scope, err := service.repository.AutomationRunScope(ctx, userID, runID)
+	return authorizeScope(scope, err, permission)
+}
+
 // ValidateAssignee hides assignees outside the owning workspace.
 func (service *Service) ValidateAssignee(
 	ctx context.Context,

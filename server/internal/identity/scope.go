@@ -213,3 +213,112 @@ func scanScope(row scanner) (Scope, error) {
 	scope.Role = Role(role)
 	return scope, nil
 }
+
+// GoalScope resolves a live goal's workspace through active membership.
+// Archived goals are hidden the same way deleted issues are.
+func (repository *Repository) GoalScope(
+	ctx context.Context,
+	userID, goalID uuid.UUID,
+) (Scope, error) {
+	return scanScope(repository.Pool.QueryRow(
+		ctx,
+		`SELECT goal.workspace_id, membership.role::text
+		   FROM goals AS goal
+		   JOIN workspaces AS workspace
+		     ON workspace.id = goal.workspace_id
+		    AND workspace.deleted_at IS NULL
+		   JOIN workspace_memberships AS membership
+		     ON membership.workspace_id = workspace.id
+		    AND membership.user_id = $1
+		  WHERE goal.id = $2 AND goal.deleted_at IS NULL`,
+		userID,
+		goalID,
+	))
+}
+
+// PlanScope resolves a plan's workspace through active membership. Briefs and
+// generated plans share the table, so both resolve here.
+func (repository *Repository) PlanScope(
+	ctx context.Context,
+	userID, planID uuid.UUID,
+) (Scope, error) {
+	return scanScope(repository.Pool.QueryRow(
+		ctx,
+		`SELECT plan.workspace_id, membership.role::text
+		   FROM plans AS plan
+		   JOIN workspaces AS workspace
+		     ON workspace.id = plan.workspace_id
+		    AND workspace.deleted_at IS NULL
+		   JOIN workspace_memberships AS membership
+		     ON membership.workspace_id = workspace.id
+		    AND membership.user_id = $1
+		  WHERE plan.id = $2`,
+		userID,
+		planID,
+	))
+}
+
+// ApprovalScope resolves an approval's workspace through active membership.
+func (repository *Repository) ApprovalScope(
+	ctx context.Context,
+	userID, approvalID uuid.UUID,
+) (Scope, error) {
+	return scanScope(repository.Pool.QueryRow(
+		ctx,
+		`SELECT approval.workspace_id, membership.role::text
+		   FROM approvals AS approval
+		   JOIN workspaces AS workspace
+		     ON workspace.id = approval.workspace_id
+		    AND workspace.deleted_at IS NULL
+		   JOIN workspace_memberships AS membership
+		     ON membership.workspace_id = workspace.id
+		    AND membership.user_id = $1
+		  WHERE approval.id = $2`,
+		userID,
+		approvalID,
+	))
+}
+
+// AutomationScope resolves a workflow's workspace through active membership.
+// Archived workflows stay resolvable: their run history is still readable.
+func (repository *Repository) AutomationScope(
+	ctx context.Context,
+	userID, automationID uuid.UUID,
+) (Scope, error) {
+	return scanScope(repository.Pool.QueryRow(
+		ctx,
+		`SELECT automation.workspace_id, membership.role::text
+		   FROM automations AS automation
+		   JOIN workspaces AS workspace
+		     ON workspace.id = automation.workspace_id
+		    AND workspace.deleted_at IS NULL
+		   JOIN workspace_memberships AS membership
+		     ON membership.workspace_id = workspace.id
+		    AND membership.user_id = $1
+		  WHERE automation.id = $2`,
+		userID,
+		automationID,
+	))
+}
+
+// AutomationRunScope resolves a workflow run's workspace through active
+// membership.
+func (repository *Repository) AutomationRunScope(
+	ctx context.Context,
+	userID, runID uuid.UUID,
+) (Scope, error) {
+	return scanScope(repository.Pool.QueryRow(
+		ctx,
+		`SELECT run.workspace_id, membership.role::text
+		   FROM automation_runs AS run
+		   JOIN workspaces AS workspace
+		     ON workspace.id = run.workspace_id
+		    AND workspace.deleted_at IS NULL
+		   JOIN workspace_memberships AS membership
+		     ON membership.workspace_id = workspace.id
+		    AND membership.user_id = $1
+		  WHERE run.id = $2`,
+		userID,
+		runID,
+	))
+}
