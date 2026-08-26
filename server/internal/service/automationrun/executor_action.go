@@ -30,9 +30,11 @@ var berryActions = func() map[string]integrationcore.Tool {
 }()
 
 // executeAction calls one provider tool. Berry's own tools execute natively
-// over the same repositories the routes use; every other provider is
-// authorised and audited here but has no native client yet, so it answers
-// TOOL_NOT_EXECUTABLE after the gate rather than pretending it ran.
+// over the same repositories the routes use. Every other provider has no
+// native client yet, so the step fails fast with TOOL_NOT_EXECUTABLE before
+// anyone is asked to approve it: an approval for a call that cannot happen
+// would only waste the approver's attention. The authorisation and approval
+// gate below is what those providers pass through once a client exists.
 func (runner *Runner) executeAction(ctx context.Context, call stepCall) (automation.StepOutcome, error) {
 	action := call.step.Action
 	if action == nil {
@@ -51,6 +53,10 @@ func (runner *Runner) executeAction(ctx context.Context, call stepCall) (automat
 	tool, ok := runner.options.Registry.ToolByOperation(action.Provider, action.Operation, integrationcore.ToolAction)
 	if !ok {
 		return automation.StepOutcome{}, stepFailure("TOOL_UNKNOWN", fmt.Sprintf("No action %s.%s is registered.", action.Provider, action.Operation))
+	}
+	if !executable(tool) {
+		return automation.StepOutcome{}, stepFailure("TOOL_NOT_EXECUTABLE",
+			fmt.Sprintf("%s has no native executor yet.", tool.Name))
 	}
 	if !call.approved {
 		if runner.options.Authorizer == nil {
@@ -79,6 +85,13 @@ func (runner *Runner) executeAction(ctx context.Context, call stepCall) (automat
 	}
 	return automation.StepOutcome{}, stepFailure("TOOL_NOT_EXECUTABLE",
 		fmt.Sprintf("%s has no native executor yet.", tool.Name))
+}
+
+// executable reports whether a provider tool has a native executor. None
+// does yet outside the Berry provider; provider clients land with their
+// executors, and until then the check keeps the approval gate honest.
+func executable(integrationcore.Tool) bool {
+	return false
 }
 
 func riskForEffect(effect integrationcore.Effect) approvals.Risk {
