@@ -153,6 +153,10 @@ type Dispatch struct {
 	// dispatcher rather than the query: building it costs upstream calls, and a
 	// claim that never dispatches should not pay for them.
 	CodeContext string
+	// PriorWork is what the tasks this issue depends on produced, filled in by
+	// the dispatcher for the same reason as CodeContext: it costs storage
+	// reads.
+	PriorWork   string
 	RequestID   string
 	TraceParent string
 }

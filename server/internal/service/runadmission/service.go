@@ -108,6 +108,8 @@ type Options struct {
 	QueueSize     int
 	// Code renders repository context into a run's prompt. Optional.
 	Code CodeContext
+	// Handoff renders what the tasks this one depends on produced. Optional.
+	Handoff Handoff
 	// Comments posts a run's final message on its issue. Optional: without it
 	// the result is still recorded on the run, just not surfaced as a comment.
 	Comments CommentStore
@@ -137,6 +139,8 @@ type Service struct {
 	// code renders repository context for issues whose project names one.
 	// Optional: without it runs dispatch exactly as they did before.
 	code CodeContext
+	// handoff renders what the tasks this one depends on produced. Optional.
+	handoff Handoff
 	// comments is where a run's result goes to be read. Optional.
 	comments    CommentStore
 	artifacts   ArtifactSink
@@ -189,6 +193,7 @@ func New(options Options) (*Service, error) {
 		newID:       options.NewID,
 		dispatcher:  options.Dispatcher,
 		code:        options.Code,
+		handoff:     options.Handoff,
 		comments:    options.Comments,
 		artifacts:   options.Artifacts,
 		agentEvents: options.AgentEvents,
@@ -351,6 +356,13 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 		}
 		dispatch.CodeContext = service.code.Build(
 			ctx, dispatch.WorkspaceID, dispatch.Repository, dispatch.IssueTitle, description)
+	}
+
+	// Same best-effort contract as the repository context above, and the same
+	// reason it is not in the claim query: reading a dependency's artifacts out
+	// of object storage costs calls a claim that never dispatches should skip.
+	if service.handoff != nil {
+		dispatch.PriorWork = service.handoff.Build(ctx, dispatch.IssueID)
 	}
 
 	message := buildMessage(dispatch)
@@ -602,6 +614,15 @@ func (service *Service) recordAgentEvent(runID uuid.UUID, topic string, failure 
 func (service *Service) SetArtifacts(sink ArtifactSink) {
 	if service != nil {
 		service.artifacts = sink
+	}
+}
+
+// SetHandoff attaches the prior-work builder after construction, for the same
+// reason SetArtifacts exists: it needs object storage, which the worker builds
+// after the dispatcher.
+func (service *Service) SetHandoff(handoff Handoff) {
+	if service != nil {
+		service.handoff = handoff
 	}
 }
 
@@ -918,6 +939,15 @@ func mapDispatchFailure(err error) (runs.Failure, bool) {
 	}
 }
 
+// Handoff renders what the work before this issue produced, for the prompt.
+//
+// Berry carries it rather than the filesystem doing so: OpenFang scopes every
+// agent's file tools to its own workspace, so one agent cannot read what
+// another wrote. See internal/priorwork.
+type Handoff interface {
+	Build(ctx context.Context, issueID uuid.UUID) string
+}
+
 // CodeContext renders the repository an issue belongs to, for the prompt.
 //
 // The workspace is a parameter rather than fixed at construction: one service
@@ -940,6 +970,9 @@ func buildMessage(dispatch runs.Dispatch) string {
 	if dispatch.Instructions != nil && *dispatch.Instructions != "" {
 		builder.WriteString("\n\nRun instructions:\n")
 		builder.WriteString(*dispatch.Instructions)
+	}
+	if dispatch.PriorWork != "" {
+		builder.WriteString(dispatch.PriorWork)
 	}
 	if dispatch.CodeContext != "" {
 		builder.WriteString(dispatch.CodeContext)

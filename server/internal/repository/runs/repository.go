@@ -459,3 +459,71 @@ func (repository *Repository) DeliverableRun(
 	}
 	return row, nil
 }
+
+// DependencyArtifactRow is one file produced by work this issue depends on.
+type DependencyArtifactRow struct {
+	IssueIdentifier string
+	IssueTitle      string
+	AgentName       string
+	FileName        string
+	ContentType     string
+	SizeBytes       int64
+	StorageKey      string
+}
+
+// DependencyArtifacts lists the artifacts of the runs an issue depends on.
+//
+// Only ready artifacts of succeeded runs, and only from issues named in
+// issue_dependencies: a handoff carries finished work, and a run that failed
+// may have written half a file. Newest first, so a dependency that was worked
+// twice hands over the second attempt.
+func (repository *Repository) DependencyArtifacts(
+	ctx context.Context,
+	issueID uuid.UUID,
+	limit int,
+) ([]DependencyArtifactRow, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := repository.Pool.Query(
+		ctx,
+		`SELECT upper(board.slug) || '-' || blocker.number,
+		        blocker.title,
+		        COALESCE(agent.name, ''),
+		        attachment.file_name,
+		        attachment.content_type,
+		        attachment.size_bytes,
+		        attachment.storage_key
+		   FROM issue_dependencies AS dependency
+		   JOIN issues AS blocker
+		     ON blocker.id = dependency.depends_on_issue_id AND blocker.deleted_at IS NULL
+		   JOIN boards AS board ON board.id = blocker.board_id
+		   JOIN runs AS run
+		     ON run.issue_id = blocker.id AND run.status = 'succeeded'
+		   JOIN attachments AS attachment
+		     ON attachment.run_id = run.id AND attachment.state = 'ready'
+		   LEFT JOIN agents AS agent ON agent.id = run.agent_id
+		  WHERE dependency.issue_id = $1
+		  ORDER BY run.completed_at DESC NULLS LAST, attachment.created_at DESC, attachment.id DESC
+		  LIMIT $2`,
+		issueID,
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list dependency artifacts: %w", err)
+	}
+	defer rows.Close()
+	var found []DependencyArtifactRow
+	for rows.Next() {
+		var row DependencyArtifactRow
+		if err := rows.Scan(&row.IssueIdentifier, &row.IssueTitle, &row.AgentName,
+			&row.FileName, &row.ContentType, &row.SizeBytes, &row.StorageKey); err != nil {
+			return nil, fmt.Errorf("scan dependency artifact: %w", err)
+		}
+		found = append(found, row)
+	}
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("read dependency artifacts: %w", rows.Err())
+	}
+	return found, nil
+}

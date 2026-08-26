@@ -33,6 +33,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
+	"github.com/laravel42/berry-circle/server/internal/priorwork"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
 	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
@@ -315,6 +316,18 @@ func run() int {
 		// write the runtime dropped still lands.
 		dispatcher.SetArtifacts(promoter)
 		logger.Info("artifact promotion enabled", "root", cfg.RuntimeWorkspaceRoot)
+
+		// The handoff between agents, reading the same store promotion writes.
+		// OpenFang gives every agent a private workspace and no way to read
+		// another's, so what one run produced reaches the next through the
+		// prompt rather than through a shared directory. Gated with promotion
+		// because there is nothing to hand over until runs are promoted.
+		dispatcher.SetHandoff(priorwork.Builder{
+			Source: dependencyArtifacts{store: runStore},
+			Reader: artifactStorage,
+			Budget: priorwork.DefaultBudget,
+		})
+		logger.Info("dependency handoff enabled for runs")
 
 		// Recover anything an earlier run left behind. In the background: a
 		// worker must start serving whether or not a filesystem sweep succeeds.
@@ -611,4 +624,33 @@ func (adapter runDelivery) Deliver(
 		return "", err
 	}
 	return pull.HTMLURL, nil
+}
+
+// dependencyArtifacts adapts the run repository to the handoff builder.
+type dependencyArtifacts struct {
+	store *runsrepo.Repository
+}
+
+func (adapter dependencyArtifacts) DependencyArtifacts(
+	ctx context.Context,
+	issueID uuid.UUID,
+	limit int,
+) ([]priorwork.Artifact, error) {
+	rows, err := adapter.store.DependencyArtifacts(ctx, issueID, limit)
+	if err != nil {
+		return nil, err
+	}
+	found := make([]priorwork.Artifact, 0, len(rows))
+	for _, row := range rows {
+		found = append(found, priorwork.Artifact{
+			IssueIdentifier: row.IssueIdentifier,
+			IssueTitle:      row.IssueTitle,
+			AgentName:       row.AgentName,
+			FileName:        row.FileName,
+			ContentType:     row.ContentType,
+			SizeBytes:       row.SizeBytes,
+			StorageKey:      row.StorageKey,
+		})
+	}
+	return found, nil
 }
