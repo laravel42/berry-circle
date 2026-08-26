@@ -71,7 +71,7 @@ export default function IssueLine({
                   {!notification.read && (
                      <div className="size-2 bg-blue-500 rounded-full flex-shrink-0" />
                   )}
-                  {showId && (
+                  {showId && notification.identifier && (
                      <span
                         className={cn(
                            'font-medium text-muted-foreground shrink-0',
@@ -91,8 +91,10 @@ export default function IssueLine({
                      {notification.title}
                   </h4>
 
-                  {showStatusIcon && (
-                     <div className="shrink-0">{renderStatusIcon(notification.status.id)}</div>
+                  {showStatusIcon && notification.issue && (
+                     <div className="shrink-0">
+                        {renderStatusIcon(notification.issue.status.id)}
+                     </div>
                   )}
                </div>
 
