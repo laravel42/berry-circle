@@ -347,6 +347,68 @@ func (repository *Repository) Transition(
 	return goal, event, nil
 }
 
+// PlanIn is what a plan compile does to its goal inside the compile
+// transaction: adopt the plan's title, description and project, and move the
+// goal to planned. A goal that already moved on (active, blocked) keeps its
+// status — the compile adds work to it, it does not restart it. Terminal
+// goals refuse. Returns the goal.updated fact for the caller to publish.
+func PlanIn(
+	ctx context.Context,
+	tx database,
+	goalID uuid.UUID,
+	title string,
+	description *string,
+	projectID *uuid.UUID,
+	actorID uuid.UUID,
+	now time.Time,
+	newID func() uuid.UUID,
+) (Goal, Event, error) {
+	if goalID == uuid.Nil || strings.TrimSpace(title) == "" {
+		return Goal{}, Event{}, errors.New("goal plan parameters are invalid")
+	}
+	current, err := getGoal(ctx, tx, goalID, true)
+	if err != nil {
+		return Goal{}, Event{}, err
+	}
+	if current.Status.Terminal() {
+		return Goal{}, Event{}, &TransitionError{From: current.Status, To: StatusPlanned}
+	}
+	status := current.Status
+	if status == StatusDraft {
+		status = StatusPlanned
+	}
+	goal, err := scanGoal(tx.QueryRow(
+		ctx,
+		`UPDATE goals AS goal
+		    SET title = $2,
+		        description = COALESCE($3, goal.description),
+		        project_id = COALESCE($4::uuid, goal.project_id),
+		        status = $5,
+		        updated_at = $6
+		  WHERE goal.id = $1
+		  RETURNING `+goalProjection,
+		goalID, strings.TrimSpace(title), description, projectID, string(status), now.UTC(),
+	))
+	if err != nil {
+		return Goal{}, Event{}, classifyWrite("plan goal", err)
+	}
+	changed := []string{"title"}
+	if description != nil {
+		changed = append(changed, "description")
+	}
+	if projectID != nil {
+		changed = append(changed, "project")
+	}
+	if status != current.Status {
+		changed = append(changed, "status")
+	}
+	event, err := writeGoalEvent(ctx, tx, "goal.updated", goal, changed, actorKey(actorID), now, newID)
+	if err != nil {
+		return Goal{}, Event{}, err
+	}
+	return goal, event, nil
+}
+
 // Start moves a goal to active.
 func (repository *Repository) Start(ctx context.Context, goalID uuid.UUID, actor *uuid.UUID, now time.Time, newID func() uuid.UUID) (Goal, Event, error) {
 	return repository.Transition(ctx, goalID, StatusActive, actor, now, newID)
@@ -450,6 +512,18 @@ func (repository *Repository) UnlinkIssue(ctx context.Context, goalID, issueID u
 	}
 	if tag.RowsAffected() == 0 {
 		return ErrNotFound
+	}
+	return nil
+}
+
+// ClearIssueGoal detaches an issue from whatever goal it serves. An issue
+// with no goal is left as it is: clearing is idempotent.
+func (repository *Repository) ClearIssueGoal(ctx context.Context, issueID uuid.UUID) error {
+	if issueID == uuid.Nil {
+		return errors.New("goal clear needs an issue")
+	}
+	if _, err := repository.Pool.Exec(ctx, `DELETE FROM goal_issues WHERE issue_id = $1`, issueID); err != nil {
+		return fmt.Errorf("clear issue goal: %w", err)
 	}
 	return nil
 }

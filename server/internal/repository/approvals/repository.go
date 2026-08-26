@@ -385,9 +385,63 @@ func (repository *Repository) Resolve(
 	return approval, events, nil
 }
 
-// releaseIssue moves a gated issue from backlog to todo. An issue a person
-// already moved elsewhere keeps their choice: approval grants permission to
-// start, it does not overwrite decisions. The 010 plan gate can still refuse.
+// ResolvePlanIn approves the pending kind=plan approval of a plan inside the
+// caller's transaction, which is how a compile started by the addressee (or
+// a stronger role) closes the request it is fulfilling. A plan with no
+// pending approval yields nil, nil, nil.
+func ResolvePlanIn(
+	ctx context.Context,
+	tx database,
+	planID uuid.UUID,
+	actorID uuid.UUID,
+	now time.Time,
+	newID func() uuid.UUID,
+) (*Approval, *Event, error) {
+	if planID == uuid.Nil || actorID == uuid.Nil || now.IsZero() {
+		return nil, nil, errors.New("plan approval resolution parameters are invalid")
+	}
+	var approvalID uuid.UUID
+	err := tx.QueryRow(
+		ctx,
+		`SELECT id FROM approvals
+		  WHERE plan_id = $1 AND kind = 'plan' AND status = 'pending'
+		  ORDER BY requested_at DESC, id DESC
+		  LIMIT 1
+		  FOR UPDATE`,
+		planID,
+	).Scan(&approvalID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, errors.New("find pending plan approval")
+	}
+	resolvedAt := now.UTC()
+	if _, err := tx.Exec(
+		ctx,
+		`UPDATE approvals
+		    SET status = 'approved', resolved_by = $2, resolved_at = $3, updated_at = $3
+		  WHERE id = $1`,
+		approvalID, actorID, resolvedAt,
+	); err != nil {
+		return nil, nil, classifyWrite("resolve plan approval", err)
+	}
+	approval, err := getApproval(ctx, tx, approvalID, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	event, err := writeApprovalEvent(ctx, tx, "approval.approved", approval, &core.ActorKey{Type: "user", ID: actorID}, resolvedAt, newID)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &approval, &event, nil
+}
+
+// releaseIssue moves a gated issue out of backlog: to todo when nothing it
+// depends on is still open, to blocked otherwise, so the dependency release
+// finishes the job when the last blocker completes. An issue a person already
+// moved elsewhere keeps their choice: approval grants permission to start, it
+// does not overwrite decisions. The 010 plan gate can still refuse.
 func releaseIssue(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -396,11 +450,19 @@ func releaseIssue(
 	now time.Time,
 	newID func() uuid.UUID,
 ) ([]Event, error) {
+	blocked, err := core.HasOpenBlockers(ctx, tx, issueID)
+	if err != nil {
+		return nil, err
+	}
+	target := "todo"
+	if blocked {
+		target = "blocked"
+	}
 	tag, err := tx.Exec(
 		ctx,
-		`UPDATE issues SET status = 'todo', updated_at = $2
+		`UPDATE issues SET status = $3::issue_status, updated_at = $2
 		  WHERE id = $1 AND status = 'backlog' AND deleted_at IS NULL`,
-		issueID, now,
+		issueID, now, target,
 	)
 	if err != nil {
 		return nil, classifyWrite("release gated issue", err)

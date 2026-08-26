@@ -18,6 +18,7 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/realtime"
 	repository "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
+	"github.com/laravel42/berry-circle/server/internal/repository/ledger"
 )
 
 const MaxJSONBodyBytes = 64 * 1024
@@ -178,6 +179,34 @@ func PublishIssue(
 	ctx context.Context,
 	broadcaster realtime.Broadcaster,
 	events []core.IssueMutationEvent,
+) {
+	if broadcaster == nil || len(events) == 0 {
+		return
+	}
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	for _, event := range events {
+		if event.ID == uuid.Nil {
+			continue
+		}
+		_ = broadcaster.Publish(publishCtx, realtime.Event{
+			ID:          event.ID.String(),
+			WorkspaceID: event.WorkspaceID.String(),
+			BoardID:     boardScope(event.BoardID),
+			Type:        event.Type,
+			Payload:     event.Payload,
+			OccurredAt:  event.OccurredAt,
+		})
+	}
+}
+
+// PublishLedger delivers committed goal, approval, workflow and plan facts,
+// which are written through repository/ledger rather than the collaboration
+// envelope but wake the same board and workspace subscribers.
+func PublishLedger(
+	ctx context.Context,
+	broadcaster realtime.Broadcaster,
+	events []ledger.Event,
 ) {
 	if broadcaster == nil || len(events) == 0 {
 		return

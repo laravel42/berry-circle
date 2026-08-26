@@ -111,6 +111,40 @@ func ValidDuration(text string) bool {
 	return text != "P" && text != "PT" && durationPattern.MatchString(text)
 }
 
+// ParseDuration reads the ISO-8601 subset ValidDuration accepts into a Go
+// duration. A week is seven days and a day twenty-four hours: workflow waits
+// and approval timeouts are wall-clock spans, not calendar arithmetic.
+func ParseDuration(text string) (time.Duration, bool) {
+	if !ValidDuration(text) {
+		return 0, false
+	}
+	var total time.Duration
+	rest := strings.TrimPrefix(text, "P")
+	read := func(unit byte, size time.Duration) {
+		index := strings.IndexByte(rest, unit)
+		if index < 0 {
+			return
+		}
+		value, err := strconv.Atoi(rest[:index])
+		if err == nil {
+			total += time.Duration(value) * size
+		}
+		rest = rest[index+1:]
+	}
+	if strings.HasSuffix(rest, "W") {
+		read('W', 7*24*time.Hour)
+		return total, true
+	}
+	datePart, timePart, _ := strings.Cut(rest, "T")
+	rest = datePart
+	read('D', 24*time.Hour)
+	rest = timePart
+	read('H', time.Hour)
+	read('M', time.Minute)
+	read('S', time.Second)
+	return total, true
+}
+
 // ValidCronExpression is a syntactic check on a five-field expression or one
 // of the named schedules. The parser that computes fire times lands with
 // schedule triggers; until then a malformed expression is still refused here.

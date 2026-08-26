@@ -90,6 +90,11 @@ func (repository *Repository) ActiveRuns(ctx context.Context) (int, error) {
 //     further along is either running, awaiting human review, or closed;
 //   - it has no active run. `issues.active_run_id` is the durable one-writer
 //     guard, so this is what keeps intake from starting a second editor;
+//   - nothing it depends on is still open. A dependent issue normally sits in
+//     `blocked` until its blockers finish, but a person can move it to `todo`
+//     by hand, and the dispatcher's release can race a blocker's completion;
+//     the gate here means an agent never starts work whose inputs do not exist
+//     yet, whatever the status column says;
 //   - it is assigned to an available agent — that assignment is a human
 //     decision and is honoured exactly, never rerouted around; or
 //   - it is unassigned, and the orchestrator routes it to the best-matching
@@ -137,6 +142,14 @@ func (repository *Repository) Candidates(
 		     WHERE issue.deleted_at IS NULL
 		       AND issue.status = 'todo'
 		       AND issue.active_run_id IS NULL
+		       AND NOT EXISTS (
+		           SELECT 1
+		             FROM issue_dependencies AS dependency
+		             JOIN issues AS blocker ON blocker.id = dependency.depends_on_issue_id
+		            WHERE dependency.issue_id = issue.id
+		              AND blocker.deleted_at IS NULL
+		              AND blocker.status NOT IN ('done', 'cancelled')
+		       )
 		     ORDER BY issue.created_at ASC, issue.id ASC
 		     FOR UPDATE OF issue SKIP LOCKED
 		     LIMIT $1

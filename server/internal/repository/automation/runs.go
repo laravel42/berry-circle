@@ -503,3 +503,26 @@ func (repository *Repository) ClaimResumable(ctx context.Context, now time.Time,
 	}
 	return runs, events, nil
 }
+
+// RunCounts is what a workflow page shows beside its definition.
+type RunCounts struct {
+	Total     int
+	Succeeded int
+	Failed    int
+}
+
+// CountRuns tallies a workflow's runs by outcome.
+func (repository *Repository) CountRuns(ctx context.Context, automationID uuid.UUID) (RunCounts, error) {
+	var counts RunCounts
+	if err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT count(*),
+		        count(*) FILTER (WHERE status = 'succeeded'),
+		        count(*) FILTER (WHERE status = 'failed')
+		   FROM automation_runs WHERE automation_id = $1`,
+		automationID,
+	).Scan(&counts.Total, &counts.Succeeded, &counts.Failed); err != nil {
+		return RunCounts{}, errors.New("count automation runs")
+	}
+	return counts, nil
+}

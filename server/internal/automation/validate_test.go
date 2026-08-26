@@ -3,6 +3,7 @@ package automation
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestSampleDefinitionIsValidWithAndWithoutACatalog(t *testing.T) {
@@ -235,5 +236,22 @@ func TestBerryEventVocabularyAcceptsAggregateWildcards(t *testing.T) {
 	if !MatchesBerryEvent("issue.*", "issue.completed") || MatchesBerryEvent("issue.*", "goal.completed") ||
 		!MatchesBerryEvent("goal.completed", "goal.completed") {
 		t.Fatal("MatchesBerryEvent does not honour the wildcard")
+	}
+}
+
+func TestParseDurationReadsTheISOSubset(t *testing.T) {
+	cases := map[string]time.Duration{
+		"PT30M": 30 * time.Minute, "PT4H": 4 * time.Hour, "P7D": 7 * 24 * time.Hour,
+		"P2W": 14 * 24 * time.Hour, "P1DT2H3M4S": 26*time.Hour + 3*time.Minute + 4*time.Second,
+	}
+	for text, want := range cases {
+		if got, ok := ParseDuration(text); !ok || got != want {
+			t.Errorf("ParseDuration(%q) = %v, %v; want %v", text, got, ok, want)
+		}
+	}
+	for _, text := range []string{"", "P", "PT", "30m", "P1Y"} {
+		if _, ok := ParseDuration(text); ok {
+			t.Errorf("ParseDuration(%q) accepted", text)
+		}
 	}
 }

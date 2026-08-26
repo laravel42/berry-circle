@@ -402,8 +402,14 @@ func TestMatchActiveAndTimerResume(t *testing.T) {
 	seeded.activate(t, ctx, repository, wildcard.ID)
 	draft := seeded.create(t, ctx, repository)
 	matched, err := repository.MatchActive(ctx, seeded.workspaceID, "issue.completed")
-	if err != nil || len(matched) != 2 || matched[0].ID != exact.ID || matched[1].ID != wildcard.ID {
-		t.Fatalf("MatchActive(issue.completed) = %+v, %v", matched, err)
+	if err != nil || len(matched) != 2 {
+		t.Fatalf("MatchActive(issue.completed) = %d matches, %v; want the exact and wildcard workflows", len(matched), err)
+	}
+	// Both were created at the same instant, so the (created_at, id) order
+	// between them is whichever id sorts first; assert membership, not order.
+	matchedIDs := map[uuid.UUID]bool{matched[0].ID: true, matched[1].ID: true}
+	if !matchedIDs[exact.ID] || !matchedIDs[wildcard.ID] {
+		t.Fatalf("MatchActive(issue.completed) matched %v, want %s and %s", matchedIDs, exact.ID, wildcard.ID)
 	}
 	for _, item := range matched {
 		if item.ID == draft.ID {

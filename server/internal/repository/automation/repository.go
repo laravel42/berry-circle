@@ -184,6 +184,24 @@ func (repository *Repository) List(
 // Create writes a draft workflow, its first version snapshot and the
 // workflow.created fact in one transaction.
 func (repository *Repository) Create(ctx context.Context, params CreateParams) (Automation, Event, error) {
+	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return Automation{}, Event{}, errors.New("begin automation creation")
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	created, event, err := CreateIn(ctx, tx, params)
+	if err != nil {
+		return Automation{}, Event{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Automation{}, Event{}, errors.New("commit automation creation")
+	}
+	return created, event, nil
+}
+
+// CreateIn is Create inside a caller's transaction, which is how a plan
+// compile writes its workflow drafts beside the goal and issues they serve.
+func CreateIn(ctx context.Context, tx database, params CreateParams) (Automation, Event, error) {
 	if params.ID == uuid.Nil || params.WorkspaceID == uuid.Nil || params.Name == "" ||
 		params.CreatedBy == uuid.Nil || params.CreatedAt.IsZero() {
 		return Automation{}, Event{}, errors.New("automation creation parameters are invalid")
@@ -208,11 +226,6 @@ func (repository *Repository) Create(ctx context.Context, params CreateParams) (
 	if params.Engine == EngineActivepieces {
 		syncStatus = EngineSyncPending
 	}
-	tx, err := repository.Pool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return Automation{}, Event{}, errors.New("begin automation creation")
-	}
-	defer func() { _ = tx.Rollback(context.Background()) }()
 	if _, err := tx.Exec(
 		ctx,
 		`INSERT INTO automations (
@@ -246,9 +259,6 @@ func (repository *Repository) Create(ctx context.Context, params CreateParams) (
 	event, err := writeAutomationEvent(ctx, tx, "workflow.created", created, &core.ActorKey{Type: "user", ID: params.CreatedBy}, params.CreatedAt, newID)
 	if err != nil {
 		return Automation{}, Event{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Automation{}, Event{}, errors.New("commit automation creation")
 	}
 	return created, event, nil
 }
