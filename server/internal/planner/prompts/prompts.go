@@ -12,8 +12,8 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/planner/ir"
 )
 
-//go:embed intent-v1.md
-var intentV1 string
+//go:embed intent-v2.md
+var intentV2 string
 
 //go:embed planner-v1.md
 var plannerV1 string
@@ -56,7 +56,7 @@ func render(text string) string {
 
 // Classifier is the intent extraction prompt.
 func Classifier() Prompt {
-	return Prompt{Role: RoleClassifier, Version: "intent-v1", Text: render(intentV1)}
+	return Prompt{Role: RoleClassifier, Version: "intent-v2", Text: render(intentV2)}
 }
 
 // Planner is the plan generation prompt.
