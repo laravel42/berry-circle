@@ -20,6 +20,28 @@ and known issues.
 
 ### Added
 
+- Planning and workflows, phase 1a (server): goals, plans, approvals and workflows as
+  product state. `GET|POST /api/v1/goals` with lifecycle, issue links, and progress
+  (issues, active workflows, pending approvals); `/api/v1/plans/{id}` read, versions,
+  planner events, validate, approve → transactional compile (goal promoted, issues placed
+  `todo`/`blocked`/`backlog` by rule, labels from required capabilities, dependency edges,
+  `issueStart` gates, workflow drafts), reject, and compile retry; `/api/v1/approvals`
+  list/get/create and approve/reject with the addressee-or-role rule, where approving an
+  `issueStart` gate releases the issue to `todo` (or `blocked` while blockers remain);
+  `/api/v1/workflows` CRUD with definition validation (`DEFINITION_INVALID` JSON-pointer
+  fields), versions, activate/pause as recorded decisions (`CONNECTIONS_MISSING`,
+  `WORKFLOW_ENGINE_DISABLED`, admin-only high risk) and webhook secret rotation;
+  `/api/v1/workflow-runs` list, detail with steps, cancel, and the run ledger SSE stream;
+  `GET /api/v1/events?workspaceId=` replaying goal, workflow, approval, plan, issue, agent
+  and artifact facts; issues gain `goalId`, `goal`/`origin`/`dependsOn`/`blocks`,
+  `/{issueRef}/dependencies` (`DEPENDENCY_CYCLE`) and answer `409 APPROVAL_REQUIRED` with
+  the gating approval id; intake never selects an issue with open blockers; agents gain
+  Berry-authored `skills`, manifest `limits`, `GET /api/v1/agents/capabilities`, and
+  planner role agents are excluded from workspace sync; the inbox learns `approvals`,
+  `goals` and `workflows` categories; Berry's own provider declares its trigger and action
+  tools; `AUTOMATION_*`, `PLANNER_*` and `ACTIVEPIECES_*` configuration and the
+  `planner`/`workflows`/`workflowEngine` capabilities. Execution (dispatcher, scheduler,
+  runner, hooks) follows in phase 1b.
 - Product brief — what Berry is, who it is for, the issue → agent → review product motion,
   Release 1 scope (web app only), and the licensing posture — BERR-9 ([cd882f4]).
 - OpenFang integration spec mapping Berry features to OpenFang endpoints

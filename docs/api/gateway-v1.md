@@ -158,7 +158,7 @@ Validation failures set `details.fields` to an array of field errors:
 | 503 | `DEPENDENCY_UNAVAILABLE` | Runtime dependency is unavailable or timed out |
 | 500 | `INTERNAL` | Unhandled server failure |
 
-Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, and `RUN_TERMINAL`.
+Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_COMPILE_FAILED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, and `WORKFLOW_ENGINE_DISABLED`.
 
 ## Resource schemas
 
@@ -251,6 +251,17 @@ Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRE
 }
 ```
 
+An issue additionally carries its place in a plan:
+
+| Field | Type | Required | Constraints / meaning |
+|---|---|---:|---|
+| `goal` | `{ "id": Uuid, "title": string }` or null | yes | The goal the issue serves (`goal_issues`) |
+| `origin` | `{ "workflowId": Uuid, "workflowRunId": Uuid, "workflowStepRunId": Uuid or null }` or null | yes | The workflow run that created the issue |
+| `dependsOn` | `IssueDependencyRef[]` | yes | Issues that must finish before this one starts |
+| `blocks` | `IssueDependencyRef[]` | yes | Issues waiting on this one |
+
+`IssueDependencyRef` is `{ "id": Uuid, "identifier": string, "title": string, "status": IssueStatus }`. `POST`/`PATCH` bodies accept `goalId` (`Uuid` or null; null unlinks); a goal outside the workspace answers `422 GOAL_NOT_FOUND`. `blocked` is an `IssueStatus`: a compiled issue with open blockers starts there and the dependency release moves it to `todo`.
+
 ### Comment
 
 | Field | Type | Required | Constraints / meaning |
@@ -291,7 +302,9 @@ Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRE
 | `description` | string or null | yes | At most 5,000 characters |
 | `avatarUrl` | string or null | yes | Absolute HTTP(S) URL when present |
 | `status` | `AgentStatus` | yes | Current normalized availability |
-| `capabilities` | string[] | yes | Sorted unique capability identifiers |
+| `capabilities` | string[] | yes | Sorted unique capability identifiers (runtime tool names, overwritten on sync) |
+| `skills` | string[] | yes | Berry-authored capability names in the planner vocabulary (`^[a-z0-9-]{1,50}$`), set through `PUT /agents/{agentId}/config` `skills` |
+| `limits` | `{ "maxTokens": integer or null, "maxLLMTokensPerHour": integer or null }` or null | yes | Manifest limit snapshot refreshed on sync; null when the runtime does not report one |
 | `createdAt` | `Timestamp` | yes | Creation time reported by the runtime adapter |
 | `updatedAt` | `Timestamp` | yes | Last synchronized time |
 
@@ -367,6 +380,110 @@ The gateway MUST NOT expose provider configuration, credentials, system prompts,
   "completedAt": null
 }
 ```
+
+### Goal
+
+`GoalStatus` is one of `draft`, `planned`, `active`, `blocked`, `completed`, `cancelled`. `blocked` is set only by the trigger dispatcher.
+
+| Field | Type | Required | Constraints / meaning |
+|---|---|---:|---|
+| `id` | `Uuid` | yes | |
+| `workspaceId` | `Uuid` | yes | |
+| `projectId` | `Uuid` or null | yes | |
+| `title` | string | yes | 1–500 characters |
+| `description` | string or null | yes | At most 20,000 characters |
+| `status` | `GoalStatus` | yes | |
+| `source` | `manual \| ai` | yes | Who wrote the goal |
+| `sourcePrompt` | string or null | yes | The prompt an AI goal came from |
+| `createdBy` | `ActorRef` or null | yes | |
+| `createdAt`, `updatedAt` | `Timestamp` | yes | |
+| `startedAt`, `completedAt` | `Timestamp` or null | yes | |
+| `progress` | `{ "issuesTotal", "issuesDone", "issuesCancelled", "workflowsActive", "approvalsPending": integer }` | on reads of one goal | Issues linked to the goal, active workflows, pending approvals on the goal or its issues |
+
+### Plan
+
+A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved; approval compiles it. Orchestrator briefs are served by the project routes, not here.
+
+| Field | Type | Required | Constraints / meaning |
+|---|---|---:|---|
+| `id`, `workspaceId` | `Uuid` | yes | |
+| `goalId`, `projectId` | `Uuid` or null | yes | The project is the goal's |
+| `status` | `draft \| pendingApproval \| approved \| rejected \| superseded` | yes | |
+| `source` | `ai \| manual` | yes | |
+| `sourcePrompt` | string or null | yes | |
+| `irVersion` | string or null | yes | `"1"` |
+| `version` | integer | yes | Current IR version; every save appends one |
+| `plannerVersion`, `confidence` | string / number or null | yes | |
+| `generation` | `{ "status": idle \| running \| succeeded \| failed, "error": string or null, "stage": string or null }` | yes | |
+| `validation` | `{ "status": unknown \| valid \| invalid \| blocked, "errors": FieldError[], "warnings": FieldError[], "requiredConnections": [{ "provider", "purpose", "connected" }], "ambiguities": [], "risk": low \| medium \| high, "needsAdminActivation": boolean }` | yes | Errors and warnings are recomputed on every read from the stored IR; `path` values are JSON pointers into `plan` |
+| `critic` | object or null | yes | |
+| `compile` | `{ "status": running \| succeeded \| failed, "error": string or null, "compiledAt": Timestamp or null, "goalId", "issueIds": Uuid[], "workflowIds": Uuid[], "approvalIds": Uuid[] }` or null | yes | Null until a compile was attempted |
+| `plan` | BerryPlan or null | yes | The current IR; after compile it carries `compiled` with the temporary-id map |
+| `createdAt`, `updatedAt` | `Timestamp` | yes | |
+
+### Approval
+
+`ApprovalKind` is one of `plan`, `issueStart`, `workflowActivation`, `workflowStep`, `integrationAction`. `ApprovalStatus` is one of `pending`, `approved`, `rejected`, `expired`.
+
+| Field | Type | Required | Constraints / meaning |
+|---|---|---:|---|
+| `id`, `workspaceId` | `Uuid` | yes | |
+| `kind` | `ApprovalKind` | yes | |
+| `risk` | `low \| medium \| high` | yes | High risk needs `settings.write` to resolve |
+| `title`, `description` | string, string or null | yes | |
+| `goalId`, `planId`, `issueId`, `workflowId`, `workflowRunId`, `workflowStepRunId` | `Uuid` or null | yes | What the approval gates |
+| `issue` | `{ "id", "identifier", "title" }` or null | yes | The gated issue, when any |
+| `requestedFrom` | `{ "userId": Uuid or null, "role": owner \| admin \| member or null }` | yes | The addressee: one person, or anyone holding the role or a stronger one |
+| `requestedBy` | `{ "type": user \| system \| agent, "id": Uuid }` or null | yes | |
+| `status` | `ApprovalStatus` | yes | |
+| `decisionNote`, `resolvedBy` | string or null, `Uuid` or null | yes | |
+| `requestedAt` | `Timestamp` | yes | |
+| `expiresAt`, `resolvedAt` | `Timestamp` or null | yes | |
+
+### Workflow
+
+A workflow (Go and SQL identifiers say `automation`) is a stored `WorkflowDefinition v1`: `{ "version": "1", "trigger": Trigger, "steps": Step[], "entry": [stepId] }`. Step `type` values stay snake_case (`action`, `condition`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`; `switch`, `foreach`, `transform`, `subworkflow` parse but answer `NODE_TYPE_UNSUPPORTED` until their executors land). `WorkflowStatus` is one of `draft`, `active`, `paused`, `archived`.
+
+| Field | Type | Required | Constraints / meaning |
+|---|---|---:|---|
+| `id`, `workspaceId` | `Uuid` | yes | |
+| `projectId`, `goalId` | `Uuid` or null | yes | |
+| `name` | string | yes | 1–200 characters |
+| `description` | string or null | yes | |
+| `status` | `WorkflowStatus` | yes | |
+| `version` | integer | yes | Bumps on every definition change; each version is snapshotted |
+| `revision` | integer | yes | Bumps on every write; `PATCH` must send the revision it read |
+| `definition` | `WorkflowDefinition` | yes | Exactly as validated |
+| `layout` | object | yes | Canvas positions keyed by node id; never business state |
+| `trigger` | `{ "type": integration \| schedule \| manual \| berry_event \| webhook, "provider"?, "operation"?, "event"?, "cron"?, "timezone"? }` | yes | Indexed metadata derived from the definition |
+| `risk` | `low \| medium \| high` | yes | High when a step's tool is destructive or approval-gated |
+| `engine` | `native \| activepieces` | yes | |
+| `activepiecesFlowId` | string | when `engine` is `activepieces` | |
+| `requiredConnections` | `[{ "provider": string, "connected": boolean }]` | yes | Providers whose tools need a workspace connection; Berry's own tools need none |
+| `validation` | `{ "errors": FieldError[], "warnings": FieldError[] }` | yes | Recomputed on every read; paths start with `/definition` |
+| `createdBy` | `{ "type": "user", "id": Uuid }` or null | yes | |
+| `createdAt`, `updatedAt` | `Timestamp` | yes | |
+| `lastRun` | `{ "id", "status", "createdAt" }` or null | yes | |
+| `runCounts` | `{ "total", "succeeded", "failed": integer }` | yes | |
+
+### WorkflowRun
+
+`WorkflowRunStatus` is one of `pending`, `running`, `waiting`, `succeeded`, `failed`, `cancelled`.
+
+| Field | Type | Required | Constraints / meaning |
+|---|---|---:|---|
+| `id`, `workspaceId`, `workflowId` | `Uuid` | yes | |
+| `workflowVersion` | integer | yes | The definition version the run executes |
+| `goalId` | `Uuid` or null | yes | |
+| `status` | `WorkflowRunStatus` | yes | |
+| `triggerType` | string | yes | |
+| `triggerPayload` | object | yes | |
+| `currentStepId`, `waitingOn` | string or null | yes | `waitingOn` is `approval:<id>`, `run:<id>`, `issue:<id>`, `timer` or `event:<topic>` |
+| `failure` | `{ "code", "message" }` or null | yes | |
+| `usage` | `{ "inputTokens", "outputTokens": integer, "costMicros": integer or null }` | yes | Summed inline model usage |
+| `createdAt` | `Timestamp` | yes | |
+| `startedAt`, `completedAt` | `Timestamp` or null | yes | |
+| `steps` | `WorkflowStepRun[]` | on reads of one run | `{ "id", "stepId", "stepType", "attempt", "status", "input", "output", "failure", "runId", "issueId", "approvalId", "usage", "startedAt", "completedAt" }` |
 
 ## Endpoints
 
@@ -464,7 +581,25 @@ Accepts any non-empty subset of `title`, `description`, `status`, `priority`, `s
 - `200`: updated `Issue`
 - `404`: issue or assignee `NOT_FOUND`
 - `409`: `INVALID_STATE_TRANSITION`
-- `422`: `VALIDATION_FAILED`
+- `409`: `APPROVAL_REQUIRED` with `details.approvalId` when the issue's plan or its `issueStart` approval is not approved and the move targets `todo`
+- `422`: `VALIDATION_FAILED`, `GOAL_NOT_FOUND`
+
+#### `GET /api/v1/issues/{issueId}/dependencies`
+
+- `200`: `{ "dependsOn": IssueDependencyRef[], "blocks": IssueDependencyRef[] }`
+
+#### `POST /api/v1/issues/{issueId}/dependencies`
+
+Request `{ "dependsOn": string }` naming the blocking issue by id or identifier. Adding an edge that exists is not an error.
+
+- `201`: the dependency lists
+- `404`: `ISSUE_NOT_FOUND` for a blocker outside the workspace
+- `409`: `DEPENDENCY_CYCLE`
+
+#### `DELETE /api/v1/issues/{issueId}/dependencies/{dependsOnId}`
+
+- `204`
+- `404`: `NOT_FOUND`
 
 ### Comments
 
@@ -533,6 +668,18 @@ Returns agents ordered by `(name ASC, id ASC)`. Supports `first`, `after`, and o
 - `502`: `DEPENDENCY_BAD_RESPONSE`
 - `503`: `DEPENDENCY_UNAVAILABLE`
 
+#### `GET /api/v1/agents/capabilities`
+
+The registry view the planner reads, for the caller's current workspace, from the stored projection (no runtime round trip). Planner role agents Berry provisions are global and never appear here or in `GET /agents`.
+
+- `200`: `{ "nodes": [{ "id", "name", "status", "capabilities": string[] (skills), "tools": string[] (runtime tools), "repositories": string[], "availability": { "eligible": boolean, "activeRuns": integer, "maxConcurrentRuns": 1 }, "limits": { "maxTokens", "maxLLMTokensPerHour" } or null, "costProfile": string or null, "isOrchestrator": boolean, "updatedAt" }] }`
+
+#### `PUT /api/v1/agents/{agentId}/config`
+
+Accepts `instructions`, `description`, `provider` + `model`, and `skills` (string[], at most 50 names matching `^[a-z0-9-]{1,50}$`; replaces the list). Skills are Berry's own vocabulary and never travel to the runtime.
+
+- `400`: `SKILLS_INVALID`
+
 ### Runs
 
 #### `GET /api/v1/boards/{boardId}/runs`
@@ -589,6 +736,204 @@ Requests cancellation. The operation is idempotent while cancellation is pending
 - `409 RUN_TERMINAL`: run already succeeded or failed
 - `503`: dependency unavailable; run remains in its prior state
 
+### Goals
+
+Every creating `POST` requires `Idempotency-Key`. Reads need `product.read`, writes `product.write`, deletion `settings.write`.
+
+#### `GET /api/v1/goals`
+
+Query `workspaceId` (required), `query`, `status`, `projectId`, `first`, `after`. Ordered by `(updatedAt DESC, id DESC)`.
+
+- `200`: connection of `Goal` (without `progress`)
+
+#### `POST /api/v1/goals`
+
+Request `{ "workspaceId", "title", "description"?, "projectId"? }`.
+
+- `201`: `Goal`; `Location: /api/v1/goals/{id}`
+- `422`: `VALIDATION_FAILED`, `PROJECT_NOT_FOUND`
+
+#### `GET /api/v1/goals/{goalId}`
+
+- `200`: `Goal` with `progress`
+
+#### `PATCH /api/v1/goals/{goalId}`
+
+Any non-empty subset of `title`, `description`, `status`, `projectId`. Status follows `draft → planned → active → completed | cancelled`; `blocked` cannot be requested.
+
+- `200`: `Goal` with `progress`
+- `422`: `VALIDATION_FAILED`, `GOAL_TRANSITION_INVALID` with `details.from`/`details.to`
+
+#### `DELETE /api/v1/goals/{goalId}`
+
+Archives the goal; its issues keep their links. `settings.write`.
+
+- `204`
+
+#### `GET /api/v1/goals/{goalId}/issues`, `/workflows`, `/approvals`, `/plans`
+
+- `200`: `{ "nodes": [...] }` summaries
+
+#### `PUT` / `DELETE /api/v1/goals/{goalId}/issues/{issueId}`
+
+Links or unlinks an issue (id or identifier) in the goal's workspace. An issue belongs to at most one goal.
+
+- `204`
+
+### Plans
+
+Generated plans only. Mutating routes answer `403 PLAN_FORBIDDEN` for viewers.
+
+#### `GET /api/v1/plans/{planId}`
+
+- `200`: `Plan`
+
+#### `GET /api/v1/plans/{planId}/versions`
+
+- `200`: `{ "nodes": [{ "id", "version", "origin", "plan", "validation", "critic", "patch", "createdBy", "createdAt" }] }`
+
+#### `GET /api/v1/plans/{planId}/events`
+
+Pipeline stage records: counts, codes and ids only, never prompts.
+
+- `200`: `{ "nodes": [{ "id", "sequence", "stage", "role", "promptVersion", "modelProvider", "modelName", "inputTokens", "outputTokens", "costMicros", "durationMs", "outcome", "detail", "occurredAt" }] }`
+
+#### `POST /api/v1/plans/{planId}/validate`
+
+Re-runs the deterministic checks on the stored IR and records the verdict.
+
+- `200`: `Plan`
+
+#### `POST /api/v1/plans/{planId}/approve`
+
+Start Plan. Request `{ "note"? }`, `Idempotency-Key` required. Compiles the plan in one transaction: the goal is promoted to `planned`, issues are created in dependency order (`todo`; `blocked` when they depend on another issue; `backlog` with an `issueStart` approval when they require approval or match the destructive-action policy), required capabilities become labels, `goal_issues`, dependency edges and workflow drafts are written, and every fact is published. A member approving a plan whose `validation.risk` is `high` does not compile: the plan enters `pendingApproval` with a `plan` approval addressed to admins. Approving a compiled plan again is a no-op.
+
+- `200`: `Plan` with `compile.status = "succeeded"`
+- `202`: `Plan` with `status = "pendingApproval"`
+- `409`: `PLAN_INVALID` (`details.fields`), `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_COMPILE_FAILED` with `details.stage`/`details.message` (the plan stays `approved` with `compile.status = "failed"`; retry with `POST /compile`)
+
+#### `POST /api/v1/plans/{planId}/compile`
+
+Retries a failed compile. Same responses as approve, never `202`.
+
+#### `POST /api/v1/plans/{planId}/reject`
+
+Request `{ "note"? }`. Closes an open plan; a draft AI goal the plan created with no issues is archived with it.
+
+- `200`: `Plan`
+- `409`: `PLAN_NOT_OPEN`
+
+### Approvals
+
+#### `GET /api/v1/approvals`
+
+Query `workspaceId` (required), `status`, `kind`, `goalId`, `issueId`, `workflowId`, `mine` (true returns the pending approvals the caller may resolve), `first`, `after`. Ordered by `(requestedAt DESC, id DESC)`.
+
+- `200`: connection of `Approval`
+
+#### `POST /api/v1/approvals`
+
+Opens a manual gate. Request `{ "workspaceId", "kind": "issueStart", "issueId", "title", "description"?, "requestedFromUserId"? | "requestedFromRole"?, "risk"?, "expiresAt"? }`; without an addressee the gate is addressed to admins. `Idempotency-Key` required.
+
+- `201`: `Approval`; `Location: /api/v1/approvals/{id}`
+- `409`: `CONFLICT` when the issue already has a pending gate
+
+#### `GET /api/v1/approvals/{approvalId}`
+
+- `200`: `Approval`
+
+#### `POST /api/v1/approvals/{approvalId}/approve`, `/reject`
+
+Request `{ "note"? }`, `Idempotency-Key` required. The caller must be the addressee, or hold the addressed role or a stronger one; `risk = high` additionally needs `settings.write`. Approving an `issueStart` gate releases the issue from `backlog` to `todo`, or to `blocked` while issues it depends on are still open. Resolution is the only path that moves a gated issue: a direct status write is refused by the database.
+
+- `200`: `Approval`
+- `403`: `FORBIDDEN` with `details.reason` `not_addressee` or `admin_required`
+- `409`: `APPROVAL_RESOLVED`, `APPROVAL_REQUIRED` (another gate still holds the issue)
+
+### Workflows
+
+`/api/v1/workflows` serves workflows; the product noun is Workflow, the storage noun automation.
+
+#### `GET /api/v1/workflows`
+
+Query `workspaceId` (required), `status`, `triggerType`, `goalId`, `projectId`, `query`, `first`, `after`. Archived workflows are excluded. Ordered by `(updatedAt DESC, id DESC)`.
+
+- `200`: connection of `Workflow`
+
+#### `POST /api/v1/workflows`
+
+Request `{ "workspaceId", "name", "description"?, "projectId"?, "goalId"?, "definition": WorkflowDefinition, "layout"? }`. The definition is parsed strictly and validated against the workspace's tool catalog; a missing connection is a warning on a draft.
+
+- `201`: `Workflow` (status `draft`); `Location: /api/v1/workflows/{id}`
+- `422`: `VALIDATION_FAILED`; `DEFINITION_INVALID` with `details.fields[]` of `{ "path": "/definition/…", "code", "message", "severity", "hint"? }`
+
+#### `GET /api/v1/workflows/{workflowId}`
+
+- `200`: `Workflow`
+
+#### `PATCH /api/v1/workflows/{workflowId}`
+
+Request any of `name`, `description`, `definition`, `layout`, `goalId`, `projectId`, plus the required `revision`. A definition change bumps `version` and is allowed only while `draft` or `paused`.
+
+- `200`: `Workflow`
+- `409`: `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`
+- `422`: `VALIDATION_FAILED`, `DEFINITION_INVALID`
+
+#### `DELETE /api/v1/workflows/{workflowId}`
+
+Archives; runs and versions stay readable.
+
+- `204`
+
+#### `POST /api/v1/workflows/{workflowId}/activate`
+
+Validates with every required connection present and records the activation. A `risk = high` workflow needs `settings.write`. Triggers start with the status once native execution lands; until then activation is the recorded decision.
+
+- `200`: `Workflow`
+- `403`: `FORBIDDEN` with `details.reason = "destructive_actions"`
+- `409`: `WORKFLOW_ENGINE_DISABLED` for `engine = activepieces` without a configured engine
+- `422`: `CONNECTIONS_MISSING` with `details.providers`; `DEFINITION_INVALID`
+
+#### `POST /api/v1/workflows/{workflowId}/pause`
+
+- `200`: `Workflow`
+- `409`: `WORKFLOW_NOT_ACTIVE`
+
+#### `GET /api/v1/workflows/{workflowId}/runs`
+
+Query `status`, `first`, `after`.
+
+- `200`: connection of `WorkflowRun` (without `steps`)
+
+#### `GET /api/v1/workflows/{workflowId}/versions`
+
+- `200`: `{ "nodes": [{ "id", "version", "definition", "createdBy", "createdAt" }] }`
+
+#### `POST /api/v1/workflows/{workflowId}/webhook`
+
+Rotates the hook token (`settings.write`). Only its digest is stored; the deliveries route lands with execution.
+
+- `200`: `{ "url": "/api/v1/hooks/workflows/{id}/{token}", "secret": string }` returned once
+
+### Workflow runs
+
+#### `GET /api/v1/workflow-runs`
+
+Query `workspaceId` (required), `status`, `workflowId`, `first`, `after`. Ordered by `(createdAt DESC, id DESC)`.
+
+- `200`: connection of `WorkflowRun` (without `steps`)
+
+#### `GET /api/v1/workflow-runs/{runId}`
+
+- `200`: `WorkflowRun` with `steps`
+
+#### `POST /api/v1/workflow-runs/{runId}/cancel`
+
+`runs.dispatch`.
+
+- `200`: `WorkflowRun`
+- `409`: `RUN_TERMINAL`
+
 ## SSE contracts
 
 ### Stream endpoints
@@ -597,11 +942,19 @@ Requests cancellation. The operation is idempotent while cancellation is pending
 
 Replays and follows one run. The client may send `Last-Event-ID` or `after` (opaque event cursor); supplying both returns `400 INVALID_REQUEST`.
 
+#### `GET /api/v1/workflow-runs/{runId}/events`
+
+Replays and follows one workflow run through its own ledger. Same cursor rules as the run stream. Frames carry `{ "id", "type", "occurredAt", "workspaceId", "workflowId", "workflowRunId", "stepId"?, "sequence", "payload" }`; the stream terminates after `workflow.run.succeeded`, `workflow.run.failed` or `workflow.run.cancelled`. Sequences start at 0.
+
 #### `GET /api/v1/events`
 
-Follows board-level product changes. Required query parameter `boardId`; optional `after` cursor. This stream emits every `issue.*` mutation on the board — whether a person, a batch edit, project planning or a run made it — plus `comment.created` and the run lifecycle events for issues on that board. Replay filters on the event's stored board scope, so a comment posted by a run and a comment posted by a person appear on the same stream.
+Follows product changes in one scope. Exactly one of `boardId` or `workspaceId` is required (both or neither is `400 INVALID_REQUEST`); optional `after` cursor.
 
-Both endpoints:
+With `boardId`, the stream emits every `issue.*` mutation on the board — whether a person, a batch edit, project planning or a run made it — plus `comment.created` and the run lifecycle events for issues on that board. Replay filters on the event's stored board scope, so a comment posted by a run and a comment posted by a person appear on the same stream.
+
+With `workspaceId` (`product.read`), the stream replays the facts that belong to no board beside the workspace-wide issue and agent moments: `goal.*`, `workflow.*` (definitions, runs and steps), `approval.*`, `plan.*`, `issue.created`, `issue.completed`, `issue.deleted`, `agent.*` and `artifact.created`. Frames use the same envelope with `boardId` and `issueId` null when the aggregate has none. A cursor from one scope is refused on the other.
+
+All three endpoints:
 
 - return `200 Content-Type: text/event-stream; charset=utf-8` and `Cache-Control: no-cache, no-transform`;
 - send a `retry: 3000` directive at connection start;
@@ -659,6 +1012,12 @@ Run sequences start at 0 and MUST be contiguous in the persisted stream. Deliver
 | `issue.completed` | `IssueMutation` | Emitted beside `issue.updated` when `status` moved to `done` |
 | `issue.deleted` | `IssueMutation` | Soft delete; the `issue` snapshot is the row as it was |
 | `comment.created` | `{ "comment": Comment }` | `runId` is the authoring run when applicable |
+| `goal.created`, `goal.updated`, `goal.started`, `goal.completed`, `goal.cancelled`, `goal.archived` | `{ "goal": Goal, "changedFields": string[], "actor"? }` | Workspace stream; `goal.archived` is a topic no consumer dispatches or projects on |
+| `approval.requested`, `approval.approved`, `approval.rejected`, `approval.expired` | `{ "approval": Approval, "issueId"?, "actor"? }` | On the board stream too when the approval gates an issue |
+| `workflow.created`, `workflow.activated`, `workflow.paused`, `workflow.archived` | `{ "workflow": { "id", "workspaceId", "projectId", "goalId", "name", "status", "version", "revision", "triggerType", "risk", "engine", "updatedAt" }, "actor"? }` | Workspace stream |
+| `workflow.run.started`, `workflow.run.waiting`, `workflow.run.resumed`, `workflow.run.succeeded`, `workflow.run.failed`, `workflow.run.cancelled` | `{ "workflowId", "workflowRunId", "stepId"?, "waitingOn"?, "run": WorkflowRun summary, "actor"? }` | Also on the run's own ledger stream with `sequence` |
+| `workflow.step.started`, `workflow.step.succeeded`, `workflow.step.failed`, `workflow.step.skipped`, `workflow.step.waiting` | `{ "workflowId", "workflowRunId", "stepId", "waitingOn"?, "step": WorkflowStepRun summary }` | Input and output are omitted from the frame |
+| `plan.approved`, `plan.compiled`, `plan.compile_failed` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, ... }` | `plan.compiled` carries `compiled` (the id map); `plan.compile_failed` carries `stage` and `message`. `plan.generated`, `plan.updated`, `plan.blocked`, `plan.patched` arrive with the planner |
 
 `IssueMutation` is `{ "issue": Issue, "changedFields": string[], "previousStatus"?: IssueStatus, "actor"?: { "type": "user" | "agent", "id": Uuid } }`. `changedFields` is empty for `issue.created` and `issue.deleted`; `previousStatus` is present only when `status` changed; `actor` is the user who made the change and is absent when a run made it. The derived topics (`assigned`, `started`, `completed`) carry the same payload as the `issue.updated` they accompany and are ordered after it.
 
@@ -705,8 +1064,8 @@ These do not weaken the wire contract above, but require a product decision befo
 
 ## Contract self-check
 
-- Resource shapes: `Board`, `Issue`, `Comment`, `Agent`, and `Run` are defined with constraints and JSON examples.
+- Resource shapes: `Board`, `Issue`, `Comment`, `Agent`, `Run`, `Goal`, `Plan`, `Approval`, `Workflow`, and `WorkflowRun` are defined with constraints; the first five with JSON examples.
 - Pagination: connection envelope, cursor rules, limits, stable ordering, invalid and expired cursor behavior are defined.
 - Errors: one stable envelope, validation details, HTTP mappings, and domain codes are defined.
-- SSE: endpoints, reconnection/replay behavior, envelope, ordering/deduplication, redaction rules, event types, payload shapes, and examples are defined.
+- SSE: endpoints (run, workflow run, board and workspace scopes), reconnection/replay behavior, envelope, ordering/deduplication, redaction rules, event types, payload shapes, and examples are defined.
 - Versioning, authentication, authorization, idempotency, status codes, and implementation gaps are explicit.

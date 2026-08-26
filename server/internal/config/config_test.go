@@ -206,3 +206,44 @@ func TestLoadRejectsUnsafeRealtimeRelayConfiguration(t *testing.T) {
 		}
 	}
 }
+
+// Workflow and planner keys parse with their documented defaults, planner
+// roles fall back to the orchestrator pair, and the bounded knobs refuse
+// values outside their range.
+func TestWorkflowAndPlannerKeysParseWithDefaultsAndBounds(t *testing.T) {
+	cfg, err := Load(map[string]string{"ORCHESTRATOR_PROVIDER": "openrouter", "ORCHESTRATOR_MODEL": "anthropic/claude-sonnet-4"})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.AutomationEnabled || cfg.AutomationSchedulerInterval != 30*time.Second || cfg.AutomationMaxConcurrent != 16 ||
+		cfg.AutomationInlineAgentTimeout != 10*time.Minute {
+		t.Fatalf("automation defaults = %+v", cfg)
+	}
+	if !cfg.PlannerEnabled || cfg.PlannerProvider != "openrouter" || cfg.CriticModel != "anthropic/claude-sonnet-4" ||
+		cfg.ClassifierProvider != "openrouter" || cfg.PlannerMaxOutputTokens != 16384 || cfg.PlannerTimeout != 4*time.Minute ||
+		cfg.PlannerMaxRepairs != 3 || cfg.PlannerMaxCriticRounds != 1 || cfg.PlannerContextBudgetBytes != 49152 {
+		t.Fatalf("planner defaults = %+v", cfg)
+	}
+	if cfg.ActivepiecesEnabled || cfg.SafeSummary()["plannerEnabled"] != true || cfg.SafeSummary()["activepiecesEnabled"] != false {
+		t.Fatalf("engine defaults = %+v", cfg.SafeSummary())
+	}
+	// Without any model the planner is off by default and cannot be forced on.
+	off, err := Load(map[string]string{})
+	if err != nil || off.PlannerEnabled {
+		t.Fatalf("planner without models = %v, %v", off.PlannerEnabled, err)
+	}
+	if _, err := Load(map[string]string{"PLANNER_ENABLED": "true"}); err == nil {
+		t.Fatal("PLANNER_ENABLED without a model was accepted")
+	}
+	for key, bad := range map[string]string{
+		"PLANNER_MAX_REPAIRS": "6", "PLANNER_MAX_CRITIC_ROUNDS": "3", "AUTOMATION_MAX_CONCURRENT": "0",
+		"PLANNER_MAX_OUTPUT_TOKENS": "100", "ACTIVEPIECES_ENABLED": "maybe",
+	} {
+		if _, err := Load(map[string]string{key: bad}); err == nil {
+			t.Errorf("%s=%s was accepted", key, bad)
+		}
+	}
+	if _, err := Load(map[string]string{"ACTIVEPIECES_ENABLED": "true"}); err == nil {
+		t.Fatal("ACTIVEPIECES_ENABLED without its settings was accepted")
+	}
+}

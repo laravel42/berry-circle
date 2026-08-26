@@ -112,6 +112,50 @@ type Config struct {
 	// user-to-server token reads only public repositories, and the install link
 	// is the fix — so the slug is worth carrying just to be able to show it.
 	GitHubAppSlug string
+
+	// Workflows (Go noun: automation) run natively through the in-process
+	// runner or Temporal. Disabled leaves the routes readable and refuses
+	// activation; the dispatcher and scheduler land with execution.
+	AutomationEnabled            bool
+	AutomationSchedulerInterval  time.Duration
+	AutomationMaxConcurrent      int
+	AutomationInlineAgentTimeout time.Duration
+
+	// The planner turns a prompt into a plan through lean role agents Berry
+	// provisions on the runtime. Every role falls back to the orchestrator
+	// model; when none resolves the planner is disabled and the plan routes
+	// answer PLANNER_UNAVAILABLE. Parsed here so a deployment can be
+	// configured ahead of the planner landing.
+	PlannerEnabled            bool
+	PlannerProvider           string
+	PlannerModel              string
+	RepairProvider            string
+	RepairModel               string
+	CriticProvider            string
+	CriticModel               string
+	ClassifierProvider        string
+	ClassifierModel           string
+	PlannerMaxOutputTokens    int
+	PlannerTimeout            time.Duration
+	PlannerMaxRepairs         int
+	PlannerMaxCriticRounds    int
+	PlannerContextBudgetBytes int
+
+	// Activepieces is the optional external workflow engine behind the
+	// automation.Engine seam (D2). Off by default and fail-closed: an
+	// unconfigured engine answers WORKFLOW_ENGINE_DISABLED.
+	ActivepiecesEnabled         bool
+	ActivepiecesBaseURL         string
+	ActivepiecesAPIKey          string
+	ActivepiecesProjectID       string
+	ActivepiecesWebhookSecret   string
+	ActivepiecesCallbackBaseURL string
+	ActivepiecesRequired        bool
+
+	// Provider webhook secrets for the inbound ingestors.
+	GitHubWebhookSecret string
+	SlackSigningSecret  string
+	LinearWebhookSecret string
 }
 
 // Load reads and validates an environment map. Errors identify fields without
@@ -407,6 +451,83 @@ func Load(env map[string]string) (Config, error) {
 		}
 	}
 
+	cfg.AutomationEnabled = boolean(env, "AUTOMATION_ENABLED", true, &problems)
+	cfg.AutomationSchedulerInterval = duration(env, "AUTOMATION_SCHEDULER_INTERVAL", 30*time.Second, &problems)
+	if cfg.AutomationSchedulerInterval < time.Second || cfg.AutomationSchedulerInterval > time.Hour {
+		problems = append(problems, "AUTOMATION_SCHEDULER_INTERVAL")
+	}
+	cfg.AutomationMaxConcurrent = positiveInt(env, "AUTOMATION_MAX_CONCURRENT", 16, &problems)
+	if cfg.AutomationMaxConcurrent > 1000 {
+		problems = append(problems, "AUTOMATION_MAX_CONCURRENT")
+	}
+	cfg.AutomationInlineAgentTimeout = duration(env, "AUTOMATION_INLINE_AGENT_TIMEOUT", 10*time.Minute, &problems)
+	if cfg.AutomationInlineAgentTimeout < 10*time.Second || cfg.AutomationInlineAgentTimeout > 2*time.Hour {
+		problems = append(problems, "AUTOMATION_INLINE_AGENT_TIMEOUT")
+	}
+
+	// Each role falls back to the orchestrator pair so a deployment that
+	// configured one model gets a working planner without four more keys.
+	cfg.PlannerProvider = value(env, "PLANNER_PROVIDER", cfg.OrchestratorProvider)
+	cfg.PlannerModel = value(env, "PLANNER_MODEL", cfg.OrchestratorModel)
+	cfg.RepairProvider = value(env, "REPAIR_PROVIDER", cfg.PlannerProvider)
+	cfg.RepairModel = value(env, "REPAIR_MODEL", cfg.PlannerModel)
+	cfg.CriticProvider = value(env, "CRITIC_PROVIDER", cfg.PlannerProvider)
+	cfg.CriticModel = value(env, "CRITIC_MODEL", cfg.PlannerModel)
+	cfg.ClassifierProvider = value(env, "CLASSIFIER_PROVIDER", cfg.PlannerProvider)
+	cfg.ClassifierModel = value(env, "CLASSIFIER_MODEL", cfg.PlannerModel)
+	plannerConfigured := strings.TrimSpace(cfg.PlannerProvider) != "" && strings.TrimSpace(cfg.PlannerModel) != ""
+	cfg.PlannerEnabled = boolean(env, "PLANNER_ENABLED", plannerConfigured, &problems)
+	if cfg.PlannerEnabled && !plannerConfigured {
+		problems = append(problems, "PLANNER_ENABLED (requires PLANNER_PROVIDER and PLANNER_MODEL, or ORCHESTRATOR_*)")
+	}
+	// 4096, the runtime default, truncates a plan of any size.
+	cfg.PlannerMaxOutputTokens = positiveInt(env, "PLANNER_MAX_OUTPUT_TOKENS", 16384, &problems)
+	if cfg.PlannerMaxOutputTokens < 1024 || cfg.PlannerMaxOutputTokens > 200_000 {
+		problems = append(problems, "PLANNER_MAX_OUTPUT_TOKENS")
+	}
+	cfg.PlannerTimeout = duration(env, "PLANNER_TIMEOUT", 4*time.Minute, &problems)
+	if cfg.PlannerTimeout < 30*time.Second || cfg.PlannerTimeout > time.Hour {
+		problems = append(problems, "PLANNER_TIMEOUT")
+	}
+	cfg.PlannerMaxRepairs = boundedInt(env, "PLANNER_MAX_REPAIRS", 3, 0, 5, &problems)
+	cfg.PlannerMaxCriticRounds = boundedInt(env, "PLANNER_MAX_CRITIC_ROUNDS", 1, 0, 2, &problems)
+	cfg.PlannerContextBudgetBytes = positiveInt(env, "PLANNER_CONTEXT_BUDGET_BYTES", 49152, &problems)
+	if cfg.PlannerContextBudgetBytes < 4096 || cfg.PlannerContextBudgetBytes > 1<<20 {
+		problems = append(problems, "PLANNER_CONTEXT_BUDGET_BYTES")
+	}
+
+	cfg.ActivepiecesEnabled = boolean(env, "ACTIVEPIECES_ENABLED", false, &problems)
+	cfg.ActivepiecesRequired = boolean(env, "ACTIVEPIECES_REQUIRED", false, &problems)
+	cfg.ActivepiecesBaseURL = strings.TrimSpace(env["ACTIVEPIECES_BASE_URL"])
+	cfg.ActivepiecesAPIKey = strings.TrimSpace(env["ACTIVEPIECES_API_KEY"])
+	cfg.ActivepiecesProjectID = strings.TrimSpace(env["ACTIVEPIECES_PROJECT_ID"])
+	cfg.ActivepiecesWebhookSecret = strings.TrimSpace(env["ACTIVEPIECES_WEBHOOK_SECRET"])
+	cfg.ActivepiecesCallbackBaseURL = strings.TrimSpace(env["ACTIVEPIECES_CALLBACK_BASE_URL"])
+	if cfg.ActivepiecesRequired && !cfg.ActivepiecesEnabled {
+		problems = append(problems, "ACTIVEPIECES_REQUIRED (requires ACTIVEPIECES_ENABLED)")
+	}
+	if cfg.ActivepiecesEnabled {
+		if !safeHTTPURL(cfg.ActivepiecesBaseURL) {
+			problems = append(problems, "ACTIVEPIECES_BASE_URL")
+		}
+		if cfg.ActivepiecesAPIKey == "" {
+			problems = append(problems, "ACTIVEPIECES_API_KEY")
+		}
+		if cfg.ActivepiecesProjectID == "" {
+			problems = append(problems, "ACTIVEPIECES_PROJECT_ID")
+		}
+		// Run-state callbacks create runs; a short secret is a guessable one.
+		if len(cfg.ActivepiecesWebhookSecret) < 16 {
+			problems = append(problems, "ACTIVEPIECES_WEBHOOK_SECRET")
+		}
+		if !safeHTTPURL(cfg.ActivepiecesCallbackBaseURL) {
+			problems = append(problems, "ACTIVEPIECES_CALLBACK_BASE_URL")
+		}
+	}
+	cfg.GitHubWebhookSecret = strings.TrimSpace(env["GITHUB_WEBHOOK_SECRET"])
+	cfg.SlackSigningSecret = strings.TrimSpace(env["SLACK_SIGNING_SECRET"])
+	cfg.LinearWebhookSecret = strings.TrimSpace(env["LINEAR_WEBHOOK_SECRET"])
+
 	if len(problems) > 0 {
 		return Config{}, fmt.Errorf(
 			"invalid environment configuration: %s",
@@ -445,7 +566,29 @@ func (cfg Config) SafeSummary() map[string]any {
 		"storageBackend":         cfg.StorageBackend,
 		"s3EndpointConfigured":   cfg.S3Endpoint != "",
 		"openFangConfigured":     cfg.OpenFangBaseURL != "",
+		"plannerEnabled":         cfg.PlannerEnabled,
+		"automationEnabled":      cfg.AutomationEnabled,
+		"activepiecesEnabled":    cfg.ActivepiecesEnabled,
 	}
+}
+
+// boundedInt reads a non-negative integer inside [minimum, maximum].
+func boundedInt(
+	env map[string]string,
+	key string,
+	fallback, minimum, maximum int,
+	problems *[]string,
+) int {
+	raw, ok := env[key]
+	if !ok || strings.TrimSpace(raw) == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || parsed < minimum || parsed > maximum {
+		*problems = append(*problems, key)
+		return fallback
+	}
+	return parsed
 }
 
 // value resolves a setting that has a meaningful default.

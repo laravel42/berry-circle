@@ -18,22 +18,28 @@ import (
 
 	"github.com/laravel42/berry-circle/server/internal/artifacts"
 	coreauth "github.com/laravel42/berry-circle/server/internal/auth"
+	"github.com/laravel42/berry-circle/server/internal/automation"
 	"github.com/laravel42/berry-circle/server/internal/cache"
 	"github.com/laravel42/berry-circle/server/internal/config"
 	"github.com/laravel42/berry-circle/server/internal/database"
 	agenthandlers "github.com/laravel42/berry-circle/server/internal/handlers/agents"
+	approvalhandlers "github.com/laravel42/berry-circle/server/internal/handlers/approvals"
 	"github.com/laravel42/berry-circle/server/internal/handlers/attachments"
 	authhandlers "github.com/laravel42/berry-circle/server/internal/handlers/auth"
+	automationrunhandlers "github.com/laravel42/berry-circle/server/internal/handlers/automationruns"
+	automationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/automations"
 	"github.com/laravel42/berry-circle/server/internal/handlers/boards"
 	cataloghandlers "github.com/laravel42/berry-circle/server/internal/handlers/catalog"
 	channelhandlers "github.com/laravel42/berry-circle/server/internal/handlers/channels"
 	"github.com/laravel42/berry-circle/server/internal/handlers/comments"
 	conversationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/conversations"
 	eventhandlers "github.com/laravel42/berry-circle/server/internal/handlers/events"
+	goalhandlers "github.com/laravel42/berry-circle/server/internal/handlers/goals"
 	identityhandlers "github.com/laravel42/berry-circle/server/internal/handlers/identity"
 	integrationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/integrations"
 	"github.com/laravel42/berry-circle/server/internal/handlers/issues"
 	p2handlers "github.com/laravel42/berry-circle/server/internal/handlers/p2"
+	planhandlers "github.com/laravel42/berry-circle/server/internal/handlers/plans"
 	platformhandlers "github.com/laravel42/berry-circle/server/internal/handlers/platform"
 	"github.com/laravel42/berry-circle/server/internal/handlers/projects"
 	"github.com/laravel42/berry-circle/server/internal/handlers/reactions"
@@ -54,11 +60,15 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/platform"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
+	automationrepo "github.com/laravel42/berry-circle/server/internal/repository/automation"
 	collabrepo "github.com/laravel42/berry-circle/server/internal/repository/collaboration"
 	conversationrepo "github.com/laravel42/berry-circle/server/internal/repository/conversations"
 	corerepo "github.com/laravel42/berry-circle/server/internal/repository/core"
+	goalrepo "github.com/laravel42/berry-circle/server/internal/repository/goals"
 	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	p2repo "github.com/laravel42/berry-circle/server/internal/repository/p2"
+	planrepo "github.com/laravel42/berry-circle/server/internal/repository/plans"
 	projectrepo "github.com/laravel42/berry-circle/server/internal/repository/projects"
 	"github.com/laravel42/berry-circle/server/internal/secrets"
 	p2service "github.com/laravel42/berry-circle/server/internal/service/p2"
@@ -337,6 +347,9 @@ func run() int {
 			Realtime:       true,
 			Storage:        true,
 			Valkey:         valkeyClient != nil,
+			Planner:        cfg.PlannerEnabled,
+			Workflows:      cfg.AutomationEnabled,
+			WorkflowEngine: cfg.ActivepiecesEnabled,
 		},
 	}) {
 		if err := routes.Register(mount); err != nil {
@@ -892,6 +905,20 @@ func run() int {
 			logger.Error("comment route setup failed", "error", err)
 			return 1
 		}
+		// The provider registry exists whether or not integrations are
+		// configured: workflow validation asks it which tools exist, and
+		// Berry's own provider needs no connection at all.
+		providerRegistry := integrationcore.NewRegistry()
+		for _, provider := range append(providers.All(), providers.Berry{}) {
+			if err := providerRegistry.Register(provider); err != nil {
+				closeRunRoutes(runRoutes, logger)
+				_ = realtimeManager.Close()
+				closeValkey(valkeyClient)
+				closeDatabase(dbPool)
+				logger.Error("integration provider registration failed", "error", err)
+				return 1
+			}
+		}
 		// Integrations are mounted only when a sealing key is configured. The
 		// same reasoning as the channel webhook below: a deployment that cannot
 		// encrypt provider credentials must not expose the routes that collect
@@ -899,17 +926,6 @@ func run() int {
 		var integrationMounts []httpapi.Mount
 		if cfg.IntegrationsEnabled {
 			integrationStore := integrationCredentials
-			providerRegistry := integrationcore.NewRegistry()
-			for _, provider := range providers.All() {
-				if err := providerRegistry.Register(provider); err != nil {
-					closeRunRoutes(runRoutes, logger)
-					_ = realtimeManager.Close()
-					closeValkey(valkeyClient)
-					closeDatabase(dbPool)
-					logger.Error("integration provider registration failed", "error", err)
-					return 1
-				}
-			}
 			integrationMount, err := integrationhandlers.NewMount(integrationhandlers.Options{
 				Store:           integrationStore,
 				Credentials:     integrationStore,
@@ -933,6 +949,155 @@ func run() int {
 			}
 			integrationMounts = append(integrationMounts, integrationMount)
 		}
+		// Planning and workflows (P1a): goals, plans, approvals, workflow
+		// definitions and the read-only run ledger. Nothing executes yet: the
+		// dispatcher, scheduler and runner land with P1b, and the external
+		// engine stays the fail-closed NoopEngine until one is configured, so
+		// activation records a decision rather than starting triggers.
+		goalStore, err := goalrepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("goal store setup failed", "error", err)
+			return 1
+		}
+		approvalStore, err := approvalrepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("approval store setup failed", "error", err)
+			return 1
+		}
+		automationStore, err := automationrepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("automation store setup failed", "error", err)
+			return 1
+		}
+		planStore, err := planrepo.New(dbPool)
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("plan store setup failed", "error", err)
+			return 1
+		}
+		var workflowEngine automation.Engine = automation.NoopEngine{}
+		var connectionReader automationhandlers.ConnectionReader
+		if integrationCredentials != nil {
+			connectionReader = integrationCredentials
+		}
+		goalMount, err := goalhandlers.NewMount(goalhandlers.Options{
+			Pool:             dbPool,
+			Store:            goalStore,
+			Issues:           coreStore,
+			Automations:      automationStore,
+			Approvals:        approvalStore,
+			Plans:            planStore,
+			Sessions:         authenticator,
+			Authorization:    identityService,
+			Clock:            time.Now,
+			NewID:            uuid.New,
+			IdempotencyStore: idempotencyStore,
+			Broadcaster:      realtimeManager,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("goal route setup failed", "error", err)
+			return 1
+		}
+		approvalMount, err := approvalhandlers.NewMount(approvalhandlers.Options{
+			Pool:             dbPool,
+			Store:            approvalStore,
+			Sessions:         authenticator,
+			Authorization:    identityService,
+			Clock:            time.Now,
+			NewID:            uuid.New,
+			IdempotencyStore: idempotencyStore,
+			Broadcaster:      realtimeManager,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("approval route setup failed", "error", err)
+			return 1
+		}
+		workflowMount, err := automationhandlers.NewMount(automationhandlers.Options{
+			Pool:             dbPool,
+			Store:            automationStore,
+			Registry:         providerRegistry,
+			Connections:      connectionReader,
+			Engine:           workflowEngine,
+			Sessions:         authenticator,
+			Authorization:    identityService,
+			Clock:            time.Now,
+			NewID:            uuid.New,
+			IdempotencyStore: idempotencyStore,
+			Broadcaster:      realtimeManager,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("workflow route setup failed", "error", err)
+			return 1
+		}
+		workflowRunMount, err := automationrunhandlers.NewMount(automationrunhandlers.Options{
+			Pool:          dbPool,
+			Store:         automationStore,
+			Sessions:      authenticator,
+			Authorization: identityService,
+			Clock:         time.Now,
+			NewID:         uuid.New,
+			Broadcaster:   realtimeManager,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("workflow run route setup failed", "error", err)
+			return 1
+		}
+		planMount, err := planhandlers.NewMount(planhandlers.Options{
+			Pool:             dbPool,
+			Store:            planStore,
+			Goals:            goalStore,
+			Automations:      automationStore,
+			Approvals:        approvalStore,
+			Registry:         providerRegistry,
+			Connections:      connectionReader,
+			Engine:           workflowEngine,
+			Sessions:         authenticator,
+			Authorization:    identityService,
+			Clock:            time.Now,
+			NewID:            uuid.New,
+			IdempotencyStore: idempotencyStore,
+			Broadcaster:      realtimeManager,
+		})
+		if err != nil {
+			closeRunRoutes(runRoutes, logger)
+			_ = realtimeManager.Close()
+			closeValkey(valkeyClient)
+			closeDatabase(dbPool)
+			logger.Error("plan route setup failed", "error", err)
+			return 1
+		}
+
 		productMounts := []httpapi.Mount{
 			authMount,
 			boardMount,
@@ -945,6 +1110,11 @@ func run() int {
 			attachmentMount,
 			catalogMount,
 			projectMount,
+			goalMount,
+			planMount,
+			approvalMount,
+			workflowMount,
+			workflowRunMount,
 		}
 		productMounts = append(productMounts, integrationMounts...)
 		// The inbound channel webhook is mounted only when Infobip is

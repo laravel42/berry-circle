@@ -23,6 +23,12 @@ type Capabilities struct {
 	Realtime       bool `json:"realtime"`
 	Storage        bool `json:"storage"`
 	Valkey         bool `json:"valkey"`
+	// Planner is true when role agents can be provisioned; Workflows when
+	// workflows can be activated; WorkflowEngine when the external engine
+	// (Activepieces) is configured.
+	Planner        bool `json:"planner"`
+	Workflows      bool `json:"workflows"`
+	WorkflowEngine bool `json:"workflowEngine"`
 }
 
 // Options supplies operational dependencies.
