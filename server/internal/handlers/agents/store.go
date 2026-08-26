@@ -172,7 +172,12 @@ func (store PostgresStore) SyncSummaries(
 				upstream_state = EXCLUDED.upstream_state,
 				upstream_last_active_at = EXCLUDED.upstream_last_active_at,
 				last_synced_at = EXCLUDED.last_synced_at,
-				archived_at = NULL,
+				-- archived_at is deliberately not touched. Sync never archives
+				-- an agent — one that vanishes upstream is marked offline so
+				-- its runs keep a name — so the only rows carrying a date are
+				-- ones somebody removed on purpose. Clearing it here would
+				-- resurrect them on the next reconcile, which is what made a
+				-- duplicate agent impossible to get rid of.
 				updated_at = EXCLUDED.updated_at
 			 WHERE agents.workspace_id = EXCLUDED.workspace_id`,
 			update.ID,
@@ -325,7 +330,6 @@ func (store PostgresStore) UpdateDetail(
 		        model_name = $8,
 		        upstream_state = $9,
 		        last_synced_at = $10,
-		        archived_at = NULL,
 		        updated_at = $10
 		  WHERE id = $1 AND workspace_id = $11 AND archived_at IS NULL
 		  RETURNING `+agentProjection,
