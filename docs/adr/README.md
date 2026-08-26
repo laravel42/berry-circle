@@ -26,6 +26,7 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 | [0004](0004-go-product-server.md) | Adopt a Go product server | Accepted | 2026-08-22 |
 | [0005](0005-temporal-run-orchestration.md) | Adopt Temporal for run orchestration | Proposed | 2026-08-23 |
 | [0006](0006-agent-run-artifacts.md) | Store agent run artifacts in object storage, indexed as attachments | Accepted | 2026-08-24 |
+| [0007](0007-workflows-planning-and-activepieces-adapter.md) | Workflows, AI planning, and an optional Activepieces adapter | Proposed | 2026-08-25 |
 
 ## Adding a record
 
