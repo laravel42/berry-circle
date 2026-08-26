@@ -119,6 +119,7 @@ func TestRetryClassMethodRules(t *testing.T) {
 		{"read rejects POST", http.MethodPost, RetryRead, false, false},
 		{"idempotent PUT", http.MethodPut, RetryIdempotentWrite, true, true},
 		{"idempotent PATCH", http.MethodPatch, RetryIdempotentWrite, true, true},
+		{"idempotent DELETE", http.MethodDelete, RetryIdempotentWrite, true, true},
 		{"idempotent rejects POST", http.MethodPost, RetryIdempotentWrite, false, false},
 		{"unsafe never retries", http.MethodPost, RetryUnsafe, false, true},
 	}

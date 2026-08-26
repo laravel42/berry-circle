@@ -311,9 +311,11 @@ func retryAllowed(method string, class RetryClass) (bool, error) {
 		// that increments a value changes state on every application. The class
 		// is therefore the caller's assertion about the specific endpoint, and
 		// is only correct for a PATCH that sets absolute values. Anything with
-		// relative semantics belongs in RetryUnsafe.
-		if method != http.MethodPut && method != http.MethodPatch {
-			return false, errors.New("idempotent-write retry class requires PUT or PATCH")
+		// relative semantics belongs in RetryUnsafe. DELETE of a resource is
+		// idempotent: a repeat finds nothing and answers 404, which callers
+		// that delete treat as already gone.
+		if method != http.MethodPut && method != http.MethodPatch && method != http.MethodDelete {
+			return false, errors.New("idempotent-write retry class requires PUT, PATCH or DELETE")
 		}
 		return true, nil
 	case RetryUnsafe:
