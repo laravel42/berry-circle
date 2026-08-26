@@ -15,15 +15,23 @@ export interface RouteDescriptor {
 /** Section labels that differ from their path segment, per the prototype. */
 const SECTION_LABELS: Record<string, string> = {
    'my-issues': 'tasks',
-   issue: 'tasks',
-   agents: 'agents',
-   members: 'agents',
-   runs: 'runtimes',
-   project: 'projects',
-   plan: 'plans',
-   initiative: 'initiatives',
-   review: 'reviews',
-   view: 'views',
+   'issue': 'tasks',
+   'agents': 'agents',
+   'members': 'agents',
+   'runs': 'runtimes',
+   'project': 'projects',
+   'plan': 'plans',
+   'goal': 'goals',
+   'goals': 'goals',
+   'workflow': 'automations',
+   'workflows': 'automations',
+   'workflow-run': 'runs',
+   'workflow-runs': 'runs',
+   'approval': 'approvals',
+   'approvals': 'approvals',
+   'initiative': 'initiatives',
+   'review': 'reviews',
+   'view': 'views',
 };
 
 /** Looks like an issue key (BER-404), which the prototype shows verbatim. */
@@ -54,7 +62,7 @@ export function describeRoute(pathname: string, orgId: string): RouteDescriptor 
 
    // A rail destination keeps its rail label, so both surfaces read the same.
    const nav = SHELL_SECTIONS.flatMap((section) => section.routes).find(
-      (route) => route.href && route.href === relative,
+      (route) => route.href && route.href === relative
    );
    if (nav) return { label: nav.label, href: relative };
 
@@ -69,9 +77,7 @@ export function describeRoute(pathname: string, orgId: string): RouteDescriptor 
 
    // An issue key identifies itself; anything else reads as "section / detail".
    const detail = rest[rest.length - 1];
-   const label = ISSUE_KEY.test(detail)
-      ? detail.toUpperCase()
-      : `${sectionLabel} / ${detail}`;
+   const label = ISSUE_KEY.test(detail) ? detail.toUpperCase() : `${sectionLabel} / ${detail}`;
 
    return { label, href: relative };
 }

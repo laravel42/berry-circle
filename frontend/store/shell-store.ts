@@ -40,7 +40,7 @@ interface ShellState {
 }
 
 /** The route a new tab starts on, matching the prototype's `startRoute`. */
-export const INDEX_TAB = { href: '/my-issues', label: 'issues' };
+export const INDEX_TAB = { href: '/my-issues', label: 'tasks' };
 
 /** Bounds the strip so a long session cannot grow it without limit. */
 const MAX_TABS = 12;
@@ -74,7 +74,7 @@ export const useShellStore = create<ShellState>()(
                if (active.href === href && active.label === label) return state;
                return {
                   tabs: state.tabs.map((tab) =>
-                     tab.id === active.id ? { ...tab, href, label } : tab,
+                     tab.id === active.id ? { ...tab, href, label } : tab
                   ),
                };
             }),
@@ -131,6 +131,6 @@ export const useShellStore = create<ShellState>()(
             activeTabId: state.activeTabId,
             railOpen: state.railOpen,
          }),
-      },
-   ),
+      }
+   )
 );

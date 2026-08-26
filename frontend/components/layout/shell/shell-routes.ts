@@ -16,8 +16,11 @@ export type ShellRoute =
    | 'meetings'
    | 'inbox'
    | 'projects'
+   | 'goals'
    | 'members'
    | 'autopilot'
+   | 'workflow-runs'
+   | 'approvals'
    | 'analytics';
 
 export interface ShellRouteDef {
@@ -32,6 +35,12 @@ export interface ShellRouteDef {
     * placeholders that have no page yet.
     */
    href?: string;
+   /**
+    * Extra pathname fragments that count as this route being active, for the
+    * singular detail paths that hang off a plural list (`/workflow/…` under
+    * `/workflows`). Matched with the same longest-match rule as `href`.
+    */
+   match?: string[];
    /**
     * Key in the sidebar preference store, when the user can pin or hide this
     * item. Every rail destination is pinnable.
@@ -70,7 +79,7 @@ const PRIMARY: ShellRouteDef[] = [
    },
 ];
 
-const WORKSPACE: ShellRouteDef[] = [
+const WORK: ShellRouteDef[] = [
    {
       id: 'issues',
       label: 'tasks',
@@ -79,10 +88,12 @@ const WORKSPACE: ShellRouteDef[] = [
       icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
    },
    {
-      id: 'autopilot',
-      label: 'automations',
-      prefsKey: 'autopilot',
-      icon: '<path d="M20 8a8 8 0 10-2.2 6.4" /><path d="M20 4v5h-5" />',
+      id: 'goals',
+      label: 'goals',
+      href: '/goals',
+      match: ['/goal/', '/plan/'],
+      prefsKey: 'goals',
+      icon: '<circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r="1" />',
    },
    {
       id: 'analytics',
@@ -94,12 +105,40 @@ const WORKSPACE: ShellRouteDef[] = [
       id: 'projects',
       label: 'projects',
       href: '/projects',
+      match: ['/project/'],
       prefsKey: 'projects',
       icon: '<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M12 12l8-4.5M12 12v9M12 12L4 7.5" />',
    },
 ];
 
-const CONFIGURE: ShellRouteDef[] = [
+const AUTOMATE: ShellRouteDef[] = [
+   {
+      // The id and prefs key predate the page: persisted preferences survive.
+      id: 'autopilot',
+      label: 'automations',
+      href: '/workflows',
+      match: ['/workflow/', '/workflows'],
+      prefsKey: 'autopilot',
+      icon: '<path d="M20 8a8 8 0 10-2.2 6.4" /><path d="M20 4v5h-5" />',
+   },
+   {
+      id: 'workflow-runs',
+      label: 'runs',
+      href: '/workflow-runs',
+      match: ['/workflow-run/'],
+      prefsKey: 'workflow-runs',
+      icon: '<path d="M4 6h16M4 12h16M4 18h9" /><path d="M16 16l3 2-3 2z" />',
+   },
+   {
+      id: 'approvals',
+      label: 'approvals',
+      href: '/approvals',
+      prefsKey: 'approvals',
+      icon: '<path d="M12 3l8 3v6c0 4.6-3.4 8.3-8 9-4.6-.7-8-4.4-8-9V6z" /><path d="M9 12l2 2 4-4" />',
+   },
+];
+
+const MANAGE: ShellRouteDef[] = [
    {
       id: 'runs',
       label: 'runtimes',
@@ -125,12 +164,13 @@ export const SHELL_SECTIONS: {
    prefsSection?: SidebarSection;
 }[] = [
    { heading: null, routes: PRIMARY, prefsSection: 'personal' },
-   { heading: 'Workspace', routes: WORKSPACE, prefsSection: 'workspace' },
-   { heading: 'Configure', routes: CONFIGURE, prefsSection: 'configure' },
+   { heading: 'Work', routes: WORK, prefsSection: 'workspace' },
+   { heading: 'Automate', routes: AUTOMATE, prefsSection: 'automate' },
+   { heading: 'Manage', routes: MANAGE, prefsSection: 'configure' },
 ];
 
 const BY_ID = new Map<string, ShellRouteDef>(
-   [...PRIMARY, ...WORKSPACE, ...CONFIGURE].map((route) => [route.id, route])
+   [...PRIMARY, ...WORK, ...AUTOMATE, ...MANAGE].map((route) => [route.id, route])
 );
 
 export function shellRoute(id: string): ShellRouteDef | undefined {
@@ -141,7 +181,10 @@ export function shellRoute(id: string): ShellRouteDef | undefined {
  * Resolve the active route from a pathname.
  *
  * Longest match wins so `/projects/abc` resolves to `projects` rather than
- * matching a shorter unrelated prefix.
+ * matching a shorter unrelated prefix, and a detail path such as
+ * `/workflow/abc/history` lights up its list item through `match` without
+ * `/runs` ever being part of it — `pathname.includes` would otherwise hand
+ * a workflow's run history to the runtimes item.
  */
 export function activeShellRoute(pathname: string): ShellRoute | null {
    let match: ShellRouteDef | null = null;
@@ -151,9 +194,11 @@ export function activeShellRoute(pathname: string): ShellRoute | null {
    let matchLength = 0;
    for (const route of BY_ID.values()) {
       if (!route.href) continue;
-      if (pathname.includes(route.href) && route.href.length > matchLength) {
-         match = route;
-         matchLength = route.href.length;
+      for (const candidate of [route.href, ...(route.match ?? [])]) {
+         if (pathname.includes(candidate) && candidate.length > matchLength) {
+            match = route;
+            matchLength = candidate.length;
+         }
       }
    }
    return match?.id ?? null;

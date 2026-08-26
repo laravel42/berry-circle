@@ -10,7 +10,10 @@ export type SidebarItemKey =
    | 'chat'
    | 'meetings'
    | 'my-issues'
+   | 'goals'
    | 'autopilot'
+   | 'workflow-runs'
+   | 'approvals'
    | 'analytics'
    | 'agent'
    | 'initiatives'
@@ -18,7 +21,7 @@ export type SidebarItemKey =
    | 'views'
    | 'agents';
 
-export type SidebarSection = 'personal' | 'workspace' | 'configure';
+export type SidebarSection = 'personal' | 'workspace' | 'automate' | 'configure';
 
 interface SidebarPrefsState {
    badgeStyle: SidebarBadgeStyle;
@@ -31,18 +34,21 @@ interface SidebarPrefsState {
 }
 
 const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
-   inbox: 'always',
-   reviews: 'always',
-   chat: 'always',
-   meetings: 'always',
+   'inbox': 'always',
+   'reviews': 'always',
+   'chat': 'always',
+   'meetings': 'always',
    'my-issues': 'always',
-   autopilot: 'always',
-   analytics: 'always',
-   agent: 'always',
-   initiatives: 'never',
-   projects: 'never',
-   views: 'never',
-   agents: 'always',
+   'goals': 'always',
+   'autopilot': 'always',
+   'workflow-runs': 'always',
+   'approvals': 'always',
+   'analytics': 'always',
+   'agent': 'always',
+   'initiatives': 'never',
+   'projects': 'never',
+   'views': 'never',
+   'agents': 'always',
 };
 
 /**
@@ -52,9 +58,13 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
  */
 const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
    personal: ['inbox', 'reviews', 'chat', 'meetings'],
-   workspace: ['my-issues', 'autopilot', 'analytics', 'projects'],
+   workspace: ['my-issues', 'goals', 'analytics', 'projects'],
+   automate: ['autopilot', 'workflow-runs', 'approvals'],
    configure: ['agent', 'agents'],
 };
+
+/** The key the previous shape was persisted under; read once, when v4 has nothing. */
+const PREVIOUS_STORAGE_KEY = 'sidebar-prefs-v3';
 
 /**
  * Stored order, resilient to new items: unknown keys are dropped, missing
@@ -80,6 +90,25 @@ export function resolveOrder(
    return result;
 }
 
+/**
+ * The v3 preferences, when a person had customised them before the rail
+ * grew its Automate section. Their visibility and order carry over; the
+ * `automate` order is seeded from defaults, and `autopilot` leaves the
+ * workspace list through `resolveOrder`, which only keeps a section's own
+ * keys.
+ */
+function previousPrefs(): Partial<SidebarPrefsState> | undefined {
+   if (typeof window === 'undefined') return undefined;
+   try {
+      const raw = window.localStorage.getItem(PREVIOUS_STORAGE_KEY);
+      if (!raw) return undefined;
+      const parsed = JSON.parse(raw) as { state?: Partial<SidebarPrefsState> };
+      return parsed.state;
+   } catch {
+      return undefined;
+   }
+}
+
 export const useSidebarPrefsStore = create<SidebarPrefsState>()(
    persist(
       (set) => ({
@@ -99,9 +128,9 @@ export const useSidebarPrefsStore = create<SidebarPrefsState>()(
             }),
       }),
       {
-         name: 'sidebar-prefs-v3',
+         name: 'sidebar-prefs-v4',
          merge: (persisted, current) => {
-            const stored = persisted as Partial<SidebarPrefsState> | undefined;
+            const stored = (persisted as Partial<SidebarPrefsState> | undefined) ?? previousPrefs();
             const mergedOrder = { ...current.order, ...stored?.order };
             return {
                ...current,
@@ -110,6 +139,7 @@ export const useSidebarPrefsStore = create<SidebarPrefsState>()(
                order: {
                   personal: resolveOrder(mergedOrder.personal, DEFAULT_ORDER.personal),
                   workspace: resolveOrder(mergedOrder.workspace, DEFAULT_ORDER.workspace),
+                  automate: resolveOrder(mergedOrder.automate, DEFAULT_ORDER.automate),
                   configure: resolveOrder(mergedOrder.configure, DEFAULT_ORDER.configure),
                },
             };

@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useCreatePlanStore } from '@/store/create-plan-store';
+import { useCreateWorkflowStore } from '@/store/create-workflow-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import {
@@ -36,13 +37,17 @@ import {
    Inbox,
    Layers,
    Link2,
+   ListChecks,
    PackagePlus,
+   ShieldCheck,
    Sparkles,
    SquarePen,
    Tags,
+   Target,
    Type,
    UserRoundMinus,
    UserRoundPlus,
+   Workflow,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -89,6 +94,7 @@ export function CommandPalette() {
    } = useIssuesStore();
    const { openModal } = useCreateIssueStore();
    const openPlanModal = useCreatePlanStore((state) => state.openModal);
+   const openWorkflowModal = useCreateWorkflowStore((state) => state.openModal);
    const allProjects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const allLabels = useLabelsStore((state) => state.labels);
@@ -412,6 +418,16 @@ export function CommandPalette() {
                               Plan something…
                               <Keys keys={['P']} />
                            </CommandItem>
+                           <CommandItem
+                              onSelect={() => {
+                                 openWorkflowModal();
+                                 close();
+                              }}
+                           >
+                              <Workflow className="text-muted-foreground" />
+                              New workflow
+                              <Keys keys={['W']} />
+                           </CommandItem>
                         </CommandGroup>
                         <CommandGroup heading="Go to">
                            <CommandItem onSelect={() => go('/inbox')}>
@@ -419,8 +435,23 @@ export function CommandPalette() {
                               <Keys keys={['G', 'I']} />
                            </CommandItem>
                            <CommandItem onSelect={() => go('/my-issues')}>
-                              <ClipboardList className="text-muted-foreground" /> Issues
+                              <ClipboardList className="text-muted-foreground" /> Tasks
                               <Keys keys={['G', 'M']} />
+                           </CommandItem>
+                           <CommandItem onSelect={() => go('/goals')}>
+                              <Target className="text-muted-foreground" /> Goals
+                              <Keys keys={['G', 'G']} />
+                           </CommandItem>
+                           <CommandItem onSelect={() => go('/workflows')}>
+                              <Workflow className="text-muted-foreground" /> Automations
+                              <Keys keys={['G', 'W']} />
+                           </CommandItem>
+                           <CommandItem onSelect={() => go('/workflow-runs')}>
+                              <ListChecks className="text-muted-foreground" /> Runs
+                           </CommandItem>
+                           <CommandItem onSelect={() => go('/approvals')}>
+                              <ShieldCheck className="text-muted-foreground" /> Approvals
+                              <Keys keys={['G', 'A']} />
                            </CommandItem>
                            <CommandItem onSelect={() => go('/reviews')}>
                               <GitBranch className="text-muted-foreground" /> Reviews

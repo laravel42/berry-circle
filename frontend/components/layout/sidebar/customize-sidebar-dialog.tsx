@@ -27,9 +27,12 @@ import {
    GripVertical,
    Inbox,
    LucideIcon,
+   ListChecks,
    MessageSquare,
    RefreshCw,
+   ShieldCheck,
    Sparkles,
+   Target,
    Video,
 } from 'lucide-react';
 import { Fragment, useRef, useState, type PointerEvent } from 'react';
@@ -50,10 +53,16 @@ export const PERSONAL_ITEMS: ItemConfig[] = [
 ];
 
 export const WORKSPACE_ITEMS: ItemConfig[] = [
-   { key: 'my-issues', label: 'issues', icon: FolderKanban },
-   { key: 'autopilot', label: 'automations', icon: RefreshCw },
+   { key: 'my-issues', label: 'tasks', icon: FolderKanban },
+   { key: 'goals', label: 'goals', icon: Target },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'projects', label: 'projects', icon: Box },
+];
+
+export const AUTOMATE_ITEMS: ItemConfig[] = [
+   { key: 'autopilot', label: 'automations', icon: RefreshCw },
+   { key: 'workflow-runs', label: 'runs', icon: ListChecks },
+   { key: 'approvals', label: 'approvals', icon: ShieldCheck },
 ];
 
 export const CONFIGURE_ITEMS: ItemConfig[] = [
@@ -99,17 +108,14 @@ function DropZone({ show }: { show: boolean }) {
    return (
       <div
          aria-hidden={!show}
-         className={cn(
-            'pointer-events-none relative z-10 h-0',
-            show ? 'opacity-100' : 'opacity-0'
-         )}
+         className={cn('pointer-events-none relative z-10 h-0', show ? 'opacity-100' : 'opacity-0')}
       >
          <div className="absolute inset-x-0 -top-px h-0.5 bg-(--shell-accent)" />
       </div>
    );
 }
 
-/** One section (Personal / Workspace / Configure): rows reorderable by dragging the grip. */
+/** One section (Personal / Work / Automate / Manage): rows reorderable by dragging the grip. */
 function ItemSection({ section, items }: { section: SidebarSection; items: ItemConfig[] }) {
    const { visibility, order, setVisibility, moveItem } = useSidebarPrefsStore();
    const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -293,12 +299,17 @@ export function CustomizeSidebarDialog({
                </div>
 
                <div className="flex flex-col gap-2">
-                  <span className="font-medium">Workspace</span>
+                  <span className="font-medium">Work</span>
                   <ItemSection section="workspace" items={WORKSPACE_ITEMS} />
                </div>
 
                <div className="flex flex-col gap-2">
-                  <span className="font-medium">Configure</span>
+                  <span className="font-medium">Automate</span>
+                  <ItemSection section="automate" items={AUTOMATE_ITEMS} />
+               </div>
+
+               <div className="flex flex-col gap-2">
+                  <span className="font-medium">Manage</span>
                   <ItemSection section="configure" items={CONFIGURE_ITEMS} />
                </div>
             </div>
