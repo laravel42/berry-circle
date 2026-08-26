@@ -9,6 +9,10 @@ import {
    Edit,
    Plus,
    Upload,
+   ShieldCheck,
+   Target,
+   Workflow,
+   Sparkles,
 } from 'lucide-react';
 import { NotificationType } from '@/data/inbox';
 import { cn } from '@/lib/utils';
@@ -33,6 +37,14 @@ export function getNotificationIcon(type: NotificationType, className?: string) 
          return <Plus className={cn('text-emerald-500', className)} />;
       case 'upload':
          return <Upload className={cn('text-pink-500', className)} />;
+      case 'approval':
+         return <ShieldCheck className={cn('text-status-warning', className)} />;
+      case 'goal':
+         return <Target className={cn('text-status-info', className)} />;
+      case 'workflow':
+         return <Workflow className={cn('text-status-info', className)} />;
+      case 'plan':
+         return <Sparkles className={cn('text-status-info', className)} />;
       default:
          return <MessageCircle className={cn('text-blue-500', className)} />;
    }

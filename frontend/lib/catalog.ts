@@ -115,3 +115,58 @@ export function toUiUser(actor: {
       timezone: 'UTC',
    };
 }
+
+// ---------------------------------------------------------------------------
+// Planning and automation statuses
+
+import type { BerryMarkState, BerryMarkTone } from '@/components/brand/berry-mark';
+
+/** One glyph and one word for a status: what the mark draws and what the pill says. */
+export interface StatusLook {
+   label: string;
+   tone: BerryMarkTone;
+   state: BerryMarkState;
+   pulse?: boolean;
+}
+
+export const GOAL_STATUS: Record<string, StatusLook> = {
+   draft: { label: 'Draft', tone: 'neutral', state: 'hollow' },
+   planned: { label: 'Planned', tone: 'neutral', state: 'solid' },
+   active: { label: 'Active', tone: 'working', state: 'solid' },
+   blocked: { label: 'Blocked', tone: 'attention', state: 'hollow' },
+   completed: { label: 'Completed', tone: 'complete', state: 'solid' },
+   cancelled: { label: 'Cancelled', tone: 'attention', state: 'crossed' },
+};
+
+export const WORKFLOW_STATUS: Record<string, StatusLook> = {
+   draft: { label: 'Draft', tone: 'neutral', state: 'hollow' },
+   active: { label: 'Active', tone: 'complete', state: 'solid' },
+   paused: { label: 'Paused', tone: 'neutral', state: 'solid' },
+   archived: { label: 'Archived', tone: 'attention', state: 'crossed' },
+};
+
+export const WORKFLOW_RUN_STATUS: Record<string, StatusLook> = {
+   pending: { label: 'Pending', tone: 'neutral', state: 'hollow' },
+   running: { label: 'Running', tone: 'working', state: 'solid', pulse: true },
+   waiting: { label: 'Waiting', tone: 'attention', state: 'hollow' },
+   succeeded: { label: 'Succeeded', tone: 'complete', state: 'solid' },
+   failed: { label: 'Failed', tone: 'danger', state: 'solid' },
+   cancelled: { label: 'Cancelled', tone: 'attention', state: 'crossed' },
+};
+
+export const STEP_RUN_STATUS: Record<string, StatusLook> = {
+   ...WORKFLOW_RUN_STATUS,
+   skipped: { label: 'Skipped', tone: 'neutral', state: 'crossed' },
+};
+
+export const APPROVAL_STATUS: Record<string, StatusLook> = {
+   pending: { label: 'Pending', tone: 'attention', state: 'hollow' },
+   approved: { label: 'Approved', tone: 'complete', state: 'solid' },
+   rejected: { label: 'Rejected', tone: 'danger', state: 'crossed' },
+   expired: { label: 'Expired', tone: 'neutral', state: 'crossed' },
+};
+
+/** The look for a status, or a neutral hollow mark labelled with the raw value. */
+export function statusLook(map: Record<string, StatusLook>, status: string): StatusLook {
+   return map[status] ?? { label: status, tone: 'neutral', state: 'hollow' };
+}

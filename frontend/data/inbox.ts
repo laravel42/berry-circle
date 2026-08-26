@@ -10,19 +10,40 @@ export type NotificationType =
    | 'closed'
    | 'edited'
    | 'created'
-   | 'upload';
+   | 'upload'
+   | 'approval'
+   | 'goal'
+   | 'workflow'
+   | 'plan';
+
+/** What a notification points at when it is not about a task. */
+export interface InboxRef {
+   id: string;
+}
 
 /**
- * An inbox notification. It extends the real `Issue` it belongs to
- * (found by identifier) so the preview pane can show the actual issue.
+ * An inbox notification. It is about one thing — a task, an approval, a
+ * goal, a workflow run or a plan — and carries a reference to it so the
+ * preview pane can show the real record rather than a summary of it.
  */
-export interface InboxItem extends Issue {
-   /** Notification-specific fields */
+export interface InboxItem {
+   id: string;
+   /** The task key when the notification is about a task; empty otherwise. */
+   identifier: string;
+   title: string;
    content: string;
    type: NotificationType;
+   /** The server's inbox category (`tasks`, `approvals`, `goals`, …). */
+   category: string;
    user: User;
    timestamp: string;
    read: boolean;
+   /** A snapshot of the task, with the status the notification recorded. */
+   issue?: Issue;
+   approval?: InboxRef;
+   goal?: InboxRef;
+   workflowRun?: InboxRef;
+   plan?: InboxRef;
 }
 
 /** Inbox items. Empty until the gateway provides notifications. */

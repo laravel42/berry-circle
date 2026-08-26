@@ -1,4 +1,5 @@
 import type { InboxItem, NotificationType } from '@/data/inbox';
+import type { Issue } from '@/data/issues';
 import type { User } from '@/data/users';
 import { z } from 'zod';
 import { apiFetch } from './api';
@@ -22,12 +23,25 @@ const inboxSchema = z.object({
    read: z.boolean(),
    archived: z.boolean(),
    createdAt: z.string(),
+   approvalId: z.string().nullish(),
+   goalId: z.string().nullish(),
+   workflowRunId: z.string().nullish(),
+   planId: z.string().nullish(),
 });
 
 const inboxConnectionSchema = connectionSchema(inboxSchema);
 
-function notificationType(eventType: string, category: string): NotificationType {
-   const haystack = `${eventType} ${category}`.toLowerCase();
+type ApiInboxItem = z.infer<typeof inboxSchema>;
+
+function notificationType(item: ApiInboxItem): NotificationType {
+   if (item.approvalId || item.category === 'approvals' || item.eventType.startsWith('approval.')) {
+      return 'approval';
+   }
+   if (item.planId || item.eventType.startsWith('plan.')) return 'plan';
+   if (item.workflowRunId || item.eventType.startsWith('workflow.')) return 'workflow';
+   if (item.goalId && !item.issueId) return 'goal';
+   if (item.eventType.startsWith('goal.')) return 'goal';
+   const haystack = `${item.eventType} ${item.category}`.toLowerCase();
    if (haystack.includes('comment')) return 'comment';
    if (haystack.includes('mention')) return 'mention';
    if (haystack.includes('assign')) return 'assignment';
@@ -37,6 +51,37 @@ function notificationType(eventType: string, category: string): NotificationType
    if (haystack.includes('edit') || haystack.includes('update')) return 'edited';
    if (haystack.includes('upload') || haystack.includes('attach')) return 'upload';
    return 'created';
+}
+
+/**
+ * The task a notification recorded, as much of it as the inbox row carries.
+ * The preview pane swaps in the live record from the issues store when it
+ * has one; this is what shows until then.
+ */
+function issueSnapshot(item: ApiInboxItem): Issue | undefined {
+   if (!item.issueId) return undefined;
+   const fallbackStatus = catalogStatus('backlog');
+   const fallbackPriority = catalogPriority('no-priority');
+   if (!fallbackStatus || !fallbackPriority) return undefined;
+   const status = item.issueStatus
+      ? (uiStatusFromApi(item.issueStatus) ?? fallbackStatus)
+      : fallbackStatus;
+   return {
+      id: item.issueId,
+      // The server derives this from the workspace prefix and the issue's
+      // number; an empty label is better than a wrong one.
+      identifier: item.issueIdentifier ?? '',
+      title: item.title,
+      description: item.body ?? '',
+      status,
+      assignee: null,
+      priority: fallbackPriority,
+      labels: [],
+      createdAt: item.createdAt,
+      cycleId: '',
+      rank: item.createdAt,
+      sortOrder: 0,
+   };
 }
 
 export async function loadWorkspaceInbox(workspaceId: string, actor: User): Promise<InboxItem[]> {
@@ -50,35 +95,24 @@ export async function loadWorkspaceInbox(workspaceId: string, actor: User): Prom
       const json: unknown = await apiFetch(`/api/v1/inbox?${params.toString()}`);
       const parsed = inboxConnectionSchema.safeParse(json);
       if (!parsed.success) return [];
-      const fallbackStatus = catalogStatus('backlog');
-      const fallbackPriority = catalogPriority('no-priority');
-      if (!fallbackStatus || !fallbackPriority) return [];
 
       return parsed.data.nodes.map((item) => {
-         const status = item.issueStatus
-            ? (uiStatusFromApi(item.issueStatus) ?? fallbackStatus)
-            : fallbackStatus;
+         const issue = issueSnapshot(item);
          return {
             id: item.id,
-            // The server derives this from the issue's board slug and number.
-            // The old fallback sliced the issue UUID, so every row read
-            // "11111111"; an empty label is better than a wrong one.
-            identifier: item.issueIdentifier ?? '',
+            identifier: issue?.identifier ?? '',
             title: item.title,
-            description: item.body ?? '',
-            status,
-            assignee: null,
-            priority: fallbackPriority,
-            labels: [],
-            createdAt: item.createdAt,
-            cycleId: '',
-            rank: item.createdAt,
-            sortOrder: 0,
             content: item.body ?? item.title,
-            type: notificationType(item.eventType, item.category),
+            type: notificationType(item),
+            category: item.category,
             user: actor,
             timestamp: item.createdAt,
             read: item.read,
+            issue,
+            approval: item.approvalId ? { id: item.approvalId } : undefined,
+            goal: item.goalId ? { id: item.goalId } : undefined,
+            workflowRun: item.workflowRunId ? { id: item.workflowRunId } : undefined,
+            plan: item.planId ? { id: item.planId } : undefined,
          };
       });
    } catch {

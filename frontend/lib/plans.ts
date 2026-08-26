@@ -700,6 +700,11 @@ const BERRY_EVENT_LABELS: Record<string, string> = {
    'agent.failed': 'an agent run fails',
 };
 
+/** "a task is completed" for a Berry event topic, or the topic itself. */
+export function describeBerryEvent(event: string): string {
+   return BERRY_EVENT_LABELS[event] ?? event;
+}
+
 /** "When a task is completed", "Stripe · payment_succeeded", "Every … (cron)". */
 export function describePlanTrigger(trigger: PlanTrigger): string {
    switch (trigger.type) {
@@ -854,7 +859,7 @@ export function describeApprover(approver: {
  * branch or depend into, then anything left in declaration order. A step is
  * listed once, however many paths reach it.
  */
-export function orderPlanSteps(workflow: PlanWorkflow): PlanStep[] {
+export function orderPlanSteps(workflow: { steps: PlanStep[]; entry: string[] }): PlanStep[] {
    const byId = new Map(workflow.steps.map((step) => [step.id, step]));
    const seen = new Set<string>();
    const ordered: PlanStep[] = [];
