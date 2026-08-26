@@ -108,14 +108,18 @@ export function PlanConnections({
    orgId: string;
 }) {
    if (connections.length === 0) return null;
-   const missing = connections.some((connection) => !connection.connected);
+   const missing = connections.find((connection) => !connection.connected);
    return (
       <section className="mt-6">
          <div className="flex items-center justify-between gap-3">
             <SectionHeading title="Connections" count={connections.length} />
             {missing && (
                <Button asChild size="xs" variant="secondary">
-                  <Link href={`/${orgId}/settings/integrations`}>Connect</Link>
+                  <Link
+                     href={`/${orgId}/settings/integrations?provider=${encodeURIComponent(missing.provider)}`}
+                  >
+                     Connect
+                  </Link>
                </Button>
             )}
          </div>
