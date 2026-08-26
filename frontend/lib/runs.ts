@@ -34,14 +34,24 @@ const runSchema = z.object({
 
 const runConnectionSchema = connectionSchema(runSchema);
 
+/**
+ * One frame from either event stream.
+ *
+ * The per-run stream always carries a run and a sequence. The board stream
+ * also carries issue and comment mutations, which no run produced, so there
+ * `runId` and `sequence` are null and `workspaceId` sits beside `boardId`.
+ * Rejecting those frames would stall the board refresh on exactly the events
+ * a person's own edit produces.
+ */
 const runEventSchema = z.object({
    id: z.string(),
    type: z.string(),
    occurredAt: z.string(),
-   boardId: z.string(),
-   issueId: z.string(),
-   runId: z.string(),
-   sequence: z.number(),
+   workspaceId: z.string().optional(),
+   boardId: z.string().nullable().optional(),
+   issueId: z.string().nullable().optional(),
+   runId: z.string().nullable().optional(),
+   sequence: z.number().nullable().optional(),
    payload: z.unknown(),
 });
 
