@@ -59,9 +59,23 @@ func SyncWorkspace(
 	if err != nil {
 		return 0, fmt.Errorf("list runtime agents: %w", err)
 	}
+	// Planner role agents are provisioned by Berry for every workspace at
+	// once; projecting them here would make a global model role look like a
+	// workspace teammate the planner could assign work to.
+	excluded := map[uuid.UUID]bool{}
+	if lister, ok := store.(RoleAgentLister); ok {
+		if ids, err := lister.RoleAgentIDs(ctx); err == nil {
+			for _, id := range ids {
+				excluded[id] = true
+			}
+		}
+	}
 	now := clock().UTC()
 	updates := make([]SummaryUpdate, 0, len(summaries))
 	for _, summary := range summaries {
+		if excluded[summary.ID] {
+			continue
+		}
 		update, err := projectSummary(summary, workspaceID, newID(), now)
 		if err != nil {
 			// One malformed agent must not stop the rest from appearing.
@@ -81,6 +95,7 @@ func SyncWorkspace(
 				update.Instructions = &prompt
 			}
 			update.Capabilities = projectCapabilities(detail.Capabilities)
+			update.ManifestLimits = detail.Limits
 		}
 		updates = append(updates, update)
 	}
@@ -88,6 +103,12 @@ func SyncWorkspace(
 		return 0, fmt.Errorf("persist runtime agents: %w", err)
 	}
 	return len(updates), nil
+}
+
+// RoleAgentLister names the runtime agents a sync must skip. Optional on the
+// store: a store without the table projects everything, as before.
+type RoleAgentLister interface {
+	RoleAgentIDs(context.Context) ([]uuid.UUID, error)
 }
 
 // SyncAllWorkspaces seeds every workspace from the runtime at startup.

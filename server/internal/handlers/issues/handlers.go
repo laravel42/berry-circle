@@ -20,7 +20,9 @@ import (
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
+	approvalrepo "github.com/laravel42/berry-circle/server/internal/repository/approvals"
 	"github.com/laravel42/berry-circle/server/internal/repository/core"
+	goalrepo "github.com/laravel42/berry-circle/server/internal/repository/goals"
 )
 
 // Options are explicit process dependencies; no handler uses package globals.
@@ -38,6 +40,23 @@ type Options struct {
 	AttachmentHandler http.Handler
 	ReactionHandler   http.Handler
 	SubscriberHandler http.Handler
+	// Goals links an issue to a goal; built from the pool when nil.
+	Goals GoalStore
+	// Approvals names the gate that refused a status move; built from the
+	// pool when nil.
+	Approvals ApprovalLookup
+}
+
+// GoalStore is what the goal link on an issue write needs.
+type GoalStore interface {
+	Get(context.Context, uuid.UUID) (goalrepo.Goal, error)
+	LinkIssue(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, uuid.UUID, time.Time) error
+	ClearIssueGoal(context.Context, uuid.UUID) error
+}
+
+// ApprovalLookup finds the approval an APPROVAL_REQUIRED refusal points at.
+type ApprovalLookup interface {
+	LatestForIssue(context.Context, uuid.UUID, approvalrepo.Kind) (approvalrepo.Approval, error)
 }
 
 // Authorizer is the narrow board/issue workspace boundary.
@@ -97,6 +116,20 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	repository, err := core.New(options.Pool)
 	if err != nil {
 		return httpapi.Mount{}, err
+	}
+	if options.Goals == nil {
+		goals, err := goalrepo.New(options.Pool)
+		if err != nil {
+			return httpapi.Mount{}, err
+		}
+		options.Goals = goals
+	}
+	if options.Approvals == nil {
+		approvals, err := approvalrepo.New(options.Pool)
+		if err != nil {
+			return httpapi.Mount{}, err
+		}
+		options.Approvals = approvals
 	}
 	commentRoutes, err := comments.NewIssueHandler(comments.Options{
 		Pool:             options.Pool,
@@ -163,9 +196,12 @@ func NewMount(options Options) (httpapi.Mount, error) {
 			),
 		)
 	}
-	router.Get("/{issueRef}", getHandler(repository, options.Authorization))
+	router.Get("/{issueRef}", getHandler(repository, options))
 	router.Patch("/{issueRef}", updateHandler(repository, options))
 	router.Delete("/{issueRef}", deleteHandler(repository, options))
+	router.Get("/{issueRef}/dependencies", listDependenciesHandler(repository, options))
+	router.Post("/{issueRef}/dependencies", addDependencyHandler(repository, options))
+	router.Delete("/{issueRef}/dependencies/{dependsOnRef}", removeDependencyHandler(repository, options))
 	return httpapi.Mount{Prefix: "/api/v1/issues", Handler: router}, nil
 }
 
@@ -195,6 +231,13 @@ type issueResource struct {
 	CreatedBy   *core.ActorRef   `json:"createdBy"`
 	CreatedAt   string           `json:"createdAt"`
 	UpdatedAt   string           `json:"updatedAt"`
+	// Goal, Origin, DependsOn and Blocks are the issue's place in a plan:
+	// what it serves, which workflow run created it, and what must finish
+	// before and after it.
+	Goal      *core.GoalRef             `json:"goal"`
+	Origin    *core.IssueOrigin         `json:"origin"`
+	DependsOn []core.IssueDependencyRef `json:"dependsOn"`
+	Blocks    []core.IssueDependencyRef `json:"blocks"`
 }
 
 type issuePageInfo struct {
@@ -250,9 +293,18 @@ func listHandler(repository *core.Repository, authorizer Authorizer) http.Handle
 		if hasNextPage {
 			rows = rows[:query.First]
 		}
+		ids := make([]uuid.UUID, 0, len(rows))
+		for _, issue := range rows {
+			ids = append(ids, issue.ID)
+		}
+		relations, err := core.LoadIssueRelations(request.Context(), repository.Pool, ids)
+		if err != nil {
+			writeIssueInternal(response, request)
+			return
+		}
 		nodes := make([]issueResource, 0, len(rows))
 		for _, issue := range rows {
-			nodes = append(nodes, serializeIssue(issue))
+			nodes = append(nodes, serializeIssue(issue, relations[issue.ID]))
 		}
 		var endCursor *string
 		if len(rows) > 0 {
@@ -342,6 +394,9 @@ func createHandler(
 				nil,
 			)
 			return
+		case errors.Is(err, core.ErrApprovalRequired):
+			writeApprovalRequired(response, request, options, uuid.Nil)
+			return
 		case errors.Is(err, core.ErrConflict):
 			httpapi.WriteError(
 				response,
@@ -357,12 +412,91 @@ func createHandler(
 			return
 		}
 		shared.PublishIssue(request.Context(), options.Broadcaster, events)
+		if !applyGoalChange(response, request, options, scope.WorkspaceID, created.ID, input.Goal) {
+			return
+		}
+		relations, err := loadRelations(request.Context(), repository, created.ID)
+		if err != nil {
+			writeIssueInternal(response, request)
+			return
+		}
 		response.Header().Set("Location", "/api/v1/issues/"+created.ID.String())
-		httpapi.WriteJSON(response, http.StatusCreated, serializeIssue(created))
+		httpapi.WriteJSON(response, http.StatusCreated, serializeIssue(created, relations))
 	}
 }
 
-func getHandler(repository *core.Repository, authorizer Authorizer) http.HandlerFunc {
+// applyGoalChange links or unlinks the issue's goal after the issue write.
+// The goal must live in the issue's workspace; anything else reads as an
+// unknown goal rather than revealing another workspace's goals.
+func applyGoalChange(
+	response http.ResponseWriter,
+	request *http.Request,
+	options Options,
+	workspaceID, issueID uuid.UUID,
+	change goalChange,
+) bool {
+	if !change.Set || options.Goals == nil {
+		return true
+	}
+	if change.ID == nil {
+		if err := options.Goals.ClearIssueGoal(request.Context(), issueID); err != nil {
+			writeIssueInternal(response, request)
+			return false
+		}
+		return true
+	}
+	goal, err := options.Goals.Get(request.Context(), *change.ID)
+	if errors.Is(err, goalrepo.ErrNotFound) || (err == nil && goal.WorkspaceID != workspaceID) {
+		httpapi.WriteError(
+			response,
+			request,
+			http.StatusUnprocessableEntity,
+			"GOAL_NOT_FOUND",
+			"That goal does not exist in this workspace.",
+			nil,
+		)
+		return false
+	}
+	if err != nil {
+		writeIssueInternal(response, request)
+		return false
+	}
+	user := auth.MustUser(request.Context())
+	if err := options.Goals.LinkIssue(request.Context(), workspaceID, goal.ID, issueID, user.ID, options.Clock().UTC()); err != nil {
+		writeIssueInternal(response, request)
+		return false
+	}
+	return true
+}
+
+func loadRelations(ctx context.Context, repository *core.Repository, issueID uuid.UUID) (core.IssueRelations, error) {
+	relations, err := core.LoadIssueRelations(ctx, repository.Pool, []uuid.UUID{issueID})
+	if err != nil {
+		return core.IssueRelations{}, err
+	}
+	return relations[issueID], nil
+}
+
+// writeApprovalRequired answers a refused status move with the gate that
+// refused it, so a client can offer the approval rather than a dead end.
+func writeApprovalRequired(response http.ResponseWriter, request *http.Request, options Options, issueID uuid.UUID) {
+	details := map[string]any{"approvalId": nil}
+	if options.Approvals != nil && issueID != uuid.Nil {
+		if approval, err := options.Approvals.LatestForIssue(request.Context(), issueID, approvalrepo.KindIssueStart); err == nil {
+			details["approvalId"] = approval.ID
+		}
+	}
+	httpapi.WriteError(
+		response,
+		request,
+		http.StatusConflict,
+		"APPROVAL_REQUIRED",
+		"The issue is waiting for approval and cannot be queued for an agent.",
+		details,
+	)
+}
+
+func getHandler(repository *core.Repository, options Options) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		issue, err := repository.GetIssue(request.Context(), chi.URLParam(request, "issueRef"))
 		if errors.Is(err, core.ErrNotFound) {
@@ -374,7 +508,7 @@ func getHandler(repository *core.Repository, authorizer Authorizer) http.Handler
 			return
 		}
 		user := auth.MustUser(request.Context())
-		if _, err := authorizer.AuthorizeIssue(
+		if _, err := options.Authorization.AuthorizeIssue(
 			request.Context(),
 			user.ID,
 			issue.ID,
@@ -382,7 +516,12 @@ func getHandler(repository *core.Repository, authorizer Authorizer) http.Handler
 		); !writeIssueAuthorization(response, request, err, false) {
 			return
 		}
-		httpapi.WriteJSON(response, http.StatusOK, serializeIssue(issue))
+		relations, err := loadRelations(request.Context(), repository, issue.ID)
+		if err != nil {
+			writeIssueInternal(response, request)
+			return
+		}
+		httpapi.WriteJSON(response, http.StatusOK, serializeIssue(issue, relations))
 	}
 }
 
@@ -410,7 +549,7 @@ func updateHandler(
 		if !writeIssueAuthorization(response, request, err, false) {
 			return
 		}
-		patch, ok := parseIssuePatch(response, request)
+		patch, goal, ok := parseIssuePatch(response, request)
 		if !ok {
 			return
 		}
@@ -429,18 +568,26 @@ func updateHandler(
 		if patch.AssigneeSet && patch.Assignee != nil {
 			assignmentID = options.NewID()
 		}
-		updated, events, err := repository.UpdateIssue(request.Context(), core.UpdateIssueParams{
-			IssueID:      found.ID,
-			Patch:        patch,
-			AssignmentID: assignmentID,
-			AssignedBy:   user.ID,
-			UpdatedAt:    options.Clock().UTC(),
-			NewID:        options.NewID,
-		})
+		updated := found
+		var events []core.IssueMutationEvent
+		if patch.Title != nil || patch.DescriptionSet || patch.Status != nil || patch.Priority != nil ||
+			patch.SortOrder != nil || patch.DueDateSet || patch.AssigneeSet || patch.ProjectSet {
+			updated, events, err = repository.UpdateIssue(request.Context(), core.UpdateIssueParams{
+				IssueID:      found.ID,
+				Patch:        patch,
+				AssignmentID: assignmentID,
+				AssignedBy:   user.ID,
+				UpdatedAt:    options.Clock().UTC(),
+				NewID:        options.NewID,
+			})
+		}
 		var transition *core.StateTransitionError
 		switch {
 		case errors.As(err, &transition):
 			writeTransition(response, request, transition.From, transition.To)
+			return
+		case errors.Is(err, core.ErrApprovalRequired):
+			writeApprovalRequired(response, request, options, found.ID)
 			return
 		case errors.Is(err, core.ErrProjectNotFound):
 			httpapi.WriteError(
@@ -477,7 +624,15 @@ func updateHandler(
 			return
 		}
 		shared.PublishIssue(request.Context(), options.Broadcaster, events)
-		httpapi.WriteJSON(response, http.StatusOK, serializeIssue(updated))
+		if !applyGoalChange(response, request, options, scope.WorkspaceID, found.ID, goal) {
+			return
+		}
+		relations, err := loadRelations(request.Context(), repository, found.ID)
+		if err != nil {
+			writeIssueInternal(response, request)
+			return
+		}
+		httpapi.WriteJSON(response, http.StatusOK, serializeIssue(updated, relations))
 	}
 }
 
@@ -557,13 +712,25 @@ func writeAssigneeAuthorization(
 	return false
 }
 
-func serializeIssue(issue core.Issue) issueResource {
+func serializeIssue(issue core.Issue, relations core.IssueRelations) issueResource {
 	var dueDate *string
 	if issue.DueDate != nil {
 		value := issue.DueDate.UTC().Format(time.RFC3339Nano)
 		dueDate = &value
 	}
+	dependsOn := relations.DependsOn
+	if dependsOn == nil {
+		dependsOn = []core.IssueDependencyRef{}
+	}
+	blocks := relations.Blocks
+	if blocks == nil {
+		blocks = []core.IssueDependencyRef{}
+	}
 	return issueResource{
+		Goal:        relations.Goal,
+		Origin:      relations.Origin,
+		DependsOn:   dependsOn,
+		Blocks:      blocks,
 		ID:          issue.ID,
 		BoardID:     issue.BoardID,
 		Number:      issue.Number,

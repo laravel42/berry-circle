@@ -1,9 +1,12 @@
-// Package events exports the authenticated durable board event stream.
+// Package events exports the authenticated durable event streams: one per
+// board and one per workspace.
 //
-// The stream subscribes on the board id for live wakeups; publishers set it as
-// the event's BoardID beside the workspace, so a board-less fact never reaches
-// a board subscriber and a workspace-wide consumer can subscribe on its own
-// key without a second publish.
+// The board stream subscribes on the board id for live wakeups; publishers
+// set it as the event's BoardID beside the workspace, so a board-less fact
+// never reaches a board subscriber. The workspace stream subscribes on the
+// workspace id and replays the goal, workflow, approval and plan facts that
+// belong to no board, plus the issue and agent moments a workspace-wide
+// consumer needs.
 package events
 
 import (
@@ -33,7 +36,7 @@ const (
 	maxCursorBytes   = 512
 )
 
-// Store is the durable replay seam for board events.
+// Store is the durable replay seam for board and workspace events.
 type Store interface {
 	ResolveBoardCursor(
 		context.Context,
@@ -48,9 +51,25 @@ type Store interface {
 		time.Time,
 		int,
 	) ([]runrepo.Event, error)
+	ResolveWorkspaceCursor(
+		context.Context,
+		uuid.UUID,
+		[]string,
+		uuid.UUID,
+		time.Time,
+	) (runrepo.BoardCursor, error)
+	ListWorkspaceEvents(
+		context.Context,
+		uuid.UUID,
+		[]string,
+		*runrepo.BoardCursor,
+		time.Time,
+		int,
+	) ([]runrepo.Event, error)
 }
 
-// Authorizer is the narrow board boundary consumed before replay or follow.
+// Authorizer is the narrow board/workspace boundary consumed before replay
+// or follow.
 type Authorizer interface {
 	AuthorizeBoard(
 		context.Context,
@@ -58,7 +77,37 @@ type Authorizer interface {
 		uuid.UUID,
 		identity.Permission,
 	) (identity.Scope, error)
+	AuthorizeWorkspace(
+		context.Context,
+		uuid.UUID,
+		uuid.UUID,
+		identity.Permission,
+	) (identity.Role, error)
 }
+
+// WorkspaceTopics is what GET /api/v1/events?workspaceId= replays: the facts
+// that belong to no board (goals, workflows, approvals, plans) plus the issue
+// and agent moments a workspace-wide consumer needs to notice. The outbox
+// replay matches topics exactly, so the list is spelled out.
+var WorkspaceTopics = []string{
+	"goal.created", "goal.updated", "goal.started", "goal.completed", "goal.cancelled", "goal.archived",
+	"workflow.created", "workflow.activated", "workflow.paused", "workflow.archived",
+	"workflow.run.started", "workflow.run.waiting", "workflow.run.resumed", "workflow.run.succeeded", "workflow.run.failed", "workflow.run.cancelled",
+	"workflow.step.started", "workflow.step.succeeded", "workflow.step.failed", "workflow.step.skipped", "workflow.step.waiting",
+	"approval.requested", "approval.approved", "approval.rejected", "approval.expired",
+	"plan.generated", "plan.updated", "plan.blocked", "plan.patched", "plan.approved", "plan.compiled", "plan.compile_failed",
+	"issue.created", "issue.completed", "issue.deleted",
+	"agent.started", "agent.completed", "agent.failed",
+	"artifact.created",
+}
+
+// streamScope is the one scope a request names: a board or a workspace.
+type streamScope struct {
+	boardID     uuid.UUID
+	workspaceID uuid.UUID
+}
+
+func (scope streamScope) workspace() bool { return scope.workspaceID != uuid.Nil }
 
 // Options explicitly supplies durable storage, auth, clock, and wakeups.
 type Options struct {
@@ -156,40 +205,36 @@ type envelope struct {
 	Payload     json.RawMessage `json:"payload"`
 }
 
+// workspaceEnvelope is the workspace stream frame: the same fields, with
+// boardId and issueId null for facts that belong to no board or issue.
+type workspaceEnvelope struct {
+	ID          uuid.UUID       `json:"id"`
+	Type        string          `json:"type"`
+	OccurredAt  string          `json:"occurredAt"`
+	WorkspaceID uuid.UUID       `json:"workspaceId"`
+	BoardID     *uuid.UUID      `json:"boardId"`
+	IssueID     *uuid.UUID      `json:"issueId"`
+	RunID       *uuid.UUID      `json:"runId"`
+	Sequence    *int64          `json:"sequence"`
+	Payload     json.RawMessage `json:"payload"`
+}
+
 func (handler *handler) stream(response http.ResponseWriter, request *http.Request) {
-	boardID, cursor, ok := parseRequest(response, request)
+	scope, cursor, ok := parseRequest(response, request)
 	if !ok {
 		return
 	}
 	user := auth.MustUser(request.Context())
-	if _, err := handler.authorization.AuthorizeBoard(
-		request.Context(),
-		user.ID,
-		boardID,
-		identity.PermissionRead,
-	); errors.Is(err, identity.ErrNotFound) {
-		httpapi.WriteError(
-			response,
-			request,
-			http.StatusNotFound,
-			"BOARD_NOT_FOUND",
-			"The requested board was not found.",
-			nil,
-		)
-		return
-	} else if errors.Is(err, identity.ErrForbidden) {
-		httpapi.WriteError(
-			response,
-			request,
-			http.StatusForbidden,
-			"FORBIDDEN",
-			"You do not have permission to stream this board.",
-			nil,
-		)
-		return
-	} else if err != nil {
-		writeInternal(response, request)
-		return
+	if scope.workspace() {
+		_, err := handler.authorization.AuthorizeWorkspace(request.Context(), user.ID, scope.workspaceID, identity.PermissionRead)
+		if !writeScopeAuthorization(response, request, err, "workspace") {
+			return
+		}
+	} else {
+		_, err := handler.authorization.AuthorizeBoard(request.Context(), user.ID, scope.boardID, identity.PermissionRead)
+		if !writeScopeAuthorization(response, request, err, "board") {
+			return
+		}
 	}
 	cutoff := handler.clock().UTC().Add(-handler.retention)
 	var after *runrepo.BoardCursor
@@ -199,12 +244,12 @@ func (handler *handler) stream(response http.ResponseWriter, request *http.Reque
 			writeCursorExpired(response, request)
 			return
 		}
-		resolved, err := handler.store.ResolveBoardCursor(
-			request.Context(),
-			boardID,
-			eventID,
-			cutoff,
-		)
+		var resolved runrepo.BoardCursor
+		if scope.workspace() {
+			resolved, err = handler.store.ResolveWorkspaceCursor(request.Context(), scope.workspaceID, WorkspaceTopics, eventID, cutoff)
+		} else {
+			resolved, err = handler.store.ResolveBoardCursor(request.Context(), scope.boardID, eventID, cutoff)
+		}
 		if errors.Is(err, runrepo.ErrCursorExpired) {
 			writeCursorExpired(response, request)
 			return
@@ -227,20 +272,29 @@ func (handler *handler) stream(response http.ResponseWriter, request *http.Reque
 		)
 		return
 	}
-	subscription, _ := handler.broadcaster.Subscribe(
-		request.Context(),
-		boardID.String(),
-	)
+	// A board stream subscribes on its board id, a workspace stream on the
+	// workspace id; publishers stamp both so one fact wakes either.
+	subscriptionKey := scope.boardID.String()
+	if scope.workspace() {
+		subscriptionKey = scope.workspaceID.String()
+	}
+	subscription, _ := handler.broadcaster.Subscribe(request.Context(), subscriptionKey)
 	if subscription != nil {
 		defer subscription.Close()
 	}
-	backlog, err := handler.store.ListBoardEvents(
-		request.Context(),
-		boardID,
-		after,
-		cutoff,
-		replayBatch,
-	)
+	list := func(after *runrepo.BoardCursor) ([]runrepo.Event, error) {
+		if scope.workspace() {
+			return handler.store.ListWorkspaceEvents(request.Context(), scope.workspaceID, WorkspaceTopics, after, cutoff, replayBatch)
+		}
+		return handler.store.ListBoardEvents(request.Context(), scope.boardID, after, cutoff, replayBatch)
+	}
+	write := func(events []runrepo.Event, after *runrepo.BoardCursor) (*runrepo.BoardCursor, bool) {
+		if scope.workspace() {
+			return writeWorkspaceBatch(response, flusher, events, after)
+		}
+		return writeBatch(response, flusher, events, after)
+	}
+	backlog, err := list(after)
 	if err != nil {
 		writeInternal(response, request)
 		return
@@ -256,22 +310,16 @@ func (handler *handler) stream(response http.ResponseWriter, request *http.Reque
 	}
 	flusher.Flush()
 
-	after, ok = writeBatch(response, flusher, backlog, after)
+	after, ok = write(backlog, after)
 	if !ok {
 		return
 	}
 	for len(backlog) == replayBatch {
-		backlog, err = handler.store.ListBoardEvents(
-			request.Context(),
-			boardID,
-			after,
-			cutoff,
-			replayBatch,
-		)
+		backlog, err = list(after)
 		if err != nil {
 			return
 		}
-		after, ok = writeBatch(response, flusher, backlog, after)
+		after, ok = write(backlog, after)
 		if !ok {
 			return
 		}
@@ -303,20 +351,14 @@ func (handler *handler) stream(response http.ResponseWriter, request *http.Reque
 			continue
 		}
 		for {
-			found, err := handler.store.ListBoardEvents(
-				request.Context(),
-				boardID,
-				after,
-				cutoff,
-				replayBatch,
-			)
+			found, err := list(after)
 			if err != nil {
 				return
 			}
 			if len(found) == 0 {
 				break
 			}
-			after, ok = writeBatch(response, flusher, found, after)
+			after, ok = write(found, after)
 			if !ok {
 				return
 			}
@@ -328,31 +370,50 @@ func (handler *handler) stream(response http.ResponseWriter, request *http.Reque
 	}
 }
 
+// parseRequest reads exactly one of boardId or workspaceId and the cursor.
 func parseRequest(
 	response http.ResponseWriter,
 	request *http.Request,
-) (uuid.UUID, string, bool) {
+) (streamScope, string, bool) {
 	values := request.URL.Query()
 	for name, entries := range values {
-		if name != "boardId" && name != "after" {
+		if name != "boardId" && name != "workspaceId" && name != "after" {
 			writeInvalid(response, request, "Unknown query parameter.")
-			return uuid.Nil, "", false
+			return streamScope{}, "", false
 		}
 		if len(entries) != 1 {
 			writeInvalid(response, request, "Query parameters must appear once.")
-			return uuid.Nil, "", false
+			return streamScope{}, "", false
 		}
 	}
-	rawBoardID := values.Get("boardId")
-	boardID, err := uuid.Parse(rawBoardID)
-	if err != nil || boardID == uuid.Nil || boardID.String() != rawBoardID {
-		writeValidation(response, request)
-		return uuid.Nil, "", false
+	_, hasBoard := values["boardId"]
+	_, hasWorkspace := values["workspaceId"]
+	if hasBoard == hasWorkspace {
+		writeInvalid(response, request, "Provide exactly one of boardId or workspaceId.")
+		return streamScope{}, "", false
+	}
+	var scope streamScope
+	if hasWorkspace {
+		raw := values.Get("workspaceId")
+		workspaceID, err := uuid.Parse(raw)
+		if err != nil || workspaceID == uuid.Nil || workspaceID.String() != raw {
+			writeValidationField(response, request, "workspaceId")
+			return streamScope{}, "", false
+		}
+		scope.workspaceID = workspaceID
+	} else {
+		raw := values.Get("boardId")
+		boardID, err := uuid.Parse(raw)
+		if err != nil || boardID == uuid.Nil || boardID.String() != raw {
+			writeValidation(response, request)
+			return streamScope{}, "", false
+		}
+		scope.boardID = boardID
 	}
 	headerValues := request.Header.Values("Last-Event-ID")
 	if len(headerValues) > 1 {
 		writeInvalid(response, request, "Last-Event-ID must appear once.")
-		return uuid.Nil, "", false
+		return streamScope{}, "", false
 	}
 	lastEventID := ""
 	if len(headerValues) == 1 {
@@ -365,7 +426,7 @@ func parseRequest(
 			request,
 			"Provide either the Last-Event-ID header or the after cursor, not both.",
 		)
-		return uuid.Nil, "", false
+		return streamScope{}, "", false
 	}
 	cursor := lastEventID
 	if cursor == "" {
@@ -373,9 +434,97 @@ func parseRequest(
 	}
 	if len(cursor) > maxCursorBytes {
 		writeInvalid(response, request, "The event cursor is malformed.")
-		return uuid.Nil, "", false
+		return streamScope{}, "", false
 	}
-	return boardID, cursor, true
+	return scope, cursor, true
+}
+
+func writeScopeAuthorization(response http.ResponseWriter, request *http.Request, err error, scope string) bool {
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, identity.ErrNotFound):
+		code, message := "BOARD_NOT_FOUND", "The requested board was not found."
+		if scope == "workspace" {
+			code, message = "NOT_FOUND", "The requested workspace was not found."
+		}
+		httpapi.WriteError(response, request, http.StatusNotFound, code, message, nil)
+	case errors.Is(err, identity.ErrForbidden):
+		httpapi.WriteError(
+			response,
+			request,
+			http.StatusForbidden,
+			"FORBIDDEN",
+			"You do not have permission to stream this "+scope+".",
+			nil,
+		)
+	default:
+		writeInternal(response, request)
+	}
+	return false
+}
+
+func writeWorkspaceBatch(
+	response http.ResponseWriter,
+	flusher http.Flusher,
+	events []runrepo.Event,
+	after *runrepo.BoardCursor,
+) (*runrepo.BoardCursor, bool) {
+	for _, event := range events {
+		frame := workspaceEnvelope{
+			ID:          event.ID,
+			Type:        event.Type,
+			OccurredAt:  event.OccurredAt.UTC().Format(time.RFC3339Nano),
+			WorkspaceID: event.WorkspaceID,
+			RunID:       event.RunID,
+			Sequence:    event.Sequence,
+			Payload:     event.Payload,
+		}
+		if event.BoardID != uuid.Nil {
+			boardID := event.BoardID
+			frame.BoardID = &boardID
+		}
+		if event.IssueID != uuid.Nil {
+			issueID := event.IssueID
+			frame.IssueID = &issueID
+		}
+		data, err := json.Marshal(frame)
+		if err != nil {
+			return after, false
+		}
+		if _, err := fmt.Fprintf(
+			response,
+			"id: %s\nevent: %s\ndata: %s\n\n",
+			event.ID.String(),
+			event.Type,
+			data,
+		); err != nil {
+			return after, false
+		}
+		flusher.Flush()
+		after = &runrepo.BoardCursor{
+			OccurredAt: event.OccurredAt,
+			ID:         event.ID,
+		}
+	}
+	return after, true
+}
+
+func writeValidationField(response http.ResponseWriter, request *http.Request, field string) {
+	httpapi.WriteError(
+		response,
+		request,
+		http.StatusUnprocessableEntity,
+		"VALIDATION_FAILED",
+		field+" must be a canonical UUID.",
+		map[string]any{
+			"fields": []httpapi.FieldError{{
+				Path:    "/query/" + field,
+				Code:    "invalid",
+				Message: field + " must be a canonical UUID.",
+			}},
+		},
+	)
 }
 
 func writeBatch(

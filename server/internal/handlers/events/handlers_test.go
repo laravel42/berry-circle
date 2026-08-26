@@ -142,9 +142,19 @@ func (eventAuthorizer) AuthorizeBoard(
 	return identity.Scope{WorkspaceID: uuid.New(), Role: identity.RoleViewer}, nil
 }
 
+func (eventAuthorizer) AuthorizeWorkspace(
+	context.Context,
+	uuid.UUID,
+	uuid.UUID,
+	identity.Permission,
+) (identity.Role, error) {
+	return identity.RoleViewer, nil
+}
+
 type eventStore struct {
 	exists      bool
 	events      []runrepo.Event
+	topics      []string
 	cancel      context.CancelFunc
 	existsCalls atomic.Int32
 	listCalls   atomic.Int32
@@ -178,6 +188,90 @@ func (store *eventStore) ListBoardEvents(
 		return store.events, nil
 	}
 	return nil, nil
+}
+
+func (*eventStore) ResolveWorkspaceCursor(
+	context.Context,
+	uuid.UUID,
+	[]string,
+	uuid.UUID,
+	time.Time,
+) (runrepo.BoardCursor, error) {
+	return runrepo.BoardCursor{}, nil
+}
+
+func (store *eventStore) ListWorkspaceEvents(
+	_ context.Context,
+	_ uuid.UUID,
+	topics []string,
+	_ *runrepo.BoardCursor,
+	_ time.Time,
+	_ int,
+) ([]runrepo.Event, error) {
+	store.topics = topics
+	if store.listCalls.Add(1) == 1 {
+		if store.cancel != nil {
+			store.cancel()
+		}
+		return store.events, nil
+	}
+	return nil, nil
+}
+
+// The workspace stream replays board-less facts with null board and issue
+// scopes and asks the store for exactly the workspace topic allowlist.
+func TestWorkspaceEventStreamReplaysBoardlessFacts(t *testing.T) {
+	now := time.Date(2026, time.August, 25, 12, 0, 0, 0, time.UTC)
+	workspaceID := uuid.New()
+	eventID := uuid.New()
+	store := &eventStore{
+		events: []runrepo.Event{{
+			ID:          eventID,
+			Type:        "goal.created",
+			OccurredAt:  now,
+			WorkspaceID: workspaceID,
+			Payload:     json.RawMessage(`{"goal":{"id":"x"}}`),
+		}},
+	}
+	mount, cleanup := newEventTestMount(t, store)
+	defer cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	store.cancel = cancel
+	request := httptest.NewRequest(http.MethodGet, "/?workspaceId="+workspaceID.String(), nil).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer "+eventTestToken())
+	response := httptest.NewRecorder()
+
+	mount.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", response.Code, response.Body.String())
+	}
+	if len(store.topics) != len(WorkspaceTopics) || store.topics[0] != "goal.created" {
+		t.Fatalf("topics = %v", store.topics)
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, "event: goal.created") ||
+		!strings.Contains(body, `"boardId":null`) ||
+		!strings.Contains(body, `"issueId":null`) ||
+		!strings.Contains(body, `"workspaceId":"`+workspaceID.String()+`"`) {
+		t.Fatalf("stream body = %q", body)
+	}
+}
+
+// A request must name exactly one scope.
+func TestEventStreamRefusesBothOrNeitherScope(t *testing.T) {
+	store := &eventStore{}
+	mount, cleanup := newEventTestMount(t, store)
+	defer cleanup()
+	for _, query := range []string{"/", "/?boardId=" + uuid.NewString() + "&workspaceId=" + uuid.NewString()} {
+		request := httptest.NewRequest(http.MethodGet, query, nil)
+		request.Header.Set("Authorization", "Bearer "+eventTestToken())
+		response := httptest.NewRecorder()
+		mount.ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s: status = %d, want 400", query, response.Code)
+		}
+	}
 }
 
 func eventTestToken() string {

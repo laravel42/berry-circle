@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -42,7 +44,15 @@ type configRequest struct {
 	// pairing the runtime cannot resolve.
 	Provider *string `json:"provider"`
 	Model    *string `json:"model"`
+	// Skills are Berry-authored capability names (lowercase letters, digits
+	// and dashes) the planner matches issues against. Sending the list
+	// replaces it; omitting it leaves it alone.
+	Skills *[]string `json:"skills"`
 }
+
+// maxSkills bounds the authored list; a vocabulary past this is a taxonomy,
+// not a set of skills.
+const maxSkills = 50
 
 // ConfigStore is the durable seam for authored agent configuration.
 type ConfigStore interface {
@@ -54,6 +64,7 @@ type ConfigStore interface {
 type StoredConfig struct {
 	Instructions *string
 	Description  *string
+	Skills       *[]string
 }
 
 // SetInstructions persists the authored prompt and stamps when it was last
@@ -74,6 +85,7 @@ func (store PostgresStore) SetConfig(
 		`UPDATE agents
 		    SET instructions = CASE WHEN $4 THEN $3 ELSE instructions END,
 		        description  = CASE WHEN $6 THEN $5 ELSE description END,
+		        skills       = CASE WHEN $8 THEN COALESCE($7::text[], ARRAY[]::text[]) ELSE skills END,
 		        instructions_synced_at = CASE
 		            WHEN $4 THEN now() ELSE instructions_synced_at END,
 		        updated_at = now()
@@ -84,6 +96,8 @@ func (store PostgresStore) SetConfig(
 		config.Instructions != nil,
 		config.Description,
 		config.Description != nil,
+		derefSkills(config.Skills),
+		config.Skills != nil,
 	)
 	if err != nil {
 		return errors.New("persist agent instructions")
@@ -181,7 +195,21 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 			provider, model = body.Provider, body.Model
 		}
 
-		if instructions == nil && description == nil && model == nil {
+		var skills *[]string
+		if body.Skills != nil {
+			normalised, ok := normaliseSkills(*body.Skills)
+			if !ok {
+				httpapi.WriteError(
+					response, request, http.StatusBadRequest,
+					"SKILLS_INVALID",
+					"Skills are up to 50 names of lowercase letters, digits and dashes.", nil,
+				)
+				return
+			}
+			skills = &normalised
+		}
+
+		if instructions == nil && description == nil && model == nil && skills == nil {
 			httpapi.WriteError(
 				response, request, http.StatusBadRequest,
 				"NO_FIELDS", "No configuration fields were provided.", nil,
@@ -201,19 +229,22 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 
 		// OpenFang owns execution, so it is updated first. Only fields the
 		// caller sent are forwarded, so writing one cannot blank the other
-		// upstream.
-		if err := options.Configurer.PatchAgent(
-			request.Context(),
-			found.OpenFangAgentID,
-			openfang.PatchAgentRequest{
-				SystemPrompt: instructions,
-				Description:  description,
-				Provider:     provider,
-				Model:        model,
-			},
-		); err != nil {
-			writeDependencyError(response, request, err)
-			return
+		// upstream. Skills are Berry's own vocabulary and never travel
+		// upstream, so a skills-only save skips the runtime.
+		if instructions != nil || description != nil || model != nil {
+			if err := options.Configurer.PatchAgent(
+				request.Context(),
+				found.OpenFangAgentID,
+				openfang.PatchAgentRequest{
+					SystemPrompt: instructions,
+					Description:  description,
+					Provider:     provider,
+					Model:        model,
+				},
+			); err != nil {
+				writeDependencyError(response, request, err)
+				return
+			}
 		}
 
 		writer, ok := store.(ConfigStore)
@@ -225,7 +256,7 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 			request.Context(),
 			agentID,
 			scope.WorkspaceID,
-			StoredConfig{Instructions: instructions, Description: description},
+			StoredConfig{Instructions: instructions, Description: description, Skills: skills},
 		); err != nil {
 			if errors.Is(err, ErrNotFound) {
 				writeNotFound(response, request)
@@ -244,4 +275,36 @@ func configHandler(store Store, options Options) http.HandlerFunc {
 		}
 		httpapi.WriteJSON(response, http.StatusOK, serialize(refreshed))
 	}
+}
+
+var skillPattern = regexp.MustCompile(`^[a-z0-9-]{1,50}$`)
+
+// normaliseSkills trims, lowercases, de-duplicates and sorts the list, and
+// refuses anything outside the planner's capability grammar.
+func normaliseSkills(values []string) ([]string, bool) {
+	if len(values) > maxSkills {
+		return nil, false
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		skill := strings.ToLower(strings.TrimSpace(value))
+		if !skillPattern.MatchString(skill) {
+			return nil, false
+		}
+		if _, ok := seen[skill]; ok {
+			continue
+		}
+		seen[skill] = struct{}{}
+		out = append(out, skill)
+	}
+	sort.Strings(out)
+	return out, true
+}
+
+func derefSkills(values *[]string) []string {
+	if values == nil {
+		return nil
+	}
+	return *values
 }

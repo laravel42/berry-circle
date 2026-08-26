@@ -48,6 +48,7 @@ type createIssueBody struct {
 	DueDate     optional[string]       `json:"dueDate"`
 	Assignee    optional[assigneeBody] `json:"assignee"`
 	ProjectID   optional[string]       `json:"projectId"`
+	GoalID      optional[string]       `json:"goalId"`
 }
 
 type updateIssueBody struct {
@@ -59,6 +60,14 @@ type updateIssueBody struct {
 	DueDate     optional[string]       `json:"dueDate"`
 	Assignee    optional[assigneeBody] `json:"assignee"`
 	ProjectID   optional[string]       `json:"projectId"`
+	GoalID      optional[string]       `json:"goalId"`
+}
+
+// goalChange is the tri-state goal link on a write: untouched, set, or
+// cleared with an explicit null.
+type goalChange struct {
+	Set bool
+	ID  *uuid.UUID
 }
 
 type createIssueInput struct {
@@ -71,6 +80,7 @@ type createIssueInput struct {
 	DueDate     *time.Time
 	Assignee    *core.AssigneeInput
 	Project     *uuid.UUID
+	Goal        goalChange
 }
 
 type issueQuery struct {
@@ -189,6 +199,7 @@ func parseCreateIssue(
 			project = &parsed
 		}
 	}
+	goal := parseGoalChange(&fields, body.GoalID)
 	if len(fields) > 0 {
 		writeIssueValidation(response, request, fields...)
 		return createIssueInput{}, false
@@ -203,20 +214,43 @@ func parseCreateIssue(
 		DueDate:     dueDate,
 		Assignee:    assignee,
 		Project:     project,
+		Goal:        goal,
 	}, true
+}
+
+func parseGoalChange(fields *[]httpapi.FieldError, value optional[string]) goalChange {
+	if !value.Set {
+		return goalChange{}
+	}
+	change := goalChange{Set: true}
+	if value.Null {
+		return change
+	}
+	goalID, err := uuid.Parse(strings.TrimSpace(value.Value))
+	if err != nil || goalID == uuid.Nil {
+		*fields = append(*fields, issueFieldError("/goalId", "invalid_string", "goalId must be a UUID."))
+		return change
+	}
+	change.ID = &goalID
+	return change
 }
 
 func parseIssuePatch(
 	response http.ResponseWriter,
 	request *http.Request,
-) (core.IssuePatch, bool) {
+) (core.IssuePatch, goalChange, bool) {
 	var body updateIssueBody
 	if !decodeIssueJSON(response, request, &body) {
-		return core.IssuePatch{}, false
+		return core.IssuePatch{}, goalChange{}, false
 	}
 	fields := make([]httpapi.FieldError, 0)
 	patch := core.IssuePatch{}
 	count := 0
+	var goal goalChange
+	if body.GoalID.Set {
+		count++
+		goal = parseGoalChange(&fields, body.GoalID)
+	}
 	if body.Title.Set {
 		count++
 		if body.Title.Null {
@@ -320,9 +354,9 @@ func parseIssuePatch(
 	}
 	if len(fields) > 0 {
 		writeIssueValidation(response, request, fields...)
-		return core.IssuePatch{}, false
+		return core.IssuePatch{}, goalChange{}, false
 	}
-	return patch, true
+	return patch, goal, true
 }
 
 func parseIssueQuery(

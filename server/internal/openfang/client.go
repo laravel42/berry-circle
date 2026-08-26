@@ -76,6 +76,16 @@ type AgentDetail struct {
 	SystemPrompt string
 	Tags         []string
 	Identity     AgentIdentity
+	// Limits is the manifest limit snapshot; nil when not reported.
+	Limits *AgentLimits
+}
+
+// AgentLimits are the manifest limits the runtime exposes on the detail
+// response when it does: the per-reply token cap and the hourly LLM token
+// budget. Nil when the pinned runtime does not report them.
+type AgentLimits struct {
+	MaxTokens           *int64 `json:"maxTokens"`
+	MaxLLMTokensPerHour *int64 `json:"maxLLMTokensPerHour"`
 }
 
 // AgentModel is display metadata, not provider configuration.
@@ -149,6 +159,31 @@ type agentDetailWire struct {
 	SystemPrompt string            `json:"system_prompt"`
 	Tags         []string          `json:"tags"`
 	Identity     AgentIdentity     `json:"identity"`
+	// The pinned runtime exposes manifest limits either at the top level or
+	// under a limits object depending on the build; both are read.
+	MaxTokens           *int64 `json:"max_tokens"`
+	MaxLLMTokensPerHour *int64 `json:"max_llm_tokens_per_hour"`
+	Limits              *struct {
+		MaxTokens           *int64 `json:"max_tokens"`
+		MaxLLMTokensPerHour *int64 `json:"max_llm_tokens_per_hour"`
+	} `json:"limits"`
+}
+
+// limits folds the two wire placements into one snapshot.
+func (wire agentDetailWire) limits() *AgentLimits {
+	maxTokens, perHour := wire.MaxTokens, wire.MaxLLMTokensPerHour
+	if wire.Limits != nil {
+		if maxTokens == nil {
+			maxTokens = wire.Limits.MaxTokens
+		}
+		if perHour == nil {
+			perHour = wire.Limits.MaxLLMTokensPerHour
+		}
+	}
+	if maxTokens == nil && perHour == nil {
+		return nil
+	}
+	return &AgentLimits{MaxTokens: maxTokens, MaxLLMTokensPerHour: perHour}
 }
 
 // ListAgents performs a bounded, retryable read and validates UUID/time fields.
@@ -232,6 +267,7 @@ func (client *Client) GetAgent(ctx context.Context, agentID uuid.UUID) (AgentDet
 		SystemPrompt: wire.SystemPrompt,
 		Tags:         wire.Tags,
 		Identity:     wire.Identity,
+		Limits:       wire.limits(),
 	}, nil
 }
 

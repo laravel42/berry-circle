@@ -194,6 +194,15 @@ func writeDomainError(
 			"The pin order no longer matches the current collection.",
 			nil,
 		)
+	case errors.Is(err, p2repo.ErrApprovalRequired):
+		httpapi.WriteError(
+			response,
+			request,
+			http.StatusConflict,
+			"APPROVAL_REQUIRED",
+			"An issue in the batch is waiting for approval and cannot be queued.",
+			nil,
+		)
 	case errors.Is(err, p2repo.ErrConflict):
 		httpapi.WriteError(
 			response,

@@ -86,6 +86,9 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router := httpapi.NewSubrouter()
 	router.Use(auth.RequireSession(options.Sessions))
 	router.Get("/", listHandler(store, options))
+	if capabilities, ok := store.(CapabilityStore); ok {
+		router.Get("/capabilities", capabilitiesHandler(capabilities, options))
+	}
 	router.Get("/{agentId}", getHandler(store, options))
 	if options.Configurer != nil && options.Catalog != nil {
 		router.Put("/{agentId}/config", configHandler(store, options))
@@ -101,7 +104,12 @@ type resource struct {
 	AvatarURL    *string   `json:"avatarUrl"`
 	Status       string    `json:"status"`
 	Capabilities []string  `json:"capabilities"`
-	Instructions *string   `json:"instructions"`
+	// Skills are Berry-authored; capabilities are the runtime's tool names.
+	Skills       []string `json:"skills"`
+	Instructions *string  `json:"instructions"`
+	// Limits is the manifest snapshot the registry surfaces; null when the
+	// runtime does not report one.
+	Limits *openfang.AgentLimits `json:"limits"`
 	// The model an agent runs on. Projected from the runtime, which owns it.
 	ModelProvider *string `json:"modelProvider"`
 	ModelName     *string `json:"modelName"`
@@ -475,6 +483,10 @@ func serialize(agent Agent) resource {
 	if capabilities == nil {
 		capabilities = []string{}
 	}
+	skills := append([]string(nil), agent.Skills...)
+	if skills == nil {
+		skills = []string{}
+	}
 	return resource{
 		ID:            agent.ID,
 		Name:          agent.Name,
@@ -482,7 +494,9 @@ func serialize(agent Agent) resource {
 		AvatarURL:     agent.AvatarURL,
 		Status:        agent.Status,
 		Capabilities:  capabilities,
+		Skills:        skills,
 		Instructions:  agent.Instructions,
+		Limits:        agent.ManifestLimits,
 		ModelProvider: agent.ModelProvider,
 		ModelName:     agent.ModelName,
 		CreatedAt:     agent.CreatedAt.UTC().Format(time.RFC3339Nano),

@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/laravel42/berry-circle/server/internal/openfang"
 )
 
 // Agent is Berry's durable product identity mapped to one upstream agent.
@@ -22,7 +25,13 @@ type Agent struct {
 	Status          string
 	Capabilities    []string
 	// Instructions is the system prompt applied to every task this agent runs.
-	Instructions         *string
+	Instructions *string
+	// Skills are Berry-authored capability names in the planner vocabulary,
+	// kept beside the runtime-owned Capabilities which every sync overwrites.
+	Skills []string
+	// ManifestLimits is the runtime's manifest limit snapshot; nil when the
+	// runtime does not report one.
+	ManifestLimits       *openfang.AgentLimits
 	ModelProvider        *string
 	ModelName            *string
 	ModelTier            *string
@@ -46,6 +55,7 @@ type SummaryUpdate struct {
 	Description          *string
 	Instructions         *string
 	Capabilities         []string
+	ManifestLimits       *openfang.AgentLimits
 	ID                   uuid.UUID
 	WorkspaceID          uuid.UUID
 	OpenFangAgentID      uuid.UUID
@@ -119,11 +129,11 @@ func (store PostgresStore) SyncSummaries(
 				id, workspace_id, board_id, openfang_agent_id, name, avatar_url, status,
 				model_provider, model_name, model_tier, auth_status,
 				upstream_state, upstream_last_active_at, last_synced_at,
-				created_at, updated_at, description, capabilities, instructions
+				created_at, updated_at, description, capabilities, instructions, manifest_limits
 			 ) VALUES (
 				$1, $2, NULL, $3, $4, $5, $6,
 				$7, $8, $9, $10, $11, $12, $13, $14, $13, $15,
-				COALESCE($16::text[], ARRAY[]::text[]), $17
+				COALESCE($16::text[], ARRAY[]::text[]), $17, $18::jsonb
 			 )
 			 ON CONFLICT (openfang_agent_id) DO UPDATE SET
 				-- A protected agent is authored by Berry, so its name and
@@ -149,6 +159,10 @@ func (store PostgresStore) SyncSummaries(
 				-- Instructions are authored in Berry and pushed upstream, so a
 				-- local value is never overwritten by the projection of itself.
 				instructions = COALESCE(agents.instructions, EXCLUDED.instructions),
+				-- The limit snapshot is refreshed when the runtime reports it and
+				-- kept when it does not, so a build that stops exposing it never
+				-- erases what was last known.
+				manifest_limits = COALESCE(EXCLUDED.manifest_limits, agents.manifest_limits),
 				avatar_url = EXCLUDED.avatar_url,
 				status = EXCLUDED.status,
 				model_provider = EXCLUDED.model_provider,
@@ -178,6 +192,7 @@ func (store PostgresStore) SyncSummaries(
 			update.Description,
 			update.Capabilities,
 			update.Instructions,
+			encodeLimits(update.ManifestLimits),
 		); err != nil {
 			return errors.New("upsert runtime agent projection")
 		}
@@ -366,14 +381,131 @@ const agentProjection = `
 	id, board_id, openfang_agent_id, name, description, avatar_url, status,
 	capabilities, instructions, model_provider, model_name, model_tier,
 	auth_status, upstream_state, upstream_last_active_at, last_synced_at,
-	archived_at, created_at, updated_at`
+	archived_at, created_at, updated_at, skills, manifest_limits`
+
+// encodeLimits stores the snapshot as the wire shape the registry returns.
+func encodeLimits(limits *openfang.AgentLimits) *string {
+	if limits == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(limits)
+	if err != nil {
+		return nil
+	}
+	text := string(encoded)
+	return &text
+}
+
+// RoleAgentIDs lists the runtime agents Berry provisioned for planner roles.
+// They are global, not workspace agents, and a sync must never project them.
+func (store PostgresStore) RoleAgentIDs(ctx context.Context) ([]uuid.UUID, error) {
+	if store.Pool == nil {
+		return nil, errors.New("agent store pool is nil")
+	}
+	rows, err := store.Pool.Query(ctx, `SELECT openfang_agent_id FROM model_role_agents`)
+	if err != nil {
+		return nil, errors.New("list role agents")
+	}
+	defer rows.Close()
+	var ids []uuid.UUID
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, errors.New("scan role agent")
+		}
+		if id, err := uuid.Parse(raw); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.New("iterate role agents")
+	}
+	return ids, nil
+}
+
+// AgentCapability is one registry node: what the agent can do, whether it
+// can take work now, and the limits its manifest imposes.
+type AgentCapability struct {
+	Agent      Agent
+	ActiveRuns int
+	Protected  bool
+}
+
+// ListCapabilities reads every live agent of a workspace with its current
+// load, which is what the planner and the capabilities route need in one
+// query rather than one per agent.
+func (store PostgresStore) ListCapabilities(ctx context.Context, workspaceID uuid.UUID) ([]AgentCapability, error) {
+	if store.Pool == nil {
+		return nil, errors.New("agent store pool is nil")
+	}
+	rows, err := store.Pool.Query(
+		ctx,
+		`SELECT `+agentProjection+`, protected,
+		        (SELECT count(*) FROM runs WHERE runs.agent_id = agents.id AND runs.status IN ('queued', 'running'))
+		   FROM agents
+		  WHERE workspace_id = $1 AND archived_at IS NULL
+		  ORDER BY protected ASC, name ASC, id ASC
+		  LIMIT 500`,
+		workspaceID,
+	)
+	if err != nil {
+		return nil, errors.New("list agent capabilities")
+	}
+	defer rows.Close()
+	result := make([]AgentCapability, 0, 16)
+	for rows.Next() {
+		var (
+			item       AgentCapability
+			skills     []string
+			limits     []byte
+			activeRuns int64
+		)
+		if err := rows.Scan(
+			&item.Agent.ID, &item.Agent.BoardID, &item.Agent.OpenFangAgentID, &item.Agent.Name, &item.Agent.Description, &item.Agent.AvatarURL,
+			&item.Agent.Status, &item.Agent.Capabilities, &item.Agent.Instructions, &item.Agent.ModelProvider, &item.Agent.ModelName,
+			&item.Agent.ModelTier, &item.Agent.AuthStatus, &item.Agent.UpstreamState, &item.Agent.UpstreamLastActiveAt, &item.Agent.LastSyncedAt,
+			&item.Agent.ArchivedAt, &item.Agent.CreatedAt, &item.Agent.UpdatedAt, &skills, &limits, &item.Protected, &activeRuns,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent capability: %w", err)
+		}
+		item.Agent.Skills = skills
+		item.Agent.ManifestLimits = decodeLimits(limits)
+		item.ActiveRuns = int(activeRuns)
+		if item.Agent.Capabilities == nil {
+			item.Agent.Capabilities = []string{}
+		}
+		if item.Agent.Skills == nil {
+			item.Agent.Skills = []string{}
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, errors.New("iterate agent capabilities")
+	}
+	return result, nil
+}
+
+func decodeLimits(raw []byte) *openfang.AgentLimits {
+	if len(raw) == 0 {
+		return nil
+	}
+	var limits openfang.AgentLimits
+	if json.Unmarshal(raw, &limits) != nil || (limits.MaxTokens == nil && limits.MaxLLMTokensPerHour == nil) {
+		return nil
+	}
+	return &limits
+}
 
 type agentScanner interface {
 	Scan(...any) error
 }
 
 func scanAgent(row agentScanner) (Agent, error) {
-	var result Agent
+	var (
+		result Agent
+		skills []string
+		limits []byte
+	)
 	if err := row.Scan(
 		&result.ID,
 		&result.BoardID,
@@ -394,11 +526,18 @@ func scanAgent(row agentScanner) (Agent, error) {
 		&result.ArchivedAt,
 		&result.CreatedAt,
 		&result.UpdatedAt,
+		&skills,
+		&limits,
 	); err != nil {
 		return Agent{}, fmt.Errorf("scan agent: %w", err)
 	}
 	if result.Capabilities == nil {
 		result.Capabilities = []string{}
 	}
+	result.Skills = skills
+	if result.Skills == nil {
+		result.Skills = []string{}
+	}
+	result.ManifestLimits = decodeLimits(limits)
 	return result, nil
 }

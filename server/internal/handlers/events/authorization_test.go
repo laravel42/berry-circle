@@ -51,3 +51,12 @@ func (authorizer *denyingEventAuthorizer) AuthorizeBoard(
 	authorizer.permission = permission
 	return identity.Scope{}, identity.ErrNotFound
 }
+
+func (*denyingEventAuthorizer) AuthorizeWorkspace(
+	context.Context,
+	uuid.UUID,
+	uuid.UUID,
+	identity.Permission,
+) (identity.Role, error) {
+	return "", identity.ErrNotFound
+}
