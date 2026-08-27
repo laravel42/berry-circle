@@ -89,6 +89,10 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    // which issue it is on.
    '/api/v1/comments/:commentId',
 
+   // The realtime streams, one per board and one per workspace. They replay
+   // from PostgreSQL, so either server answers the same question the same way.
+   '/api/v1/events',
+
    // Projects: the collection, one project, and its resources.
    // `/:projectId/generated-issues` is absent — it decomposes a project with
    // an agent, which this server has no runtime for.

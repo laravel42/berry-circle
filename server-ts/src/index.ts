@@ -14,6 +14,7 @@ import { commentMounts, issueCommentRoutes } from './mounts/comments.ts';
 import { projectMounts } from './mounts/projects.ts';
 import { internalRunMounts } from './mounts/internal-runs.ts';
 import { agentMounts } from './mounts/agents.ts';
+import { eventMounts } from './mounts/events.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SecretsRepository } from './identity/secrets.ts';
@@ -23,6 +24,7 @@ import { CommentRepository } from './core/comments.ts';
 import { ProjectRepository } from './core/projects.ts';
 import { Hub } from './realtime/hub.ts';
 import { Distributed } from './realtime/distributed.ts';
+import { ReplayRepository } from './realtime/replay.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { Storage } from './storage/storage.ts';
@@ -123,6 +125,9 @@ registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog }));
 registry.registerAll(
+   eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
+);
+registry.registerAll(
    authMounts({
       sessions,
       login: {
@@ -146,7 +151,11 @@ registry.registerAll(
          // /metrics yet, and a capability the browser is told about must be
          // one the server actually has.
          metrics: false,
-         realtime: false,
+         // The event streams are served here now. The relay is not wired, so
+         // a fact published by another process arrives on the next poll
+         // rather than instantly — later, never lost, because the stream
+         // replays from PostgreSQL and Valkey only ever wakes it.
+         realtime: true,
          storage: storage !== null,
          valkey: false,
          planner: false,

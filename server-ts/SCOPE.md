@@ -26,7 +26,9 @@ places still reach across the line:
   nested under mounts that *are* migrated. The routing map matches a single
   path segment for those prefixes so anything deeper falls through to Go.
 - **`/api/v1/events`** is the shared realtime stream, used by runs as well as by
-  boards and issues. It was not on the excluded list and is still to be decided.
+  boards and issues. It is ported and routed: it replays `outbox_events` from
+  PostgreSQL and is only *woken* by Valkey, so it carries the excluded lane's
+  run events without depending on any of the excluded code.
 - **`issue.activeRunId`** appears on the issue resource and is served by the
   TypeScript issues mount. It is a plain column read; nothing in the run
   machinery is needed to return it.
@@ -37,6 +39,7 @@ places still reach across the line:
 |---|---|
 | `POST /api/v1/projects/:id/generated-issues` | decomposes a project with an agent; waits for ADK |
 | `POST /api/v1/agents/:id/ask` | a chat completion through OpenFang; nothing in the product calls it, and what it should mean under ADK is its own decision |
+| `/api/v1/plans` | the planner is being refactored, so porting it first would be work thrown away twice — the same reason AUTOMATE is excluded |
 
 ## Still open
 

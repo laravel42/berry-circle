@@ -110,8 +110,37 @@ export function json(value: unknown, status = 200): Response {
    // The trailing newline is Go's, not a flourish: json.NewEncoder(w).Encode
    // writes one, so every Berry response ends in 0x0a today. One byte, and the
    // difference between "identical" and "nearly" when responses are compared.
-   return new Response(JSON.stringify(value) + '\n', {
+   return new Response(goJSON(value) + '\n', {
       status,
       headers: { 'Content-Type': 'application/json' },
    });
 }
+
+/**
+ * `JSON.stringify` with Go's escaping.
+ *
+ * `encoding/json` escapes `<`, `>` and `&` by default — for callers embedding
+ * JSON in HTML — and escapes U+2028/U+2029, which JavaScript leaves literal.
+ * Nothing else differs for a value built in the order Go declares its fields.
+ *
+ * Applied to the finished text rather than during serialization, which is
+ * safe because none of these characters is JSON syntax: wherever one appears
+ * in the output it is inside a string literal, and `JSON.stringify` has
+ * already escaped the characters that would confuse this.
+ *
+ * The cost of getting it wrong is invisible until it isn't. Every ported
+ * mount looked byte-identical to Go for weeks, because none of the data
+ * compared happened to contain an ampersand — and then a stream of 4,090
+ * events contained three that did.
+ */
+export function goJSON(value: unknown): string {
+   return JSON.stringify(value).replace(/[<>&\u2028\u2029]/g, (character) => GO_ESCAPES[character]!);
+}
+
+const GO_ESCAPES: Record<string, string> = {
+   '<': String.raw`\u003c`,
+   '>': String.raw`\u003e`,
+   '&': String.raw`\u0026`,
+   '\u2028': String.raw`\u2028`,
+   '\u2029': String.raw`\u2029`,
+};

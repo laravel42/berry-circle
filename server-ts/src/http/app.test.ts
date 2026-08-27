@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { applyStandardHeaders, createApp, json } from './app.ts';
+import { applyStandardHeaders, createApp, goJSON, json } from './app.ts';
 import { overlaps, Registry, MountConflict } from './registry.ts';
 import { Hono } from 'hono';
 
@@ -82,4 +82,28 @@ test('a client-supplied request id is echoed only when it is safe', async () => 
    // An arbitrary header value reaches the logs and the error envelope.
    const bad = await app.request('/probe', { headers: { 'x-request-id': 'has space' } });
    assert.notEqual(bad.headers.get('X-Request-Id'), 'has space');
+});
+
+/**
+ * Go escapes three characters JavaScript does not, and every ported mount
+ * looked identical to Go until a stream carried one of them.
+ */
+test('a response escapes the characters Go escapes', () => {
+   assert.equal(goJSON({ s: 'a<b>c&d' }), String.raw`{"s":"a\u003cb\u003ec\u0026d"}`);
+   assert.equal(goJSON({ s: 'plain text' }), '{"s":"plain text"}');
+   // U+2028 and U+2029 are legal in a JSON string and illegal in JavaScript
+   // source, so Go escapes them and JSON.stringify leaves them literal.
+   assert.equal(goJSON({ s: '\u2028\u2029' }), String.raw`{"s":"\u2028\u2029"}`);
+});
+
+test('key order is the order the object was built in, not sorted', () => {
+   // Go marshals a struct in field-declaration order. Sorting here — which is
+   // what the idempotency fingerprint does, deliberately — would reorder every
+   // response body.
+   assert.equal(goJSON({ b: 1, a: 2 }), '{"b":1,"a":2}');
+});
+
+test('escaping leaves alone what JSON.stringify already escaped', () => {
+   assert.equal(goJSON({ s: '"\\' }), String.raw`{"s":"\"\\"}`);
+   assert.equal(goJSON({ s: '\n\t' }), String.raw`{"s":"\n\t"}`);
 });

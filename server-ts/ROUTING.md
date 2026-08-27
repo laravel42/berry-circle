@@ -164,6 +164,43 @@ docker run -d --rm --name berry-valkey-bridge --network berry-stack_default \
   -p 56379:6379 alpine/socat tcp-listen:6379,fork,reuseaddr tcp:valkey:6379
 ```
 
+## The escaping every mount was getting wrong
+
+Go's `encoding/json` escapes `<`, `>` and `&` — for callers embedding JSON in
+HTML — and escapes U+2028/U+2029, which `JSON.stringify` leaves literal. So
+every ported mount had been emitting subtly different bytes from Go since the
+first one landed.
+
+Nothing caught it, because `contract-diff` only compares the data it is given
+and none of that data happened to contain an ampersand. It surfaced when the
+event stream was compared: 4,090 board frames, of which **three** differed, all
+because an agent had written `Node 20 & 22` in a comment.
+
+`goJSON` in `src/http/app.ts` applies the escaping to the finished text, which
+is safe because none of those characters is JSON syntax — wherever one appears
+in the output it is already inside a string literal. `json()` uses it, so every
+mount was fixed at once.
+
+Worth remembering as a method: a contract diff over a hand-picked path proves
+less than one over a stream of four thousand real events.
+
+## The event streams
+
+`GET /api/v1/events` is one stream per board and one per workspace, and the
+split matters: a board stream carries what happens on that board, while a
+workspace stream carries facts belonging to no board at all — goals,
+workflows, approvals, plans.
+
+It replays from `outbox_events` and is only *woken* by Valkey. That is what
+makes it portable while AUTOMATE stays on Go: the excluded lane's run events
+are rows in a table this server can read, not state in a process it would have
+to talk to. It is also why the relay being unwired costs latency rather than
+facts — the 500ms poll finds everything, just later.
+
+Verified against Go by comparing whole streams: 4,090 board frames and 196
+workspace frames byte-identical, resume from `after` and from `Last-Event-ID`
+identical, and the heartbeat cadence the same over a 25-second idle window.
+
 ## Running the database-backed tests
 
 The ledger and artifact tests need a real PostgreSQL, because everything they
