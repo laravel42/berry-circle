@@ -139,6 +139,34 @@ docker run -d --rm --name berry-valkey-bridge --network berry-stack_default \
   -p 56379:6379 alpine/socat tcp-listen:6379,fork,reuseaddr tcp:valkey:6379
 ```
 
+## Running the database-backed tests
+
+The ledger and artifact tests need a real PostgreSQL, because everything they
+are for happens in the database: the sequence is allocated by a SQL function,
+the ordering guarantee is microsecond arithmetic PostgreSQL performs, and the
+jsonb column is where a wrongly-encoded envelope stops looking wrong.
+
+They run against their own database rather than the development one. Not
+fastidiousness: creating a workspace fires a trigger that provisions a
+**protected** Orchestrator agent, and a protected agent refuses both deletion
+and unprotection — so a fixture in the development database leaks a workspace
+on every run and cannot tidy up after itself.
+
+```
+docker compose exec -T postgres sh -c \
+  'createdb -U berry berry_test; pg_dump -U berry --schema-only --no-owner \
+     --no-privileges berry | psql -U berry -d berry_test -q'
+
+docker run -d --rm --name berry-pg-bridge --network berry-stack_default \
+  -p 15432:15432 alpine/socat tcp-listen:15432,fork,reuseaddr tcp:postgres:5432
+
+BERRY_TEST_DATABASE_URL='postgres://berry:berry@127.0.0.1:15432/berry_test?sslmode=disable' \
+  npm test
+```
+
+Without the variable the suite skips them and still passes, so `npm test` works
+on a machine with no stack running.
+
 ## The rule
 
 A prefix moves when `contract-diff` reports `identical` or `identical apart from
