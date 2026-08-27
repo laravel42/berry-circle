@@ -213,6 +213,27 @@ routes of one mount behind — would split `/api/v1/goals` across two servers.
 The same argument does not extend to writing any of them. Nothing here creates
 an automation, decides an approval or compiles a plan.
 
+## Go's presigned download URLs do not work
+
+`GET /api/v1/attachments/:id/download-url` returns a URL the browser can fetch
+the bytes from directly, so a download does not stream through Berry. Go's is
+rejected:
+
+```
+400 AccessDenied — There were headers present in the request which were not signed
+```
+
+Verified against the same object, from inside the compose network, with a
+minimal client sending no headers of its own: Go's URL fails and this server's
+returns the file with the content disposition applied. The difference is
+visible in the query itself — the AWS SDK signs `X-Amz-Content-Sha256`, and
+Go's URL carries no equivalent.
+
+Nothing has hit it because the product does not use this route: a listing's
+`downloadUrl` points at `/download`, which streams through Berry and works on
+both servers. So it is a latent fault on a route only an API client would
+reach, and it is fixed here rather than reproduced.
+
 ## Running the database-backed tests
 
 The ledger and artifact tests need a real PostgreSQL, because everything they

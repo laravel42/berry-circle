@@ -6,6 +6,7 @@ import {
    PutObjectCommand,
    S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 /**
  * Object storage, ported from server/internal/storage.
@@ -187,6 +188,34 @@ export class Storage {
          if (isMissing(error)) throw new ObjectNotFound(key);
          throw error;
       }
+   }
+
+   /**
+    * A URL the browser can fetch the bytes from directly.
+    *
+    * Without one every download streams through Berry, which turns a file
+    * transfer into API time and memory. The disposition is signed into the
+    * URL rather than sent as a header, because the browser follows the link
+    * itself and there is nowhere to put a header.
+    */
+   async presignGet(
+      key: string,
+      options: { expiresSeconds?: number; contentDisposition?: string } = {}
+   ): Promise<{ url: string; expiresAt: Date }> {
+      validateKey(key);
+      const expiresIn = options.expiresSeconds ?? 15 * 60;
+      const url = await getSignedUrl(
+         this.client,
+         new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            ...(options.contentDisposition
+               ? { ResponseContentDisposition: options.contentDisposition }
+               : {}),
+         }),
+         { expiresIn }
+      );
+      return { url, expiresAt: new Date(Date.now() + expiresIn * 1000) };
    }
 
    async stat(key: string): Promise<StoredObject> {

@@ -107,6 +107,13 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    '/api/v1/goals/:goalId/approvals',
    '/api/v1/goals/:goalId/plans',
 
+   // Attachments reached by their own id — what a listing's downloadUrl
+   // points at. `/api/v1/issues/:ref/attachments` stays on Go, because
+   // routing that path would move the upload with it. See SCOPE.md.
+   '/api/v1/attachments/:attachmentId',
+   '/api/v1/attachments/:attachmentId/download',
+   '/api/v1/attachments/:attachmentId/download-url',
+
    // Projects: the collection, one project, and its resources.
    // `/:projectId/generated-issues` is absent — it decomposes a project with
    // an agent, which this server has no runtime for.
