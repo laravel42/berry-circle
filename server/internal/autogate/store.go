@@ -9,6 +9,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/laravel42/berry-circle/server/internal/issueid"
 )
 
 // PostgresStore is the product state a review reads and writes.
@@ -23,23 +25,29 @@ func (store PostgresStore) ReviewSubject(ctx context.Context, runID uuid.UUID) (
 		body    *string
 		summary *string
 		status  string
-		slug    string
+		prefix  string
 		number  int32
 	)
 	err := store.Pool.QueryRow(
 		ctx,
 		`SELECT board.workspace_id, issue.id, run.id, run.agent_id,
-		        COALESCE(agent.name, ''), upper(board.slug), issue.number,
+		        COALESCE(agent.name, ''),
+		        -- The identifier a person sees is the workspace's issue prefix,
+		        -- not the board slug: BER-74, not PLATFORM-74. The reviewer is
+		        -- told which task it is judging and the verdict is logged under
+		        -- it; both have to name the task the way Berry does.
+		        COALESCE(workspace.settings->>'issuePrefix', 'WS'), issue.number,
 		        issue.title, issue.description, run.summary,
 		        issue.status::text, issue.auto_gate
 		   FROM runs AS run
 		   JOIN issues AS issue ON issue.id = run.issue_id AND issue.deleted_at IS NULL
 		   JOIN boards AS board ON board.id = run.board_id
+		   JOIN workspaces AS workspace ON workspace.id = board.workspace_id
 		   LEFT JOIN agents AS agent ON agent.id = run.agent_id
 		  WHERE run.id = $1 AND run.status = 'succeeded'`,
 		runID,
 	).Scan(&subject.WorkspaceID, &subject.IssueID, &subject.RunID, &subject.AuthorID,
-		&subject.AuthorName, &slug, &number, &subject.IssueTitle, &body, &summary,
+		&subject.AuthorName, &prefix, &number, &subject.IssueTitle, &body, &summary,
 		&status, &subject.AutoGate)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Subject{}, ErrNotGated
@@ -47,7 +55,7 @@ func (store PostgresStore) ReviewSubject(ctx context.Context, runID uuid.UUID) (
 	if err != nil {
 		return Subject{}, fmt.Errorf("autogate: read review subject: %w", err)
 	}
-	subject.IssueIdentifier = fmt.Sprintf("%s-%d", slug, number)
+	subject.IssueIdentifier = issueid.Format(prefix, number)
 	subject.InReview = status == "in_review"
 	if body != nil {
 		subject.IssueBody = *body
