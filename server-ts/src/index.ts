@@ -4,6 +4,8 @@ import { checkDatabase, closeDatabase, openDatabase } from './db/pool.ts';
 import { createApp } from './http/app.ts';
 import { Registry } from './http/registry.ts';
 import { platformMounts } from './mounts/platform.ts';
+import { authMounts } from './mounts/auth.ts';
+import { SessionService } from './auth/sessions.ts';
 
 /**
  * The composition root, the counterpart to server/cmd/api/main.go.
@@ -16,7 +18,21 @@ import { platformMounts } from './mounts/platform.ts';
 const config = loadConfig();
 const sql = openDatabase({ url: config.databaseUrl });
 
+const sessions = new SessionService({
+   sql,
+   sessionTtlMs: config.sessionTtlMs,
+});
+
 const registry = new Registry();
+registry.registerAll(
+   authMounts({
+      sessions,
+      login: {
+         allowKnownEmail: config.allowPasswordlessLogin,
+         environment: config.appEnv,
+      },
+   })
+);
 registry.registerAll(
    platformMounts({
       database: () => checkDatabase(sql),

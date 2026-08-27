@@ -13,6 +13,8 @@ export interface Config {
    apiAddr: { host: string; port: number };
    databaseUrl: string;
    metricsEnabled: boolean;
+   sessionTtlMs: number;
+   allowPasswordlessLogin: boolean;
 }
 
 export class ConfigError extends Error {
@@ -45,7 +47,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       apiAddr: { host, port },
       databaseUrl,
       metricsEnabled: boolean(env.METRICS_ENABLED, true),
+      sessionTtlMs: duration(env.SESSION_TTL, 30 * 24 * 60 * 60 * 1000),
+      allowPasswordlessLogin: boolean(env.AUTH_ALLOW_PASSWORDLESS_LOGIN, true),
    };
+}
+
+/**
+ * Go duration strings, as the compose file writes them: `720h`, `30m`, `1s`.
+ * Compound forms like `2h5m` are accepted here even though Temporal's `ms`
+ * parser rejects them, because this reads the same environment Go does.
+ */
+function duration(value: string | undefined, fallback: number): number {
+   const trimmed = (value ?? '').trim();
+   if (!trimmed) return fallback;
+   const units: Record<string, number> = { ms: 1, s: 1000, m: 60000, h: 3600000 };
+   let total = 0;
+   let matched = false;
+   for (const [, amount, unit] of trimmed.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h)/g)) {
+      total += Number(amount) * (units[unit as string] ?? 0);
+      matched = true;
+   }
+   return matched ? total : fallback;
 }
 
 function boolean(value: string | undefined, fallback: boolean): boolean {

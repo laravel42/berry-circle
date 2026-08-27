@@ -50,3 +50,19 @@ It reports one of three verdicts per path. `identical` means byte-for-byte.
 mount is knowingly half-ported.
 
 Capture the Go side before moving a mount, and run it again after.
+
+## Database-backed tests
+
+Gated the way Go gates its own — without the variable they skip, so the default
+suite stays offline.
+
+```
+createdb berry_ts_test
+docker compose exec -T postgres pg_dump -U berry -d berry --schema-only \
+  --no-owner --no-privileges | psql berry_ts_test
+BERRY_TEST_DATABASE_URL=postgres://berry:berry@127.0.0.1:5432/berry_ts_test pnpm test:server
+```
+
+Note that a host PostgreSQL on 5432 shadows the container's published port, so
+`127.0.0.1:5432` may not be the database the Go server is using. Check before
+pointing anything real at it.

@@ -9,7 +9,22 @@ import postgres from 'postgres';
  * helper, nothing more.
  */
 
-export type Sql = postgres.Sql<Record<string, never>>;
+export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string }>;
+
+/**
+ * A PostgreSQL timestamptz as Go renders it: RFC 3339 with a `Z`, keeping
+ * whatever precision the column holds.
+ *
+ * postgres.js hands back `2026-08-23 05:47:19.652293+00`; the wire wants
+ * `2026-08-23T05:47:19.652293Z`. Converting textually rather than through Date
+ * is what preserves the microseconds.
+ */
+export function toRFC3339(value: string | null | undefined): string | null {
+   if (!value) return null;
+   const normalised = value.replace(' ', 'T');
+   const zoned = normalised.replace(/([+-]\d{2})(:?\d{2})?$/, 'Z');
+   return zoned.endsWith('Z') ? zoned : normalised + 'Z';
+}
 
 export interface DatabaseOptions {
    url: string;
@@ -22,10 +37,16 @@ export function openDatabase(options: DatabaseOptions): Sql {
    return postgres(options.url, {
       max: options.max ?? 10,
       connect_timeout: options.connectTimeoutSeconds ?? 10,
-      // Berry stores timestamps as timestamptz and reads them back as ISO
-      // strings on the wire; leaving parsing to the driver keeps Date objects
-      // out of places that only ever serialize them.
-      types: {},
+      // Timestamps come back as strings, not Dates, and that is a contract
+      // requirement rather than a preference. PostgreSQL stores microseconds
+      // and Go renders every digit — `2026-08-23T05:47:19.652293Z`. A
+      // JavaScript Date holds milliseconds, so parsing and re-serializing
+      // would silently emit `...652Z` and quietly drop precision the frontend
+      // and every stored timestamp already carry.
+      types: {
+         timestamptz: { to: 1184, from: [1184], serialize: String, parse: String },
+         timestamp: { to: 1114, from: [1114], serialize: String, parse: String },
+      },
       onnotice: () => {},
    });
 }
