@@ -16,7 +16,8 @@
       "@hono/node-server": "^2.1.1",
       "hono": "^4.13.5",
       "ioredis": "^6.0.0",
-      "postgres": "^3.4.9"
+      "postgres": "^3.4.9",
+      "zod": "^4.2.1"
    },
    "devDependencies": {
       "@types/node": "^26.4.0",
