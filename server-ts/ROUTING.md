@@ -36,6 +36,7 @@ same millisecond share a `created_at` here where Go would separate them.
 | `/metrics` | Go serves Prometheus text and metrics are **enabled** in the running deployment. This server returns 404, so scraping would silently stop. Lands with the observability port. |
 | `/api/v1/config` | `capabilities` tells the browser which features to render. This server can only honestly report `metrics` and would switch off agent execution, planner, workflows, storage, realtime and valkey in the UI. Moves when those subsystems do. |
 | `/api/v1/auth` | ported and tested, but session issuance writing from two servers has not been exercised under load. |
+| `/api/v1/issues` | **reads only.** `GET /` and `GET /:issueRef` are verified across 38 probes, and cursors cross between the servers in both directions. Creating and updating an issue publishes to the realtime hub; a mount that wrote correctly but published nothing would leave every open board silently stale, so those routes wait for the hub rather than shipping with a no-op broadcaster. |
 
 ## Comparing a create
 
@@ -51,6 +52,20 @@ unique per pending address, so the second server then conflicts legitimately.
 
 Neither mode compares such an endpoint cleanly. Verify those per server, one
 request each against a reset table, as the invitation and token checks do.
+
+## What issues still needs
+
+The write half depends on four things this server does not have yet:
+
+| | |
+|---|---|
+| the realtime hub | every mutation is published so open boards update |
+| goal linking | `applyGoalChange` when a create or patch names a goal |
+| assignee validation | that the actor exists *in this workspace* |
+| the approval boundary | `ErrApprovalRequired` on a gated board |
+
+Realtime is the one that blocks most: issues, comments, runs and events all
+publish through it. It is the sensible next thing to port.
 
 ## The rule
 

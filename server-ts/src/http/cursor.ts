@@ -29,13 +29,22 @@ export interface TimeCursor {
    id: string;
 }
 
+/** `{updatedAt, id}` — issues page by recency of change, not of creation. */
+export interface UpdatedCursor {
+   updatedAt: string;
+   id: string;
+}
+
 /** `{name, id}` — the stable ascending key for member collections. */
 export interface NameCursor {
    name: string;
    id: string;
 }
 
-export function encodeCursor(scope: string, key: TimeCursor | NameCursor): string | null {
+export function encodeCursor(
+   scope: string,
+   key: TimeCursor | NameCursor | UpdatedCursor
+): string | null {
    if (!SCOPE.test(scope)) return null;
    // Key order is Go's struct order, and it is load-bearing: the token is the
    // base64 of these exact bytes.
@@ -49,7 +58,7 @@ export function encodeCursor(scope: string, key: TimeCursor | NameCursor): strin
  * Every failure is the same error, deliberately: a caller cannot learn whether
  * a token was malformed, expired in shape, or minted for someone else's list.
  */
-export function decodeCursor<T extends TimeCursor | NameCursor>(
+export function decodeCursor<T extends TimeCursor | NameCursor | UpdatedCursor>(
    token: string,
    expectedScope: string,
    required: readonly string[]
@@ -98,6 +107,7 @@ export function decodeCursor<T extends TimeCursor | NameCursor>(
 /** The two key shapes, named so call sites cannot pass the wrong field list. */
 export const TIME_CURSOR_KEYS = ['createdAt', 'id'] as const;
 export const NAME_CURSOR_KEYS = ['name', 'id'] as const;
+export const UPDATED_CURSOR_KEYS = ['updatedAt', 'id'] as const;
 
 export function decodeTimeCursor(token: string, scope: string): TimeCursor {
    return decodeCursor<TimeCursor>(token, scope, TIME_CURSOR_KEYS);

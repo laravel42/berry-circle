@@ -40,6 +40,27 @@ export function parseWithRawNumbers(text: string): unknown {
    });
 }
 
+/**
+ * Go's `json.Marshal` of a *struct*, which is not the same as of a map.
+ *
+ * A struct marshals in field-declaration order and is never sorted, so this
+ * writes properties in insertion order. Everything else — the escaping, the
+ * treatment of null — is shared with `canonicalJSON`.
+ *
+ * The distinction matters wherever a hash is taken over a struct: sorting one
+ * would change the value.
+ */
+export function structJSON(value: unknown): string {
+   if (value === null || value === undefined) return 'null';
+   if (typeof value === 'string') return quote(value);
+   if (typeof value === 'boolean') return value ? 'true' : 'false';
+   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : 'null';
+   if (Array.isArray(value)) return `[${value.map(structJSON).join(',')}]`;
+   return `{${Object.entries(value as Record<string, unknown>)
+      .map(([key, entry]) => `${quote(key)}:${structJSON(entry)}`)
+      .join(',')}}`;
+}
+
 export function canonicalJSON(value: unknown): string {
    if (value === null) return 'null';
    if (value instanceof RawNumber) return value.source;
