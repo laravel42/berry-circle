@@ -35,8 +35,8 @@ places still reach across the line:
 
 | | Why |
 |---|---|
-| `/api/v1/agents` | its list reconciles against the OpenFang runtime on every read; waits for ADK |
 | `POST /api/v1/projects/:id/generated-issues` | decomposes a project with an agent; waits for ADK |
+| `POST /api/v1/agents/:id/ask` | a chat completion through OpenFang; nothing in the product calls it, and what it should mean under ADK is its own decision |
 
 ## Still open
 

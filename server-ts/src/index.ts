@@ -12,6 +12,7 @@ import { boardMounts } from './mounts/boards.ts';
 import { issueMounts } from './mounts/issues.ts';
 import { projectMounts } from './mounts/projects.ts';
 import { internalRunMounts } from './mounts/internal-runs.ts';
+import { agentMounts } from './mounts/agents.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SecretsRepository } from './identity/secrets.ts';
@@ -24,6 +25,8 @@ import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { Storage } from './storage/storage.ts';
 import { AdkExecutor } from './agents/executor.ts';
+import { AgentRepository } from './agents/repository.ts';
+import { ModelCatalog } from './agents/catalog.ts';
 
 /**
  * The composition root, the counterpart to server/cmd/api/main.go.
@@ -47,6 +50,7 @@ const secrets = new SecretsRepository(sql);
 const boards = new BoardRepository(sql);
 const issues = new IssueRepository(sql);
 const projects = new ProjectRepository(sql);
+const agents = new AgentRepository(sql);
 
 // A hub with no relay for now: this process delivers to its own subscribers.
 // The Valkey relay is wired when the SSE endpoints land, so a subscriber
@@ -88,6 +92,13 @@ const executor =
         })
       : null;
 
+// The model picker's catalogue. Null without a credential rather than an
+// empty list: "no models exist" and "this server cannot ask" are different
+// answers, and only one of them is true.
+const modelCatalog = config.agents
+   ? new ModelCatalog({ baseUrl: config.agents.baseUrl })
+   : null;
+
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
@@ -96,6 +107,7 @@ registry.registerAll(boardMounts({ sessions, boards, idempotency }));
 registry.registerAll(issueMounts({ sessions, issues, boards, idempotency, broadcaster }));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
+registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog }));
 registry.registerAll(
    authMounts({
       sessions,

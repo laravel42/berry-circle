@@ -89,29 +89,54 @@ broken state. But the codes differ, and a client that switches on them would
 see the difference. No project in this deployment currently has a repository
 linked, which is why projects are routed anyway.
 
-## Agents: unblocked, still unported
+## Agents: ported, with one deliberate difference
 
 `GET /api/v1/agents` used to reconcile against the OpenFang runtime on **every**
 request — `SyncWorkspace` before the listing was read, erroring rather than
 degrading when the runtime was absent. The agent list was a live projection of
-runtime state, not a table.
+runtime state, not a table. Under `BERRY_AGENT_RUNTIME=adk` it is a table,
+which is what let this mount move at all.
 
-Under `BERRY_AGENT_RUNTIME=adk` it no longer is. Reconciliation is off, and an
-agent is a row: what the row says is what the API answers. That removes the
-reason this mount could not move — porting it no longer means porting
-`internal/openfang`, and a listing served from PostgreSQL is now the *correct*
-answer rather than a silently stale one.
+`GET /`, `GET /{id}` and `GET /capabilities` are **identical** to Go's, verified
+by `contract-diff` against the same rows. Two routes are new, because a
+rows-only agent needs them and a projected one never did:
 
-What still has to be decided before it moves, because none of it is a
-projection any more and all of it needs a rows-only answer:
-
-| route | what it needs |
+| route | why it is new |
 |---|---|
-| `GET /` and `GET /{id}` | a straight read — ready to port |
-| `POST /` | does not exist yet: agents were created in OpenFang and discovered by sync, so Berry has never had a way to author one |
-| `GET /models` | the catalogue comes from OpenFang today; under ADK it is OpenRouter's |
-| `PUT /{id}/config` | writes the row *and* pushes upstream; under ADK only the row |
-| `POST /{id}/ask` | OpenFang chat; under ADK a one-shot ADK call with no run row |
+| `POST /` | agents were spawned in OpenFang and discovered by sync, so Berry has never had a way to author one |
+| `DELETE /{id}` | archives; the protected orchestrator refuses with 409 `AGENT_PROTECTED` |
+
+`PUT /{id}/config` keeps its request and response, and changes what it does.
+Go pushed the configuration to OpenFang **before** storing it, so a save meant
+the runtime had accepted it. There is no upstream now, so storing it *is* the
+operation — and the model is written to the row, which Go never did: it read
+the model back from OpenFang after pushing it. A save that did not store it
+would silently do nothing.
+
+`POST /{id}/ask` stays on Go and is not routed here. It is a chat completion
+through OpenFang, nothing in the product calls it, and what it should mean
+under ADK is a separate decision from moving the mount.
+
+### `GET /models` differs on purpose
+
+This is the one route where the two servers answer differently, and the
+difference is the point.
+
+| | |
+|---|---|
+| Go | 458 models: 417 from OpenRouter, plus 41 compiled into the OpenFang binary for `anthropic`, `codex`, `groq`, `ollama`, `openai`, `lmstudio`, `vllm` |
+| TypeScript | 417 models, all OpenRouter's |
+
+Berry's ADK runtime has exactly one model client, and it talks to OpenRouter.
+An agent pointed at `anthropic/claude-sonnet-4-6` — a real entry in Go's list —
+would fail on its next task, because OpenRouter has never heard of that id.
+Go's catalogue is now *wrong* for this deployment: it offers models that cannot
+run. Every stored pairing in the database is already `openrouter/…`, so nothing
+depends on the dropped providers.
+
+The prefix-stripping quirk is kept (`openrouter/anthropic/claude-sonnet-4` →
+`anthropic/claude-sonnet-4`), because stored pairings still carry it and
+dropping it would make every one of them read as unavailable.
 
 ## What issues still needs
 

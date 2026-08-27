@@ -91,6 +91,19 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    '/api/v1/projects/:projectId',
    '/api/v1/projects/:projectId/resources',
    '/api/v1/projects/:projectId/resources/:resourceId',
+
+   // Agents: the collection, the two literal sub-paths, one agent and its
+   // configuration. The literals come first because `/:agentId` would
+   // otherwise swallow them — Next matches these in order.
+   //
+   // `/:agentId/ask` is absent and stays on Go: it is a chat completion
+   // through OpenFang, nothing in the product calls it, and what it should
+   // mean under ADK is a separate decision from moving the mount.
+   '/api/v1/agents',
+   '/api/v1/agents/capabilities',
+   '/api/v1/agents/models',
+   '/api/v1/agents/:agentId',
+   '/api/v1/agents/:agentId/config',
 ];
 
 const apiOrigin = berryApiOrigin();
