@@ -51,6 +51,26 @@ export function validTimezone(value: string): boolean {
    }
 }
 
+/**
+ * An address Go's net/mail accepts, already lowercased.
+ *
+ * Go additionally requires `address.Address == value`, which rejects the
+ * display-name forms mail.ParseAddress otherwise allows — `A <a@b.c>` parses
+ * but is not equal to its own address. The pattern here admits no such form,
+ * so that equality holds by construction.
+ */
+export function validEmail(value: string): boolean {
+   if (value !== value.toLowerCase() || !boundedLength(value, 3, 320)) return false;
+   const [local, domain, ...rest] = value.split('@');
+   if (rest.length > 0 || !local || !domain) return false;
+   // No dot is required in the domain: Go's mail.ParseAddress accepts "a@b",
+   // and both servers have to agree on what an address is.
+   return (
+      /^[^\s<>@,"'\\]+$/.test(local) &&
+      /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(domain)
+   );
+}
+
 const WORKSPACE_SLUG = /^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$/;
 const ISSUE_PREFIX = /^[A-Z][A-Z0-9]{1,11}$/;
 

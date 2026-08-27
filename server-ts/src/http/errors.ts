@@ -126,3 +126,19 @@ export class ApiError extends Error {
       return new ApiError(500, 'INTERNAL', 'Internal server error.');
    }
 }
+
+/**
+ * An ApiError carrying extra response headers.
+ *
+ * Some endpoints set a header before doing the work, so it lands on the
+ * failure as well as the success — `Cache-Control: no-store` on anything that
+ * handles a secret, most of all.
+ */
+export class DecoratedApiError extends ApiError {
+   readonly headers: Readonly<Record<string, string>>;
+
+   constructor(error: ApiError, headers: Record<string, string>) {
+      super(error.status, error.code, error.message, error.details);
+      this.headers = headers;
+   }
+}

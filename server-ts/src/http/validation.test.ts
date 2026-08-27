@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { boundedLength, validAvatar, validIssuePrefix, validTimezone, validWorkspaceSlug } from './validation.ts';
+import {
+   boundedLength,
+   validAvatar,
+   validEmail,
+   validIssuePrefix,
+   validTimezone,
+   validWorkspaceSlug,
+} from './validation.ts';
 
 test('length is counted in runes, as Go counts it', () => {
    // Four emoji are four runes to Go and eight UTF-16 units to JavaScript.
@@ -38,4 +45,37 @@ test('workspace slugs and issue prefixes match their Go patterns', () => {
    assert.ok(!validIssuePrefix('B'));
    assert.ok(!validIssuePrefix('lower'));
    assert.ok(!validIssuePrefix('TOOMANYCHARSHERE'));
+});
+
+/**
+ * Verified against the running Go server, one invitation request per address:
+ * 17 addresses, no disagreements. Go's rule is mail.ParseAddress plus
+ * `address.Address == value`, which is stricter than parsing alone — it is
+ * what rejects the display-name forms.
+ */
+test('email validity matches Go address for address', () => {
+   const accepted = ['a@b.co', 'a@b', 'a+tag@b.co', 'a@b-c.co'];
+   const refused = [
+      'no-at-sign',
+      'a@@b.co',
+      'a b@c.co',
+      'a@.co',
+      'a@b..co',
+      '@b.co',
+      'a@',
+      '"quoted"@b.co',
+      'a<b>@c.co',
+      'A B <a@b.co>',
+      'UPPER@b.co', // callers lowercase before validating; this is not pre-lowered
+      'a@b.co ',
+      ' a@b.co',
+   ];
+   for (const value of accepted) assert.ok(validEmail(value), value);
+   for (const value of refused) assert.ok(!validEmail(value), value);
+});
+
+test('a domain without a dot is accepted, because Go accepts it', () => {
+   // Not an oversight: mail.ParseAddress("a@b") succeeds, and the two servers
+   // have to agree on what an address is while both are answering.
+   assert.ok(validEmail('a@b'));
 });

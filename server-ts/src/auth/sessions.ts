@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
-import { generateToken, hashToken } from './tokens.ts';
+import {
+   generateToken,
+   hashToken,
+   isPersonalToken,
+   parsePersonalToken,
+   secretMatches,
+} from './tokens.ts';
 
 /**
  * Opaque session lifecycle, ported from server/internal/auth/sessions.go.
@@ -125,6 +131,64 @@ export class SessionService {
           LIMIT 1`;
       if (!row) throw new SessionUnauthenticated();
       return toUser(row);
+   }
+
+   /**
+    * Resolves any credential, dispatching on the reserved prefix.
+    *
+    * A token claiming the personal namespace is verified as one and never
+    * falls back to session lookup, so a malformed PAT cannot be tried a second
+    * time as a session token. Ported from auth.CompositeResolver.
+    */
+   async resolveCredential(token: string): Promise<User> {
+      return isPersonalToken(token)
+         ? this.resolvePersonalToken(token)
+         : this.resolveSession(token);
+   }
+
+   /**
+    * One indexed lookup on the public half, then a constant-time comparison of
+    * the secret's digest.
+    *
+    * The public identifier is what makes this a single query: without it the
+    * server would have to hash the presented secret against every stored row.
+    * The stored side is a digest, so a database copy does not yield a usable
+    * credential.
+    */
+   async resolvePersonalToken(token: string): Promise<User> {
+      let parsed: { publicId: string; secret: string };
+      try {
+         parsed = parsePersonalToken(token);
+      } catch {
+         throw new SessionUnauthenticated();
+      }
+
+      const now = this.now().toISOString();
+      const [row] = await this.sql`
+         SELECT t.id, t.secret_hash, t.expires_at, t.revoked_at,
+                u.id AS user_id, u.email, u.name, u.avatar_url, u.role::text AS role,
+                u.last_workspace_id, u.created_at, u.updated_at
+           FROM personal_api_tokens AS t
+           JOIN users AS u ON u.id = t.user_id
+          WHERE t.public_id = ${parsed.publicId}`;
+      if (!row) throw new SessionUnauthenticated();
+
+      const expiresAt = row.expires_at as string | null;
+      if (row.revoked_at !== null || (expiresAt !== null && new Date(expiresAt) <= new Date(now))) {
+         throw new SessionUnauthenticated();
+      }
+      if (!secretMatches(parsed.secret, row.secret_hash as Buffer)) {
+         throw new SessionUnauthenticated();
+      }
+
+      // GREATEST, so a delayed request cannot move last_used_at backwards.
+      const touched = await this.sql`
+         UPDATE personal_api_tokens
+            SET last_used_at = GREATEST(COALESCE(last_used_at, ${now}), ${now})
+          WHERE id = ${row.id as string} AND revoked_at IS NULL`;
+      if (touched.count !== 1) throw new SessionUnauthenticated();
+
+      return toUser({ ...row, id: row.user_id });
    }
 
    /**

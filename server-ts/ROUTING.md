@@ -18,6 +18,8 @@ and no Content-Security-Policy at all, and a body-only diff called that a pass.
 | `/health` | byte-identical |
 | `/api/v1/me` | 33 probes — reads, writes, validation edges — body, status and headers |
 | `/api/v1/workspaces` | 35 probes, including pagination, authorization and the last-owner rule |
+| `/api/v1/tokens` | create/replay/conflict compared per server; issued secrets authenticate against both |
+| `/api/v1/invitations` | 51 probes, including 17 addresses at the email-validation boundary |
 | the error envelope | byte-identical for 401 and 404, request id aside |
 
 Timestamps written by this server carry millisecond precision where Go's carry
@@ -33,6 +35,15 @@ same millisecond share a `created_at` here where Go would separate them.
 | `/metrics` | Go serves Prometheus text and metrics are **enabled** in the running deployment. This server returns 404, so scraping would silently stop. Lands with the observability port. |
 | `/api/v1/config` | `capabilities` tells the browser which features to render. This server can only honestly report `metrics` and would switch off agent execution, planner, workflows, storage, realtime and valkey in the UI. Moves when those subsystems do. |
 | `/api/v1/auth` | ported and tested, but session issuance writing from two servers has not been exercised under load. |
+
+## Comparing an idempotent create
+
+`contract-diff` sends the same request to both servers, and they share a
+database — so on a create carrying an `Idempotency-Key`, the first server
+creates and the second correctly *replays*: same id, no secret, and
+`Idempotency-Replayed: true`. That is the mechanism working, not a difference,
+and the matching ids in the two responses are the proof. Verify these endpoints
+per server instead, with a key each, as the token and invitation checks do.
 
 ## The rule
 

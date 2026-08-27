@@ -40,7 +40,9 @@ export function requireSession(sessions: SessionService): MiddlewareHandler<{
 
       let user: User;
       try {
-         user = await sessions.resolveSession(token);
+         // Any credential, not only a session: a personal access token is a
+         // first-class way to call this API, and dispatch is by prefix.
+         user = await sessions.resolveCredential(token);
       } catch {
          // Deliberately catching everything: a database failure here must not
          // become a 500 that tells a caller their token was probably valid.

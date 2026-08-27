@@ -30,6 +30,14 @@ export class LastOwner extends Error {
    }
 }
 
+/** Every invalid invitation state, deliberately indistinguishable. */
+export class InvitationInvalid extends Error {
+   constructor() {
+      super('invitation invalid');
+      this.name = 'InvitationInvalid';
+   }
+}
+
 export class Conflict extends Error {
    constructor() {
       super('conflict');
@@ -56,6 +64,9 @@ export function toApiError(error: unknown, resource: string): unknown {
    if (error instanceof NotFound) return ApiError.notFound(resource);
    if (error instanceof Forbidden) {
       return new ApiError(403, 'FORBIDDEN', 'You do not have permission to perform this action.');
+   }
+   if (error instanceof InvitationInvalid) {
+      return new ApiError(404, 'INVITATION_INVALID', 'Invitation not found or no longer valid.');
    }
    if (error instanceof LastOwner) {
       return new ApiError(409, 'LAST_OWNER_REQUIRED', 'A workspace must retain at least one owner.');

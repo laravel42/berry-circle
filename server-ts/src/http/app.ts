@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { ApiError, buildErrorEnvelope } from './errors.ts';
+import { ApiError, DecoratedApiError, buildErrorEnvelope } from './errors.ts';
 import { isValidRequestId, newRequestId } from './request-id.ts';
 import type { Registry } from './registry.ts';
 
@@ -89,7 +89,12 @@ function respondWithError(requestId: string, error: ApiError): Response {
    // the key order written in buildErrorEnvelope is the key order on the wire.
    return new Response(JSON.stringify(body) + '\n', {
       status,
-      headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
+      headers: {
+         'Content-Type': 'application/json',
+         'X-Request-Id': requestId,
+         // A failed request for a secret is still a response about a secret.
+         ...(error instanceof DecoratedApiError ? error.headers : {}),
+      },
    });
 }
 
