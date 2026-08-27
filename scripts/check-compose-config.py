@@ -195,16 +195,22 @@ def check_services(rendered: dict[str, Any]) -> None:
     if leaked:
         fail(f"Compose services must not receive browser-public env values: {', '.join(leaked)}")
 
+    # Object-store credentials belong only to the services that read or write
+    # objects. Naming them keeps the credential off everything else — the
+    # frontend, the runtime, the databases — rather than letting it spread by
+    # habit. berry-api serves uploads, berry-worker promotes what a run
+    # produced, and berry-api-ts is where an ADK agent's files are written.
     s3_credentials = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
+    storage_services = {"berry-api", "berry-worker", "berry-api-ts"}
     for service_name, service_value in services.items():
-        if service_name == "berry-api":
+        if service_name in storage_services:
             continue
         service = object_value(service_value, f"{service_name} service")
         service_environment = service.get("environment", {})
         if isinstance(service_environment, dict) and s3_credentials.intersection(
             service_environment
         ):
-            fail(f"S3 credentials must be passed only to berry-api, not {service_name}")
+            fail(f"S3 credentials must not be passed to {service_name}")
 
     healthcheck = object_value(api.get("healthcheck"), "berry-api healthcheck")
     if "/ready" not in json.dumps(healthcheck.get("test")):

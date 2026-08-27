@@ -212,6 +212,9 @@ services:
       # schema they produce and never writes one of its own.
       berry-api:
         condition: service_healthy
+      # Agents write files, so the bucket has to exist before one runs.
+      minio-bucket:
+        condition: service_completed_successfully
     environment:
       APP_ENV: "${APP_ENV:-development}"
       SERVICE_NAME: "${SERVICE_NAME:-berry-server-ts}"
@@ -222,6 +225,22 @@ services:
       REALTIME_BUFFER: "${REALTIME_BUFFER:-64}"
       # Metrics are Go's; this server answers 404 on /metrics and says so.
       METRICS_ENABLED: "false"
+      # Agent execution: the model credential and the bucket an agent's files
+      # land in. Without both, this server reports agentExecution false and
+      # refuses run requests rather than accepting ones it cannot serve.
+      BERRY_OPENROUTER_API_KEY: "${BERRY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}"
+      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-anthropic/claude-sonnet-4.5}"
+      STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
+      S3_BUCKET: "${S3_BUCKET:-berry-artifacts}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+      S3_ENDPOINT: "${S3_ENDPOINT:-http://minio:9000}"
+      S3_USE_PATH_STYLE: "${S3_USE_PATH_STYLE:-true}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-berryminio}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      # The shared secret the worker presents to run an agent. Empty turns the
+      # internal surface off entirely rather than leaving it open.
+      BERRY_INTERNAL_TOKEN: "${BERRY_INTERNAL_TOKEN:-}"
     ports:
       - "127.0.0.1:${BERRY_API_TS_PORT:-4100}:4100"
     read_only: true
@@ -263,6 +282,12 @@ services:
       OPENFANG_BASE_URL: "http://openfang:4200"
       # Server-side only: never mirror this value into a NEXT_PUBLIC_* variable.
       OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
+      # Agent execution: with adk the worker asks the TypeScript server to run
+      # the agent instead of dispatching to OpenFang in process. Admission and
+      # cancellation stay here either way.
+      BERRY_AGENT_RUNTIME: "${BERRY_AGENT_RUNTIME:-openfang}"
+      BERRY_AGENT_RUNTIME_URL: "${BERRY_AGENT_RUNTIME_URL:-http://berry-api-ts:4100}"
+      BERRY_INTERNAL_TOKEN: "${BERRY_INTERNAL_TOKEN:-}"
       TEMPORAL_ENABLED: "true"
       TEMPORAL_REQUIRED: "true"
       TEMPORAL_HOSTPORT: "${TEMPORAL_HOSTPORT:-temporal:7233}"

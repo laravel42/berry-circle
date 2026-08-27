@@ -45,6 +45,7 @@ import (
 	integrationrepo "github.com/laravel42/berry-circle/server/internal/repository/integrations"
 	runsrepo "github.com/laravel42/berry-circle/server/internal/repository/runs"
 	"github.com/laravel42/berry-circle/server/internal/secrets"
+	"github.com/laravel42/berry-circle/server/internal/service/adkruntime"
 	"github.com/laravel42/berry-circle/server/internal/service/automationrun"
 	"github.com/laravel42/berry-circle/server/internal/service/runadmission"
 	"github.com/laravel42/berry-circle/server/internal/storage"
@@ -451,9 +452,30 @@ func run() int {
 		autoReview.Files = artifactStorage
 	}
 
+	// Agent execution moves to the TypeScript server when configured, while
+	// admission and cancellation stay here: those are Berry's bookkeeping and
+	// have nothing to do with which runtime an agent runs in.
+	var runDispatch orchestration.RunDispatcher = dispatcher
+	if cfg.AgentRuntime == "adk" {
+		runtime, runtimeErr := adkruntime.New(adkruntime.Options{
+			BaseURL: cfg.AgentRuntimeURL,
+			Token:   cfg.AgentRuntimeToken,
+			Store:   runStore,
+			Clock:   time.Now,
+			NewID:   uuid.New,
+			Logger:  logger,
+		})
+		if runtimeErr != nil {
+			logger.Error("agent runtime setup failed", "error", runtimeErr)
+			return 1
+		}
+		runDispatch = adkruntime.Redirect(dispatcher, runtime)
+		logger.Info("agent runtime selected", "runtime", "adk", "url", cfg.AgentRuntimeURL)
+	}
+
 	activities, err := orchestration.NewActivities(orchestration.Activities{
 		Intake:          intakeStore,
-		Runs:            dispatcher,
+		Runs:            runDispatch,
 		ActorID:         actorID,
 		Clock:           time.Now,
 		NewID:           uuid.New,

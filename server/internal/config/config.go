@@ -36,6 +36,14 @@ type Config struct {
 	OpenFangBaseURL string
 	OpenFangAPIKey  string
 
+	// AgentRuntime selects what executes an agent: "openfang" or "adk". ADK
+	// runs in the TypeScript server, so the worker reaches it over HTTP
+	// instead of dispatching in process. Temporary — it goes away when the
+	// orchestration moves there too.
+	AgentRuntime      string
+	AgentRuntimeURL   string
+	AgentRuntimeToken string
+
 	MetricsEnabled bool
 	TrustedOrigins []string
 
@@ -200,6 +208,24 @@ func Load(env map[string]string) (Config, error) {
 	cfg.OpenFangAPIKey = env["OPENFANG_API_KEY"]
 	if cfg.Environment == "production" && strings.TrimSpace(cfg.OpenFangAPIKey) == "" {
 		problems = append(problems, "OPENFANG_API_KEY (required in production)")
+	}
+
+	cfg.AgentRuntime = value(env, "BERRY_AGENT_RUNTIME", "openfang")
+	if cfg.AgentRuntime != "openfang" && cfg.AgentRuntime != "adk" {
+		problems = append(problems, "BERRY_AGENT_RUNTIME")
+	}
+	cfg.AgentRuntimeURL = value(env, "BERRY_AGENT_RUNTIME_URL", "http://127.0.0.1:4100")
+	cfg.AgentRuntimeToken = env["BERRY_INTERNAL_TOKEN"]
+	if cfg.AgentRuntime == "adk" {
+		if !hasURLScheme(cfg.AgentRuntimeURL, "http", "https") {
+			problems = append(problems, "BERRY_AGENT_RUNTIME_URL")
+		}
+		// Refused at startup rather than at the first run: the endpoint
+		// answers 401 without a token, so a blank one would fail every run
+		// with a message about authentication rather than about configuration.
+		if strings.TrimSpace(cfg.AgentRuntimeToken) == "" {
+			problems = append(problems, "BERRY_INTERNAL_TOKEN (required for BERRY_AGENT_RUNTIME=adk)")
+		}
 	}
 
 	cfg.MetricsEnabled = boolean(env, "METRICS_ENABLED", true, &problems)
