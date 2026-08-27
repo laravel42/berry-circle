@@ -42,6 +42,10 @@ type RunArtifact struct {
 	State          string
 	CreatedAt      time.Time
 	ReadyAt        *time.Time
+	// Version distinguishes successive writes of the same path within one run.
+	// Zero is the first, and listings show only the newest — an agent that
+	// rewrites a file has produced a new version of it, not a second file.
+	Version int32
 }
 
 // Name is the file's own name, without its directories. What a download is
@@ -82,7 +86,7 @@ const runArtifactProjection = `
 	artifact.id, artifact.workspace_id, artifact.run_id, artifact.issue_id,
 	artifact.agent_id, artifact.agent_name, artifact.path, artifact.content_type,
 	artifact.size_bytes, artifact.checksum_sha256, artifact.storage_key,
-	artifact.state, artifact.created_at, artifact.ready_at`
+	artifact.state, artifact.created_at, artifact.ready_at, artifact.version`
 
 type runArtifactScanner interface{ Scan(...any) error }
 
@@ -96,7 +100,7 @@ func scanRunArtifact(row runArtifactScanner) (RunArtifact, error) {
 		&artifact.ID, &artifact.WorkspaceID, &artifact.RunID, &artifact.IssueID,
 		&agentID, &artifact.AgentName, &artifact.Path, &artifact.ContentType,
 		&artifact.SizeBytes, &checksum, &artifact.StorageKey,
-		&artifact.State, &artifact.CreatedAt, &artifact.ReadyAt,
+		&artifact.State, &artifact.CreatedAt, &artifact.ReadyAt, &artifact.Version,
 	); err != nil {
 		return RunArtifact{}, err
 	}
@@ -206,12 +210,15 @@ func (repository *Repository) ListRunArtifacts(
 	}
 	rows, err := repository.Pool.Query(
 		ctx,
-		`SELECT `+runArtifactProjection+`
+		`SELECT DISTINCT ON (artifact.path) `+runArtifactProjection+`
 		   FROM run_artifacts AS artifact
 		  WHERE artifact.run_id = $1
 		    AND artifact.state = 'ready'
 		    AND (NOT $2::boolean OR artifact.path > $3::text)
-		  ORDER BY artifact.path ASC
+		  -- One row per path, the newest version. A path may now hold several
+		  -- versions, and a tree that listed each one would show the same file
+		  -- repeatedly with no way to tell which is current.
+		  ORDER BY artifact.path ASC, artifact.version DESC
 		  LIMIT $4`,
 		runID, afterEnabled, afterPath, limit,
 	)
@@ -242,10 +249,22 @@ func (repository *Repository) ListIssueArtifacts(
 	}
 	rows, err := repository.Pool.Query(
 		ctx,
+		// One row per path within each run, newest version first. Across runs a
+		// path may legitimately appear more than once — that is the same file
+		// produced by different attempts, which an issue view should show — so
+		// the deduplication is per run, not per issue.
+		//
+		// Nested, because DISTINCT ON dictates its own ORDER BY and applying
+		// it directly would reorder the result by run id. The outer query
+		// restores the order this listing has always had: newest run first.
 		`SELECT `+runArtifactProjection+`
-		   FROM run_artifacts AS artifact
+		   FROM (
+		       SELECT DISTINCT ON (inner_artifact.run_id, inner_artifact.path) inner_artifact.*
+		         FROM run_artifacts AS inner_artifact
+		        WHERE inner_artifact.issue_id = $1 AND inner_artifact.state = 'ready'
+		        ORDER BY inner_artifact.run_id, inner_artifact.path ASC, inner_artifact.version DESC
+		   ) AS artifact
 		   JOIN runs AS run ON run.id = artifact.run_id
-		  WHERE artifact.issue_id = $1 AND artifact.state = 'ready'
 		  ORDER BY run.created_at DESC, artifact.path ASC
 		  LIMIT $2`,
 		issueID, limit,

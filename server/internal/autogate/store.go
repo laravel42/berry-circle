@@ -66,9 +66,12 @@ func (store PostgresStore) ReviewSubject(ctx context.Context, runID uuid.UUID) (
 
 	rows, err := store.Pool.Query(
 		ctx,
-		`SELECT path, content_type, size_bytes, storage_key FROM run_artifacts
+		// DISTINCT ON, because a path may hold several versions and a reviewer
+		// shown the same file three times has been given noise, not evidence.
+		`SELECT DISTINCT ON (path) path, content_type, size_bytes, storage_key
+		   FROM run_artifacts
 		  WHERE run_id = $1 AND state = 'ready'
-		  ORDER BY path ASC LIMIT 20`,
+		  ORDER BY path ASC, version DESC LIMIT 20`,
 		runID,
 	)
 	if err != nil {
