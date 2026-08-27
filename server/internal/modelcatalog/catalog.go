@@ -10,6 +10,7 @@ package modelcatalog
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -50,9 +51,24 @@ const defaultTTL = 15 * time.Minute
 // served instead. They are stale, which is the flaw this package exists to fix,
 // but a stale picker beats an empty one.
 func (merged *Merged) ListModelCatalog(ctx context.Context) ([]openfang.CatalogModel, error) {
-	if merged == nil || merged.Runtime == nil {
+	if merged == nil {
 		return nil, nil
 	}
+	// No runtime is a supported configuration, not a missing dependency: under
+	// the ADK runtime OpenRouter is the only provider Berry talks to, so its
+	// live list is the whole catalog and there is nothing to merge into.
+	//
+	// Serving nothing here is what emptied the price table, which reaches the
+	// product as a plan whose every stage records a null cost — a ledger that
+	// looks like the work was free.
+	if merged.Runtime == nil {
+		live, ok := merged.liveModels(ctx)
+		if !ok {
+			return nil, errors.New("model catalog is unavailable")
+		}
+		return fromOpenRouter(live), nil
+	}
+
 	runtime, err := merged.Runtime.ListModelCatalog(ctx)
 	if err != nil {
 		return nil, err
@@ -72,6 +88,13 @@ func (merged *Merged) ListModelCatalog(ctx context.Context) ([]openfang.CatalogM
 		}
 		out = append(out, model)
 	}
+	out = append(out, fromOpenRouter(live)...)
+	return out, nil
+}
+
+// fromOpenRouter projects the live list into the shape the product reads.
+func fromOpenRouter(live []openrouter.Model) []openfang.CatalogModel {
+	out := make([]openfang.CatalogModel, 0, len(live))
 	for _, model := range live {
 		out = append(out, openfang.CatalogModel{
 			ID:             model.ID,
@@ -88,7 +111,7 @@ func (merged *Merged) ListModelCatalog(ctx context.Context) ([]openfang.CatalogM
 			Available: true,
 		})
 	}
-	return out, nil
+	return out
 }
 
 // liveModels returns the cached OpenRouter catalog, refreshing when stale.

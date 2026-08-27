@@ -696,9 +696,12 @@ func run() int {
 		// catalog for its own models and keep the runtime's for every other
 		// provider. Listing needs no credential. The planner prices its
 		// calls through the same catalog.
-		modelCatalog := &modelcatalog.Merged{
-			Runtime:    upstream,
-			OpenRouter: openrouter.New("", nil),
+		// Under ADK the catalog is OpenRouter's alone: it is the only provider
+		// Berry talks to, and the runtime's compiled entries name models that
+		// would fail on the agent's next task.
+		modelCatalog := &modelcatalog.Merged{OpenRouter: openrouter.New("", nil)}
+		if cfg.AgentRuntime != "adk" {
+			modelCatalog.Runtime = upstream
 		}
 		agentMount, err := agenthandlers.NewMount(agenthandlers.Options{
 			Pool:     dbPool,
