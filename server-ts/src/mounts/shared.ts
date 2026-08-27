@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { ApiError } from '../http/errors.ts';
 import { assertValid, fieldError } from '../http/body.ts';
 import type { Membership } from '../identity/workspaces.ts';
@@ -39,16 +38,8 @@ export function requireIdempotencyKey(headers: Headers): string {
    return key;
 }
 
-/**
- * Fingerprints the body so a replayed key with different content is caught.
- *
- * Taken over a re-serialisation of the parsed value rather than the raw bytes,
- * so whitespace and key order do not make the same request look different —
- * which is what Go's json.Marshal of the decoded value achieves.
- */
-export function fingerprintJSON(raw: string): Buffer {
-   return createHash('sha256').update(JSON.stringify(JSON.parse(raw))).digest();
-}
+/** Re-exported so every mount fingerprints a body the same way Go does. */
+export { fingerprintJSON } from '../http/idempotency.ts';
 
 export async function requireEmptyBody(request: Request): Promise<void> {
    const body = await request.text();

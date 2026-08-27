@@ -32,6 +32,15 @@ interface Probe {
    headers?: Record<string, string>;
    /** Shown instead of the path when several probes share one path. */
    label?: string;
+   /**
+    * Give each server its own Idempotency-Key.
+    *
+    * Both servers share a database, so an identical key sent to both means the
+    * first creates and the second correctly *replays* — which is the mechanism
+    * working, but compares two different things. Set this to have each server
+    * execute the request for real.
+    */
+   distinctKeys?: boolean;
 }
 
 /** Fields that legitimately differ between two processes answering the same call. */
@@ -90,6 +99,13 @@ interface Comparison {
 
 function request(base: string, probe: Probe): Promise<Response> {
    const headers: Record<string, string> = { ...probe.headers };
+   if (probe.distinctKeys) {
+      for (const name of Object.keys(headers)) {
+         if (name.toLowerCase() === 'idempotency-key') {
+            headers[name] = `${headers[name]}-${base === GO ? 'go' : 'ts'}`;
+         }
+      }
+   }
    if (BEARER) headers.authorization = `Bearer ${BEARER}`;
    if (probe.body !== undefined) headers['content-type'] ??= 'application/json';
    return fetch(base + probe.path, {

@@ -8,9 +8,12 @@ import { authMounts } from './mounts/auth.ts';
 import { meMounts } from './mounts/me.ts';
 import { workspaceMounts } from './mounts/workspaces.ts';
 import { secretsMounts } from './mounts/secrets.ts';
+import { boardMounts } from './mounts/boards.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SecretsRepository } from './identity/secrets.ts';
+import { BoardRepository } from './core/boards.ts';
+import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 
 /**
@@ -32,11 +35,14 @@ const sessions = new SessionService({
 const identity = new IdentityRepository(sql);
 const workspaces = new WorkspaceRepository(sql);
 const secrets = new SecretsRepository(sql);
+const boards = new BoardRepository(sql);
+const idempotency = new IdempotencyStore(sql);
 
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
 registry.registerAll(secretsMounts({ sessions, secrets }));
+registry.registerAll(boardMounts({ sessions, boards, idempotency }));
 registry.registerAll(
    authMounts({
       sessions,
