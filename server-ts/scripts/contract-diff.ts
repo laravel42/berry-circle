@@ -25,6 +25,8 @@ interface Comparison {
    path: string;
    status: { go: number; ts: number };
    identical: boolean;
+   /** Equal once request ids and timestamps are blanked: a passing result. */
+   volatileOnly: boolean;
    sameShape: boolean;
    go: unknown;
    ts: unknown;
@@ -44,6 +46,7 @@ async function fetchBoth(path: string): Promise<Comparison> {
       path,
       status: { go: goResponse.status, ts: tsResponse.status },
       identical: JSON.stringify(go) === JSON.stringify(ts),
+      volatileOnly: JSON.stringify(blank(go)) === JSON.stringify(blank(ts)),
       sameShape: JSON.stringify(normalise(go)) === JSON.stringify(normalise(ts)),
       go,
       ts,
@@ -65,6 +68,25 @@ async function parse(response: Response): Promise<unknown> {
  * Two bodies with the same shape differ only in data; two with different
  * shapes differ in contract, and that is the distinction worth reporting.
  */
+/**
+ * Blanks volatile leaf values while comparing everything else exactly.
+ *
+ * Stricter than `normalise`: a request id differs between two processes by
+ * design, but every other byte still has to match. Without this, the only
+ * difference on a correctly ported endpoint — its request id — reads the same
+ * as a genuinely wrong field, and across 36 mounts that noise hides the
+ * findings worth acting on.
+ */
+function blank(value: unknown): unknown {
+   if (Array.isArray(value)) return value.map(blank);
+   if (value === null || typeof value !== 'object') return value;
+   const out: Record<string, unknown> = {};
+   for (const [key, nested] of Object.entries(value)) {
+      out[key] = VOLATILE.test(key) ? '<volatile>' : blank(nested);
+   }
+   return out;
+}
+
 function normalise(value: unknown): unknown {
    if (Array.isArray(value)) return value.map(normalise);
    if (value === null || typeof value !== 'object') return typeof value;
@@ -86,15 +108,18 @@ for (const path of paths) {
    const result = await fetchBoth(path);
    const verdict = result.identical
       ? 'identical'
-      : result.sameShape
-        ? 'same shape, different data'
-        : 'CONTRACT DIFFERS';
-   if (!result.sameShape || result.status.go !== result.status.ts) mismatches += 1;
+      : result.volatileOnly
+        ? 'identical apart from request ids and timestamps'
+        : result.sameShape
+          ? 'SAME SHAPE, DIFFERENT DATA'
+          : 'CONTRACT DIFFERS';
+   const passed = result.volatileOnly && result.status.go === result.status.ts;
+   if (!passed) mismatches += 1;
 
    console.log(`${path}`);
    console.log(`  status   go=${result.status.go} ts=${result.status.ts}`);
    console.log(`  verdict  ${verdict}`);
-   if (!result.identical) {
+   if (!result.identical && !result.volatileOnly) {
       console.log(`  go       ${JSON.stringify(result.go)}`);
       console.log(`  ts       ${JSON.stringify(result.ts)}`);
    }
@@ -102,7 +127,7 @@ for (const path of paths) {
 }
 
 if (mismatches > 0) {
-   console.error(`${mismatches} path(s) differ in contract or status.`);
+   console.error(`${mismatches} path(s) differ beyond request ids and timestamps.`);
    process.exit(1);
 }
-console.log('Every path matches in shape and status.');
+console.log('Every path matches, request ids and timestamps aside.');

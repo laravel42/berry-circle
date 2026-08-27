@@ -86,23 +86,28 @@ export function isPersonalToken(token: string): boolean {
  * A token that claims the namespace and fails here is refused outright — it
  * must never fall through to session verification, or a malformed PAT would be
  * looked up as though it were a session token.
+ *
+ * Succeeding here is a shape check, not authentication: the caller still has
+ * to find `publicId` and match the secret's digest.
  */
 export function parsePersonalToken(token: string): { publicId: string; secret: string } {
    if (!isPersonalToken(token)) throw new Unauthenticated();
    const remainder = token.slice(PERSONAL_TOKEN_PREFIX.length);
 
-   const separator = remainder.indexOf(PERSONAL_TOKEN_SEPARATOR);
-   if (separator < 0) throw new Unauthenticated();
-   const publicId = remainder.slice(0, separator);
-   const secret = remainder.slice(separator + 1);
-
+   // Split on position rather than on the first separator. Both halves are
+   // base64url and that alphabet includes '_', so searching for one lands
+   // inside the public identifier whenever it happens to contain a separator.
+   // Both halves are fixed width, so the index is known.
    if (
-      secret.includes(PERSONAL_TOKEN_SEPARATOR) ||
-      publicId.length !== PERSONAL_ID_LENGTH ||
-      secret.length !== SESSION_TOKEN_LENGTH ||
-      !decodesTo(publicId, PERSONAL_TOKEN_ID_BYTES) ||
-      !decodesTo(secret, TOKEN_BYTES)
+      remainder.length !== PERSONAL_ID_LENGTH + PERSONAL_TOKEN_SEPARATOR.length + SESSION_TOKEN_LENGTH ||
+      !remainder.startsWith(PERSONAL_TOKEN_SEPARATOR, PERSONAL_ID_LENGTH)
    ) {
+      throw new Unauthenticated();
+   }
+   const publicId = remainder.slice(0, PERSONAL_ID_LENGTH);
+   const secret = remainder.slice(PERSONAL_ID_LENGTH + PERSONAL_TOKEN_SEPARATOR.length);
+
+   if (!decodesTo(publicId, PERSONAL_TOKEN_ID_BYTES) || !decodesTo(secret, TOKEN_BYTES)) {
       throw new Unauthenticated();
    }
    return { publicId, secret };

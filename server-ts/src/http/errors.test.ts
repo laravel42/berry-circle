@@ -18,6 +18,7 @@ const GO_UNAUTHENTICATED =
 const GO_ROUTE_NOT_FOUND =
    '{"error":{"code":"NOT_FOUND","message":"Route not found.","requestId":"REQ","details":null}}';
 
+/** Bodies only; the trailing newline Go writes is asserted in app.test.ts. */
 function serialize(error: ApiError, requestId = 'REQ'): string {
    const { body } = buildErrorEnvelope(
       error.status,

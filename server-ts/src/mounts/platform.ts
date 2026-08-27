@@ -90,10 +90,10 @@ function readyRoute(options: PlatformOptions): Hono {
 /**
  * Metrics are not served yet.
  *
- * Go answers 404 with the ordinary envelope when metrics are disabled, so an
- * unimplemented endpoint here is indistinguishable from a disabled one there —
- * which is what the strangler needs while this mount is split across two
- * servers. Prometheus wiring lands with the observability port.
+ * Go answers 404 with the ordinary envelope only when metrics are *disabled*,
+ * and they are enabled in the running deployment — so this is a real
+ * difference, not an equivalent one. `/metrics` must stay routed to Go until
+ * the observability port lands, or scraping silently starts returning 404.
  */
 function metricsRoute(): Hono {
    const route = new Hono();

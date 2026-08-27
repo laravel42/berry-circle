@@ -5,6 +5,8 @@ import { createApp } from './http/app.ts';
 import { Registry } from './http/registry.ts';
 import { platformMounts } from './mounts/platform.ts';
 import { authMounts } from './mounts/auth.ts';
+import { meMounts } from './mounts/me.ts';
+import { IdentityRepository } from './identity/repository.ts';
 import { SessionService } from './auth/sessions.ts';
 
 /**
@@ -23,7 +25,10 @@ const sessions = new SessionService({
    sessionTtlMs: config.sessionTtlMs,
 });
 
+const identity = new IdentityRepository(sql);
+
 const registry = new Registry();
+registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(
    authMounts({
       sessions,
@@ -41,7 +46,10 @@ registry.registerAll(
          // what this process can actually do is true; the rest arrive with the
          // mounts that provide them.
          agentExecution: false,
-         metrics: config.metricsEnabled,
+         // False regardless of configuration: this process does not serve
+         // /metrics yet, and a capability the browser is told about must be
+         // one the server actually has.
+         metrics: false,
          realtime: false,
          storage: false,
          valkey: false,

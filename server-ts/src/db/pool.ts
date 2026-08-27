@@ -12,18 +12,71 @@ import postgres from 'postgres';
 export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string }>;
 
 /**
- * A PostgreSQL timestamptz as Go renders it: RFC 3339 with a `Z`, keeping
- * whatever precision the column holds.
+ * A PostgreSQL timestamptz as Go renders it: RFC 3339 in UTC, keeping whatever
+ * precision the column holds.
  *
- * postgres.js hands back `2026-08-23 05:47:19.652293+00`; the wire wants
- * `2026-08-23T05:47:19.652293Z`. Converting textually rather than through Date
- * is what preserves the microseconds.
+ * postgres.js hands back the server's rendering — `2026-08-22 23:47:19.652293-06`
+ * when the session is on America/Mexico_City. Replacing that offset with `Z`
+ * would keep the digits and change the instant by six hours, which is a bug
+ * that looks like a formatting choice. Connections are pinned to UTC below so
+ * the offset is normally `+00`, and anything else is converted rather than
+ * trusted.
+ *
+ * The conversion is done on the whole-second part and the fraction reattached,
+ * because a JavaScript Date holds milliseconds and would drop the microseconds
+ * PostgreSQL stores.
+ */
+const TIMESTAMP =
+   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$/;
+
+/**
+ * Renders a PostgreSQL timestamp as the RFC 3339 string Go puts on the wire.
+ *
+ * The driver hands back text, and PostgreSQL renders `timestamptz` in the
+ * session's timezone: on a host set to America/Mexico_City the same instant
+ * arrives as `2026-08-22 23:47:19.652293-06`. Replacing that offset with `Z`
+ * keeps every digit and moves the instant six hours — a corruption that reads
+ * like a formatting choice. The connection is pinned to UTC so this normally
+ * has nothing to do, but a mispinned session must not silently produce a
+ * plausible wrong answer.
+ *
+ * The offset is applied arithmetically rather than by handing the string to
+ * `new Date`, whose parser requires `-06:00` and returns Invalid Date for
+ * PostgreSQL's `-06` — which is exactly how the six-hour shift shipped once
+ * already, through a fallback that stripped the offset it could not parse.
  */
 export function toRFC3339(value: string | null | undefined): string | null {
    if (!value) return null;
-   const normalised = value.replace(' ', 'T');
-   const zoned = normalised.replace(/([+-]\d{2})(:?\d{2})?$/, 'Z');
-   return zoned.endsWith('Z') ? zoned : normalised + 'Z';
+
+   const match = TIMESTAMP.exec(value);
+   if (!match) {
+      // Refusing beats guessing: a timestamp that reaches the browser without
+      // a zone is read as local time, which is the same bug in a new place.
+      throw new Error(`unrecognised timestamp from PostgreSQL: ${value}`);
+   }
+   const [, year, month, day, hour, minute, second, fraction = '', offset] = match;
+
+   const shift = offsetMinutes(offset);
+   if (shift === 0) {
+      return `${year}-${month}-${day}T${hour}:${minute}:${second}${fraction}Z`;
+   }
+
+   // Shift whole seconds and reattach the fraction untouched, because Date
+   // holds milliseconds and PostgreSQL sends microseconds.
+   const utc = new Date(
+      Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)) -
+         shift * 60_000
+   );
+   return utc.toISOString().slice(0, 19) + fraction + 'Z';
+}
+
+/** Minutes east of UTC. An absent or `Z` offset is zero, as is `+00:00`. */
+function offsetMinutes(offset: string | undefined): number {
+   if (!offset || offset === 'Z') return 0;
+   const digits = offset.slice(1).replace(':', '');
+   const hours = Number(digits.slice(0, 2));
+   const minutes = digits.length > 2 ? Number(digits.slice(2, 4)) : 0;
+   return (offset.startsWith('-') ? -1 : 1) * (hours * 60 + minutes);
 }
 
 export interface DatabaseOptions {
@@ -47,6 +100,11 @@ export function openDatabase(options: DatabaseOptions): Sql {
          timestamptz: { to: 1184, from: [1184], serialize: String, parse: String },
          timestamp: { to: 1114, from: [1114], serialize: String, parse: String },
       },
+      // Pinned to UTC so the server renders every timestamptz at +00 and the
+      // conversion above has nothing to correct. Without this the answer
+      // depends on the host's timezone, which is not a property a response
+      // should have.
+      connection: { TimeZone: 'UTC' },
       onnotice: () => {},
    });
 }

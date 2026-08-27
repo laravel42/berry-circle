@@ -81,6 +81,57 @@ test('a personal token splits into an indexed id and a secret', () => {
    assert.ok(!secretMatches('wrong', generated.secretHash));
 });
 
+test('every issued token parses, whatever bytes the generator drew', () => {
+   // Both halves are base64url, an alphabet that includes '_'. Searching for
+   // the separator cut inside the public identifier whenever it contained one,
+   // which refused roughly 6 of every 10 tokens — issued, shown to the user
+   // once, and never able to authenticate. One draw would pass this most of
+   // the time, so draw many.
+   for (let i = 0; i < 2000; i += 1) {
+      const generated = generatePersonalToken();
+      const { publicId, secret } = parsePersonalToken(generated.token);
+      assert.equal(publicId, generated.publicId, generated.token);
+      assert.ok(secretMatches(secret, generated.secretHash), generated.token);
+   }
+});
+
+test('a token whose halves are nothing but separators still splits', () => {
+   // 0xFF is base64url index 63, which encodes as '_': the worst case the
+   // alphabet permits, and deterministic where the loop above is statistical.
+   const generated = generatePersonalToken((size) => Buffer.alloc(size, 0xff));
+   assert.ok(generated.publicId.includes('_'), generated.publicId);
+
+   const { publicId, secret } = parsePersonalToken(generated.token);
+   assert.equal(publicId, generated.publicId);
+   assert.ok(secretMatches(secret, generated.secretHash));
+});
+
+test('malformed tokens are still refused', () => {
+   const remainder = generatePersonalToken().token.slice(PERSONAL_TOKEN_PREFIX.length);
+   const refused: Record<string, string> = {
+      'no prefix': remainder,
+      'wrong prefix': `berry_pat${remainder}`,
+      empty: '',
+      'prefix only': PERSONAL_TOKEN_PREFIX,
+      'short secret': PERSONAL_TOKEN_PREFIX + remainder.slice(0, -1),
+      'long secret': `${PERSONAL_TOKEN_PREFIX}${remainder}A`,
+      'separator replaced': PERSONAL_TOKEN_PREFIX + remainder.slice(0, 16) + 'A' + remainder.slice(17),
+      'invalid alphabet': `${PERSONAL_TOKEN_PREFIX}*${remainder.slice(1)}`,
+   };
+   for (const [name, token] of Object.entries(refused)) {
+      assert.throws(() => parsePersonalToken(token), new RegExp(''), name);
+   }
+});
+
+test('parsing is a shape check, not authentication', () => {
+   // A well-formed token that was never issued parses: separating the halves
+   // is all this does. Rejecting it is the store's job, which looks the public
+   // identifier up and compares the secret's digest. Pinned so a later reader
+   // does not mistake a successful parse for a verified caller.
+   const unissued = generatePersonalToken((size) => Buffer.alloc(size, 0x01));
+   assert.doesNotThrow(() => parsePersonalToken(unissued.token));
+});
+
 test('a malformed personal token never falls through to session parsing', () => {
    const malformed = [
       PERSONAL_TOKEN_PREFIX,

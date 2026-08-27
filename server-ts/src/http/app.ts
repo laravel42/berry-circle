@@ -61,7 +61,7 @@ function respondWithError(requestId: string, error: ApiError): Response {
    );
    // A plain Response with JSON.stringify rather than Hono's context.json, so
    // the key order written in buildErrorEnvelope is the key order on the wire.
-   return new Response(JSON.stringify(body), {
+   return new Response(JSON.stringify(body) + '\n', {
       status,
       headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
    });
@@ -76,7 +76,10 @@ function respondWithError(requestId: string, error: ApiError): Response {
  * two identical.
  */
 export function json(value: unknown, status = 200): Response {
-   return new Response(JSON.stringify(value), {
+   // The trailing newline is Go's, not a flourish: json.NewEncoder(w).Encode
+   // writes one, so every Berry response ends in 0x0a today. One byte, and the
+   // difference between "identical" and "nearly" when responses are compared.
+   return new Response(JSON.stringify(value) + '\n', {
       status,
       headers: { 'Content-Type': 'application/json' },
    });
