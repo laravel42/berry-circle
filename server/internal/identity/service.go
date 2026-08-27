@@ -612,10 +612,12 @@ func (service *Service) AcceptInvitation(
 	if !strings.HasPrefix(token, InvitationTokenPrefix) {
 		return Membership{}, ErrInvitationInvalid
 	}
+	// Everything after the fixed-length prefix is the secret. There is nothing
+	// to disambiguate here, so no separator check: the secret is base64url,
+	// that alphabet contains '_', and refusing tokens that happen to hold one
+	// rejected 48% of every invitation this service issued. ParseAuthorization
+	// still enforces the exact 43-character, 32-byte shape.
 	secret := strings.TrimPrefix(token, InvitationTokenPrefix)
-	if strings.Contains(secret, "_") {
-		return Membership{}, ErrInvitationInvalid
-	}
 	decoded, err := coreauth.ParseAuthorization("Bearer " + secret)
 	if err != nil || decoded != secret {
 		return Membership{}, ErrInvitationInvalid
