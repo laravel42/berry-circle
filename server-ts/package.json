@@ -11,6 +11,7 @@
       "contract": "node --experimental-strip-types scripts/contract-diff.ts"
    },
    "dependencies": {
+      "@aws-sdk/client-s3": "^3.1119.0",
       "@google/adk": "^2.0.0",
       "@hono/node-server": "^2.1.1",
       "hono": "^4.13.5",
