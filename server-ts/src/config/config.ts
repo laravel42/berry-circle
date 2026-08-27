@@ -15,6 +15,8 @@ export interface Config {
    metricsEnabled: boolean;
    sessionTtlMs: number;
    allowPasswordlessLogin: boolean;
+   /** Per-subscriber realtime event buffer, before a slow client is dropped. */
+   realtimeBuffer: number;
 }
 
 export class ConfigError extends Error {
@@ -49,6 +51,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       metricsEnabled: boolean(env.METRICS_ENABLED, true),
       sessionTtlMs: duration(env.SESSION_TTL, 30 * 24 * 60 * 60 * 1000),
       allowPasswordlessLogin: boolean(env.AUTH_ALLOW_PASSWORDLESS_LOGIN, true),
+      // Per-subscriber event buffer. Reading the same variable Go reads, so a
+      // deployment tuned for one server is tuned for both.
+      realtimeBuffer: positiveInt(env.REALTIME_BUFFER, 64),
    };
 }
 
@@ -74,4 +79,12 @@ function boolean(value: string | undefined, fallback: boolean): boolean {
    const trimmed = (value ?? '').trim().toLowerCase();
    if (trimmed === '') return fallback;
    return trimmed === 'true' || trimmed === '1' || trimmed === 'yes';
+}
+
+/** A positive integer, or the fallback. Matches Go's positiveInt. */
+function positiveInt(value: string | undefined, fallback: number): number {
+   const trimmed = (value ?? '').trim();
+   if (!trimmed || !/^\d+$/.test(trimmed)) return fallback;
+   const parsed = Number(trimmed);
+   return parsed > 0 ? parsed : fallback;
 }

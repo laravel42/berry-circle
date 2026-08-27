@@ -378,6 +378,19 @@ func createHandler(
 			NewID:        options.NewID,
 		})
 		switch {
+		case errors.Is(err, core.ErrProjectNotFound):
+			// Named separately from ErrNotFound, and 422 rather than 500: a
+			// project that is not in this workspace is the caller's mistake,
+			// and updateHandler has always said so.
+			httpapi.WriteError(
+				response,
+				request,
+				http.StatusUnprocessableEntity,
+				"PROJECT_NOT_FOUND",
+				"That project does not exist in this workspace.",
+				nil,
+			)
+			return
 		case errors.Is(err, core.ErrNotFound):
 			httpapi.WriteError(
 				response,

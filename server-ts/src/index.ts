@@ -15,6 +15,8 @@ import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SecretsRepository } from './identity/secrets.ts';
 import { BoardRepository } from './core/boards.ts';
 import { IssueRepository } from './core/issues.ts';
+import { Hub } from './realtime/hub.ts';
+import { Distributed } from './realtime/distributed.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 
@@ -39,6 +41,11 @@ const workspaces = new WorkspaceRepository(sql);
 const secrets = new SecretsRepository(sql);
 const boards = new BoardRepository(sql);
 const issues = new IssueRepository(sql);
+
+// A hub with no relay for now: this process delivers to its own subscribers.
+// The Valkey relay is wired when the SSE endpoints land, so a subscriber
+// exists to receive what other nodes publish.
+const broadcaster = new Distributed(new Hub(config.realtimeBuffer), null);
 const idempotency = new IdempotencyStore(sql);
 
 const registry = new Registry();
@@ -46,7 +53,7 @@ registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
 registry.registerAll(secretsMounts({ sessions, secrets }));
 registry.registerAll(boardMounts({ sessions, boards, idempotency }));
-registry.registerAll(issueMounts({ sessions, issues, boards }));
+registry.registerAll(issueMounts({ sessions, issues, boards, idempotency, broadcaster }));
 registry.registerAll(
    authMounts({
       sessions,
