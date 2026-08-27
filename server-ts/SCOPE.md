@@ -41,8 +41,8 @@ places still reach across the line:
 | `POST /api/v1/agents/:id/ask` | a chat completion through OpenFang; nothing in the product calls it, and what it should mean under ADK is its own decision |
 | `/api/v1/plans` | the planner is being refactored, so porting it first would be work thrown away twice — the same reason AUTOMATE is excluded |
 
-## Still open
+## Nothing still open
 
-`/api/v1/reviews` — the AutoGate peer review, reached at
-`/api/v1/issues/:issueRef/reviews`. It belongs to the automation flow but was
-not named in the exclusion, so it is neither ported nor formally excluded yet.
+`/api/v1/issues/:issueRef/reviews` — the AutoGate peer review — was the last
+undecided entry. It is ported: it belongs to the auto-gate loop, which is not
+AUTOMATE and is live, and it reads `issue_auto_reviews` directly.

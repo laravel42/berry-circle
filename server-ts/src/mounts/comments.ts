@@ -111,7 +111,7 @@ export function commentMounts(options: CommentOptions): Mount[] {
 }
 
 /**
- * The routes that hang under an issue.
+ * The comment routes that hang under an issue.
  *
  * Returned as a router for the issues mount to own rather than as a second
  * mount on `/api/v1/issues`: the registry enforces disjoint prefixes, and two

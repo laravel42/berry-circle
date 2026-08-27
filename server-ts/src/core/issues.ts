@@ -56,6 +56,15 @@ export interface ActorRef {
 export interface Issue {
    id: string;
    boardId: string;
+   /**
+    * The workspace the issue's board belongs to.
+    *
+    * Read from the row and deliberately not serialized: the wire shape has
+    * never carried it. Callers that need to compare two issues' workspaces —
+    * a dependency edge may not cross one — would otherwise have to ask again
+    * for something the query already selected.
+    */
+   workspaceId: string;
    number: number;
    identifier: string;
    title: string;
@@ -768,6 +777,7 @@ function toIssue(row: Record<string, unknown>): Issue {
    return {
       id: row.id as string,
       boardId: row.board_id as string,
+      workspaceId: row.workspace_id as string,
       number: row.number as number,
       identifier: formatIdentifier((row.issue_prefix as string | null) ?? '', row.number as number),
       title: row.title as string,

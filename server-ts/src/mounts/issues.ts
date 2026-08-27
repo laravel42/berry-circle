@@ -82,6 +82,8 @@ export interface IssueOptions {
    broadcaster?: Broadcaster | undefined;
    /** Sub-routes owned by other domains, such as comments. */
    nested?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** An issue's dependencies and its AutoGate verdicts. */
+   relations?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
 }
 
@@ -94,6 +96,7 @@ export function issueMounts(options: IssueOptions): Mount[] {
    // refuses two mounts on `/api/v1/issues` — which is the ambiguity it exists
    // to refuse.
    if (options.nested) route.route('/', options.nested);
+   if (options.relations) route.route('/', options.relations);
 
    const { issues, boards } = options;
 

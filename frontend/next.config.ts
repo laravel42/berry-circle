@@ -84,6 +84,9 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    '/api/v1/issues',
    '/api/v1/issues/:issueRef',
    '/api/v1/issues/:issueRef/comments',
+   '/api/v1/issues/:issueRef/dependencies',
+   '/api/v1/issues/:issueRef/dependencies/:dependsOnRef',
+   '/api/v1/issues/:issueRef/reviews',
 
    // One comment, by id — a link to a comment has to work without knowing
    // which issue it is on.
