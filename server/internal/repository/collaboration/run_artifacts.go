@@ -428,14 +428,23 @@ func (repository *Repository) AbortRunArtifact(
 
 // AutoReview is one peer agent's verdict on a run (migration 026).
 type AutoReview struct {
-	ID        uuid.UUID
-	RunID     uuid.UUID
-	Reviewer  string
-	Author    string
-	Approved  bool
+	ID       uuid.UUID
+	RunID    uuid.UUID
+	Reviewer string
+	Author   string
+	// Approved and Reason are absent while the review is running: the row is
+	// reserved when the reviewer is picked, so that it can be shown, and
+	// completed when the reviewer answers.
+	Approved  *bool
 	Reason    string
+	Attempt   int
+	StartedAt time.Time
+	DecidedAt *time.Time
 	CreatedAt time.Time
 }
+
+// InProgress reports a review that has started and not yet answered.
+func (review AutoReview) InProgress() bool { return review.Approved == nil }
 
 // ListIssueAutoReviews returns the verdicts on an issue, newest first.
 //
@@ -464,12 +473,13 @@ func (repository *Repository) ListIssueAutoReviews(
 		`SELECT review.id, review.run_id,
 		        COALESCE(reviewer.name, 'an agent'),
 		        COALESCE(author.name, 'an agent'),
-		        review.approved, review.reason, review.created_at
+		        review.approved, COALESCE(review.reason, ''), review.attempt,
+		        review.started_at, review.decided_at, review.created_at
 		   FROM issue_auto_reviews AS review
 		   LEFT JOIN agents AS reviewer ON reviewer.id = review.reviewer_id
 		   LEFT JOIN agents AS author ON author.id = review.author_id
 		  WHERE review.issue_id = $1
-		  ORDER BY review.created_at DESC
+		  ORDER BY review.started_at DESC
 		  LIMIT $2`,
 		access.IssueID, limit,
 	)
@@ -481,7 +491,8 @@ func (repository *Repository) ListIssueAutoReviews(
 	for rows.Next() {
 		var review AutoReview
 		if err := rows.Scan(&review.ID, &review.RunID, &review.Reviewer,
-			&review.Author, &review.Approved, &review.Reason, &review.CreatedAt); err != nil {
+			&review.Author, &review.Approved, &review.Reason, &review.Attempt,
+			&review.StartedAt, &review.DecidedAt, &review.CreatedAt); err != nil {
 			return nil, classifyReadError("scan auto review", err)
 		}
 		found = append(found, review)

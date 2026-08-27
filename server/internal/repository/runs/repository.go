@@ -528,3 +528,33 @@ func (repository *Repository) DependencyArtifacts(
 	}
 	return found, nil
 }
+
+// LastRejection returns why a peer reviewer last sent this issue back.
+//
+// Empty when nothing has, which is the ordinary case. A reworked task that is
+// not told what was wrong repeats the work that was rejected and spends its
+// remaining attempts doing it.
+func (repository *Repository) LastRejection(
+	ctx context.Context,
+	issueID uuid.UUID,
+) (string, error) {
+	var reason *string
+	err := repository.Pool.QueryRow(
+		ctx,
+		`SELECT reason FROM issue_auto_reviews
+		  WHERE issue_id = $1 AND approved = false
+		  ORDER BY decided_at DESC NULLS LAST
+		  LIMIT 1`,
+		issueID,
+	).Scan(&reason)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read last rejection: %w", err)
+	}
+	if reason == nil {
+		return "", nil
+	}
+	return *reason, nil
+}

@@ -26,6 +26,10 @@ type stubStore struct {
 	asks      []Ask
 	moved     bool
 	askedWith Candidate
+	began     int
+	abandoned int
+	attempt   int
+	beginErr  error
 }
 
 func (store *stubStore) ReviewSubject(context.Context, uuid.UUID) (Subject, error) {
@@ -36,12 +40,38 @@ func (store *stubStore) Reviewers(context.Context, uuid.UUID, uuid.UUID) ([]Cand
 	return store.reviewers, nil
 }
 
-func (store *stubStore) RecordVerdict(
-	_ context.Context, _ Subject, reviewer Candidate, verdict Verdict, _ uuid.UUID, _ time.Time,
-) (bool, error) {
-	store.verdicts = append(store.verdicts, verdict)
+func (store *stubStore) BeginReview(
+	_ context.Context, _ Subject, reviewer Candidate, _ time.Time,
+) (uuid.UUID, int, error) {
+	store.began++
 	store.askedWith = reviewer
-	return verdict.Approved && store.moved, nil
+	if store.beginErr != nil {
+		return uuid.Nil, 0, store.beginErr
+	}
+	attempt := store.attempt
+	if attempt == 0 {
+		attempt = 1
+	}
+	return uuid.New(), attempt, nil
+}
+
+func (store *stubStore) AbandonReview(_ context.Context, _ uuid.UUID) error {
+	store.abandoned++
+	return nil
+}
+
+func (store *stubStore) RecordVerdict(
+	_ context.Context, _ uuid.UUID, _ Subject, verdict Verdict, _ uuid.UUID, attempt int, _ time.Time,
+) (string, error) {
+	store.verdicts = append(store.verdicts, verdict)
+	switch {
+	case verdict.Approved:
+		return "done", nil
+	case attempt < maxAttempts:
+		return "todo", nil
+	default:
+		return "in_review", nil
+	}
 }
 
 func (store *stubStore) RecordAsk(_ context.Context, ask Ask) error {
@@ -367,5 +397,78 @@ func TestEveryFileIsListedEvenWhenOnlySomeAreShown(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "never reject a file for being absent when it is in the list") {
 		t.Error("the reviewer is not told an unprinted file still exists")
+	}
+}
+
+// A rejection sends the task back to be worked again — that is what makes the
+// loop autonomous. Without it a rejected task sat in review forever, which is
+// the state AutoGate exists to avoid.
+func TestARejectedTaskGoesBackToBeWorkedAgain(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{
+		subject:   gatedSubject(),
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+		attempt:   1,
+	}
+	chat := &stubChat{content: `{"approved":false,"reason":"The config file is missing."}`}
+
+	if _, err := service(store, chat).Review(context.Background(), store.subject.RunID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	status, _ := store.RecordVerdict(context.Background(), uuid.New(), store.subject,
+		Verdict{Approved: false, Reason: "x"}, uuid.New(), 1, time.Now())
+	if status != "todo" {
+		t.Errorf("a rejected first attempt ended in %q, want todo", status)
+	}
+}
+
+// And stops going back. An agent that has failed its reviewer three times will
+// not succeed on the fourth, and each round costs two model calls.
+func TestReworkStopsAfterTheAttemptsAreUsed(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{}
+	status, _ := store.RecordVerdict(context.Background(), uuid.New(), gatedSubject(),
+		Verdict{Approved: false, Reason: "still wrong"}, uuid.New(), maxAttempts, time.Now())
+	if status != "in_review" {
+		t.Errorf("the last attempt ended in %q, want it left for a person", status)
+	}
+}
+
+// The reviewer is answerable while the call is still running, which is the
+// whole point of reserving the row first.
+func TestTheReviewIsReservedBeforeTheModelIsCalled(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{
+		subject:   gatedSubject(),
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+	}
+	chat := &stubChat{content: `{"approved":true,"reason":"Fine."}`}
+
+	if _, err := service(store, chat).Review(context.Background(), store.subject.RunID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if store.began != 1 {
+		t.Errorf("BeginReview called %d times, want 1", store.began)
+	}
+	if store.abandoned != 0 {
+		t.Error("a successful review released its reservation")
+	}
+}
+
+// A call that never answers must not leave the task showing a reviewer that
+// is not reviewing it.
+func TestAFailedCallReleasesTheReservation(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{
+		subject:   gatedSubject(),
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+	}
+	chat := &stubChat{err: errors.New("upstream is down")}
+
+	if _, err := service(store, chat).Review(context.Background(), store.subject.RunID); err == nil {
+		t.Fatal("want an error")
+	}
+	if store.abandoned != 1 {
+		t.Errorf("abandoned %d reservations, want 1", store.abandoned)
 	}
 }

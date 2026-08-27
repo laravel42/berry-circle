@@ -110,16 +110,33 @@ type Ask struct {
 	CompletedAt   time.Time
 }
 
+// maxAttempts bounds the rework loop.
+//
+// A rejection sends the task back to be worked again, which is the point — but
+// an agent that cannot satisfy its reviewer will not start to on the sixth
+// attempt, and each round costs two model calls. After this many the task
+// stays in review for a person, which is where AutoGate started.
+const maxAttempts = 3
+
 // Store is the product state a review reads and writes.
 type Store interface {
 	// ReviewSubject describes the run's issue, or reports AutoGate off.
 	ReviewSubject(ctx context.Context, runID uuid.UUID) (Subject, error)
 	// Reviewers lists agents that could review, excluding the author.
 	Reviewers(ctx context.Context, workspaceID, authorID uuid.UUID) ([]Candidate, error)
-	// RecordVerdict stores the review and, when approved, closes the issue.
-	// Returns whether the issue moved.
-	RecordVerdict(ctx context.Context, subject Subject, reviewer Candidate,
-		verdict Verdict, askID uuid.UUID, now time.Time) (bool, error)
+	// BeginReview reserves the review before the model is called, so the
+	// reviewer is answerable while the call is still running. Returns the
+	// review's id and which attempt at this task it is.
+	BeginReview(ctx context.Context, subject Subject, reviewer Candidate,
+		now time.Time) (uuid.UUID, int, error)
+	// RecordVerdict completes the reserved review. An approved task closes; a
+	// rejected one returns to todo to be worked again, unless it has used its
+	// attempts. Returns the status the issue ended in.
+	RecordVerdict(ctx context.Context, reviewID uuid.UUID, subject Subject,
+		verdict Verdict, askID uuid.UUID, attempt int, now time.Time) (string, error)
+	// AbandonReview releases a reservation whose call never produced a
+	// verdict, so the next attempt is not blocked by it.
+	AbandonReview(ctx context.Context, reviewID uuid.UUID) error
 	// RecordAsk puts the call in the ask ledger, whatever its outcome.
 	RecordAsk(ctx context.Context, ask Ask) error
 }
@@ -178,6 +195,14 @@ func (service *Service) Review(ctx context.Context, runID uuid.UUID) (Verdict, e
 		return Verdict{}, ErrNoReviewer
 	}
 
+	// Reserved before the call, not after: for the length of the call — and
+	// for as long as a failed call left no row at all — a task under review
+	// looked exactly like a task nobody had reached.
+	reviewID, attempt, err := service.Store.BeginReview(ctx, subject, reviewer, service.now())
+	if err != nil {
+		return Verdict{}, err
+	}
+
 	prompt := Prompt(subject, service.evidence(ctx, subject))
 	ask := Ask{
 		ID: service.newID(), WorkspaceID: subject.WorkspaceID, AgentID: reviewer.ID,
@@ -194,6 +219,7 @@ func (service *Service) Review(ctx context.Context, runID uuid.UUID) (Verdict, e
 	if err != nil {
 		ask.Status, ask.FailureCode, ask.Failure = "failed", "REVIEW_CALL_FAILED", "The reviewer did not answer."
 		service.record(ctx, ask)
+		service.abandon(ctx, reviewID)
 		return Verdict{}, fmt.Errorf("autogate: reviewer call failed: %w", err)
 	}
 	ask.InputTokens, ask.OutputTokens = int64(result.Usage.InputTokens), int64(result.Usage.OutputTokens)
@@ -206,20 +232,23 @@ func (service *Service) Review(ctx context.Context, runID uuid.UUID) (Verdict, e
 		// where it would have been without AutoGate.
 		ask.Status, ask.FailureCode, ask.Failure = "failed", "VERDICT_INVALID", decodeErr.Error()
 		service.record(ctx, ask)
+		service.abandon(ctx, reviewID)
 		return Verdict{}, fmt.Errorf("autogate: %w", decodeErr)
 	}
 	answer, _ := json.Marshal(verdict)
 	ask.Status, ask.Answer = "succeeded", answer
 	service.record(ctx, ask)
 
-	moved, err := service.Store.RecordVerdict(ctx, subject, reviewer, verdict, ask.ID, service.now())
+	status, err := service.Store.RecordVerdict(
+		ctx, reviewID, subject, verdict, ask.ID, attempt, service.now())
 	if err != nil {
 		return verdict, err
 	}
 	if service.Logger != nil {
 		service.Logger.Info("auto review recorded",
 			"issue", subject.IssueIdentifier, "reviewer", reviewer.Name,
-			"author", subject.AuthorName, "approved", verdict.Approved, "movedToDone", moved)
+			"author", subject.AuthorName, "approved", verdict.Approved,
+			"attempt", attempt, "issueStatus", status)
 	}
 	return verdict, nil
 }
@@ -423,6 +452,15 @@ func utf8Valid(value string) bool {
 		}
 	}
 	return true
+}
+
+// abandon releases a reservation whose call produced no verdict. Best effort:
+// a stranded reservation costs the next attempt its row, not the task.
+func (service *Service) abandon(ctx context.Context, reviewID uuid.UUID) {
+	if err := service.Store.AbandonReview(ctx, reviewID); err != nil && service.Logger != nil {
+		service.Logger.Warn("auto review reservation not released",
+			"reviewId", reviewID, "error", err)
+	}
 }
 
 func (service *Service) record(ctx context.Context, ask Ask) {

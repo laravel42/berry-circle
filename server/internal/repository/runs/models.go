@@ -156,9 +156,12 @@ type Dispatch struct {
 	// PriorWork is what the tasks this issue depends on produced, filled in by
 	// the dispatcher for the same reason as CodeContext: it costs storage
 	// reads.
-	PriorWork   string
-	RequestID   string
-	TraceParent string
+	PriorWork string
+	// ReviewFeedback is why a peer reviewer sent this task back, when one did.
+	// Filled by the dispatcher for the same reason as the fields above.
+	ReviewFeedback string
+	RequestID      string
+	TraceParent    string
 }
 
 // CancellationClaim serializes stop intent and proves whether this caller owns

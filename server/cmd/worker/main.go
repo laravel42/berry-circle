@@ -241,6 +241,7 @@ func run() int {
 		QueueSize:     1,
 		Dispatcher:    runDispatcher,
 		Code:          runCode,
+		Rejections:    runStore,
 		Comments:      commentStore,
 		Logger:        logger,
 		// Writes agent.started/completed/failed beside the run facts so

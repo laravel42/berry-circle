@@ -110,6 +110,8 @@ type Options struct {
 	Code CodeContext
 	// Handoff renders what the tasks this one depends on produced. Optional.
 	Handoff Handoff
+	// Rejections reads why a peer reviewer sent a task back. Optional.
+	Rejections Rejections
 	// Comments posts a run's final message on its issue. Optional: without it
 	// the result is still recorded on the run, just not surfaced as a comment.
 	Comments CommentStore
@@ -141,6 +143,8 @@ type Service struct {
 	code CodeContext
 	// handoff renders what the tasks this one depends on produced. Optional.
 	handoff Handoff
+	// rejections reads why a peer reviewer sent a task back. Optional.
+	rejections Rejections
 	// comments is where a run's result goes to be read. Optional.
 	comments    CommentStore
 	artifacts   ArtifactSink
@@ -194,6 +198,7 @@ func New(options Options) (*Service, error) {
 		dispatcher:  options.Dispatcher,
 		code:        options.Code,
 		handoff:     options.Handoff,
+		rejections:  options.Rejections,
 		comments:    options.Comments,
 		artifacts:   options.Artifacts,
 		agentEvents: options.AgentEvents,
@@ -363,6 +368,15 @@ func (service *Service) execute(ctx context.Context, runID uuid.UUID) {
 	// of object storage costs calls a claim that never dispatches should skip.
 	if service.handoff != nil {
 		dispatch.PriorWork = service.handoff.Build(ctx, dispatch.IssueID)
+	}
+
+	// A task that comes back through AutoGate has been worked before and found
+	// wanting. Without the reason it does the same work again and spends its
+	// remaining attempts doing it.
+	if service.rejections != nil {
+		if reason, err := service.rejections.LastRejection(ctx, dispatch.IssueID); err == nil {
+			dispatch.ReviewFeedback = reason
+		}
 	}
 
 	message := buildMessage(dispatch)
@@ -948,6 +962,11 @@ type Handoff interface {
 	Build(ctx context.Context, issueID uuid.UUID) string
 }
 
+// Rejections reads why a peer reviewer last sent an issue back.
+type Rejections interface {
+	LastRejection(ctx context.Context, issueID uuid.UUID) (string, error)
+}
+
 // CodeContext renders the repository an issue belongs to, for the prompt.
 //
 // The workspace is a parameter rather than fixed at construction: one service
@@ -970,6 +989,15 @@ func buildMessage(dispatch runs.Dispatch) string {
 	if dispatch.Instructions != nil && *dispatch.Instructions != "" {
 		builder.WriteString("\n\nRun instructions:\n")
 		builder.WriteString(*dispatch.Instructions)
+	}
+	if dispatch.ReviewFeedback != "" {
+		builder.WriteString("\n\nThis task was already worked once and sent back\n")
+		builder.WriteString("A reviewing agent read the result and declined to approve it:\n\n")
+		builder.WriteString(dispatch.ReviewFeedback)
+		builder.WriteString("\n\nAddress that specifically. Anything the review says is missing is " +
+			"the first thing to produce, and anything it says is wrong is not worth repeating. " +
+			"Files you wrote last time are gone — the workspace is not carried between attempts, " +
+			"so write the complete set again, including the parts that were accepted.\n")
 	}
 	if dispatch.PriorWork != "" {
 		builder.WriteString(dispatch.PriorWork)

@@ -183,10 +183,12 @@ func batchTransitionAllowed(from, to string) bool {
 		"backlog":     {"todo", "cancelled"},
 		"todo":        {"backlog", "in_progress", "blocked", "cancelled"},
 		"in_progress": {"todo", "in_review", "blocked", "cancelled"},
-		"in_review":   {"in_progress", "done", "blocked", "cancelled"},
-		"done":        {"in_review"},
-		"blocked":     {"todo", "in_progress", "cancelled"},
-		"cancelled":   {"backlog", "todo"},
+		// todo: the reviewer sends rejected work back to be done again, and a
+		// person looking at the same work must be able to do what it does.
+		"in_review": {"todo", "in_progress", "done", "blocked", "cancelled"},
+		"done":      {"in_review"},
+		"blocked":   {"todo", "in_progress", "cancelled"},
+		"cancelled": {"backlog", "todo"},
 	}
 	for _, candidate := range allowed[from] {
 		if candidate == to {

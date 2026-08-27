@@ -396,9 +396,13 @@ const autoReviewSchema = z.object({
    runId: z.string(),
    reviewer: z.string(),
    author: z.string(),
-   approved: z.boolean(),
+   /** Null while the reviewer is still reading. */
+   approved: z.boolean().nullable(),
+   inProgress: z.boolean(),
    reason: z.string(),
-   createdAt: z.string(),
+   attempt: z.number(),
+   startedAt: z.string(),
+   decidedAt: z.string().nullish(),
 });
 
 export type AutoReview = z.infer<typeof autoReviewSchema>;

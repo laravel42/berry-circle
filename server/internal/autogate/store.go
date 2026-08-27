@@ -121,60 +121,131 @@ func (store PostgresStore) Reviewers(
 	return found, rows.Err()
 }
 
-// RecordVerdict stores the review and closes the issue when it passed.
+// BeginReview reserves the review before the model is called.
 //
-// One transaction: a verdict that says approved while the issue sits in review
-// is a lie a person would have to untangle, and the unique constraint on
-// run_id makes a retried activity idempotent rather than duplicative.
-func (store PostgresStore) RecordVerdict(
+// The unique index on run_id makes this the concurrency guard too: a second
+// activity attempt for the same run finds the row already there and reuses it
+// rather than opening a competing review.
+func (store PostgresStore) BeginReview(
 	ctx context.Context,
 	subject Subject,
 	reviewer Candidate,
+	now time.Time,
+) (uuid.UUID, int, error) {
+	// Attempts are counted per issue, not per run: a rejected task is worked
+	// again as a new run, and it is the task that must stop going round.
+	var attempt int
+	if err := store.Pool.QueryRow(
+		ctx,
+		`SELECT COALESCE(MAX(attempt), 0) + 1 FROM issue_auto_reviews WHERE issue_id = $1`,
+		subject.IssueID,
+	).Scan(&attempt); err != nil {
+		return uuid.Nil, 0, fmt.Errorf("autogate: count attempts: %w", err)
+	}
+
+	var (
+		reviewID uuid.UUID
+		stored   int
+	)
+	if err := store.Pool.QueryRow(
+		ctx,
+		`INSERT INTO issue_auto_reviews (
+		    workspace_id, issue_id, run_id, reviewer_id, author_id,
+		    attempt, started_at, created_at
+		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $7)
+		 ON CONFLICT (run_id) DO UPDATE
+		    SET reviewer_id = EXCLUDED.reviewer_id
+		  WHERE issue_auto_reviews.approved IS NULL
+		 RETURNING id, attempt`,
+		subject.WorkspaceID, subject.IssueID, subject.RunID, reviewer.ID,
+		subject.AuthorID, attempt, now,
+	).Scan(&reviewID, &stored); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The conflicting row is already decided: this run was reviewed.
+			return uuid.Nil, 0, ErrNotGated
+		}
+		return uuid.Nil, 0, fmt.Errorf("autogate: begin review: %w", err)
+	}
+	return reviewID, stored, nil
+}
+
+// AbandonReview releases a reservation whose call produced no verdict.
+func (store PostgresStore) AbandonReview(ctx context.Context, reviewID uuid.UUID) error {
+	if _, err := store.Pool.Exec(
+		ctx,
+		`DELETE FROM issue_auto_reviews WHERE id = $1 AND approved IS NULL`,
+		reviewID,
+	); err != nil {
+		return fmt.Errorf("autogate: abandon review: %w", err)
+	}
+	return nil
+}
+
+// RecordVerdict completes the reserved review and moves the issue.
+//
+// Approved closes it. Rejected sends it back to todo to be worked again, which
+// is what makes the loop autonomous — intake picks up a todo issue with no
+// active run. After maxAttempts it stays in review instead: an agent that has
+// failed its reviewer three times is not going to succeed on the fourth, and
+// each round costs two model calls.
+//
+// One transaction, because a verdict that says rejected while the issue sits
+// somewhere else is a contradiction a person has to untangle.
+func (store PostgresStore) RecordVerdict(
+	ctx context.Context,
+	reviewID uuid.UUID,
+	subject Subject,
 	verdict Verdict,
 	askID uuid.UUID,
+	attempt int,
 	now time.Time,
-) (bool, error) {
+) (string, error) {
 	tx, err := store.Pool.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("autogate: begin: %w", err)
+		return "", fmt.Errorf("autogate: begin: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
 	tag, err := tx.Exec(
 		ctx,
-		`INSERT INTO issue_auto_reviews (
-		    workspace_id, issue_id, run_id, reviewer_id, author_id,
-		    approved, reason, ask_id, created_at
-		 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		 ON CONFLICT (run_id) DO NOTHING`,
-		subject.WorkspaceID, subject.IssueID, subject.RunID, reviewer.ID,
-		subject.AuthorID, verdict.Approved, verdict.Reason, askID, now,
+		`UPDATE issue_auto_reviews
+		    SET approved = $2, reason = $3, ask_id = $4, decided_at = $5
+		  WHERE id = $1 AND approved IS NULL`,
+		reviewID, verdict.Approved, verdict.Reason, askID, now,
 	)
 	if err != nil {
-		return false, fmt.Errorf("autogate: record verdict: %w", err)
+		return "", fmt.Errorf("autogate: record verdict: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		// Already reviewed. The activity ran twice; the first verdict stands.
-		return false, tx.Commit(ctx)
+		// Already decided. The activity ran twice; the first verdict stands.
+		return "", tx.Commit(ctx)
 	}
 
-	moved := false
-	if verdict.Approved {
-		// Guarded on in_review so a person who moved the issue while the
-		// reviewer was thinking keeps their decision.
-		closed, err := tx.Exec(
+	// Guarded on in_review throughout, so a person who moved the issue while
+	// the reviewer was thinking keeps their decision.
+	next := "in_review"
+	switch {
+	case verdict.Approved:
+		next = "done"
+	case attempt < maxAttempts:
+		next = "todo"
+	}
+	if next != "in_review" {
+		moved, err := tx.Exec(
 			ctx,
 			`UPDATE issues
-			    SET status = 'done', updated_at = $2
+			    SET status = $2::issue_status, active_run_id = NULL, updated_at = $3
 			  WHERE id = $1 AND status = 'in_review' AND deleted_at IS NULL`,
-			subject.IssueID, now,
+			subject.IssueID, next, now,
 		)
 		if err != nil {
-			return false, fmt.Errorf("autogate: close issue: %w", err)
+			return "", fmt.Errorf("autogate: move issue to %s: %w", next, err)
 		}
-		moved = closed.RowsAffected() == 1
+		if moved.RowsAffected() == 0 {
+			next = "in_review"
+		}
 	}
-	return moved, tx.Commit(ctx)
+	return next, tx.Commit(ctx)
 }
 
 // RecordAsk puts the call in the ask ledger so the spend is visible.

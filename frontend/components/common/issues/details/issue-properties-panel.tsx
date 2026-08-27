@@ -18,6 +18,7 @@ import {
    IssueOriginSection,
 } from './issue-relations';
 import { Section } from './panel-section';
+import { ReviewerProperty } from './reviewer-property';
 
 interface IssuePropertiesPanelProps {
    issue: Issue;
@@ -52,6 +53,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                         <AssigneeUser user={issue.assignee} issueId={issue.id} />
                         <span>{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                      </div>
+                     <ReviewerProperty issueRef={issue.identifier} />
                      {cycle && (
                         <div className="flex items-center gap-2 mt-0.5">
                            <CyclePlayIcon className="size-4" />

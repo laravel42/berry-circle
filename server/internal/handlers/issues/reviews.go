@@ -26,13 +26,17 @@ type AutoReviewStore interface {
 }
 
 type autoReviewResource struct {
-	ID        uuid.UUID `json:"id"`
-	RunID     uuid.UUID `json:"runId"`
-	Reviewer  string    `json:"reviewer"`
-	Author    string    `json:"author"`
-	Approved  bool      `json:"approved"`
-	Reason    string    `json:"reason"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID       uuid.UUID `json:"id"`
+	RunID    uuid.UUID `json:"runId"`
+	Reviewer string    `json:"reviewer"`
+	Author   string    `json:"author"`
+	// Approved is null while the reviewer is still reading.
+	Approved   *bool      `json:"approved"`
+	InProgress bool       `json:"inProgress"`
+	Reason     string     `json:"reason"`
+	Attempt    int        `json:"attempt"`
+	StartedAt  time.Time  `json:"startedAt"`
+	DecidedAt  *time.Time `json:"decidedAt"`
 }
 
 func listAutoReviewsHandler(store AutoReviewStore) http.HandlerFunc {
@@ -56,7 +60,9 @@ func listAutoReviewsHandler(store AutoReviewStore) http.HandlerFunc {
 			resources = append(resources, autoReviewResource{
 				ID: review.ID, RunID: review.RunID, Reviewer: review.Reviewer,
 				Author: review.Author, Approved: review.Approved,
-				Reason: review.Reason, CreatedAt: review.CreatedAt,
+				InProgress: review.InProgress(), Reason: review.Reason,
+				Attempt: review.Attempt, StartedAt: review.StartedAt,
+				DecidedAt: review.DecidedAt,
 			})
 		}
 		httpapi.WriteJSON(response, http.StatusOK, map[string]any{"reviews": resources})
