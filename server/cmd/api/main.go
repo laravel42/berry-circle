@@ -316,24 +316,39 @@ func run() int {
 	// non-fatal: a role that cannot be provisioned leaves plan generation
 	// answering PLANNER_UNAVAILABLE.
 	var roleStore *modelgateway.PostgresStore
+	// The role prompts are needed twice: once to provision the roles and once
+	// to send with every call the direct gateway makes, so they outlive the
+	// block that builds them.
+	rolePrompts := map[modelgateway.Role]modelgateway.Prompt{}
+	for _, prompt := range prompts.All() {
+		rolePrompts[modelgateway.Role(prompt.Role)] = modelgateway.Prompt{Version: prompt.Version, Text: prompt.Text}
+	}
 	if dbPool != nil && cfg.PlannerEnabled {
 		store, err := modelgateway.NewStore(dbPool)
 		if err != nil {
 			logger.Warn("role agent store setup failed", "error", err)
 		} else {
 			roleStore = store
-			rolePrompts := map[modelgateway.Role]modelgateway.Prompt{}
-			for _, prompt := range prompts.All() {
-				rolePrompts[modelgateway.Role(prompt.Role)] = modelgateway.Prompt{Version: prompt.Version, Text: prompt.Text}
-			}
-			if err := modelgateway.EnsureRoleAgents(ctx, roleStore, upstream, upstream, modelgateway.RoleSpecs{
+			roleSpecs := modelgateway.RoleSpecs{
 				Classifier:      modelgateway.RoleSpec{Provider: cfg.ClassifierProvider, Model: cfg.ClassifierModel},
 				Planner:         modelgateway.RoleSpec{Provider: cfg.PlannerProvider, Model: cfg.PlannerModel},
 				Repair:          modelgateway.RoleSpec{Provider: cfg.RepairProvider, Model: cfg.RepairModel},
 				Critic:          modelgateway.RoleSpec{Provider: cfg.CriticProvider, Model: cfg.CriticModel},
 				MaxOutputTokens: cfg.PlannerMaxOutputTokens,
-			}, rolePrompts, uuid.New, logger); err != nil {
-				logger.Warn("role agent bootstrap incomplete", "error", err)
+			}
+			// Under ADK a role is a provider, a model and a prompt, all of
+			// which Berry already holds — there is no agent to spawn and
+			// nothing to keep a second copy in.
+			var roleErr error
+			if cfg.AgentRuntime == "adk" {
+				roleErr = modelgateway.EnsureLocalRoleAgents(
+					ctx, roleStore, roleSpecs, rolePrompts, time.Now)
+			} else {
+				roleErr = modelgateway.EnsureRoleAgents(
+					ctx, roleStore, upstream, upstream, roleSpecs, rolePrompts, uuid.New, logger)
+			}
+			if roleErr != nil {
+				logger.Warn("role agent bootstrap incomplete", "error", roleErr)
 			}
 		}
 	}
@@ -1335,7 +1350,23 @@ func run() int {
 				logger.Error("planner metrics setup failed", "error", err)
 				return 1
 			}
-			modelGateway, err := modelgateway.NewOpenFang(upstream, roleStore, &modelgateway.CatalogPrices{Catalog: modelCatalog})
+			// The planner's roles call their model directly under ADK, and
+			// through the runtime's chat route otherwise.
+			var modelGateway modelgateway.Gateway
+			if cfg.AgentRuntime == "adk" {
+				modelGateway, err = modelgateway.NewDirect(
+					openrouter.New("", nil,
+						openrouter.WithAPIKey(cfg.OpenRouterAPIKey),
+						openrouter.WithChatTimeout(cfg.PlannerTimeout),
+					),
+					roleStore,
+					rolePrompts,
+					&modelgateway.CatalogPrices{Catalog: modelCatalog},
+				)
+			} else {
+				modelGateway, err = modelgateway.NewOpenFang(
+					upstream, roleStore, &modelgateway.CatalogPrices{Catalog: modelCatalog})
+			}
 			if err != nil {
 				closeRunRoutes(runRoutes, logger)
 				_ = realtimeManager.Close()

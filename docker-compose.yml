@@ -55,6 +55,9 @@ services:
       OPENFANG_API_KEY: "${OPENFANG_API_KEY:-}"
       # Which runtime owns agents. Under adk they are Berry rows, so this
       # server stops projecting OpenFang's over them on every listing.
+      # The planner's roles call their model directly under the ADK runtime.
+      # Server-side only: never mirror this into a NEXT_PUBLIC_* variable.
+      BERRY_OPENROUTER_API_KEY: "${BERRY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}"
       BERRY_AGENT_RUNTIME: "${BERRY_AGENT_RUNTIME:-openfang}"
       METRICS_ENABLED: "${METRICS_ENABLED:-true}"
       TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"

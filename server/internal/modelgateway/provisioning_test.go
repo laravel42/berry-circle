@@ -37,7 +37,17 @@ func (store *memoryStore) List(context.Context) ([]RoleAgent, error) {
 	return out, nil
 }
 
+// Upsert applies the same completeness check PostgresStore does.
+//
+// Without it the fake accepts rows the real store rejects, which is exactly
+// what happened once: a role written with no upstream agent id passed every
+// test and was refused in production, where it surfaced as a warning in a boot
+// log rather than as a failure anybody was watching for.
 func (store *memoryStore) Upsert(_ context.Context, agent RoleAgent, now time.Time) error {
+	if !agent.Role.Valid() || agent.UpstreamName == "" ||
+		agent.Provider == "" || agent.Model == "" || agent.PromptVersion == "" {
+		return errors.New("model role agent is incomplete")
+	}
 	agent.UpdatedAt = now
 	store.rows[agent.Role] = agent
 	return nil

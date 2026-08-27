@@ -73,7 +73,9 @@ func scanRoleAgent(row roleScanner) (RoleAgent, error) {
 	var (
 		agent RoleAgent
 		role  string
-		id    string
+		// Nullable: a role that calls its provider directly names no agent
+		// upstream, and NULL is the truthful value for that.
+		id *string
 	)
 	if err := row.Scan(
 		&role, &id, &agent.UpstreamName, &agent.Provider, &agent.Model, &agent.PromptVersion,
@@ -82,11 +84,13 @@ func scanRoleAgent(row roleScanner) (RoleAgent, error) {
 		return RoleAgent{}, err
 	}
 	agent.Role = Role(role)
-	parsed, err := uuid.Parse(id)
-	if err != nil {
-		return RoleAgent{}, errors.New("role agent id is not a UUID")
+	if id != nil {
+		parsed, err := uuid.Parse(*id)
+		if err != nil {
+			return RoleAgent{}, errors.New("role agent id is not a UUID")
+		}
+		agent.OpenFangAgentID = parsed
 	}
-	agent.OpenFangAgentID = parsed
 	return agent, nil
 }
 
@@ -140,7 +144,11 @@ func (store *PostgresStore) Upsert(ctx context.Context, agent RoleAgent, now tim
 	if store == nil || store.Pool == nil {
 		return errors.New("model role store pool is nil")
 	}
-	if !agent.Role.Valid() || agent.OpenFangAgentID == uuid.Nil || agent.UpstreamName == "" ||
+	// The upstream agent id is not required. It names an OpenFang agent, and
+	// a role recorded under the ADK runtime has none — the provider, model and
+	// prompt version are the whole of what a role is there. Everything else
+	// stays required, because a role missing any of those cannot be called.
+	if !agent.Role.Valid() || agent.UpstreamName == "" ||
 		agent.Provider == "" || agent.Model == "" || agent.PromptVersion == "" {
 		return errors.New("model role agent is incomplete")
 	}
@@ -166,7 +174,7 @@ func (store *PostgresStore) Upsert(ctx context.Context, agent RoleAgent, now tim
 		    status = EXCLUDED.status,
 		    last_synced_at = EXCLUDED.last_synced_at,
 		    updated_at = EXCLUDED.updated_at`,
-		string(agent.Role), agent.OpenFangAgentID.String(), agent.UpstreamName, agent.Provider, agent.Model, agent.PromptVersion,
+		string(agent.Role), upstreamAgentID(agent.OpenFangAgentID), agent.UpstreamName, agent.Provider, agent.Model, agent.PromptVersion,
 		agent.MaxTokens, agent.MaxLLMTokensPerHour, agent.ManifestRevision, status, now.UTC(),
 	); err != nil {
 		return errors.New("upsert model role agent")
@@ -194,3 +202,16 @@ func (store *PostgresStore) SetStatus(ctx context.Context, role Role, status str
 }
 
 var _ Store = (*PostgresStore)(nil)
+
+// upstreamAgentID stores a nil id as NULL rather than as the zero UUID.
+//
+// The column is unique where it is set, so four roles that all call their
+// provider directly would collide on the zero value — and a row claiming to
+// name agent 00000000-… names nothing, which is what NULL already says.
+func upstreamAgentID(id uuid.UUID) *string {
+	if id == uuid.Nil {
+		return nil
+	}
+	value := id.String()
+	return &value
+}
