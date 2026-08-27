@@ -18,6 +18,22 @@
 const GO = process.env.GO_BASE_URL ?? 'http://127.0.0.1:4000';
 const TS = process.env.TS_BASE_URL ?? 'http://127.0.0.1:4100';
 
+/**
+ * A bearer token, when the paths under test need one. Both servers read the
+ * same database during the migration, so one token authenticates against both.
+ */
+const BEARER = process.env.BEARER;
+
+/** One request to ask of both servers. */
+interface Probe {
+   method?: string;
+   path: string;
+   body?: unknown;
+   headers?: Record<string, string>;
+   /** Shown instead of the path when several probes share one path. */
+   label?: string;
+}
+
 /** Fields that legitimately differ between two processes answering the same call. */
 const VOLATILE = /^(requestId|createdAt|updatedAt|startedAt|completedAt|readyAt|occurredAt|timestamp|id)$/;
 
@@ -32,11 +48,28 @@ interface Comparison {
    ts: unknown;
 }
 
-async function fetchBoth(path: string): Promise<Comparison> {
-   const [goResponse, tsResponse] = await Promise.all([
-      fetch(GO + path).catch(() => undefined),
-      fetch(TS + path).catch(() => undefined),
-   ]);
+function request(base: string, probe: Probe): Promise<Response> {
+   const headers: Record<string, string> = { ...probe.headers };
+   if (BEARER) headers.authorization = `Bearer ${BEARER}`;
+   if (probe.body !== undefined) headers['content-type'] ??= 'application/json';
+   return fetch(base + probe.path, {
+      method: probe.method ?? 'GET',
+      headers,
+      body: probe.body === undefined ? undefined : JSON.stringify(probe.body),
+   });
+}
+
+/**
+ * Asks both servers the same question — one after the other, never at once.
+ *
+ * Concurrent requests would race on a write probe: both servers share a
+ * database, so the second read could see the first write and report a
+ * difference that is ordering, not contract.
+ */
+async function fetchBoth(probe: Probe): Promise<Comparison> {
+   const path = probe.label ?? `${probe.method ?? 'GET'} ${probe.path}`;
+   const goResponse = await request(GO, probe).catch(() => undefined);
+   const tsResponse = await request(TS, probe).catch(() => undefined);
    if (!goResponse || !tsResponse) {
       throw new Error(`could not reach ${!goResponse ? GO : TS} — is it running?`);
    }
@@ -97,15 +130,28 @@ function normalise(value: unknown): unknown {
    return out;
 }
 
-const paths = process.argv.slice(2);
-if (paths.length === 0) {
-   console.error('usage: contract-diff.ts <path> [path...]');
+const argv = process.argv.slice(2);
+let probes: Probe[];
+if (argv[0] === '--spec') {
+   // A spec file carries methods and bodies, so write paths can be compared
+   // too. Reads alone would leave every PATCH in the migration unchecked.
+   const specPath = argv[1];
+   if (!specPath) {
+      console.error('usage: contract-diff.ts --spec <file.json>');
+      process.exit(2);
+   }
+   const { readFile } = await import('node:fs/promises');
+   probes = JSON.parse(await readFile(specPath, 'utf8')) as Probe[];
+} else if (argv.length > 0) {
+   probes = argv.map((path) => ({ path }));
+} else {
+   console.error('usage: contract-diff.ts <path> [path...]   |   --spec <file.json>');
    process.exit(2);
 }
 
 let mismatches = 0;
-for (const path of paths) {
-   const result = await fetchBoth(path);
+for (const probe of probes) {
+   const result = await fetchBoth(probe);
    const verdict = result.identical
       ? 'identical'
       : result.volatileOnly
@@ -116,7 +162,7 @@ for (const path of paths) {
    const passed = result.volatileOnly && result.status.go === result.status.ts;
    if (!passed) mismatches += 1;
 
-   console.log(`${path}`);
+   console.log(`${result.path}`);
    console.log(`  status   go=${result.status.go} ts=${result.status.ts}`);
    console.log(`  verdict  ${verdict}`);
    if (!result.identical && !result.volatileOnly) {

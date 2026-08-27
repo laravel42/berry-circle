@@ -9,16 +9,16 @@ import { toRFC3339, type Sql } from '../db/pool.ts';
  * `workspace_memberships` for that reason rather than for convenience.
  */
 
-export interface UserSettings {
+export type UserSettings = {
    theme: string;
    timezone: string;
    reducedMotion: boolean;
 }
 
-export interface OnboardingState {
+export type OnboardingState = {
    version: number;
    step: string;
-   answers: Record<string, unknown>;
+   answers: Record<string, string>;
    skipped: boolean;
    completed: boolean;
 }
@@ -109,15 +109,53 @@ function toOnboarding(value: unknown): OnboardingState {
    };
 }
 
+function toProfile(row: Record<string, unknown>): Profile {
+   return {
+      id: row.id as string,
+      email: row.email as string,
+      name: row.name as string,
+      avatarUrl: (row.avatar_url as string | null) ?? null,
+      settings: toSettings(row.settings),
+      onboarding: toOnboarding(row.onboarding_state),
+      onboardedAt: row.onboarding_completed_at
+         ? toRFC3339(row.onboarding_completed_at as string)
+         : null,
+      createdAt: toRFC3339(row.created_at as string) ?? '',
+      updatedAt: toRFC3339(row.updated_at as string) ?? '',
+   };
+}
+
+/** A sparse patch: `avatarUrlSet` distinguishes "clear it" from "leave it". */
+export interface ProfilePatch {
+   name: string | undefined;
+   avatarUrlSet: boolean;
+   avatarUrl?: string | null;
+}
+
 export class IdentityRepository {
    private readonly sql: Sql;
+   private readonly clock: () => Date;
 
    // Written out rather than a parameter property: Node strips types without
    // compiling, and a parameter property emits an assignment, so it is not
    // erasable syntax. `erasableSyntaxOnly` in tsconfig makes that a typecheck
    // error instead of something discovered when the server will not boot.
-   constructor(sql: Sql) {
+   constructor(sql: Sql, clock: () => Date = () => new Date()) {
       this.sql = sql;
+      this.clock = clock;
+   }
+
+   /**
+    * The clock is injected so tests can pin timestamps, as Go's is.
+    *
+    * Note that `updated_at` is not actually settable: a
+    * `berry_users_set_updated_at` trigger overwrites it on every UPDATE. The
+    * parameter is kept because Go passes one too, so both servers behave the
+    * same, and because a reader comparing the two would otherwise wonder which
+    * had dropped it.
+    */
+   private now(): string {
+      return this.clock().toISOString();
    }
 
    async getProfile(userId: string): Promise<{ profile: Profile; currentWorkspaceId: string | null }> {
@@ -128,17 +166,7 @@ export class IdentityRepository {
           WHERE id = ${userId}`;
       if (!row) throw new NotFound();
       return {
-         profile: {
-            id: row.id as string,
-            email: row.email as string,
-            name: row.name as string,
-            avatarUrl: (row.avatar_url as string | null) ?? null,
-            settings: toSettings(row.settings),
-            onboarding: toOnboarding(row.onboarding_state),
-            onboardedAt: toRFC3339(row.onboarding_completed_at as string | null),
-            createdAt: toRFC3339(row.created_at as string) ?? '',
-            updatedAt: toRFC3339(row.updated_at as string) ?? '',
-         },
+         profile: toProfile(row),
          currentWorkspaceId: (row.last_workspace_id as string | null) ?? null,
       };
    }
@@ -181,5 +209,67 @@ export class IdentityRepository {
             ? currentWorkspaceId
             : null;
       return { profile, workspaces, currentWorkspaceId: current };
+   }
+
+   /**
+    * Applies a sparse profile patch.
+    *
+    * The CASE-per-column form is Go's, and it is the reason `avatarUrl: null`
+    * clears the avatar while an absent `avatarUrl` leaves it alone: the flag
+    * says whether the caller mentioned the field, and the value says what to
+    * set. Collapsing that to COALESCE would make the two indistinguishable.
+    */
+   async updateProfile(userId: string, patch: ProfilePatch): Promise<Profile> {
+      const [row] = await this.sql`
+         UPDATE users
+            SET name = CASE WHEN ${patch.name !== undefined} THEN ${patch.name ?? null}::text ELSE name END,
+                avatar_url = CASE WHEN ${patch.avatarUrlSet} THEN ${patch.avatarUrl ?? null}::text ELSE avatar_url END,
+                updated_at = ${this.now()}
+          WHERE id = ${userId}
+          RETURNING id, email, name, avatar_url, settings, onboarding_state,
+                    onboarding_completed_at, last_workspace_id, created_at, updated_at`;
+      if (!row) throw new NotFound();
+      return toProfile(row);
+   }
+
+   /** Replaces a complete, already-validated settings value. */
+   async updateUserSettings(userId: string, settings: UserSettings): Promise<UserSettings> {
+      const [row] = await this.sql`
+         UPDATE users
+            SET settings = ${this.sql.json(settings)}::jsonb, updated_at = ${this.now()}
+          WHERE id = ${userId}
+          RETURNING settings`;
+      if (!row) throw new NotFound();
+      return toSettings(row.settings);
+   }
+
+   /**
+    * Persists one complete onboarding state.
+    *
+    * `COALESCE(onboarding_completed_at, $4)` keeps the first completion time
+    * rather than restamping it, so a user who revisits a finished onboarding
+    * does not appear to have onboarded today.
+    */
+   async updateOnboarding(
+      userId: string,
+      state: OnboardingState
+   ): Promise<{ state: OnboardingState; completedAt: string | null }> {
+      const [row] = await this.sql`
+         UPDATE users
+            SET onboarding_state = ${this.sql.json(state)}::jsonb,
+                onboarding_completed_at = CASE
+                    WHEN ${state.completed} THEN COALESCE(onboarding_completed_at, ${this.now()})
+                    ELSE NULL
+                END,
+                updated_at = ${this.now()}
+          WHERE id = ${userId}
+          RETURNING onboarding_state, onboarding_completed_at`;
+      if (!row) throw new NotFound();
+      return {
+         state: toOnboarding(row.onboarding_state),
+         completedAt: row.onboarding_completed_at
+            ? toRFC3339(row.onboarding_completed_at as string)
+            : null,
+      };
    }
 }
