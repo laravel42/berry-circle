@@ -1,0 +1,153 @@
+# ADR-0008: Run agents in-process with the Google Agent Development Kit
+
+- **Status:** Proposed
+- **Date:** 2026-08-27
+- **Deciders:** Berry platform
+- **Related:** [ADR-0003](0003-pin-openfang-by-commit.md) (pin OpenFang by
+  commit), [ADR-0004](0004-go-product-server.md) (Go product server),
+  [ADR-0005](0005-temporal-run-orchestration.md) (Temporal run orchestration),
+  [ADR-0006](0006-agent-run-artifacts.md) (agent run artifacts),
+  [Berry ↔ OpenFang integration](../integrations/berry-openfang.md)
+
+## Context
+
+Berry does not run agents. OpenFang does, as a separate service, and Berry
+projects what it reports into product identities. That division has shaped
+every agent feature Berry has, and most of the defects.
+
+An OpenFang agent is a long-lived named process with its own lifecycle, its own
+heartbeat, and a directory on a volume Berry does not own. Berry creates one by
+spawning it and then discovering it again through a sync. The consequences are
+not incidental:
+
+- **Idle reads as broken.** OpenFang marks an agent Crashed after 180 seconds
+  without activity and auto-recovers it. An agent that finished its work and
+  waited is indistinguishable, in the runtime, from one that died. Recovery
+  leaves `is_inferencing` set, which Berry faithfully reports as *busy* — an
+  agent doing nothing, shown as working, indefinitely.
+- **Agents cannot hand each other anything.** Every file tool is scoped to the
+  agent's own workspace. One agent cannot read what another wrote, so a task
+  that depends on finished work receives it as text pasted into a prompt
+  (`internal/priorwork`) because there is no other channel.
+- **A runtime agent belongs to one workspace.** `agents.openfang_agent_id` is
+  globally unique and the projection only applies within the owning workspace,
+  so a second Berry workspace inherits nothing and falls back to its built-in
+  orchestrator.
+- **Removal does not stick without help.** The runtime keeps listing an agent
+  Berry archived, and the reconcile used to un-archive it.
+- **There is no credential seam.** OpenFang accepts `mcp_servers` and ignores
+  them, and has no per-workspace credential store, so Berry cannot give an
+  agent a tool that acts as the workspace. This is why agents cannot touch
+  GitHub directly and why delivery is Berry's job rather than theirs.
+- **Files reach Berry by sweep.** Artifacts exist because a worker mounts the
+  runtime volume read-only and copies out of `output/`. The mount is read-only
+  by decision, so the reverse direction — Berry placing a file where an agent
+  can read it — is not available at all.
+
+None of these are bugs in OpenFang. They follow from agents living somewhere
+else.
+
+The Google Agent Development Kit inverts that. ADK is a library, not a service:
+an agent is `llmagent.New(...)` constructed per run, composed with sequential,
+parallel and loop workflow agents, executed by a `Runner` against pluggable
+`SessionService`, `ArtifactService` and `MemoryService` implementations. There
+is no daemon, no heartbeat, no filesystem workspace, and no second system that
+owns agent identity.
+
+### What was verified before proposing this
+
+Three risks would each have made the migration a different project. All were
+tested against `google.golang.org/adk/v2 v2.2.0` on Go 1.26:
+
+- **Models.** Berry runs on OpenRouter, and ADK Go is Gemini-first; its OpenAI
+  model is documented against the Responses API, which OpenRouter does not
+  serve. `openaimodel.NewModel` with `BaseURL` pointed at OpenRouter drove a
+  completion on `openai/gpt-5.4-nano` successfully.
+- **Tools.** An agent with no tools is not an agent. A `functiontool` handler
+  round-tripped a call through OpenRouter on the first attempt.
+- **Artifacts.** An agent saved a file through `ctx.Artifacts().Save` and it
+  came back from `List`. This is the replacement for the workspace volume.
+
+## Decision
+
+Replace OpenFang with ADK as Berry's agent runtime. Agents become configuration
+Berry owns rather than processes Berry discovers.
+
+Berry keeps what it already does well and does not hand it to ADK:
+
+- **Temporal keeps durable orchestration.** ADK's workflow agents compose an
+  agent's own turn; they run in one process and do not survive a restart. Run
+  orchestration, retries and cancellation stay in Temporal (ADR-0005). ADK is
+  used for the agent's execution and tool loop, not for orchestrating tasks
+  across a board.
+- **The planner keeps planning.** Berry's planner produces a validated plan a
+  person approves. That is a product decision surface, not an agent-delegation
+  problem.
+- **`run_artifacts` becomes the ArtifactService.** ADK's own artifact filenames
+  may not contain a path separator — the same constraint that made Berry give
+  agent output its own table in the first place. `ArtifactService` is an
+  interface, so Berry implements it over MinIO and `run_artifacts`, and the
+  tree survives.
+
+## Consequences
+
+### What improves
+
+Every failure listed in the context stops being possible rather than being
+fixed: there is no heartbeat to misread, no per-agent volume to be sandboxed
+by, no upstream list to reconcile against, and no second owner of identity.
+Two things become available that were not:
+
+- **Real handoff.** A shared `ArtifactService` means one agent can read what
+  another produced, instead of receiving a bounded excerpt in its prompt.
+- **Workspace-scoped tools.** Tools are Go functions constructed in Berry's
+  process with the calling workspace in scope, so an agent can act as the
+  workspace — the blocker behind native integrations.
+
+### What this costs
+
+Three areas are rewritten rather than adapted:
+
+- `internal/artifacts` — `output/` discovery, promotion and the recovery sweep
+  are replaced by an `ArtifactService` implementation. The `run_artifacts`
+  schema and the tree UI stay.
+- `internal/service/runadmission` — stream consumption and event mapping move
+  from OpenFang's SSE to ADK's event iterator.
+- `internal/handlers/agents` — the sync loop mostly disappears; agent rows stop
+  being a projection and become the source.
+
+Twenty-six files across fifteen packages import `internal/openfang`. The
+interfaces are narrow, which is what makes this tractable.
+
+### What is deliberately not decided here
+
+Whether OpenFang remains for anything. This ADR proposes replacement; the
+migration is staged so the answer can be *not yet* for as long as necessary.
+
+## Migration
+
+Staged so Berry stays usable throughout. Each stage is shippable.
+
+1. **Model seam.** Berry's model access moves behind ADK's `model.LLM`,
+   OpenRouter unchanged. Nothing else moves. Proves the catalogue, pricing and
+   fallbacks still work.
+2. **Runtime adapter.** An ADK implementation of `openfang.Runtime` —
+   dispatching a message becomes constructing an agent and running it. Behind a
+   per-agent flag so one agent moves at a time.
+3. **ArtifactService.** Berry's implementation over `run_artifacts`, replacing
+   the promoter for ADK-run agents. Delivery and the handoff read it directly.
+4. **Tools.** Berry's own tools as ADK function tools, workspace-scoped. This
+   is where native integrations become reachable.
+5. **Agent creation.** Agents become Berry rows; spawn and sync are removed.
+6. **Retire OpenFang.** Only once nothing depends on it.
+
+## Alternatives considered
+
+- **ADK alongside OpenFang indefinitely.** Two agent models, two artifact
+  paths, two lifecycles. Rejected as an end state, accepted as the shape of the
+  migration.
+- **ADK for orchestration only.** Overlaps Temporal, which already does this
+  durably, and leaves every defect above in place.
+- **Fix OpenFang.** The defects follow from agents living in another service
+  with their own filesystem. Fixing them means changing that, which is what
+  this ADR does.
