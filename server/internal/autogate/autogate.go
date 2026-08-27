@@ -27,7 +27,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/laravel42/berry-circle/server/internal/openfang"
+	"github.com/laravel42/berry-circle/server/internal/openrouter"
 )
 
 // Bounds on what the reviewer is shown.
@@ -46,6 +46,10 @@ type Candidate struct {
 	Name          string
 	ModelProvider string
 	ModelName     string
+	// Instructions is the reviewer's own system prompt. OpenFang applied it
+	// upstream when the call named an agent; a direct call names a model, so
+	// Berry has to send it or the reviewer loses the character it was given.
+	Instructions string
 }
 
 // Subject is the finished work awaiting a verdict.
@@ -146,16 +150,18 @@ type Files interface {
 	Open(ctx context.Context, storageKey string) (io.ReadCloser, error)
 }
 
-// Completer is the one runtime call a review makes.
+// Completer is the one model call a review makes.
 type Completer interface {
-	CreateChatCompletion(context.Context, openfang.ChatCompletionRequest) (openfang.ChatCompletionResult, error)
+	CreateChatCompletion(context.Context, openrouter.ChatCompletionRequest) (openrouter.ChatCompletionResult, error)
 }
 
 // Service performs one auto review.
 type Service struct {
 	Store Store
-	// Chat is the runtime's OpenAI-compatible route, with the reviewer agent
-	// as the model — the same seam an agent ask uses.
+	// Chat completes one question against the reviewer's own model. It used
+	// to be the runtime's OpenAI-compatible route, named by agent; OpenFang
+	// resolved the agent to a provider and model and forwarded the call, and
+	// Berry already knows both, so the hop bought nothing.
 	Chat Completer
 	// Files reads the artifacts the run produced. Without it the reviewer sees
 	// only their names, which it has no way to verify.
@@ -210,10 +216,18 @@ func (service *Service) Review(ctx context.Context, runID uuid.UUID) (Verdict, e
 		ModelName: reviewer.ModelName, CreatedAt: service.now(),
 	}
 
-	result, err := service.Chat.CreateChatCompletion(ctx, openfang.ChatCompletionRequest{
-		Model:          reviewer.Name,
-		Messages:       []openfang.ChatMessage{{Role: "user", Content: prompt}},
-		ResponseFormat: openfang.ChatResponseFormatJSONObject,
+	messages := make([]openrouter.ChatMessage, 0, 2)
+	if instructions := strings.TrimSpace(reviewer.Instructions); instructions != "" {
+		messages = append(messages, openrouter.ChatMessage{Role: "system", Content: instructions})
+	}
+	messages = append(messages, openrouter.ChatMessage{Role: "user", Content: prompt})
+
+	result, err := service.Chat.CreateChatCompletion(ctx, openrouter.ChatCompletionRequest{
+		Model:    reviewer.ModelName,
+		Messages: messages,
+		// A hint, not a guarantee — decode() finds the object inside whatever
+		// prose or fencing the model wraps it in.
+		ResponseFormat: openrouter.ChatResponseFormatJSONObject,
 	})
 	ask.CompletedAt = service.now()
 	if err != nil {

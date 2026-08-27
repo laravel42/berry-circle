@@ -11,7 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/laravel42/berry-circle/server/internal/openfang"
+	"github.com/laravel42/berry-circle/server/internal/openrouter"
 )
 
 var (
@@ -84,19 +84,25 @@ type stubChat struct {
 	err     error
 	model   string
 	prompt  string
+	system  string
 }
 
 func (chat *stubChat) CreateChatCompletion(
-	_ context.Context, request openfang.ChatCompletionRequest,
-) (openfang.ChatCompletionResult, error) {
+	_ context.Context, request openrouter.ChatCompletionRequest,
+) (openrouter.ChatCompletionResult, error) {
 	chat.model = request.Model
-	if len(request.Messages) > 0 {
-		chat.prompt = request.Messages[0].Content
+	for _, message := range request.Messages {
+		switch message.Role {
+		case "system":
+			chat.system = message.Content
+		case "user":
+			chat.prompt = message.Content
+		}
 	}
 	if chat.err != nil {
-		return openfang.ChatCompletionResult{}, chat.err
+		return openrouter.ChatCompletionResult{}, chat.err
 	}
-	return openfang.ChatCompletionResult{Content: chat.content}, nil
+	return openrouter.ChatCompletionResult{Content: chat.content}, nil
 }
 
 func gatedSubject() Subject {
@@ -116,7 +122,7 @@ func TestAnApprovedIssueCloses(t *testing.T) {
 	t.Parallel()
 	store := &stubStore{
 		subject:   gatedSubject(),
-		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer", ModelName: "anthropic/claude-sonnet-4.5"}},
 		moved:     true,
 	}
 	chat := &stubChat{content: `{"approved":true,"reason":"The endpoint exists and is tested."}`}
@@ -131,8 +137,11 @@ func TestAnApprovedIssueCloses(t *testing.T) {
 	if len(store.verdicts) != 1 {
 		t.Fatalf("recorded %d verdicts, want 1", len(store.verdicts))
 	}
-	if chat.model != "code-reviewer" {
-		t.Errorf("asked %q, want the reviewer agent", chat.model)
+	// The call names the reviewer's model, not the reviewer. OpenFang
+	// resolved an agent name to exactly this pairing and forwarded the call;
+	// Berry already holds it, so the indirection bought nothing.
+	if chat.model != "anthropic/claude-sonnet-4.5" {
+		t.Errorf("asked %q, want the reviewer's model", chat.model)
 	}
 }
 
@@ -140,8 +149,11 @@ func TestAnApprovedIssueCloses(t *testing.T) {
 func TestTheAuthorIsNeverTheReviewer(t *testing.T) {
 	t.Parallel()
 	store := &stubStore{
-		subject:   gatedSubject(),
-		reviewers: []Candidate{{ID: authorID, Name: "coder"}, {ID: reviewerID, Name: "analyst"}},
+		subject: gatedSubject(),
+		reviewers: []Candidate{
+			{ID: authorID, Name: "coder", ModelName: "openai/gpt-5"},
+			{ID: reviewerID, Name: "analyst", ModelName: "anthropic/claude-sonnet-4.5"},
+		},
 	}
 	chat := &stubChat{content: `{"approved":true,"reason":"Looks right."}`}
 
@@ -151,8 +163,8 @@ func TestTheAuthorIsNeverTheReviewer(t *testing.T) {
 	if store.askedWith.ID == authorID {
 		t.Fatal("the agent that did the work reviewed its own work")
 	}
-	if chat.model != "analyst" {
-		t.Errorf("asked %q, want the peer", chat.model)
+	if chat.model != "anthropic/claude-sonnet-4.5" {
+		t.Errorf("asked %q, want the peer's model", chat.model)
 	}
 }
 
@@ -177,7 +189,9 @@ func TestAPlanWithoutAutoGateIsLeftAlone(t *testing.T) {
 	t.Parallel()
 	subject := gatedSubject()
 	subject.AutoGate = false
-	store := &stubStore{subject: subject, reviewers: []Candidate{{ID: reviewerID, Name: "analyst"}}}
+	store := &stubStore{subject: subject, reviewers: []Candidate{
+		{ID: reviewerID, Name: "analyst", ModelName: "anthropic/claude-sonnet-4.5"},
+	}}
 
 	_, err := service(store, &stubChat{}).Review(context.Background(), subject.RunID)
 	if !errors.Is(err, ErrNotGated) {
@@ -191,7 +205,9 @@ func TestAnIssueNoLongerInReviewIsLeftAlone(t *testing.T) {
 	t.Parallel()
 	subject := gatedSubject()
 	subject.InReview = false
-	store := &stubStore{subject: subject, reviewers: []Candidate{{ID: reviewerID, Name: "analyst"}}}
+	store := &stubStore{subject: subject, reviewers: []Candidate{
+		{ID: reviewerID, Name: "analyst", ModelName: "anthropic/claude-sonnet-4.5"},
+	}}
 
 	if _, err := service(store, &stubChat{}).Review(context.Background(), subject.RunID); !errors.Is(err, ErrNotGated) {
 		t.Fatalf("Review error = %v, want ErrNotGated", err)
@@ -326,7 +342,7 @@ func TestTheReviewerIsShownTheFilesNotJustTheirNames(t *testing.T) {
 	t.Parallel()
 	store := &stubStore{
 		subject:   subjectWithFiles(),
-		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer", ModelName: "anthropic/claude-sonnet-4.5"}},
 	}
 	chat := &stubChat{content: `{"approved":true,"reason":"The config is present and correct."}`}
 	reviewer := service(store, chat)
@@ -407,7 +423,7 @@ func TestARejectedTaskGoesBackToBeWorkedAgain(t *testing.T) {
 	t.Parallel()
 	store := &stubStore{
 		subject:   gatedSubject(),
-		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer", ModelName: "anthropic/claude-sonnet-4.5"}},
 		attempt:   1,
 	}
 	chat := &stubChat{content: `{"approved":false,"reason":"The config file is missing."}`}
@@ -440,7 +456,7 @@ func TestTheReviewIsReservedBeforeTheModelIsCalled(t *testing.T) {
 	t.Parallel()
 	store := &stubStore{
 		subject:   gatedSubject(),
-		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer", ModelName: "anthropic/claude-sonnet-4.5"}},
 	}
 	chat := &stubChat{content: `{"approved":true,"reason":"Fine."}`}
 
@@ -461,7 +477,7 @@ func TestAFailedCallReleasesTheReservation(t *testing.T) {
 	t.Parallel()
 	store := &stubStore{
 		subject:   gatedSubject(),
-		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer"}},
+		reviewers: []Candidate{{ID: reviewerID, Name: "code-reviewer", ModelName: "anthropic/claude-sonnet-4.5"}},
 	}
 	chat := &stubChat{err: errors.New("upstream is down")}
 
@@ -470,5 +486,54 @@ func TestAFailedCallReleasesTheReservation(t *testing.T) {
 	}
 	if store.abandoned != 1 {
 		t.Errorf("abandoned %d reservations, want 1", store.abandoned)
+	}
+}
+
+// OpenFang applied a reviewer's system prompt upstream, because the call named
+// an agent and the runtime knew what that agent was. A direct call names a
+// model, so the prompt only reaches it if Berry sends it — and a reviewer
+// silently stripped of its instructions is a different reviewer.
+func TestTheReviewerKeepsItsOwnInstructions(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{
+		subject: gatedSubject(),
+		reviewers: []Candidate{{
+			ID:           reviewerID,
+			Name:         "code-reviewer",
+			ModelName:    "anthropic/claude-sonnet-4.5",
+			Instructions: "Be exacting. Reject work that is not tested.",
+		}},
+		moved: true,
+	}
+	chat := &stubChat{content: `{"approved":true,"reason":"Tested and complete."}`}
+
+	if _, err := service(store, chat).Review(context.Background(), store.subject.RunID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if chat.system != "Be exacting. Reject work that is not tested." {
+		t.Errorf("system prompt = %q, want the reviewer's instructions", chat.system)
+	}
+	if chat.prompt == "" {
+		t.Error("the review prompt did not reach the model")
+	}
+}
+
+// An agent with no instructions must not produce an empty system message: an
+// empty message is rejected by the request validator, which would fail every
+// review by an agent nobody wrote a prompt for.
+func TestAReviewerWithoutInstructionsSendsNoSystemMessage(t *testing.T) {
+	t.Parallel()
+	store := &stubStore{
+		subject:   gatedSubject(),
+		reviewers: []Candidate{{ID: reviewerID, Name: "plain", ModelName: "openai/gpt-5"}},
+		moved:     true,
+	}
+	chat := &stubChat{content: `{"approved":false,"reason":"Missing tests."}`}
+
+	if _, err := service(store, chat).Review(context.Background(), store.subject.RunID); err != nil {
+		t.Fatalf("Review: %v", err)
+	}
+	if chat.system != "" {
+		t.Errorf("system prompt = %q, want none", chat.system)
 	}
 }

@@ -288,6 +288,9 @@ services:
       # Agent execution: with adk the worker asks the TypeScript server to run
       # the agent instead of dispatching to OpenFang in process. Admission and
       # cancellation stay here either way.
+      # The peer reviewer calls its model directly rather than through the
+      # runtime's chat route. Server-side only: never mirror into NEXT_PUBLIC_*.
+      BERRY_OPENROUTER_API_KEY: "${BERRY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}"
       BERRY_AGENT_RUNTIME: "${BERRY_AGENT_RUNTIME:-openfang}"
       BERRY_AGENT_RUNTIME_URL: "${BERRY_AGENT_RUNTIME_URL:-http://berry-api-ts:4100}"
       BERRY_INTERNAL_TOKEN: "${BERRY_INTERNAL_TOKEN:-}"

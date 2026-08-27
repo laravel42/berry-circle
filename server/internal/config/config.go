@@ -44,6 +44,12 @@ type Config struct {
 	AgentRuntimeURL   string
 	AgentRuntimeToken string
 
+	// OpenRouterAPIKey lets Berry complete chat without going through the
+	// runtime. Optional: the surfaces that need it say so when it is absent
+	// rather than the process refusing to start, because most of the server
+	// never asks a model anything.
+	OpenRouterAPIKey string
+
 	MetricsEnabled bool
 	TrustedOrigins []string
 
@@ -208,6 +214,14 @@ func Load(env map[string]string) (Config, error) {
 	cfg.OpenFangAPIKey = env["OPENFANG_API_KEY"]
 	if cfg.Environment == "production" && strings.TrimSpace(cfg.OpenFangAPIKey) == "" {
 		problems = append(problems, "OPENFANG_API_KEY (required in production)")
+	}
+
+	// BERRY_-prefixed first, for the reason the compose file gives: a stale
+	// OPENROUTER_API_KEY exported in a shell must not outrank the one the
+	// deployment configured.
+	cfg.OpenRouterAPIKey = strings.TrimSpace(env["BERRY_OPENROUTER_API_KEY"])
+	if cfg.OpenRouterAPIKey == "" {
+		cfg.OpenRouterAPIKey = strings.TrimSpace(env["OPENROUTER_API_KEY"])
 	}
 
 	cfg.AgentRuntime = value(env, "BERRY_AGENT_RUNTIME", "openfang")

@@ -101,13 +101,19 @@ func (store PostgresStore) Reviewers(
 	rows, err := store.Pool.Query(
 		ctx,
 		`SELECT agent.id, agent.name,
-		        COALESCE(agent.model_provider, ''), COALESCE(agent.model_name, '')
+		        COALESCE(agent.model_provider, ''), COALESCE(agent.model_name, ''),
+		        COALESCE(agent.instructions, '')
 		   FROM agents AS agent
 		  WHERE agent.workspace_id = $1
 		    AND agent.id <> $2
 		    AND agent.archived_at IS NULL
 		    AND NOT agent.protected
 		    AND agent.status IN ('available', 'busy')
+		    -- A reviewer with no model cannot be called directly. Under the
+		    -- runtime the agent name was enough and this could not arise; now
+		    -- an unconfigured agent would fail the call rather than decline
+		    -- to be picked, which reads as a broken review.
+		    AND COALESCE(agent.model_name, '') <> ''
 		    AND NOT EXISTS (
 		        SELECT 1 FROM runs
 		         WHERE runs.agent_id = agent.id
@@ -124,7 +130,7 @@ func (store PostgresStore) Reviewers(
 	for rows.Next() {
 		var candidate Candidate
 		if err := rows.Scan(&candidate.ID, &candidate.Name,
-			&candidate.ModelProvider, &candidate.ModelName); err != nil {
+			&candidate.ModelProvider, &candidate.ModelName, &candidate.Instructions); err != nil {
 			return nil, fmt.Errorf("autogate: scan reviewer: %w", err)
 		}
 		found = append(found, candidate)

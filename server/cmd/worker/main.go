@@ -33,6 +33,7 @@ import (
 	githubclient "github.com/laravel42/berry-circle/server/internal/integrations/github"
 	"github.com/laravel42/berry-circle/server/internal/integrations/providers"
 	"github.com/laravel42/berry-circle/server/internal/openfang"
+	"github.com/laravel42/berry-circle/server/internal/openrouter"
 	"github.com/laravel42/berry-circle/server/internal/orchestration"
 	"github.com/laravel42/berry-circle/server/internal/priorwork"
 	"github.com/laravel42/berry-circle/server/internal/realtime"
@@ -439,9 +440,19 @@ func run() int {
 	// AutoGate: a plan may let its issues close on a peer agent's review. The
 	// review is one recorded ask on the runtime's chat route, so it needs the
 	// runtime and the pool and nothing else.
+	// The reviewer calls its own model directly. OpenFang's chat route
+	// forwarded the same request to the same provider and added a hop, an
+	// agent-name indirection Berry no longer needs, and a dependency the ADK
+	// runtime otherwise removed.
 	autoReview := &autogate.Service{
-		Store:  autogate.PostgresStore{Pool: pool},
-		Chat:   upstream,
+		Store: autogate.PostgresStore{Pool: pool},
+		Chat: openrouter.New("", nil,
+			openrouter.WithAPIKey(cfg.OpenRouterAPIKey),
+			// A review is one question against a model that may reason for a
+			// while; the planner's own bound is the closest thing Berry has to
+			// a house limit on that.
+			openrouter.WithChatTimeout(cfg.PlannerTimeout),
+		),
 		Clock:  time.Now,
 		NewID:  uuid.New,
 		Logger: logger,

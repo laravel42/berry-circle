@@ -32,20 +32,45 @@ type Model struct {
 	SupportsVision bool
 }
 
-// Client reads the catalog. The zero value is unusable; call New.
+// Client reads the catalog and, with a credential, completes chat. The zero
+// value is unusable; call New.
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL     string
+	http        *http.Client
+	apiKey      string
+	chatTimeout time.Duration
 }
 
-func New(baseURL string, httpClient *http.Client) *Client {
+// Option configures a client. Listing models needs nothing; chat needs a key.
+type Option func(*Client)
+
+// WithAPIKey supplies the credential chat completion requires. Absent, the
+// client still lists models — that route is public — and refuses to complete.
+func WithAPIKey(key string) Option {
+	return func(client *Client) { client.apiKey = key }
+}
+
+// WithChatTimeout bounds one completion. A model that thinks for two minutes
+// is working, not hung, so this is separate from the catalog's timeout.
+func WithChatTimeout(timeout time.Duration) Option {
+	return func(client *Client) { client.chatTimeout = timeout }
+}
+
+func New(baseURL string, httpClient *http.Client, options ...Option) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 20 * time.Second}
+		// Bounds the catalog fetch only. A chat completion sets its own
+		// deadline per call, because one shared timeout cannot serve both a
+		// 400-model listing and a model that reasons for a minute.
+		httpClient = &http.Client{}
 	}
-	return &Client{baseURL: baseURL, http: httpClient}
+	client := &Client{baseURL: baseURL, http: httpClient}
+	for _, option := range options {
+		option(client)
+	}
+	return client
 }
 
 // wireModel mirrors the upstream payload. Prices arrive as per-token decimal
@@ -70,8 +95,14 @@ func (client *Client) ListModels(ctx context.Context) ([]Model, error) {
 	if client == nil {
 		return nil, errors.New("openrouter client is not configured")
 	}
+	// The catalog gets its own deadline rather than one on the shared client:
+	// a blanket timeout large enough for a chat completion is far too large
+	// for a listing, and one small enough for a listing would cut off every
+	// model that reasons.
+	listCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
 	request, err := http.NewRequestWithContext(
-		ctx, http.MethodGet, client.baseURL+"/models", nil)
+		listCtx, http.MethodGet, client.baseURL+"/models", nil)
 	if err != nil {
 		return nil, fmt.Errorf("openrouter model request: %w", err)
 	}
