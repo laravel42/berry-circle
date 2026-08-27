@@ -39,6 +39,7 @@ and no Content-Security-Policy at all, and a body-only diff called that a pass.
 | `/api/v1/tokens` | create/replay/conflict compared per server; issued secrets authenticate against both |
 | `/api/v1/invitations` | 44 probes, plus 17 addresses at the email-validation boundary |
 | `/api/v1/boards` | 31 probes, including the column-in-use guard in both directions |
+| `/api/v1/projects` | 45 probes plus a full lifecycle; see the caveat below |
 | the error envelope | byte-identical for 401 and 404, request id aside |
 
 Timestamps written by this server carry millisecond precision where Go's carry
@@ -70,6 +71,34 @@ unique per pending address, so the second server then conflicts legitimately.
 
 Neither mode compares such an endpoint cleanly. Verify those per server, one
 request each against a reset table, as the invitation and token checks do.
+
+## The one known divergence: linking a GitHub repository
+
+Berry stores a repository's id beside its name, and resolves that id through
+GitHub rather than trusting the caller — a supplied id could name a repository
+the connection cannot see, and the stored pair would then disagree about where
+the project delivers. A database constraint keeps the two columns together.
+
+This server has no resolver, so it refuses with **412
+INTEGRATIONS_NOT_CONFIGURED** — which is Go's own answer for a deployment
+without one. The running Go server *has* a resolver, so it refuses with **422
+REPOSITORY_UNAVAILABLE** instead.
+
+Both refuse, and neither writes a half-link, so no project can end up in a
+broken state. But the codes differ, and a client that switches on them would
+see the difference. No project in this deployment currently has a repository
+linked, which is why projects are routed anyway.
+
+## Agents is blocked, not merely unported
+
+`GET /api/v1/agents` reconciles against the OpenFang runtime on **every**
+request — `SyncWorkspace` is called before the listing is read, and it errors
+rather than degrading when the runtime is absent. The agent list is a live
+projection of runtime state, not a table.
+
+Porting it would mean porting `internal/openfang` (1,701 lines) that ADR-0008
+says to delete, or shipping a list that silently stops reconciling. Agents
+waits for the ADK runtime.
 
 ## What issues still needs
 

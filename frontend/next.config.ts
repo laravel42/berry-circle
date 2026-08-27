@@ -83,6 +83,14 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    // attachments and runs all hang below and stay on Go.
    '/api/v1/issues',
    '/api/v1/issues/:issueRef',
+
+   // Projects: the collection, one project, and its resources.
+   // `/:projectId/generated-issues` is absent — it decomposes a project with
+   // an agent, which this server has no runtime for.
+   '/api/v1/projects',
+   '/api/v1/projects/:projectId',
+   '/api/v1/projects/:projectId/resources',
+   '/api/v1/projects/:projectId/resources/:resourceId',
 ];
 
 const apiOrigin = berryApiOrigin();

@@ -9,7 +9,7 @@ import postgres from 'postgres';
  * helper, nothing more.
  */
 
-export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string }>;
+export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string; date: string }>;
 
 /**
  * A pool or an open transaction.
@@ -19,7 +19,9 @@ export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string }>;
  * way to run one statement of a supposedly atomic sequence on its own
  * connection, outside the transaction that was meant to protect it.
  */
-export type Queryable = Sql | postgres.TransactionSql<{ timestamptz: string; timestamp: string }>;
+export type Queryable =
+   | Sql
+   | postgres.TransactionSql<{ timestamptz: string; timestamp: string; date: string }>;
 
 /**
  * A PostgreSQL timestamptz as Go renders it: RFC 3339 in UTC, keeping whatever
@@ -109,6 +111,11 @@ export function openDatabase(options: DatabaseOptions): Sql {
       types: {
          timestamptz: { to: 1184, from: [1184], serialize: String, parse: String },
          timestamp: { to: 1114, from: [1114], serialize: String, parse: String },
+         // A DATE is a calendar day, not an instant. Left to the driver it
+         // arrives as a JS Date, which then has to be rendered back to a day —
+         // and rendering a Date is exactly where a timezone shifts it. Kept as
+         // the text PostgreSQL sent, which is already `YYYY-MM-DD`.
+         date: { to: 1082, from: [1082], serialize: String, parse: String },
       },
       // Pinned to UTC so the server renders every timestamptz at +00 and the
       // conversion above has nothing to correct. Without this the answer

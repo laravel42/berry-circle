@@ -31,6 +31,13 @@ places still reach across the line:
   TypeScript issues mount. It is a plain column read; nothing in the run
   machinery is needed to return it.
 
+## Deferred, not excluded
+
+| | Why |
+|---|---|
+| `/api/v1/agents` | its list reconciles against the OpenFang runtime on every read; waits for ADK |
+| `POST /api/v1/projects/:id/generated-issues` | decomposes a project with an agent; waits for ADK |
+
 ## Still open
 
 `/api/v1/reviews` — the AutoGate peer review, reached at

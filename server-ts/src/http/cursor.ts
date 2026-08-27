@@ -35,6 +35,18 @@ export interface UpdatedCursor {
    id: string;
 }
 
+/**
+ * `{sortOrder, id}` — resources page by the order their owner chose.
+ *
+ * `sortOrder` is a number on the wire, because Go's field is an int. Encoding
+ * it as a string would produce different bytes and a cursor neither server
+ * could read from the other.
+ */
+export interface SortOrderCursor {
+   sortOrder: number;
+   id: string;
+}
+
 /** `{name, id}` — the stable ascending key for member collections. */
 export interface NameCursor {
    name: string;
@@ -43,7 +55,7 @@ export interface NameCursor {
 
 export function encodeCursor(
    scope: string,
-   key: TimeCursor | NameCursor | UpdatedCursor
+   key: TimeCursor | NameCursor | UpdatedCursor | SortOrderCursor
 ): string | null {
    if (!SCOPE.test(scope)) return null;
    // Key order is Go's struct order, and it is load-bearing: the token is the
@@ -58,7 +70,7 @@ export function encodeCursor(
  * Every failure is the same error, deliberately: a caller cannot learn whether
  * a token was malformed, expired in shape, or minted for someone else's list.
  */
-export function decodeCursor<T extends TimeCursor | NameCursor | UpdatedCursor>(
+export function decodeCursor<T extends TimeCursor | NameCursor | UpdatedCursor | SortOrderCursor>(
    token: string,
    expectedScope: string,
    required: readonly string[]
@@ -96,10 +108,14 @@ export function decodeCursor<T extends TimeCursor | NameCursor | UpdatedCursor>(
       throw new InvalidCursor();
    }
    // Go rejects a zero uuid and a zero time, so a key present but empty is
-   // refused rather than paging from the beginning.
+   // refused rather than paging from the beginning. A numeric key is allowed
+   // because some cursors carry an integer position rather than a timestamp.
    for (const name of required) {
       const value = fields[name];
-      if (typeof value !== 'string' || value === '') throw new InvalidCursor();
+      const usable =
+         (typeof value === 'string' && value !== '') ||
+         (typeof value === 'number' && Number.isFinite(value));
+      if (!usable) throw new InvalidCursor();
    }
    return fields as T;
 }
@@ -108,6 +124,7 @@ export function decodeCursor<T extends TimeCursor | NameCursor | UpdatedCursor>(
 export const TIME_CURSOR_KEYS = ['createdAt', 'id'] as const;
 export const NAME_CURSOR_KEYS = ['name', 'id'] as const;
 export const UPDATED_CURSOR_KEYS = ['updatedAt', 'id'] as const;
+export const SORT_ORDER_CURSOR_KEYS = ['sortOrder', 'id'] as const;
 
 export function decodeTimeCursor(token: string, scope: string): TimeCursor {
    return decodeCursor<TimeCursor>(token, scope, TIME_CURSOR_KEYS);
