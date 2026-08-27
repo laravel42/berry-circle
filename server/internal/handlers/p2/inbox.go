@@ -415,44 +415,6 @@ func serializeNotificationPreference(
 	}
 }
 
-func (handler *handler) getNotificationPreferences(
-	response http.ResponseWriter,
-	request *http.Request,
-) {
-	workspaceID, ok := parseWorkspaceQuery(response, request)
-	if !ok {
-		return
-	}
-	preference, err := handler.service.GetNotificationPreferences(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Workspace")
-		return
-	}
-	httpapi.WriteJSON(
-		response,
-		http.StatusOK,
-		serializeNotificationPreference(preference),
-	)
-}
-
-func (handler *handler) putNotificationPreferences(
-	response http.ResponseWriter,
-	request *http.Request,
-) {
-	handler.writeNotificationPreferences(response, request, false)
-}
-
-func (handler *handler) patchNotificationPreferences(
-	response http.ResponseWriter,
-	request *http.Request,
-) {
-	handler.writeNotificationPreferences(response, request, true)
-}
-
 func (handler *handler) writeNotificationPreferences(
 	response http.ResponseWriter,
 	request *http.Request,

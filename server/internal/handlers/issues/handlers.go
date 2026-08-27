@@ -41,9 +41,7 @@ type Options struct {
 	// AutoReviews reads the peer verdicts on an issue. Optional.
 	AutoReviews AutoReviewStore
 	// ArtifactHandler lists what the agents on an issue produced. Optional.
-	ArtifactHandler   http.Handler
-	ReactionHandler   http.Handler
-	SubscriberHandler http.Handler
+	ArtifactHandler http.Handler
 	// Goals links an issue to a goal; built from the pool when nil.
 	Goals GoalStore
 	// Approvals names the gate that refused a status move; built from the
@@ -188,26 +186,6 @@ func NewMount(options Options) (httpapi.Mount, error) {
 				options.Authorization,
 				identity.PermissionRead,
 				options.ArtifactHandler,
-			),
-		)
-	}
-	if options.ReactionHandler != nil {
-		router.Mount(
-			"/{issueRef}/reactions",
-			authorizeIssueNested(
-				options.Authorization,
-				identity.PermissionCommentWrite,
-				options.ReactionHandler,
-			),
-		)
-	}
-	if options.SubscriberHandler != nil {
-		router.Mount(
-			"/{issueRef}/subscribers",
-			authorizeIssueNested(
-				options.Authorization,
-				identity.PermissionCommentWrite,
-				options.SubscriberHandler,
 			),
 		)
 	}

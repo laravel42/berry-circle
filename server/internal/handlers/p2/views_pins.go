@@ -3,7 +3,6 @@ package p2handler
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -395,85 +394,10 @@ func serializeViewPreference(preference p2repo.ViewPreference) viewPreferenceRes
 	}
 }
 
-func (handler *handler) getViewPreference(
-	response http.ResponseWriter,
-	request *http.Request,
-) {
-	workspaceID, ok := parseWorkspaceQuery(response, request)
-	if !ok {
-		return
-	}
-	preference, err := handler.service.GetViewPreference(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Workspace")
-		return
-	}
-	httpapi.WriteJSON(response, http.StatusOK, serializeViewPreference(preference))
-}
-
 type putViewPreferenceBody struct {
 	WorkspaceID  string          `json:"workspaceId"`
 	ActiveViewID *string         `json:"activeViewId"`
 	Preferences  json.RawMessage `json:"preferences"`
-}
-
-func (handler *handler) putViewPreference(
-	response http.ResponseWriter,
-	request *http.Request,
-) {
-	body, _, ok := decodeJSON[putViewPreferenceBody](response, request)
-	if !ok {
-		return
-	}
-	fields := make([]httpapi.FieldError, 0)
-	workspaceID, validWorkspace := parseCanonicalUUID(body.WorkspaceID)
-	if !validWorkspace {
-		fields = append(fields, fieldError(
-			"/workspaceId",
-			"invalid",
-			"workspaceId must be a canonical UUID.",
-		))
-	}
-	var activeView *uuid.UUID
-	if body.ActiveViewID != nil {
-		id, valid := parseCanonicalUUID(*body.ActiveViewID)
-		if !valid {
-			fields = append(fields, fieldError(
-				"/activeViewId",
-				"invalid",
-				"activeViewId must be a canonical UUID or null.",
-			))
-		} else {
-			activeView = &id
-		}
-	}
-	if !validJSONObject(body.Preferences, 32*1024) {
-		fields = append(fields, fieldError(
-			"/preferences",
-			"invalid_type",
-			"preferences must be a JSON object no larger than 32 KiB.",
-		))
-	}
-	if len(fields) > 0 {
-		writeValidation(response, request, fields...)
-		return
-	}
-	preference, err := handler.service.PutViewPreference(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-		activeView,
-		body.Preferences,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Saved view")
-		return
-	}
-	httpapi.WriteJSON(response, http.StatusOK, serializeViewPreference(preference))
 }
 
 type pinResource struct {
@@ -498,171 +422,13 @@ func serializePin(pin p2repo.Pin) pinResource {
 	}
 }
 
-func (handler *handler) listPins(response http.ResponseWriter, request *http.Request) {
-	workspaceID, ok := parseWorkspaceQuery(response, request)
-	if !ok {
-		return
-	}
-	pins, err := handler.service.ListPins(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Workspace")
-		return
-	}
-	nodes := make([]pinResource, 0, len(pins))
-	for _, pin := range pins {
-		nodes = append(nodes, serializePin(pin))
-	}
-	httpapi.WriteJSON(response, http.StatusOK, map[string]any{"nodes": nodes})
-}
-
 type createPinBody struct {
 	WorkspaceID string `json:"workspaceId"`
 	TargetType  string `json:"targetType"`
 	TargetID    string `json:"targetId"`
 }
 
-func (handler *handler) createPin(response http.ResponseWriter, request *http.Request) {
-	body, _, ok := decodeJSON[createPinBody](response, request)
-	if !ok {
-		return
-	}
-	fields := make([]httpapi.FieldError, 0)
-	workspaceID, validWorkspace := parseCanonicalUUID(body.WorkspaceID)
-	if !validWorkspace {
-		fields = append(fields, fieldError(
-			"/workspaceId",
-			"invalid",
-			"workspaceId must be a canonical UUID.",
-		))
-	}
-	if body.TargetType != "issue" && body.TargetType != "view" &&
-		body.TargetType != "project" {
-		fields = append(fields, fieldError(
-			"/targetType",
-			"invalid_enum_value",
-			"targetType must be issue, view, or project.",
-		))
-	}
-	targetID, validTarget := parseCanonicalUUID(body.TargetID)
-	if !validTarget {
-		fields = append(fields, fieldError(
-			"/targetId",
-			"invalid",
-			"targetId must be a canonical UUID.",
-		))
-	}
-	if len(fields) > 0 {
-		writeValidation(response, request, fields...)
-		return
-	}
-	pin, replayed, err := handler.service.CreatePin(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-		body.TargetType,
-		targetID,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Pin target")
-		return
-	}
-	status := http.StatusCreated
-	if replayed {
-		status = http.StatusOK
-		response.Header().Set("Idempotency-Replayed", "true")
-	}
-	response.Header().Set("Location", "/api/v1/pins/"+pin.ID.String())
-	httpapi.WriteJSON(response, status, serializePin(pin))
-}
-
 type reorderPinsBody struct {
 	WorkspaceID string   `json:"workspaceId"`
 	PinIDs      []string `json:"pinIds"`
-}
-
-func (handler *handler) reorderPins(response http.ResponseWriter, request *http.Request) {
-	body, _, ok := decodeJSON[reorderPinsBody](response, request)
-	if !ok {
-		return
-	}
-	fields := make([]httpapi.FieldError, 0)
-	workspaceID, validWorkspace := parseCanonicalUUID(body.WorkspaceID)
-	if !validWorkspace {
-		fields = append(fields, fieldError(
-			"/workspaceId",
-			"invalid",
-			"workspaceId must be a canonical UUID.",
-		))
-	}
-	if len(body.PinIDs) > 100 {
-		fields = append(fields, fieldError(
-			"/pinIds",
-			"too_big",
-			"pinIds may contain at most 100 entries.",
-		))
-	}
-	ids := make([]uuid.UUID, 0, len(body.PinIDs))
-	seen := make(map[uuid.UUID]struct{}, len(body.PinIDs))
-	for index, raw := range body.PinIDs {
-		id, valid := parseCanonicalUUID(raw)
-		if !valid {
-			fields = append(fields, fieldError(
-				"/pinIds/"+strconv.Itoa(index),
-				"invalid",
-				"Pin id must be a canonical UUID.",
-			))
-			continue
-		}
-		if _, exists := seen[id]; exists {
-			fields = append(fields, fieldError(
-				"/pinIds/"+strconv.Itoa(index),
-				"duplicate",
-				"Pin ids must be unique.",
-			))
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
-	}
-	if len(fields) > 0 {
-		writeValidation(response, request, fields...)
-		return
-	}
-	err := handler.service.ReorderPins(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-		ids,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Pins")
-		return
-	}
-	response.WriteHeader(http.StatusNoContent)
-}
-
-func (handler *handler) deletePin(response http.ResponseWriter, request *http.Request) {
-	workspaceID, ok := parseWorkspaceQuery(response, request)
-	if !ok {
-		return
-	}
-	pinID, ok := parsePathID(response, request, chi.URLParam(request, "pinId"), "Pin")
-	if !ok {
-		return
-	}
-	err := handler.service.DeletePin(
-		request.Context(),
-		currentUser(request).ID,
-		workspaceID,
-		pinID,
-	)
-	if err != nil {
-		writeDomainError(response, request, err, "Pin")
-		return
-	}
-	response.WriteHeader(http.StatusNoContent)
 }

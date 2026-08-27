@@ -11,7 +11,6 @@ import { cn } from '@/lib/utils';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, PanelRight } from 'lucide-react';
 import { DisplayOptions } from '../display-options';
-import Notifications from '../notifications';
 
 function HeaderNav() {
    return (
@@ -27,7 +26,6 @@ function HeaderNav() {
                   </a>
                </p>
             </div>
-            <Notifications />
          </div>
       </div>
    );

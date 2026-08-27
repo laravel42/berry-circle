@@ -42,11 +42,6 @@ export const inboxItems = [
       url: `/${ORG}/reviews`,
       icon: GitPullRequestArrow,
    },
-   {
-      name: 'inbox',
-      url: `/${ORG}/inbox`,
-      icon: Inbox,
-   },
 ];
 
 

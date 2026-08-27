@@ -57,7 +57,9 @@ export function NotificationsDrawer() {
    return (
       <Sheet open={isOpen} onOpenChange={(next) => !next && close()}>
          <SheetContent side="right" className="flex w-full flex-col gap-0 p-0 sm:max-w-[28rem]">
-            <SheetHeader className="flex-row items-center justify-between space-y-0 border-b px-5 py-3">
+            {/* pr-12 keeps the action clear of the sheet's own close control,
+                which is absolutely positioned in this corner. */}
+            <SheetHeader className="flex-row items-center justify-between space-y-0 border-b py-3 pr-12 pl-5">
                <div className="min-w-0">
                   <SheetTitle className="font-medium">Notifications</SheetTitle>
                   <SheetDescription className="sr-only">

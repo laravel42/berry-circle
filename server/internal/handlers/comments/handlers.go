@@ -34,8 +34,6 @@ type Options struct {
 	Broadcaster realtime.Broadcaster
 	// Optional P2 collaboration subtrees on the direct comment mount.
 	AttachmentHandler http.Handler
-	ReactionHandler   http.Handler
-	ResolutionHandler http.Handler
 }
 
 // Authorizer is the narrow issue/comment workspace boundary.
@@ -70,12 +68,6 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Delete("/{commentId}", deleteHandler(repository, options))
 	if options.AttachmentHandler != nil {
 		router.Mount("/{commentId}/attachments", options.AttachmentHandler)
-	}
-	if options.ReactionHandler != nil {
-		router.Mount("/{commentId}/reactions", options.ReactionHandler)
-	}
-	if options.ResolutionHandler != nil {
-		router.Mount("/{commentId}/resolution", options.ResolutionHandler)
 	}
 	return httpapi.Mount{Prefix: "/api/v1/comments", Handler: router}, nil
 }

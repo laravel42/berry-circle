@@ -224,7 +224,7 @@ func TestWorkflowAndPlannerKeysParseWithDefaultsAndBounds(t *testing.T) {
 		cfg.PlannerMaxRepairs != 3 || cfg.PlannerMaxCriticRounds != 1 || cfg.PlannerContextBudgetBytes != 49152 {
 		t.Fatalf("planner defaults = %+v", cfg)
 	}
-	if cfg.ActivepiecesEnabled || cfg.SafeSummary()["plannerEnabled"] != true || cfg.SafeSummary()["activepiecesEnabled"] != false {
+	if cfg.SafeSummary()["plannerEnabled"] != true {
 		t.Fatalf("engine defaults = %+v", cfg.SafeSummary())
 	}
 	// Without any model the planner is off by default and cannot be forced on.
@@ -237,13 +237,10 @@ func TestWorkflowAndPlannerKeysParseWithDefaultsAndBounds(t *testing.T) {
 	}
 	for key, bad := range map[string]string{
 		"PLANNER_MAX_REPAIRS": "6", "PLANNER_MAX_CRITIC_ROUNDS": "3", "AUTOMATION_MAX_CONCURRENT": "0",
-		"PLANNER_MAX_OUTPUT_TOKENS": "100", "ACTIVEPIECES_ENABLED": "maybe",
+		"PLANNER_MAX_OUTPUT_TOKENS": "100",
 	} {
 		if _, err := Load(map[string]string{key: bad}); err == nil {
 			t.Errorf("%s=%s was accepted", key, bad)
 		}
-	}
-	if _, err := Load(map[string]string{"ACTIVEPIECES_ENABLED": "true"}); err == nil {
-		t.Fatal("ACTIVEPIECES_ENABLED without its settings was accepted")
 	}
 }

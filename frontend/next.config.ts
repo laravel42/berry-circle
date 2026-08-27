@@ -1,4 +1,10 @@
 import type { NextConfig } from 'next';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const frontendDir = path.dirname(fileURLToPath(import.meta.url));
+/** pnpm workspace root — Turbopack must resolve `next` from here, not `frontend/`. */
+const repoRoot = path.join(frontendDir, '..');
 
 function berryApiOrigin(): string {
    const candidate = (process.env.BERRY_API_ORIGIN || 'http://127.0.0.1:4000').trim();
@@ -25,6 +31,11 @@ const apiOrigin = berryApiOrigin();
 const nextConfig: NextConfig = {
    distDir: process.env.NEXT_DIST_DIR ?? '.next',
    devIndicators: false,
+   experimental: {
+      turbo: {
+         root: repoRoot,
+      },
+   },
    async rewrites() {
       return [
          {

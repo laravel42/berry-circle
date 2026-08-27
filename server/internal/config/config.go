@@ -141,17 +141,6 @@ type Config struct {
 	PlannerMaxCriticRounds    int
 	PlannerContextBudgetBytes int
 
-	// Activepieces is the optional external workflow engine behind the
-	// automation.Engine seam (D2). Off by default and fail-closed: an
-	// unconfigured engine answers WORKFLOW_ENGINE_DISABLED.
-	ActivepiecesEnabled         bool
-	ActivepiecesBaseURL         string
-	ActivepiecesAPIKey          string
-	ActivepiecesProjectID       string
-	ActivepiecesWebhookSecret   string
-	ActivepiecesCallbackBaseURL string
-	ActivepiecesRequired        bool
-
 	// Provider webhook secrets for the inbound ingestors.
 	GitHubWebhookSecret string
 	SlackSigningSecret  string
@@ -496,34 +485,6 @@ func Load(env map[string]string) (Config, error) {
 		problems = append(problems, "PLANNER_CONTEXT_BUDGET_BYTES")
 	}
 
-	cfg.ActivepiecesEnabled = boolean(env, "ACTIVEPIECES_ENABLED", false, &problems)
-	cfg.ActivepiecesRequired = boolean(env, "ACTIVEPIECES_REQUIRED", false, &problems)
-	cfg.ActivepiecesBaseURL = strings.TrimSpace(env["ACTIVEPIECES_BASE_URL"])
-	cfg.ActivepiecesAPIKey = strings.TrimSpace(env["ACTIVEPIECES_API_KEY"])
-	cfg.ActivepiecesProjectID = strings.TrimSpace(env["ACTIVEPIECES_PROJECT_ID"])
-	cfg.ActivepiecesWebhookSecret = strings.TrimSpace(env["ACTIVEPIECES_WEBHOOK_SECRET"])
-	cfg.ActivepiecesCallbackBaseURL = strings.TrimSpace(env["ACTIVEPIECES_CALLBACK_BASE_URL"])
-	if cfg.ActivepiecesRequired && !cfg.ActivepiecesEnabled {
-		problems = append(problems, "ACTIVEPIECES_REQUIRED (requires ACTIVEPIECES_ENABLED)")
-	}
-	if cfg.ActivepiecesEnabled {
-		if !safeHTTPURL(cfg.ActivepiecesBaseURL) {
-			problems = append(problems, "ACTIVEPIECES_BASE_URL")
-		}
-		if cfg.ActivepiecesAPIKey == "" {
-			problems = append(problems, "ACTIVEPIECES_API_KEY")
-		}
-		if cfg.ActivepiecesProjectID == "" {
-			problems = append(problems, "ACTIVEPIECES_PROJECT_ID")
-		}
-		// Run-state callbacks create runs; a short secret is a guessable one.
-		if len(cfg.ActivepiecesWebhookSecret) < 16 {
-			problems = append(problems, "ACTIVEPIECES_WEBHOOK_SECRET")
-		}
-		if !safeHTTPURL(cfg.ActivepiecesCallbackBaseURL) {
-			problems = append(problems, "ACTIVEPIECES_CALLBACK_BASE_URL")
-		}
-	}
 	cfg.GitHubWebhookSecret = strings.TrimSpace(env["GITHUB_WEBHOOK_SECRET"])
 	cfg.SlackSigningSecret = strings.TrimSpace(env["SLACK_SIGNING_SECRET"])
 	cfg.LinearWebhookSecret = strings.TrimSpace(env["LINEAR_WEBHOOK_SECRET"])
@@ -568,7 +529,6 @@ func (cfg Config) SafeSummary() map[string]any {
 		"openFangConfigured":     cfg.OpenFangBaseURL != "",
 		"plannerEnabled":         cfg.PlannerEnabled,
 		"automationEnabled":      cfg.AutomationEnabled,
-		"activepiecesEnabled":    cfg.ActivepiecesEnabled,
 	}
 }
 

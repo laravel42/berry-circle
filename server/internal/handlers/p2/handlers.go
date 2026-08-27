@@ -87,22 +87,6 @@ func NewMounts(options Options) ([]httpapi.Mount, error) {
 	views.Patch("/{viewId}", target.updateSavedView)
 	views.Delete("/{viewId}", target.deleteSavedView)
 
-	viewPreferences := httpapi.NewSubrouter()
-	viewPreferences.Use(requireAuth)
-	viewPreferences.Get("/", target.getViewPreference)
-	viewPreferences.Put("/", target.putViewPreference)
-
-	pins := httpapi.NewSubrouter()
-	pins.Use(requireAuth)
-	pins.Get("/", target.listPins)
-	pins.Post("/", requireIdempotency(
-		options.IdempotencyStore,
-		options.Clock,
-		http.HandlerFunc(target.createPin),
-	).ServeHTTP)
-	pins.Put("/order", target.reorderPins)
-	pins.Delete("/{pinId}", target.deletePin)
-
 	inbox := httpapi.NewSubrouter()
 	inbox.Use(requireAuth)
 	inbox.Get("/", target.listInbox)
@@ -110,32 +94,14 @@ func NewMounts(options Options) ([]httpapi.Mount, error) {
 	inbox.Post("/bulk", target.bulkUpdateInbox)
 	inbox.Post("/{itemId}/{action}", target.updateInboxItem)
 
-	notifications := httpapi.NewSubrouter()
-	notifications.Use(requireAuth)
-	notifications.Get("/", target.getNotificationPreferences)
-	notifications.Put("/", target.putNotificationPreferences)
-	notifications.Patch("/", target.patchNotificationPreferences)
-
 	search := httpapi.NewSubrouter()
 	search.Use(requireAuth)
 	search.Get("/", target.search)
 
-	issueQuery := httpapi.NewSubrouter()
-	issueQuery.Use(requireAuth)
-	issueQuery.Post("/groups", target.issueGroups)
-	issueQuery.Post("/rows", target.issueRows)
-	issueQuery.Post("/facets", target.issueFacets)
-	issueQuery.Post("/batch-update", target.batchUpdateIssues)
-	issueQuery.Post("/batch-delete", target.batchDeleteIssues)
-
 	return []httpapi.Mount{
 		{Prefix: "/api/v1/views", Handler: views},
-		{Prefix: "/api/v1/view-preferences", Handler: viewPreferences},
-		{Prefix: "/api/v1/pins", Handler: pins},
 		{Prefix: "/api/v1/inbox", Handler: inbox},
-		{Prefix: "/api/v1/notification-preferences", Handler: notifications},
 		{Prefix: "/api/v1/search", Handler: search},
-		{Prefix: "/api/v1/issue-query", Handler: issueQuery},
 	}, nil
 }
 

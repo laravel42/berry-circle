@@ -65,7 +65,7 @@ func TestOperationalEndpoints(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode config response: %v", err)
 	}
-	if len(body["capabilities"]) != 8 || !body["capabilities"]["agentExecution"] {
+	if len(body["capabilities"]) != 7 || !body["capabilities"]["agentExecution"] {
 		t.Fatalf("capabilities = %#v, want safe booleans only", body["capabilities"])
 	}
 }

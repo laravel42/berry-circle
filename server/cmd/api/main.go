@@ -30,7 +30,6 @@ import (
 	automationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/automations"
 	"github.com/laravel42/berry-circle/server/internal/handlers/boards"
 	cataloghandlers "github.com/laravel42/berry-circle/server/internal/handlers/catalog"
-	channelhandlers "github.com/laravel42/berry-circle/server/internal/handlers/channels"
 	"github.com/laravel42/berry-circle/server/internal/handlers/comments"
 	conversationhandlers "github.com/laravel42/berry-circle/server/internal/handlers/conversations"
 	eventhandlers "github.com/laravel42/berry-circle/server/internal/handlers/events"
@@ -43,11 +42,8 @@ import (
 	planhandlers "github.com/laravel42/berry-circle/server/internal/handlers/plans"
 	platformhandlers "github.com/laravel42/berry-circle/server/internal/handlers/platform"
 	"github.com/laravel42/berry-circle/server/internal/handlers/projects"
-	"github.com/laravel42/berry-circle/server/internal/handlers/reactions"
-	"github.com/laravel42/berry-circle/server/internal/handlers/resolutions"
 	runhandlers "github.com/laravel42/berry-circle/server/internal/handlers/runs"
 	runtimehandlers "github.com/laravel42/berry-circle/server/internal/handlers/runtime"
-	"github.com/laravel42/berry-circle/server/internal/handlers/subscribers"
 	"github.com/laravel42/berry-circle/server/internal/httpapi"
 	"github.com/laravel42/berry-circle/server/internal/identity"
 	integrationcore "github.com/laravel42/berry-circle/server/internal/integrations/core"
@@ -401,7 +397,6 @@ func run() int {
 			Valkey:         valkeyClient != nil,
 			Planner:        cfg.PlannerEnabled,
 			Workflows:      cfg.AutomationEnabled,
-			WorkflowEngine: cfg.ActivepiecesEnabled,
 		},
 	}) {
 		if err := routes.Register(mount); err != nil {
@@ -794,64 +789,6 @@ func run() int {
 			logger.Error("comment attachment route setup failed", "error", err)
 			return 1
 		}
-		reactionOptions := reactions.Options{
-			Store:            collaborationStore,
-			Sessions:         authenticator,
-			Clock:            time.Now,
-			NewID:            uuid.New,
-			IdempotencyStore: idempotencyStore,
-			Broadcaster:      realtimeManager,
-		}
-		issueReactions, err := reactions.NewIssueHandler(reactionOptions)
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("issue reaction route setup failed", "error", err)
-			return 1
-		}
-		commentReactions, err := reactions.NewCommentHandler(reactionOptions)
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("comment reaction route setup failed", "error", err)
-			return 1
-		}
-		issueSubscribers, err := subscribers.NewIssueHandler(subscribers.Options{
-			Store:            collaborationStore,
-			Sessions:         authenticator,
-			Clock:            time.Now,
-			NewID:            uuid.New,
-			IdempotencyStore: idempotencyStore,
-			Broadcaster:      realtimeManager,
-		})
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("subscriber route setup failed", "error", err)
-			return 1
-		}
-		commentResolutions, err := resolutions.NewCommentHandler(resolutions.Options{
-			Store:            collaborationStore,
-			Sessions:         authenticator,
-			Clock:            time.Now,
-			NewID:            uuid.New,
-			IdempotencyStore: idempotencyStore,
-			Broadcaster:      realtimeManager,
-		})
-		if err != nil {
-			closeRunRoutes(runRoutes, logger)
-			_ = realtimeManager.Close()
-			closeValkey(valkeyClient)
-			closeDatabase(dbPool)
-			logger.Error("resolution route setup failed", "error", err)
-			return 1
-		}
 		catalogMount, err := cataloghandlers.NewMount(cataloghandlers.Options{
 			Pool:             dbPool,
 			Sessions:         authenticator,
@@ -988,8 +925,6 @@ func run() int {
 			AttachmentHandler: issueAttachments,
 			AutoReviews:       collaborationStore,
 			ArtifactHandler:   issueArtifacts,
-			ReactionHandler:   issueReactions,
-			SubscriberHandler: issueSubscribers,
 		})
 		if err != nil {
 			closeRunRoutes(runRoutes, logger)
@@ -1008,8 +943,6 @@ func run() int {
 			Authorization:     identityService,
 			Broadcaster:       realtimeManager,
 			AttachmentHandler: commentAttachments,
-			ReactionHandler:   commentReactions,
-			ResolutionHandler: commentResolutions,
 		})
 		if err != nil {
 			closeRunRoutes(runRoutes, logger)
@@ -1517,32 +1450,6 @@ func run() int {
 		// The inbound channel webhook is mounted only when Infobip is
 		// configured. An unconfigured deployment must not expose a public
 		// endpoint that creates messages attributed to users.
-		if cfg.InfobipEnabled {
-			conversationStore, err := conversationrepo.New(dbPool)
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("conversation repository setup failed", "error", err)
-				return 1
-			}
-			channelMount, err := channelhandlers.NewMount(channelhandlers.Options{
-				Store:  conversationStore,
-				Secret: cfg.InfobipWebhookSecret,
-				Clock:  time.Now,
-				Logger: logger,
-			})
-			if err != nil {
-				closeRunRoutes(runRoutes, logger)
-				_ = realtimeManager.Close()
-				closeValkey(valkeyClient)
-				closeDatabase(dbPool)
-				logger.Error("channel webhook setup failed", "error", err)
-				return 1
-			}
-			productMounts = append(productMounts, channelMount)
-		}
 		conversationStore, err := conversationrepo.New(dbPool)
 		if err != nil {
 			closeRunRoutes(runRoutes, logger)

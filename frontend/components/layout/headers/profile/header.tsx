@@ -16,7 +16,6 @@ import { useParams } from 'next/navigation';
 import { parseAsString, useQueryState } from 'nuqs';
 import { useEffect, useRef } from 'react';
 import { DisplayOptions } from '../display-options';
-import Notifications from '../notifications';
 
 const PROFILE_TABS = [
    { label: 'Assigned', value: 'assigned' },
@@ -110,7 +109,6 @@ function HeaderSearch() {
          >
             <SearchIcon className="h-4 w-4" />
          </Button>
-         <Notifications />
       </>
    );
 }
