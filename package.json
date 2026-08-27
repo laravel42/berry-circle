@@ -21,6 +21,7 @@
       "test:gateway": "pnpm --filter @berry/gateway test",
       "typecheck:server": "pnpm --filter @berry/server typecheck",
       "test:server": "pnpm --filter @berry/server test",
-      "dev:server": "pnpm --filter @berry/server dev"
+      "dev:server": "pnpm --filter @berry/server dev",
+      "contract:server": "pnpm --filter @berry/server contract"
    }
 }

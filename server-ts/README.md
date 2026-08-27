@@ -32,3 +32,21 @@ two servers.
 pnpm typecheck:server
 pnpm test:server
 ```
+
+## Proving a port
+
+There is no OpenAPI document, so the check is empirical: ask both servers the
+same question and compare what comes back, key order included.
+
+```
+# with the Go server on :4000 and this one on :4100
+pnpm contract:server /health /ready /api/v1/config
+```
+
+It reports one of three verdicts per path. `identical` means byte-for-byte.
+`same shape, different data` means the contract matches and only values differ
+— a request id, a timestamp, a capability this process does not yet provide.
+`CONTRACT DIFFERS` means the shape itself differs, which is a bug unless the
+mount is knowingly half-ported.
+
+Capture the Go side before moving a mount, and run it again after.
