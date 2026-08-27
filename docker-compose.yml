@@ -195,6 +195,50 @@ services:
   # Separate from berry-api on purpose — workers hold long-lived agent streams,
   # so an API deploy must not kill live agent work. Scale with --scale
   # berry-worker=N; the intake loop stays a singleton via its fixed workflow ID.
+  # The TypeScript product server, answering the prefixes listed in
+  # frontend/next.config.ts's TYPESCRIPT_ROUTES. It reads the same database as
+  # berry-api — that shared schema is what makes moving one prefix at a time
+  # safe — and is absent from the frontend's routing until BERRY_TS_API_ORIGIN
+  # is set, so running it costs nothing until something points at it.
+  berry-api-ts:
+    build:
+      context: ./server-ts
+      dockerfile: Dockerfile
+    image: berry-api-ts:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Migrations belong to berry-api and run once; this server reads the
+      # schema they produce and never writes one of its own.
+      berry-api:
+        condition: service_healthy
+    environment:
+      APP_ENV: "${APP_ENV:-development}"
+      SERVICE_NAME: "${SERVICE_NAME:-berry-server-ts}"
+      API_ADDR: "0.0.0.0:4100"
+      DATABASE_URL: "${BERRY_DATABASE_URL:-postgres://berry:berry@postgres:5432/berry?sslmode=disable}"
+      SESSION_TTL: "${SESSION_TTL:-720h}"
+      AUTH_ALLOW_PASSWORDLESS_LOGIN: "${AUTH_ALLOW_PASSWORDLESS_LOGIN:-true}"
+      REALTIME_BUFFER: "${REALTIME_BUFFER:-64}"
+      # Metrics are Go's; this server answers 404 on /metrics and says so.
+      METRICS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${BERRY_API_TS_PORT:-4100}:4100"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      start_period: 15s
+      retries: 6
+    restart: unless-stopped
+
   berry-worker:
     build:
       context: ./server
