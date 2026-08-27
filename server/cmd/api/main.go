@@ -288,17 +288,23 @@ func run() int {
 	//
 	// Ordered before the agent seed so the orchestrator already exists upstream
 	// when reconciliation runs, rather than being marked offline and corrected.
+	//
+	// Under ADK there is nothing to spawn, so the local variant only makes the
+	// row executable — without it a workspace created under ADK has an
+	// orchestrator that intake will never select, because the trigger inserts
+	// it as `unknown` with no model.
 	if dbPool != nil {
-		if err := orchestration.EnsureOrchestrators(
-			ctx,
-			dbPool,
-			upstream,
-			orchestration.OrchestratorSpec{
-				Provider: cfg.OrchestratorProvider,
-				Model:    cfg.OrchestratorModel,
-			},
-			logger,
-		); err != nil {
+		spec := orchestration.OrchestratorSpec{
+			Provider: cfg.OrchestratorProvider,
+			Model:    cfg.OrchestratorModel,
+		}
+		var err error
+		if cfg.AgentRuntime == "adk" {
+			err = orchestration.EnsureLocalOrchestrators(ctx, dbPool, spec, logger)
+		} else {
+			err = orchestration.EnsureOrchestrators(ctx, dbPool, upstream, spec, logger)
+		}
+		if err != nil {
 			logger.Warn("orchestrator bootstrap incomplete", "error", err)
 		}
 	}

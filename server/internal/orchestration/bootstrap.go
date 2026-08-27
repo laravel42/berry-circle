@@ -232,3 +232,62 @@ func tomlEscape(value string) string {
 	)
 	return replacer.Replace(value)
 }
+
+// EnsureLocalOrchestrators makes every workspace's protected agent executable
+// without a runtime to spawn it in.
+//
+// This is EnsureOrchestrators under ADK, and it is almost entirely a deletion.
+// There is no upstream store to reconcile against, no unique-name scoping, no
+// unsafe create to protect from a lost response — the row is the agent, so
+// making it executable is a matter of saying so.
+//
+// It exists because the trigger that creates the row (migration 009) inserts
+// it as `unknown` with no model, which is correct when OpenFang owns
+// provisioning and leaves the agent unrunnable when nobody does: intake skips
+// any agent that is not available, so a workspace created under ADK would have
+// no fallback at all.
+//
+// The model is only filled in when absent. An operator who configured one for
+// a particular workspace chose it, and a boot must not quietly replace that
+// with the deployment default.
+func EnsureLocalOrchestrators(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	spec OrchestratorSpec,
+	logger *slog.Logger,
+) error {
+	if pool == nil {
+		return errors.New("orchestrator bootstrap pool is nil")
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if !spec.Configured() {
+		logger.Warn(
+			"orchestrator provisioning skipped: set ORCHESTRATOR_PROVIDER and " +
+				"ORCHESTRATOR_MODEL to let the built-in agent take intake work",
+		)
+		return nil
+	}
+
+	tag, err := pool.Exec(
+		ctx,
+		`UPDATE agents
+		    SET status = 'available',
+		        model_provider = COALESCE(model_provider, $1),
+		        model_name = COALESCE(model_name, $2),
+		        updated_at = now()
+		  WHERE protected
+		    AND archived_at IS NULL
+		    AND (status <> 'available' OR model_name IS NULL)`,
+		spec.Provider,
+		spec.Model,
+	)
+	if err != nil {
+		return errors.New("record local orchestrator provisioning")
+	}
+	if tag.RowsAffected() > 0 {
+		logger.Info("orchestrators provisioned locally", "agents", tag.RowsAffected())
+	}
+	return nil
+}

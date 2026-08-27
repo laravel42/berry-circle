@@ -1,6 +1,6 @@
 # ADR-0008: Run agents in-process with the Google Agent Development Kit
 
-- **Status:** Accepted — stages 1–4 shipped, stage 5 in progress
+- **Status:** Accepted — stages 1–5 shipped, stage 6 outstanding
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
 - **Related:** [ADR-0003](0003-pin-openfang-by-commit.md) (pin OpenFang by
@@ -168,9 +168,12 @@ Staged so Berry stays usable throughout. Each stage is shippable.
 4. **Tools.** ✅ `server-ts/src/agents/tools.ts`, constructed per run with the
    workspace closed over. An agent cannot name another workspace because there
    is no parameter for it.
-5. **Agent creation.** In progress. Reconciliation is off under the ADK
-   runtime, so an agent is a Berry row that nothing overwrites; Berry cannot
-   yet *author* one through the product, which lands with the agents mount.
+5. **Agent creation.** ✅ Reconciliation is off under the ADK runtime, and the
+   agents mount is served from `server-ts/src/mounts/agents.ts` — Berry
+   authors agents now, and the built-in orchestrator is made runnable without
+   spawning anything (`EnsureLocalOrchestrators`). Spawn and sync still exist
+   for `BERRY_AGENT_RUNTIME=openfang` and go with the rest of
+   `internal/openfang` at stage 6.
 6. **Retire OpenFang.** Not yet. `internal/openfang` still serves the
    OpenFang runtime, the model catalogue and agent chat.
 
