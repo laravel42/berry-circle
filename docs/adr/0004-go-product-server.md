@@ -1,6 +1,6 @@
 # ADR-0004: Adopt a Go product server
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0009](0009-typescript-product-server.md)
 - **Date:** 2026-08-22
 - **Deciders:** Berry architecture team
 - **Related:** [Product brief](../product-brief.md),
