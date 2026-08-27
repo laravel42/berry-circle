@@ -77,12 +77,20 @@ func ParsePersonalToken(token string) (string, string, error) {
 		return "", "", ErrUnauthenticated
 	}
 	remainder := strings.TrimPrefix(token, PersonalTokenPrefix)
-	publicID, secret, found := strings.Cut(remainder, personalTokenSeparator)
-	if !found || strings.Contains(secret, personalTokenSeparator) ||
-		len(publicID) != base64.RawURLEncoding.EncodedLen(personalTokenIDBytes) ||
-		len(secret) != base64.RawURLEncoding.EncodedLen(tokenBytes) {
+
+	// Split on position rather than on the first separator. Both halves are
+	// base64url and that alphabet includes '_', so cutting at the first one
+	// lands inside the public identifier whenever it happens to contain one.
+	// Both halves are fixed width, so the separator's index is known: 60% of
+	// every token this package issued was refused by this function.
+	publicLen := base64.RawURLEncoding.EncodedLen(personalTokenIDBytes)
+	secretLen := base64.RawURLEncoding.EncodedLen(tokenBytes)
+	if len(remainder) != publicLen+len(personalTokenSeparator)+secretLen ||
+		!strings.HasPrefix(remainder[publicLen:], personalTokenSeparator) {
 		return "", "", ErrUnauthenticated
 	}
+	publicID := remainder[:publicLen]
+	secret := remainder[publicLen+len(personalTokenSeparator):]
 	publicRaw, publicErr := base64.RawURLEncoding.DecodeString(publicID)
 	secretRaw, secretErr := base64.RawURLEncoding.DecodeString(secret)
 	if publicErr != nil || secretErr != nil ||
