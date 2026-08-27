@@ -201,6 +201,18 @@ Verified against Go by comparing whole streams: 4,090 board frames and 196
 workspace frames byte-identical, resume from `after` and from `Last-Event-ID`
 identical, and the heartbeat cadence the same over a 25-second idle window.
 
+## Goals reach across the excluded line, deliberately
+
+`GET /goals/:id/workflows`, `/approvals` and `/plans` read tables whose own
+mounts stay on Go — automations and approvals are AUTOMATE, plans is being
+refactored. They moved anyway, for the same reason the event stream could: they
+depend on those **tables**, not on that code. A goal has to be able to say what
+points at it without owning any of it, and the alternative — leaving three
+routes of one mount behind — would split `/api/v1/goals` across two servers.
+
+The same argument does not extend to writing any of them. Nothing here creates
+an automation, decides an approval or compiles a plan.
+
 ## Running the database-backed tests
 
 The ledger and artifact tests need a real PostgreSQL, because everything they

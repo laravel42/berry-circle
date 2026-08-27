@@ -96,6 +96,17 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    // from PostgreSQL, so either server answers the same question the same way.
    '/api/v1/events',
 
+   // Goals, including the sub-lists that read AUTOMATE's and the planner's
+   // tables. Those move because they depend on the tables, not on the code
+   // whose mounts stay on Go.
+   '/api/v1/goals',
+   '/api/v1/goals/:goalId',
+   '/api/v1/goals/:goalId/issues',
+   '/api/v1/goals/:goalId/issues/:issueRef',
+   '/api/v1/goals/:goalId/workflows',
+   '/api/v1/goals/:goalId/approvals',
+   '/api/v1/goals/:goalId/plans',
+
    // Projects: the collection, one project, and its resources.
    // `/:projectId/generated-issues` is absent — it decomposes a project with
    // an agent, which this server has no runtime for.
