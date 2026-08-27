@@ -68,6 +68,32 @@ tested against `google.golang.org/adk/v2 v2.2.0` on Go 1.26:
 - **Artifacts.** An agent saved a file through `ctx.Artifacts().Save` and it
   came back from `List`. This is the replacement for the workspace volume.
 
+### What changed when the server became TypeScript
+
+ADR-0009 moved the product server to TypeScript, so the runtime is
+`@google/adk` v2 rather than the Go SDK. One of the three findings above does
+not survive the move:
+
+**ADK JS has no OpenAI-compatible model.** It ships exactly two — `ApigeeLlm`
+and `RoutedLlm` — over an extensible `BaseLlm`. The Go SDK's `model/openaimodel`
+has no counterpart, so Berry writes one: `server-ts/src/agents/openrouter-llm.ts`
+translates between ADK's Google GenAI types and OpenAI chat completions in both
+directions.
+
+Verified against live OpenRouter on `openai/gpt-5.4-nano`: a completion with
+usage accounting, a streamed completion reassembled from deltas, a tool call
+round trip, and a real `LlmAgent` driven by `InMemoryRunner` that called a
+Berry-shaped `FunctionTool` with the workspace closed over and answered from
+its result.
+
+Two details cost real time and are worth naming:
+
+- ADK emits Google's `Schema`, whose `type` is an **uppercase** enum
+  (`"OBJECT"`, `"STRING"`). OpenRouter answers `400 Provider returned error`
+  and says nothing about casing. Lowering `type` recursively is the whole fix.
+- Streamed tool call arguments arrive as fragments keyed by index. They are
+  accumulated rather than forwarded: half a JSON object is not a tool call.
+
 ## Decision
 
 Replace OpenFang with ADK as Berry's agent runtime. Agents become configuration
