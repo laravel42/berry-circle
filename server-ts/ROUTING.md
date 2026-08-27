@@ -55,17 +55,29 @@ request each against a reset table, as the invitation and token checks do.
 
 ## What issues still needs
 
-The write half depends on four things this server does not have yet:
-
 | | |
 |---|---|
-| the realtime hub | every mutation is published so open boards update |
+| ~~the realtime hub~~ | ported: hub, relay and the distributed broadcaster |
 | goal linking | `applyGoalChange` when a create or patch names a goal |
 | assignee validation | that the actor exists *in this workspace* |
 | the approval boundary | `ErrApprovalRequired` on a gated board |
 
-Realtime is the one that blocks most: issues, comments, runs and events all
-publish through it. It is the sensible next thing to port.
+The realtime port is verified against Go in both directions on a live Valkey
+stream, but nothing is wired into a mount yet — no route publishes and no SSE
+endpoint subscribes. Those land with the issue write path and the `runs` and
+`events` mounts.
+
+## A second shadowed port
+
+The container's Valkey publishes to `127.0.0.1:6379`, and a **host Redis
+listens there too** — exactly like the PostgreSQL collision. A relay pointed at
+6379 from the host reads an empty stream and reports nothing wrong. Bridge it
+the same way:
+
+```
+docker run -d --rm --name berry-valkey-bridge --network berry-stack_default \
+  -p 56379:6379 alpine/socat tcp-listen:6379,fork,reuseaddr tcp:valkey:6379
+```
 
 ## The rule
 
