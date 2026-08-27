@@ -216,17 +216,14 @@ func Load(env map[string]string) (Config, error) {
 	}
 	cfg.AgentRuntimeURL = value(env, "BERRY_AGENT_RUNTIME_URL", "http://127.0.0.1:4100")
 	cfg.AgentRuntimeToken = env["BERRY_INTERNAL_TOKEN"]
-	if cfg.AgentRuntime == "adk" {
-		if !hasURLScheme(cfg.AgentRuntimeURL, "http", "https") {
-			problems = append(problems, "BERRY_AGENT_RUNTIME_URL")
-		}
-		// Refused at startup rather than at the first run: the endpoint
-		// answers 401 without a token, so a blank one would fail every run
-		// with a message about authentication rather than about configuration.
-		if strings.TrimSpace(cfg.AgentRuntimeToken) == "" {
-			problems = append(problems, "BERRY_INTERNAL_TOKEN (required for BERRY_AGENT_RUNTIME=adk)")
-		}
+	if cfg.AgentRuntime == "adk" && !hasURLScheme(cfg.AgentRuntimeURL, "http", "https") {
+		problems = append(problems, "BERRY_AGENT_RUNTIME_URL")
 	}
+	// The token is not required here. Both servers read this configuration,
+	// and only the worker presents the token — the API's stake in the setting
+	// is that agents are Berry's rows, which needs no credential. Requiring it
+	// of every reader crash-looped the API for a secret it never uses; the
+	// worker checks it where it is used, at dispatcher construction.
 
 	cfg.MetricsEnabled = boolean(env, "METRICS_ENABLED", true, &problems)
 	cfg.TrustedOrigins = origins(env["TRUSTED_ORIGINS"], &problems)

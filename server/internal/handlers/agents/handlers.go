@@ -35,6 +35,18 @@ type Options struct {
 	Clock         func() time.Time
 	NewID         func() uuid.UUID
 	OpenFang      openfang.Runtime
+	// SkipRuntimeReconcile stops OpenFang's agents being projected into this
+	// workspace on every listing and every read.
+	//
+	// Set under the ADK runtime, where an agent is a Berry row rather than a
+	// projection of somebody else's. Reconciling there would be actively
+	// wrong: an agent OpenFang has never heard of is marked offline, and its
+	// model — which Berry now owns — is overwritten with whatever OpenFang
+	// last said.
+	//
+	// Phrased as the exception so the zero value keeps the behaviour every
+	// existing caller already relies on.
+	SkipRuntimeReconcile bool
 	// Configurer writes agent configuration upstream. Optional: without it the
 	// instructions route is not mounted, so a deployment cannot expose an
 	// editor that silently fails to reach the runtime.
@@ -175,17 +187,20 @@ func listHandler(store Store, options Options) http.HandlerFunc {
 			return
 		}
 		// Same reconciliation the startup seed runs, so a listing and a boot
-		// cannot project the runtime differently.
-		if _, err := SyncWorkspace(
-			request.Context(),
-			store,
-			options.OpenFang,
-			workspaceID,
-			options.Clock,
-			options.NewID,
-		); err != nil {
-			writeDependencyError(response, request, err)
-			return
+		// cannot project the runtime differently. Skipped entirely when agents
+		// are Berry's own rows.
+		if !options.SkipRuntimeReconcile {
+			if _, err := SyncWorkspace(
+				request.Context(),
+				store,
+				options.OpenFang,
+				workspaceID,
+				options.Clock,
+				options.NewID,
+			); err != nil {
+				writeDependencyError(response, request, err)
+				return
+			}
 		}
 
 		scope := listCursorScope(query.Status)
@@ -262,6 +277,12 @@ func getHandler(store Store, options Options) http.HandlerFunc {
 		}
 		if err != nil {
 			writeInternal(response, request)
+			return
+		}
+		if options.SkipRuntimeReconcile {
+			// The row is the agent. There is nothing upstream to ask, and
+			// asking would mark a perfectly live agent offline.
+			httpapi.WriteJSON(response, http.StatusOK, serialize(found))
 			return
 		}
 		detail, err := options.OpenFang.GetAgent(request.Context(), found.OpenFangAgentID)

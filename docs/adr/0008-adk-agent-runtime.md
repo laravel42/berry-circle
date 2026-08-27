@@ -1,6 +1,6 @@
 # ADR-0008: Run agents in-process with the Google Agent Development Kit
 
-- **Status:** Proposed
+- **Status:** Accepted — stages 1–4 shipped, stage 5 in progress
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
 - **Related:** [ADR-0003](0003-pin-openfang-by-commit.md) (pin OpenFang by
@@ -154,18 +154,41 @@ migration is staged so the answer can be *not yet* for as long as necessary.
 
 Staged so Berry stays usable throughout. Each stage is shippable.
 
-1. **Model seam.** Berry's model access moves behind ADK's `model.LLM`,
-   OpenRouter unchanged. Nothing else moves. Proves the catalogue, pricing and
-   fallbacks still work.
-2. **Runtime adapter.** An ADK implementation of `openfang.Runtime` —
-   dispatching a message becomes constructing an agent and running it. Behind a
-   per-agent flag so one agent moves at a time.
-3. **ArtifactService.** Berry's implementation over `run_artifacts`, replacing
-   the promoter for ADK-run agents. Delivery and the handoff read it directly.
-4. **Tools.** Berry's own tools as ADK function tools, workspace-scoped. This
-   is where native integrations become reachable.
-5. **Agent creation.** Agents become Berry rows; spawn and sync are removed.
-6. **Retire OpenFang.** Only once nothing depends on it.
+1. **Model seam.** ✅ `server-ts/src/agents/openrouter-llm.ts`. ADK JS ships no
+   OpenAI-compatible model, so Berry owns one: streaming, tool-call
+   translation and usage accounting against `BaseLlm`.
+2. **Runtime adapter.** ✅ `server-ts/src/agents/executor.ts`, over the run
+   ledger ported to `server-ts/src/runs/ledger.ts`. Selected by
+   `BERRY_AGENT_RUNTIME` rather than per agent — a whole-deployment switch
+   turned out to be simpler to reason about than a per-agent one, because the
+   two runtimes disagree about what an agent *is*, not merely about how to run
+   one.
+3. **ArtifactService.** ✅ `server-ts/src/agents/artifact-service.ts` over
+   `run_artifacts` and object storage, with `SessionService` beside it.
+4. **Tools.** ✅ `server-ts/src/agents/tools.ts`, constructed per run with the
+   workspace closed over. An agent cannot name another workspace because there
+   is no parameter for it.
+5. **Agent creation.** In progress. Reconciliation is off under the ADK
+   runtime, so an agent is a Berry row that nothing overwrites; Berry cannot
+   yet *author* one through the product, which lands with the agents mount.
+6. **Retire OpenFang.** Not yet. `internal/openfang` still serves the
+   OpenFang runtime, the model catalogue and agent chat.
+
+### How this differed from the plan
+
+Two assumptions in this ADR were wrong, and both were wrong in the same
+direction — they assumed the work stayed in Go.
+
+The runtime is TypeScript, because ADR-0008 was written the same day the server
+migration started and the two decisions met. Everything above lives in
+`server-ts/`, and the Go worker reaches it over one HTTP call
+(`internal/service/adkruntime`) until the orchestration moves too.
+
+"The sync loop mostly disappears" understated it. Sync does not merely become
+redundant under ADK — it is destructive: an agent OpenFang has never heard of
+is marked offline on every listing, and the model Berry gave it is overwritten
+with whatever OpenFang last said. Turning reconciliation off is a correctness
+requirement of running under ADK at all, not a cleanup that can follow it.
 
 ## Alternatives considered
 

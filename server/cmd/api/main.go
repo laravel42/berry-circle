@@ -337,7 +337,10 @@ func run() int {
 	// with nothing to route to and the built-in orchestrator taking every task
 	// by fallback. Best effort: an unreachable runtime is a normal boot
 	// condition and the next agents request reconciles anyway.
-	if dbPool != nil {
+	//
+	// Not under the ADK runtime: agents are Berry rows there, and projecting
+	// OpenFang over them would mark every one of them offline at boot.
+	if dbPool != nil && cfg.AgentRuntime != "adk" {
 		agenthandlers.SyncAllWorkspaces(ctx, dbPool, upstream, time.Now, uuid.New, logger)
 	}
 
@@ -677,14 +680,17 @@ func run() int {
 			OpenRouter: openrouter.New("", nil),
 		}
 		agentMount, err := agenthandlers.NewMount(agenthandlers.Options{
-			Pool:          dbPool,
-			Sessions:      authenticator,
-			Clock:         time.Now,
-			NewID:         uuid.New,
-			OpenFang:      upstream,
-			Configurer:    upstream,
-			Catalog:       modelCatalog,
-			Authorization: identityService,
+			Pool:     dbPool,
+			Sessions: authenticator,
+			Clock:    time.Now,
+			NewID:    uuid.New,
+			OpenFang: upstream,
+			// Agents are Berry rows under the ADK runtime, so nothing
+			// reconciles them against OpenFang.
+			SkipRuntimeReconcile: cfg.AgentRuntime == "adk",
+			Configurer:           upstream,
+			Catalog:              modelCatalog,
+			Authorization:        identityService,
 			// POST /{agentId}/ask: one JSON-object chat completion to the
 			// agent, recorded in agent_asks with its usage and priced
 			// through the same catalog the planner uses.

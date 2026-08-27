@@ -178,6 +178,7 @@ func (agentAuthorizer) AuthorizeAgent(
 type agentRuntime struct {
 	summaries []openfang.AgentSummary
 	lists     atomic.Int32
+	details   atomic.Int32
 }
 
 func (runtime *agentRuntime) ListAgents(context.Context) ([]openfang.AgentSummary, error) {
@@ -185,7 +186,11 @@ func (runtime *agentRuntime) ListAgents(context.Context) ([]openfang.AgentSummar
 	return runtime.summaries, nil
 }
 
-func (*agentRuntime) GetAgent(context.Context, uuid.UUID) (openfang.AgentDetail, error) {
+func (runtime *agentRuntime) GetAgent(
+	context.Context,
+	uuid.UUID,
+) (openfang.AgentDetail, error) {
+	runtime.details.Add(1)
 	return openfang.AgentDetail{}, nil
 }
 

@@ -89,16 +89,29 @@ broken state. But the codes differ, and a client that switches on them would
 see the difference. No project in this deployment currently has a repository
 linked, which is why projects are routed anyway.
 
-## Agents is blocked, not merely unported
+## Agents: unblocked, still unported
 
-`GET /api/v1/agents` reconciles against the OpenFang runtime on **every**
-request — `SyncWorkspace` is called before the listing is read, and it errors
-rather than degrading when the runtime is absent. The agent list is a live
-projection of runtime state, not a table.
+`GET /api/v1/agents` used to reconcile against the OpenFang runtime on **every**
+request — `SyncWorkspace` before the listing was read, erroring rather than
+degrading when the runtime was absent. The agent list was a live projection of
+runtime state, not a table.
 
-Porting it would mean porting `internal/openfang` (1,701 lines) that ADR-0008
-says to delete, or shipping a list that silently stops reconciling. Agents
-waits for the ADK runtime.
+Under `BERRY_AGENT_RUNTIME=adk` it no longer is. Reconciliation is off, and an
+agent is a row: what the row says is what the API answers. That removes the
+reason this mount could not move — porting it no longer means porting
+`internal/openfang`, and a listing served from PostgreSQL is now the *correct*
+answer rather than a silently stale one.
+
+What still has to be decided before it moves, because none of it is a
+projection any more and all of it needs a rows-only answer:
+
+| route | what it needs |
+|---|---|
+| `GET /` and `GET /{id}` | a straight read — ready to port |
+| `POST /` | does not exist yet: agents were created in OpenFang and discovered by sync, so Berry has never had a way to author one |
+| `GET /models` | the catalogue comes from OpenFang today; under ADK it is OpenRouter's |
+| `PUT /{id}/config` | writes the row *and* pushes upstream; under ADK only the row |
+| `POST /{id}/ask` | OpenFang chat; under ADK a one-shot ADK call with no run row |
 
 ## What issues still needs
 
