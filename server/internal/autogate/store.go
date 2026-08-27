@@ -72,7 +72,7 @@ func (store PostgresStore) ReviewSubject(ctx context.Context, runID uuid.UUID) (
 	defer rows.Close()
 	for rows.Next() {
 		var file ArtifactFile
-		if err := rows.Scan(&file.Name, &file.ContentType, &file.SizeBytes, &file.StorageKey); err == nil {
+		if err := rows.Scan(&file.Path, &file.ContentType, &file.SizeBytes, &file.StorageKey); err == nil {
 			subject.Artifacts = append(subject.Artifacts, file)
 		}
 	}

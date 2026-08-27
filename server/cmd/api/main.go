@@ -986,6 +986,7 @@ func run() int {
 			Authorization:     identityService,
 			Broadcaster:       realtimeManager,
 			AttachmentHandler: issueAttachments,
+			AutoReviews:       collaborationStore,
 			ArtifactHandler:   issueArtifacts,
 			ReactionHandler:   issueReactions,
 			SubscriberHandler: issueSubscribers,

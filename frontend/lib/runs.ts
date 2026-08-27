@@ -390,3 +390,30 @@ function relativeTime(iso: string): string {
    if (hours < 24) return `${hours}h ago`;
    return `${Math.round(hours / 24)}d ago`;
 }
+
+const autoReviewSchema = z.object({
+   id: z.string(),
+   runId: z.string(),
+   reviewer: z.string(),
+   author: z.string(),
+   approved: z.boolean(),
+   reason: z.string(),
+   createdAt: z.string(),
+});
+
+export type AutoReview = z.infer<typeof autoReviewSchema>;
+
+/**
+ * Peer verdicts on a task, newest first.
+ *
+ * Only AutoGate plans have these. A rejection is the case that matters: the
+ * task stays in review and, without this, nothing on the page says why.
+ */
+export async function loadAutoReviews(issueRef: string): Promise<AutoReview[]> {
+   if (!issueRef) return [];
+   const json: unknown = await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/reviews`
+   );
+   const parsed = z.object({ reviews: z.array(autoReviewSchema) }).safeParse(json);
+   return parsed.success ? parsed.data.reviews : [];
+}

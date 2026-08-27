@@ -283,8 +283,8 @@ func (files stubFiles) Open(_ context.Context, key string) (io.ReadCloser, error
 func subjectWithFiles() Subject {
 	subject := gatedSubject()
 	subject.Artifacts = []ArtifactFile{
-		{Name: "vite.config.ts", ContentType: "text/plain", SizeBytes: 40, StorageKey: "k1"},
-		{Name: "logo.png", ContentType: "application/octet-stream", SizeBytes: 900, StorageKey: "k2"},
+		{Path: "src/vite.config.ts", ContentType: "text/plain", SizeBytes: 40, StorageKey: "k1"},
+		{Path: "public/logo.png", ContentType: "application/octet-stream", SizeBytes: 900, StorageKey: "k2"},
 	}
 	return subject
 }
@@ -337,5 +337,35 @@ func TestATaskWithNoFilesSaysSoPlainly(t *testing.T) {
 	prompt := Prompt(gatedSubject(), nil)
 	if !strings.Contains(prompt, "produced no files") {
 		t.Errorf("a file-less task did not say so:\n%s", prompt)
+	}
+}
+
+// The failure that rejected a finished project: 22 files were stored, the
+// contents budget printed 8, and the reviewer concluded the other 14 did not
+// exist — naming vite.config.ts as missing while it sat in the store.
+func TestEveryFileIsListedEvenWhenOnlySomeAreShown(t *testing.T) {
+	t.Parallel()
+	subject := gatedSubject()
+	for _, path := range []string{
+		"package.json", "vite.config.ts", "tsconfig.json",
+		"src/main.tsx", "src/lib/generator.ts",
+	} {
+		subject.Artifacts = append(subject.Artifacts, ArtifactFile{
+			Path: path, ContentType: "text/plain", SizeBytes: 100, StorageKey: path,
+		})
+	}
+	// Only the first file's contents were affordable.
+	prompt := Prompt(subject, []Evidence{{Name: "package.json", Body: "{}"}})
+
+	for _, path := range []string{"vite.config.ts", "tsconfig.json", "src/main.tsx", "src/lib/generator.ts"} {
+		if !strings.Contains(prompt, path) {
+			t.Errorf("a stored file is absent from the manifest: %s", path)
+		}
+	}
+	if !strings.Contains(prompt, "1 of those 5 files") {
+		t.Errorf("the prompt does not say the contents were cut:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "never reject a file for being absent when it is in the list") {
+		t.Error("the reviewer is not told an unprinted file still exists")
 	}
 }

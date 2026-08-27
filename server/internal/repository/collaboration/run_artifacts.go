@@ -425,3 +425,66 @@ func (repository *Repository) AbortRunArtifact(
 	}
 	return nil
 }
+
+// AutoReview is one peer agent's verdict on a run (migration 026).
+type AutoReview struct {
+	ID        uuid.UUID
+	RunID     uuid.UUID
+	Reviewer  string
+	Author    string
+	Approved  bool
+	Reason    string
+	CreatedAt time.Time
+}
+
+// ListIssueAutoReviews returns the verdicts on an issue, newest first.
+//
+// A rejected review left the task sitting in review with nothing to read: the
+// verdict was recorded and the reason written, and no surface showed either,
+// so an issue an agent had declined to approve looked exactly like one nobody
+// had looked at yet.
+func (repository *Repository) ListIssueAutoReviews(
+	ctx context.Context,
+	actorID uuid.UUID,
+	issueReference string,
+	limit int,
+) ([]AutoReview, error) {
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+	access, err := authorizeIssueReference(
+		ctx, repository.Pool, actorID, issueReference,
+		identity.PermissionProductRead, false,
+	)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := repository.Pool.Query(
+		ctx,
+		`SELECT review.id, review.run_id,
+		        COALESCE(reviewer.name, 'an agent'),
+		        COALESCE(author.name, 'an agent'),
+		        review.approved, review.reason, review.created_at
+		   FROM issue_auto_reviews AS review
+		   LEFT JOIN agents AS reviewer ON reviewer.id = review.reviewer_id
+		   LEFT JOIN agents AS author ON author.id = review.author_id
+		  WHERE review.issue_id = $1
+		  ORDER BY review.created_at DESC
+		  LIMIT $2`,
+		access.IssueID, limit,
+	)
+	if err != nil {
+		return nil, classifyReadError("list auto reviews", err)
+	}
+	defer rows.Close()
+	found := make([]AutoReview, 0, limit)
+	for rows.Next() {
+		var review AutoReview
+		if err := rows.Scan(&review.ID, &review.RunID, &review.Reviewer,
+			&review.Author, &review.Approved, &review.Reason, &review.CreatedAt); err != nil {
+			return nil, classifyReadError("scan auto review", err)
+		}
+		found = append(found, review)
+	}
+	return found, rows.Err()
+}

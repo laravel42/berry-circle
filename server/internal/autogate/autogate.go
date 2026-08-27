@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -35,8 +36,8 @@ const (
 	// maxFileBytes and maxFiles bound the evidence. A reviewer given the whole
 	// output of a large run reads none of it carefully.
 	maxFileBytes  = 8 * 1024
-	maxFiles      = 8
-	maxTotalFiles = 32 * 1024
+	maxFiles      = 20
+	maxTotalFiles = 96 * 1024
 )
 
 // Candidate is an agent that could review.
@@ -65,7 +66,10 @@ type Subject struct {
 
 // ArtifactFile is one file the run produced, as the store knows it.
 type ArtifactFile struct {
-	Name        string
+	// Path is where the agent wrote it, relative to output/. The reviewer is
+	// judging a deliverable, and src/lib/generator.ts says more about it than
+	// generator.ts does.
+	Path        string
 	ContentType string
 	SizeBytes   int64
 	StorageKey  string
@@ -256,15 +260,15 @@ func (service *Service) evidence(ctx context.Context, subject Subject) []Evidenc
 			break
 		}
 		if service.Files == nil {
-			found = append(found, Evidence{Name: artifact.Name, Unreadable: true})
+			found = append(found, Evidence{Name: artifact.Path, Unreadable: true})
 			continue
 		}
 		body, ok := service.read(ctx, artifact)
 		if !ok {
-			found = append(found, Evidence{Name: artifact.Name, Unreadable: true})
+			found = append(found, Evidence{Name: artifact.Path, Unreadable: true})
 			continue
 		}
-		found = append(found, Evidence{Name: artifact.Name, Body: body})
+		found = append(found, Evidence{Name: artifact.Path, Body: body})
 		spent += len(body)
 	}
 	return found
@@ -318,8 +322,37 @@ func Prompt(subject Subject, evidence []Evidence) string {
 		builder.WriteString("\n\nWhat the agent reported:\n")
 		builder.WriteString(clamp(subject.Summary, maxWorkBytes))
 	}
+	if len(subject.Artifacts) > 0 {
+		// The complete manifest first, and always complete. A reviewer shown a
+		// truncated list reads the absence of a file as the absence of the
+		// work: it rejected a finished project for missing a vite.config.ts
+		// that was sitting in the store, unshown because the contents budget
+		// ran out eight files earlier. Names are cheap; contents are not.
+		builder.WriteString("\n\nFiles it produced — all ")
+		builder.WriteString(strconv.Itoa(len(subject.Artifacts)))
+		builder.WriteString(" of them, already stored on the task:\n")
+		for _, artifact := range subject.Artifacts {
+			builder.WriteString("- ")
+			builder.WriteString(artifact.Path)
+			builder.WriteString(" (")
+			builder.WriteString(strconv.FormatInt(artifact.SizeBytes, 10))
+			builder.WriteString(" bytes)\n")
+		}
+	} else {
+		builder.WriteString("\n\nThis task produced no files.")
+	}
+
 	if len(evidence) > 0 {
-		builder.WriteString("\n\nFiles it produced — this is the work itself, already stored on the task:\n")
+		if shown := len(evidence); shown < len(subject.Artifacts) {
+			builder.WriteString("\nThe contents of ")
+			builder.WriteString(strconv.Itoa(shown))
+			builder.WriteString(" of those ")
+			builder.WriteString(strconv.Itoa(len(subject.Artifacts)))
+			builder.WriteString(" files follow. The rest exist and were stored; ")
+			builder.WriteString("there was not room to print them here.\n")
+		} else {
+			builder.WriteString("\nTheir contents follow.\n")
+		}
 		for _, file := range evidence {
 			builder.WriteString("\n--- ")
 			builder.WriteString(file.Name)
@@ -333,22 +366,21 @@ func Prompt(subject Subject, evidence []Evidence) string {
 				builder.WriteString("\n")
 			}
 		}
-	} else {
-		builder.WriteString("\n\nThis task produced no files.")
 	}
 
 	// Said before the instruction, because the failure it prevents is the
 	// reviewer trying to check the claim itself.
 	builder.WriteString("\n\nYou cannot inspect the author's workspace, its repository, or any filesystem. ")
 	builder.WriteString("Your own workspace is not theirs — whatever it contains, including an empty output/ ")
-	builder.WriteString("directory, tells you nothing about this task. Everything above is the complete ")
-	builder.WriteString("evidence, and a file listed above exists whether or not you can find it yourself. ")
-	builder.WriteString("Do not use file tools; judge what you have been given.\n\n")
+	builder.WriteString("directory, tells you nothing about this task. Every file in the list above exists ")
+	builder.WriteString("and is stored, whether or not its contents were printed and whether or not you can ")
+	builder.WriteString("find it yourself. Do not use file tools; judge what you have been given.\n\n")
 	builder.WriteString("Approve when what you were given does what the task asked. ")
 	builder.WriteString("Reject when the work is incomplete, when it describes what it would do instead of ")
 	builder.WriteString("doing it, when the files contradict the task, or when the task needed a deliverable ")
 	builder.WriteString("and none was produced. Do not reject because you could not verify something ")
-	builder.WriteString("yourself — that is expected, and is not a fault of the work. ")
+	builder.WriteString("yourself, and never reject a file for being absent when it is in the list above ")
+	builder.WriteString("— an unprinted file is one there was no room for, not one that is missing. ")
 	builder.WriteString("Say plainly what is missing — your reason is posted on the task for whoever picks it up.\n\n")
 	builder.WriteString(`Answer with a single JSON object and nothing else: {"approved": boolean, "reason": string}`)
 	return builder.String()

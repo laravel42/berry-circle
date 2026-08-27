@@ -38,6 +38,8 @@ type Options struct {
 	RunHandler http.Handler
 	// Optional P2 collaboration subtrees. The issue router owns auth.
 	AttachmentHandler http.Handler
+	// AutoReviews reads the peer verdicts on an issue. Optional.
+	AutoReviews AutoReviewStore
 	// ArtifactHandler lists what the agents on an issue produced. Optional.
 	ArtifactHandler   http.Handler
 	ReactionHandler   http.Handler
@@ -212,6 +214,7 @@ func NewMount(options Options) (httpapi.Mount, error) {
 	router.Get("/{issueRef}", getHandler(repository, options))
 	router.Patch("/{issueRef}", updateHandler(repository, options))
 	router.Delete("/{issueRef}", deleteHandler(repository, options))
+	router.Get("/{issueRef}/reviews", listAutoReviewsHandler(options.AutoReviews))
 	router.Get("/{issueRef}/dependencies", listDependenciesHandler(repository, options))
 	router.Post("/{issueRef}/dependencies", addDependencyHandler(repository, options))
 	router.Delete("/{issueRef}/dependencies/{dependsOnRef}", removeDependencyHandler(repository, options))
