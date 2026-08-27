@@ -80,12 +80,20 @@ export interface IssueOptions {
    idempotency: IdempotencyStore;
    /** Absent in a deployment with no relay; mutations then reach only this node. */
    broadcaster?: Broadcaster | undefined;
+   /** Sub-routes owned by other domains, such as comments. */
+   nested?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
 }
 
 export function issueMounts(options: IssueOptions): Mount[] {
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
+
+   // Routes that belong to another domain but hang under an issue. Mounted
+   // here rather than registered on their own prefix, because the registry
+   // refuses two mounts on `/api/v1/issues` — which is the ambiguity it exists
+   // to refuse.
+   if (options.nested) route.route('/', options.nested);
 
    const { issues, boards } = options;
 

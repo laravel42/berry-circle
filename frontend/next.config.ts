@@ -79,10 +79,15 @@ const TYPESCRIPT_ROUTES: readonly string[] = [
    '/api/v1/boards',
    '/api/v1/boards/:boardId',
 
-   // Issues: the collection and one issue. Comments, reviews, dependencies,
-   // attachments and runs all hang below and stay on Go.
+   // Issues: the collection, one issue, and its comments. Reviews,
+   // dependencies, attachments and runs still hang below and stay on Go.
    '/api/v1/issues',
    '/api/v1/issues/:issueRef',
+   '/api/v1/issues/:issueRef/comments',
+
+   // One comment, by id — a link to a comment has to work without knowing
+   // which issue it is on.
+   '/api/v1/comments/:commentId',
 
    // Projects: the collection, one project, and its resources.
    // `/:projectId/generated-issues` is absent — it decomposes a project with

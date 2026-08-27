@@ -10,6 +10,7 @@ import { workspaceMounts } from './mounts/workspaces.ts';
 import { secretsMounts } from './mounts/secrets.ts';
 import { boardMounts } from './mounts/boards.ts';
 import { issueMounts } from './mounts/issues.ts';
+import { commentMounts, issueCommentRoutes } from './mounts/comments.ts';
 import { projectMounts } from './mounts/projects.ts';
 import { internalRunMounts } from './mounts/internal-runs.ts';
 import { agentMounts } from './mounts/agents.ts';
@@ -18,6 +19,7 @@ import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SecretsRepository } from './identity/secrets.ts';
 import { BoardRepository } from './core/boards.ts';
 import { IssueRepository } from './core/issues.ts';
+import { CommentRepository } from './core/comments.ts';
 import { ProjectRepository } from './core/projects.ts';
 import { Hub } from './realtime/hub.ts';
 import { Distributed } from './realtime/distributed.ts';
@@ -49,6 +51,7 @@ const workspaces = new WorkspaceRepository(sql);
 const secrets = new SecretsRepository(sql);
 const boards = new BoardRepository(sql);
 const issues = new IssueRepository(sql);
+const comments = new CommentRepository(sql);
 const projects = new ProjectRepository(sql);
 const agents = new AgentRepository(sql);
 
@@ -104,7 +107,18 @@ registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
 registry.registerAll(secretsMounts({ sessions, secrets }));
 registry.registerAll(boardMounts({ sessions, boards, idempotency }));
-registry.registerAll(issueMounts({ sessions, issues, boards, idempotency, broadcaster }));
+const commentOptions = { sessions, comments, issues, idempotency, broadcaster };
+registry.registerAll(
+   issueMounts({
+      sessions,
+      issues,
+      boards,
+      idempotency,
+      broadcaster,
+      nested: issueCommentRoutes(commentOptions),
+   })
+);
+registry.registerAll(commentMounts(commentOptions));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog }));
