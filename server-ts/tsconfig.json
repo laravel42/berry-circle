@@ -1,0 +1,21 @@
+{
+   "compilerOptions": {
+      "target": "ES2023",
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",
+      "lib": ["ES2023"],
+      "strict": true,
+      "noUncheckedIndexedAccess": true,
+      "exactOptionalPropertyTypes": true,
+      "noImplicitOverride": true,
+      "verbatimModuleSyntax": true,
+      // Node 22 strips types at runtime, so imports keep their .ts extension
+      // and resolve to the file that is actually there.
+      "allowImportingTsExtensions": true,
+      "rewriteRelativeImportExtensions": true,
+      "skipLibCheck": true,
+      "noEmit": true,
+      "types": ["node"]
+   },
+   "include": ["src/**/*.ts"]
+}

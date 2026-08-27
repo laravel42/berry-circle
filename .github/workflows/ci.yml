@@ -89,38 +89,67 @@ jobs:
           go build -trimpath -o "${RUNNER_TEMP}/berry-migrate" ./cmd/migrate
 
   gateway:
-    name: Bun gateway oracle
+    name: Gateway oracle
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: apps/gateway
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
       - name: Install locked dependencies
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: bun run typecheck
+        run: pnpm typecheck:gateway
 
       - name: Lint
-        run: bun run lint
+        run: pnpm lint:gateway
 
       - name: Test
-        run: bun test
+        run: pnpm test:gateway
+
+  server-ts:
+    name: TypeScript product server
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck:server
+
+      - name: Test
+        run: pnpm test:server
 
   frontend:
     name: Next.js frontend
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    defaults:
-      run:
-        working-directory: frontend
     env:
       BERRY_API_ORIGIN: http://127.0.0.1:4000
       NEXT_PUBLIC_BERRY_API_URL: ""
@@ -128,14 +157,20 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
 
       - name: Install locked dependencies
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: bun run lint
+        run: pnpm lint:frontend
 
       - name: Build
-        run: bun run build
+        run: pnpm build:frontend

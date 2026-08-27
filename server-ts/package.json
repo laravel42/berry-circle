@@ -1,0 +1,12 @@
+{
+   "name": "@berry/server",
+   "private": true,
+   "type": "module",
+   "version": "0.0.0",
+   "scripts": {
+      "typecheck": "tsc --noEmit",
+      "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
+      "dev": "node --watch --experimental-strip-types src/index.ts",
+      "start": "node --experimental-strip-types src/index.ts"
+   }
+}
