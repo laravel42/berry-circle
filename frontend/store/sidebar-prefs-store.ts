@@ -57,8 +57,8 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
  * sidebar keeps its shape across sessions.
  */
 const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
-   personal: ['inbox', 'reviews', 'chat', 'meetings'],
-   workspace: ['my-issues', 'goals', 'analytics', 'projects'],
+   personal: ['inbox', 'chat', 'meetings'],
+   workspace: ['my-issues', 'reviews', 'goals', 'analytics', 'projects'],
    automate: ['autopilot', 'workflow-runs', 'approvals'],
    configure: ['agent', 'agents'],
 };

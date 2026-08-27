@@ -37,7 +37,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
          ref={stripRef}
          role="tablist"
          aria-label="Open views"
-         className="tabstrip flex h-[34px] flex-none items-stretch overflow-x-auto bg-[var(--shell-rail)]"
+         className="tabstrip flex h-[34px] min-w-0 flex-1 items-stretch overflow-x-auto bg-[var(--shell-rail)]"
       >
          {tabs.map((tab) => {
             const on = tab.id === activeTabId;

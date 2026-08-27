@@ -50,20 +50,6 @@ export interface ShellRouteDef {
 
 const PRIMARY: ShellRouteDef[] = [
    {
-      id: 'inbox',
-      label: 'inbox',
-      href: '/inbox',
-      prefsKey: 'inbox',
-      icon: '<path d="M4 13l2.2-7.4A1 1 0 017.2 5h9.6a1 1 0 01.96.7L20 13" /><path d="M4 13h4.5l1.5 2.2h4l1.5-2.2H20v4a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
-   },
-   {
-      id: 'reviews',
-      label: 'reviews',
-      href: '/reviews',
-      prefsKey: 'reviews',
-      icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
-   },
-   {
       id: 'chat',
       label: 'chat',
       href: '/chat',
@@ -86,6 +72,13 @@ const WORK: ShellRouteDef[] = [
       href: '/my-issues',
       prefsKey: 'my-issues',
       icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
+   },
+   {
+      id: 'reviews',
+      label: 'reviews',
+      href: '/reviews',
+      prefsKey: 'reviews',
+      icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
    },
    {
       id: 'goals',

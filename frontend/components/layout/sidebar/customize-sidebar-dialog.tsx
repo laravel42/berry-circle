@@ -25,7 +25,6 @@ import {
    FolderKanban,
    GitPullRequest,
    GripVertical,
-   Inbox,
    LucideIcon,
    ListChecks,
    MessageSquare,
@@ -46,14 +45,13 @@ interface ItemConfig {
 }
 
 export const PERSONAL_ITEMS: ItemConfig[] = [
-   { key: 'inbox', label: 'inbox', icon: Inbox, badged: true },
-   { key: 'reviews', label: 'reviews', icon: GitPullRequest },
    { key: 'chat', label: 'chat', icon: MessageSquare },
    { key: 'meetings', label: 'meetings', icon: Video },
 ];
 
 export const WORKSPACE_ITEMS: ItemConfig[] = [
    { key: 'my-issues', label: 'tasks', icon: FolderKanban },
+   { key: 'reviews', label: 'reviews', icon: GitPullRequest },
    { key: 'goals', label: 'goals', icon: Target },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'projects', label: 'projects', icon: Box },

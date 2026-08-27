@@ -8,6 +8,9 @@ import { describeRoute } from './shell-tab-model';
 import { ShellRail } from './shell-rail';
 import { ShellTabs } from './shell-tabs';
 import { shellIconButton } from './shell-icon';
+import { NotificationBell } from '../notifications/notification-bell';
+import { NotificationsDrawer } from '../notifications/notifications-drawer';
+import { NotificationToasts } from '../notifications/notification-toasts';
 
 /**
  * The application shell from `Berry Prototype.dc.html`: a collapsible rail, a
@@ -135,16 +138,23 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
          )}
 
          <div className="relative flex h-[100vh] max-h-[100vh] min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
-            <ShellTabs
-               tabs={tabs}
-               activeTabId={activeTabId}
-               onActivate={handleActivate}
-               onClose={handleClose}
-               onNew={handleNew}
-            />
+            {/* The bell sits outside the strip, which scrolls: an unread
+                count that can scroll out of view is not a count. */}
+            <div className="flex h-[34px] flex-none items-stretch bg-[var(--shell-rail)]">
+               <ShellTabs
+                  tabs={tabs}
+                  activeTabId={activeTabId}
+                  onActivate={handleActivate}
+                  onClose={handleClose}
+                  onNew={handleNew}
+               />
+               <NotificationBell />
+            </div>
             <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">
                {children}
             </main>
+            <NotificationsDrawer />
+            <NotificationToasts />
          </div>
       </div>
    );

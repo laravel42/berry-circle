@@ -19,6 +19,7 @@ import { currentUser } from '@/data/users';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { useCreateIssueStore } from '@/store/create-issue-store';
+import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store';
 import { useCreatePlanStore } from '@/store/create-plan-store';
 import { useCreateWorkflowStore } from '@/store/create-workflow-store';
 import { useIssuesStore } from '@/store/issues-store';
@@ -34,7 +35,7 @@ import {
    Compass,
    FileText,
    GitBranch,
-   Inbox,
+   Bell,
    Layers,
    Link2,
    ListChecks,
@@ -75,6 +76,7 @@ function Keys({ keys }: { keys: string[] }) {
 /** ⌘K command palette — Linear-style, aware of the issue in context. */
 export function CommandPalette() {
    const [open, setOpen] = useState(false);
+   const openNotifications = useNotificationsDrawerStore((state) => state.open);
    const [route, setRoute] = useState<PaletteRoute>('root');
    const [query, setQuery] = useState('');
    /** When true, the issue context chip was dismissed with ⌫. */
@@ -430,8 +432,13 @@ export function CommandPalette() {
                            </CommandItem>
                         </CommandGroup>
                         <CommandGroup heading="Go to">
-                           <CommandItem onSelect={() => go('/inbox')}>
-                              <Inbox className="text-muted-foreground" /> Inbox
+                           <CommandItem
+                              onSelect={() => {
+                                 setOpen(false);
+                                 openNotifications();
+                              }}
+                           >
+                              <Bell className="text-muted-foreground" /> Notifications
                               <Keys keys={['G', 'I']} />
                            </CommandItem>
                            <CommandItem onSelect={() => go('/my-issues')}>

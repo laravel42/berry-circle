@@ -35,7 +35,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
       <>
          <div className="px-3.5 pt-4 pb-3.5">
             <Link
-               href={`/${orgId}/inbox`}
+               href={`/${orgId}/my-issues`}
                className="flex w-fit items-center gap-1.5 rounded-[5px] bg-[var(--shell-line)] px-2 py-1 text-[var(--shell-text-muted)] transition-colors hover:bg-[var(--shell-line-strong)] hover:text-[var(--shell-text)]"
             >
                <ChevronLeft className="size-4" />

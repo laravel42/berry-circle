@@ -8,7 +8,7 @@ export function BackToApp() {
    return (
       <div className="w-full flex items-center justify-between gap-2">
          <Button className="w-fit" size="xs" variant="outline" asChild>
-            <Link href={`/${WORKSPACE_SLUG}/inbox`}>
+            <Link href={`/${WORKSPACE_SLUG}/my-issues`}>
                <ChevronLeft className="size-4" />
                Back to app
             </Link>

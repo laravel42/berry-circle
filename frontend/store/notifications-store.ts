@@ -7,8 +7,18 @@ interface NotificationsState {
    notifications: InboxItem[];
    selectedNotification: InboxItem | undefined;
    serverUnreadCount: number | null;
+   /**
+    * Notifications that arrived since the last hydration, for the toaster.
+    *
+    * Kept as state rather than announced from here so the store stays free of
+    * UI: something that renders subscribes, shows them and clears them. Empty
+    * after the first hydration of a session — everything is new the first
+    * time, and a stack of toasts for a backlog is not an announcement.
+    */
+   arrivals: InboxItem[];
 
    hydrateNotifications: (notifications: InboxItem[]) => void;
+   clearArrivals: () => void;
    setServerUnreadCount: (count: number) => void;
    setSelectedNotification: (notification: InboxItem | undefined) => void;
    markAsRead: (id: string) => void;
@@ -21,6 +31,23 @@ interface NotificationsState {
    getNotificationsByUser: (userId: string) => InboxItem[];
    getNotificationById: (id: string) => InboxItem | undefined;
    getUnreadCount: () => number;
+}
+
+/**
+ * Ids this session has already shown, and whether a first hydration happened.
+ *
+ * Module state rather than store state: it is bookkeeping for the toaster, not
+ * something a component reads or renders.
+ */
+const seenIds = new Set<string>();
+let hydratedOnce = false;
+
+function trackSeen(notifications: InboxItem[]): { seen: Set<string>; primed: boolean } {
+   const before = new Set(seenIds);
+   const primed = hydratedOnce;
+   for (const item of notifications) seenIds.add(item.id);
+   hydratedOnce = true;
+   return { seen: before, primed };
 }
 
 function workspaceIdFromSession(): string | undefined {
@@ -44,8 +71,17 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
    notifications: mockNotifications,
    selectedNotification: undefined,
    serverUnreadCount: null,
+   arrivals: [],
+
+   clearArrivals: () => set({ arrivals: [] }),
 
    hydrateNotifications: (notifications) => {
+      const { seen, primed } = trackSeen(notifications);
+      set({
+         arrivals: primed
+            ? notifications.filter((item) => !item.read && !seen.has(item.id))
+            : [],
+      });
       set({
          notifications,
          selectedNotification: notifications[0],
