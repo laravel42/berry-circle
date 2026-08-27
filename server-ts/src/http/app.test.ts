@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { json } from './app.ts';
+import { applyStandardHeaders, createApp, json } from './app.ts';
 import { overlaps, Registry, MountConflict } from './registry.ts';
 import { Hono } from 'hono';
 
@@ -37,4 +37,49 @@ test('a prefix must be absolute and must not trail a slash', () => {
    const registry = new Registry();
    assert.throws(() => registry.register({ prefix: 'api/v1/x', handler: new Hono() }));
    assert.throws(() => registry.register({ prefix: '/api/v1/x/', handler: new Hono() }));
+});
+
+test('every response carries the headers Go sets', async () => {
+   // Captured from `curl -D- http://127.0.0.1:4000/health`. This server
+   // shipped with none of them: they were set through context.header, which a
+   // handler returning its own Response never sees.
+   const headers = new Headers();
+   applyStandardHeaders(headers, 'req_abc');
+   assert.equal(headers.get('X-Content-Type-Options'), 'nosniff');
+   assert.equal(headers.get('X-Frame-Options'), 'DENY');
+   assert.equal(headers.get('Referrer-Policy'), 'no-referrer');
+   assert.equal(
+      headers.get('Content-Security-Policy'),
+      "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+   );
+   assert.equal(headers.get('Permissions-Policy'), 'camera=(), microphone=(), geolocation=()');
+   assert.equal(headers.get('X-Request-Id'), 'req_abc');
+});
+
+test('the headers survive a handler that returns its own Response', async () => {
+   // The regression itself: json() builds a fresh Response, so anything set on
+   // the Hono context beforehand is discarded.
+   const registry = new Registry();
+   const route = new Hono();
+   route.get('/', () => json({ ok: true }));
+   registry.register({ prefix: '/probe', handler: route });
+
+   const response = await createApp(registry).request('/probe');
+   assert.equal(response.headers.get('X-Frame-Options'), 'DENY');
+   assert.match(response.headers.get('X-Request-Id') ?? '', /^req_[0-9a-f]{32}$/);
+});
+
+test('a client-supplied request id is echoed only when it is safe', async () => {
+   const registry = new Registry();
+   const route = new Hono();
+   route.get('/', () => json({ ok: true }));
+   registry.register({ prefix: '/probe', handler: route });
+   const app = createApp(registry);
+
+   const good = await app.request('/probe', { headers: { 'x-request-id': 'req_' + 'a'.repeat(32) } });
+   assert.equal(good.headers.get('X-Request-Id'), 'req_' + 'a'.repeat(32));
+
+   // An arbitrary header value reaches the logs and the error envelope.
+   const bad = await app.request('/probe', { headers: { 'x-request-id': 'has space' } });
+   assert.notEqual(bad.headers.get('X-Request-Id'), 'has space');
 });

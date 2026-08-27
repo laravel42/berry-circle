@@ -12,6 +12,16 @@ import postgres from 'postgres';
 export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string }>;
 
 /**
+ * A pool or an open transaction.
+ *
+ * Helpers take this so the same function works inside and outside a
+ * transaction. Passing the pool where a transaction is meant is the classic
+ * way to run one statement of a supposedly atomic sequence on its own
+ * connection, outside the transaction that was meant to protect it.
+ */
+export type Queryable = Sql | postgres.TransactionSql<{ timestamptz: string; timestamp: string }>;
+
+/**
  * A PostgreSQL timestamptz as Go renders it: RFC 3339 in UTC, keeping whatever
  * precision the column holds.
  *

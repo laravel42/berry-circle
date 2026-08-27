@@ -37,6 +37,44 @@ interface Probe {
 /** Fields that legitimately differ between two processes answering the same call. */
 const VOLATILE = /^(requestId|createdAt|updatedAt|startedAt|completedAt|readyAt|occurredAt|timestamp|id)$/;
 
+/**
+ * Headers that differ by transport or by request, not by contract.
+ *
+ * Everything else is compared, because headers are contract too: this server
+ * shipped with no Content-Security-Policy at all while every body matched
+ * perfectly, and a body-only diff called that a pass.
+ */
+const VOLATILE_HEADERS = new Set([
+   'date',
+   'content-length',
+   'connection',
+   'keep-alive',
+   'transfer-encoding',
+   'x-request-id',
+   'x-trace-id',
+   'location', // carries a generated id
+]);
+
+function comparableHeaders(response: Response): Record<string, string> {
+   const out: Record<string, string> = {};
+   for (const [name, value] of response.headers) {
+      if (!VOLATILE_HEADERS.has(name.toLowerCase())) out[name.toLowerCase()] = value;
+   }
+   return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Names present on one side or differing in value. */
+function headerDifferences(
+   go: Record<string, string>,
+   ts: Record<string, string>
+): string[] {
+   const names = new Set([...Object.keys(go), ...Object.keys(ts)]);
+   return [...names]
+      .filter((name) => go[name] !== ts[name])
+      .sort()
+      .map((name) => `${name}: go=${go[name] ?? '(absent)'} ts=${ts[name] ?? '(absent)'}`);
+}
+
 interface Comparison {
    path: string;
    status: { go: number; ts: number };
@@ -44,6 +82,8 @@ interface Comparison {
    /** Equal once request ids and timestamps are blanked: a passing result. */
    volatileOnly: boolean;
    sameShape: boolean;
+   /** Header names that differ, excluding transport and per-request ones. */
+   headers: string[];
    go: unknown;
    ts: unknown;
 }
@@ -73,10 +113,12 @@ async function fetchBoth(probe: Probe): Promise<Comparison> {
    if (!goResponse || !tsResponse) {
       throw new Error(`could not reach ${!goResponse ? GO : TS} — is it running?`);
    }
+   const headers = headerDifferences(comparableHeaders(goResponse), comparableHeaders(tsResponse));
    const go: unknown = await parse(goResponse);
    const ts: unknown = await parse(tsResponse);
    return {
       path,
+      headers,
       status: { go: goResponse.status, ts: tsResponse.status },
       identical: JSON.stringify(go) === JSON.stringify(ts),
       volatileOnly: JSON.stringify(blank(go)) === JSON.stringify(blank(ts)),
@@ -159,7 +201,8 @@ for (const probe of probes) {
         : result.sameShape
           ? 'SAME SHAPE, DIFFERENT DATA'
           : 'CONTRACT DIFFERS';
-   const passed = result.volatileOnly && result.status.go === result.status.ts;
+   const passed =
+      result.volatileOnly && result.status.go === result.status.ts && result.headers.length === 0;
    if (!passed) mismatches += 1;
 
    console.log(`${result.path}`);
@@ -169,11 +212,14 @@ for (const probe of probes) {
       console.log(`  go       ${JSON.stringify(result.go)}`);
       console.log(`  ts       ${JSON.stringify(result.ts)}`);
    }
+   for (const difference of result.headers) {
+      console.log(`  HEADER   ${difference}`);
+   }
    console.log('');
 }
 
 if (mismatches > 0) {
-   console.error(`${mismatches} path(s) differ beyond request ids and timestamps.`);
+   console.error(`${mismatches} path(s) differ in body, status or headers.`);
    process.exit(1);
 }
-console.log('Every path matches, request ids and timestamps aside.');
+console.log('Every path matches in body, status and headers.');

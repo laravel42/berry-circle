@@ -24,12 +24,18 @@ export function createApp(registry: Registry): BerryApp {
 
    // A client may supply its own correlation id, but only a safe one: an
    // arbitrary header value ends up in logs and in the error envelope.
+   //
+   // Headers are applied to the finished response rather than through
+   // context.header, because handlers return their own Response objects and a
+   // fresh Response does not inherit what Hono accumulated on the context.
+   // That is how this server shipped with no security headers at all: they
+   // were being set somewhere the response never looked.
    app.use('*', async (context, next) => {
       const supplied = context.req.header('x-request-id');
       const requestId = isValidRequestId(supplied) ? supplied : newRequestId();
       context.set('requestId', requestId);
-      context.header('X-Request-Id', requestId);
       await next();
+      applyStandardHeaders(context.res.headers, requestId);
    });
 
    registry.attach(app);
@@ -49,6 +55,26 @@ export function createApp(registry: Registry): BerryApp {
    });
 
    return app;
+}
+
+/**
+ * Headers Go sets on every response, from httpapi.securityHeaders.
+ *
+ * The values are copied exactly. A browser applies whichever it is given, so a
+ * looser CSP here than in Go would mean the protection depends on which server
+ * answered — and during the strangler that varies by prefix.
+ */
+const STANDARD_HEADERS: ReadonlyArray<readonly [string, string]> = [
+   ['X-Content-Type-Options', 'nosniff'],
+   ['X-Frame-Options', 'DENY'],
+   ['Referrer-Policy', 'no-referrer'],
+   ['Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"],
+   ['Permissions-Policy', 'camera=(), microphone=(), geolocation=()'],
+];
+
+export function applyStandardHeaders(headers: Headers, requestId: string): void {
+   for (const [name, value] of STANDARD_HEADERS) headers.set(name, value);
+   headers.set('X-Request-Id', requestId);
 }
 
 function respondWithError(requestId: string, error: ApiError): Response {

@@ -7,15 +7,23 @@ are not. A prefix answered by both servers is only safe to move when the
 responses agree; "it returns 200" is not the bar.
 
 Check with `scripts/contract-diff.ts` against both servers pointed at the **same
-database**, or the drift you see is data, not contract.
+database**, or the drift you see is data, not contract. It compares headers as
+well as bodies: this server once answered every path with a byte-identical body
+and no Content-Security-Policy at all, and a body-only diff called that a pass.
 
 ## Ready
 
 | Prefix | Verified |
 |---|---|
 | `/health` | byte-identical |
-| `/api/v1/me` | byte-identical, authenticated, same database (786 bytes) |
+| `/api/v1/me` | 33 probes — reads, writes, validation edges — body, status and headers |
+| `/api/v1/workspaces` | 35 probes, including pagination, authorization and the last-owner rule |
 | the error envelope | byte-identical for 401 and 404, request id aside |
+
+Timestamps written by this server carry millisecond precision where Go's carry
+microseconds, because Node's clock stops there. Ordering is unaffected — the
+`(created_at, id)` cursor breaks ties on the id — but two rows created in the
+same millisecond share a `created_at` here where Go would separate them.
 
 ## Not ready, and what blocks each
 

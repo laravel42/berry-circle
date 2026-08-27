@@ -43,7 +43,7 @@ export interface Profile {
  * `issuePrefix` first. Passing the column through changes the bytes on the
  * wire even when every value matches.
  */
-export interface WorkspaceSettings {
+export type WorkspaceSettings = {
    issuePrefix: string;
    defaultRole: string;
    allowMemberInvites: boolean;

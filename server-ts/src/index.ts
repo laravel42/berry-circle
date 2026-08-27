@@ -6,7 +6,9 @@ import { Registry } from './http/registry.ts';
 import { platformMounts } from './mounts/platform.ts';
 import { authMounts } from './mounts/auth.ts';
 import { meMounts } from './mounts/me.ts';
+import { workspaceMounts } from './mounts/workspaces.ts';
 import { IdentityRepository } from './identity/repository.ts';
+import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SessionService } from './auth/sessions.ts';
 
 /**
@@ -26,9 +28,11 @@ const sessions = new SessionService({
 });
 
 const identity = new IdentityRepository(sql);
+const workspaces = new WorkspaceRepository(sql);
 
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));
+registry.registerAll(workspaceMounts({ sessions, workspaces }));
 registry.registerAll(
    authMounts({
       sessions,
