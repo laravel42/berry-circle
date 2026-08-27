@@ -1,10 +1,28 @@
 # What may be routed to the TypeScript server
 
-The frontend reaches the API through `frontend/next.config.ts`, which rewrites
-`/api/:path*` to one origin. The migration moves prefixes across one at a time,
-so this file records which are ready and — more importantly — why the others
-are not. A prefix answered by both servers is only safe to move when the
-responses agree; "it returns 200" is not the bar.
+The frontend reaches the API through `frontend/next.config.ts`. It sends
+everything to Go unless `BERRY_TS_API_ORIGIN` is set, and then moves only the
+prefixes in that file's `TYPESCRIPT_ROUTES` list. The migration moves prefixes
+across one at a time, so this file records which are ready and — more
+importantly — why the others are not. A prefix answered by both servers is only
+safe to move when the responses agree; "it returns 200" is not the bar.
+
+See `SCOPE.md` for the sections that are not being migrated at all.
+
+## Turning it on
+
+```
+BERRY_TS_API_ORIGIN=http://127.0.0.1:4100
+```
+
+**The TypeScript server must be running.** With the variable set and nothing
+listening, the routed prefixes fail — the proxy does not fall back to Go, and a
+silent fallback would be worse: it would hide an outage behind a working app.
+Unset the variable to put everything back on Go.
+
+The patterns are narrow on purpose. `/api/v1/issues/:issueRef` matches one
+segment, so `/api/v1/issues/BER-1/comments` falls through to Go — the only
+server that has comments. A `:path*` there would 404 every nested route.
 
 Check with `scripts/contract-diff.ts` against both servers pointed at the **same
 database**, or the drift you see is data, not contract. It compares headers as
