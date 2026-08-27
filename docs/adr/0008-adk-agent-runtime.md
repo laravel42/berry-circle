@@ -1,6 +1,6 @@
 # ADR-0008: Run agents in-process with the Google Agent Development Kit
 
-- **Status:** Accepted — stages 1–5 shipped, stage 6 outstanding
+- **Status:** Accepted — stages 1–5 shipped; stage 6 blocked on AUTOMATE
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
 - **Related:** [ADR-0003](0003-pin-openfang-by-commit.md) (pin OpenFang by
@@ -174,8 +174,33 @@ Staged so Berry stays usable throughout. Each stage is shippable.
    spawning anything (`EnsureLocalOrchestrators`). Spawn and sync still exist
    for `BERRY_AGENT_RUNTIME=openfang` and go with the rest of
    `internal/openfang` at stage 6.
-6. **Retire OpenFang.** Not yet. `internal/openfang` still serves the
-   OpenFang runtime, the model catalogue and agent chat.
+6. **Retire OpenFang.** Not yet, and the reason is no longer technical.
+
+   Every WORK surface is off it: intake, dispatch, runs, artifacts, peer
+   review (`internal/autogate` → `internal/openrouter`), the planner's model
+   roles (`modelgateway.DirectGateway`) and the model catalogue
+   (`modelcatalog` with no runtime half). Verified by stopping the container
+   and running both loops — an auto-gated task through dispatch, artifacts and
+   a peer verdict, and a plan through classifier, planner, validation, repair
+   and critic.
+
+   What still calls it:
+
+   | surface | why it is still there |
+   |---|---|
+   | `handlers/conversations` | chat with an agent — AUTOMATE, excluded from the migration |
+   | `service/automationrun` | the workflow engine's agent step — AUTOMATE, excluded |
+   | `service/projectplanning` | `POST /projects/:id/generated-issues`, deferred in server-ts/SCOPE.md |
+   | `handlers/agents/ask.go` | `POST /agents/:id/ask` — nothing in the product calls it |
+   | `handlers/runtime` | an operator probe *of OpenFang*, which has nothing to move to |
+
+   Everything else that imports the package is either compiled-in and never
+   called under ADK — `runadmission`'s stream loop, `agents/sync.go`,
+   `orchestration/bootstrap.go`'s spawn path, `modelgateway/provisioning.go` —
+   or uses it only for a type (`AgentLimits`, `CatalogModel`).
+
+   So the blocker is a product decision, not an engineering one: AUTOMATE is
+   to be rebuilt rather than migrated, and OpenFang goes when it is.
 
 ### How this differed from the plan
 
@@ -186,6 +211,13 @@ The runtime is TypeScript, because ADR-0008 was written the same day the server
 migration started and the two decisions met. Everything above lives in
 `server-ts/`, and the Go worker reaches it over one HTTP call
 (`internal/service/adkruntime`) until the orchestration moves too.
+
+The chat route was the other. This ADR treats OpenFang as an agent runtime,
+and it is, but four of Berry's callers only ever used its OpenAI-compatible
+chat endpoint — which forwarded the request to OpenRouter and returned what
+came back. For those the migration is not a replacement at all; it is deleting
+a hop. Naming an agent instead of a model was the only thing it added, and
+Berry held the pairing the whole time.
 
 "The sync loop mostly disappears" understated it. Sync does not merely become
 redundant under ADK — it is destructive: an agent OpenFang has never heard of
