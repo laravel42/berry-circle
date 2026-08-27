@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { LlmAgent, Runner, isFinalResponse } from '@google/adk';
+import { LlmAgent, Runner, StreamingMode, isFinalResponse } from '@google/adk';
 import type { Event } from '@google/adk';
 import type { Sql } from '../db/pool.ts';
 import type { Storage } from '../storage/storage.ts';
@@ -42,6 +42,21 @@ const MAX_SUMMARY_BYTES = 5_000;
  * followed, often enough that the distinction is worth this constant.
  */
 const SUBSTANTIVE_RESULT_BYTES = 400;
+
+/**
+ * How much streamed text is gathered before it becomes one ledger event.
+ *
+ * OpenFang emitted whole sentences and Berry wrote one event per chunk;
+ * OpenRouter emits tokens, and one transaction per token would mean thousands
+ * of row-locked writes for one answer and a `run_events` table that is mostly
+ * single words. Gathering to roughly a sentence keeps the stream live without
+ * making the ledger a token log.
+ *
+ * The cap matches Go's publicChunkBytes ceiling on a single delta.
+ */
+const OUTPUT_FLUSH_BYTES = 240;
+const OUTPUT_FLUSH_MS = 250;
+const MAX_DELTA_BYTES = 16 * 1024;
 
 export interface ExecutorOptions {
    sql: Sql;
@@ -196,7 +211,14 @@ export class AdkExecutor {
       };
       const result = new ResultText();
       const openTools = new Map<string, string>();
+      const output = new OutputBuffer((text) =>
+         this.ledger.appendOutput(dispatch.runId, 'progress', text)
+      );
       let toolCalls = 0;
+      // Whether this turn arrived as deltas. When it did, the aggregated event
+      // that closes the turn repeats every one of them, and recording its text
+      // too would double the run's output and its report.
+      let streamed = false;
 
       try {
          for await (const event of runner.runAsync({
@@ -206,15 +228,37 @@ export class AdkExecutor {
                role: 'user',
                parts: [{ text: buildMessage({ ...dispatch, reviewFeedback }) }],
             },
+            // Token by token, as Berry's run stream has always shown it. A run
+            // that only appears when it is over is a run people assume hung.
+            runConfig: { streamingMode: StreamingMode.SSE },
+            ...(signal ? { abortSignal: signal } : {}),
          })) {
             if (signal?.aborted) throw new RunCancelled();
-            toolCalls += await this.recordEvent(dispatch.runId, event, result, openTools);
+            const skipText = streamed && event.partial !== true;
+            toolCalls += await this.recordEvent(
+               dispatch.runId,
+               event,
+               result,
+               openTools,
+               output,
+               skipText
+            );
+            if (event.partial === true) streamed = true;
             addUsage(usage, event);
             // ADK marks the end of a turn; the result accumulator needs it to
             // tell a report from the progress that preceded it.
-            if (isTurnComplete(event)) result.endTurn();
+            if (isTurnComplete(event)) {
+               // Flushed at the boundary so the ledger never shows a turn
+               // ending before the text that ended it.
+               await output.flush();
+               result.endTurn();
+               streamed = false;
+            }
          }
       } catch (error) {
+         // Whatever was gathered is part of the record even when the run ends
+         // badly: it is what the agent had said before it stopped.
+         await output.flush().catch(() => undefined);
          result.endTurn();
          if (error instanceof RunCancelled || signal?.aborted) {
             return this.cancel(dispatch, usage, toolCalls);
@@ -222,6 +266,7 @@ export class AdkExecutor {
          return this.fail(dispatch, error, usage, toolCalls);
       }
 
+      await output.flush();
       result.endTurn();
       // Every tool the agent left open failed by omission: the iterator ended
       // without a response for it. Recording nothing would leave the run
@@ -242,12 +287,17 @@ export class AdkExecutor {
       runId: string,
       event: Event,
       result: ResultText,
-      openTools: Map<string, string>
+      openTools: Map<string, string>,
+      output: OutputBuffer,
+      skipText: boolean
    ): Promise<number> {
       let toolCalls = 0;
 
       for (const part of event.content?.parts ?? []) {
          if (part.functionCall) {
+            // Before the tool event, so the ledger reads in the order things
+            // happened: the agent said something, then called something.
+            await output.flush();
             const callId = part.functionCall.id ?? `tool_${openTools.size + 1}`;
             openTools.set(callId, part.functionCall.name ?? '');
             toolCalls += 1;
@@ -266,9 +316,10 @@ export class AdkExecutor {
          }
          // A thought is the model reasoning, not the agent's answer. Recording
          // it as output would put it in the comment the task receives.
-         if (typeof part.text === 'string' && part.text !== '' && !part.thought) {
+         if (!skipText && typeof part.text === 'string' && part.text !== '' && !part.thought) {
+            // The result keeps every character; the ledger gets them gathered.
             result.append(part.text);
-            await this.ledger.appendOutput(runId, 'progress', part.text);
+            await output.add(part.text);
          }
       }
       return toolCalls;
@@ -369,6 +420,70 @@ class RunCancelled extends Error {
       super('run cancelled');
       this.name = 'RunCancelled';
    }
+}
+
+/**
+ * Gathers streamed text into ledger-sized deltas.
+ *
+ * Time as well as size, because size alone stalls: an agent that stops
+ * mid-sentence to think would leave its last words unwritten until it resumed,
+ * and a reader watching the run would see it freeze. Whichever comes first
+ * wins.
+ */
+class OutputBuffer {
+   private readonly write: (text: string) => Promise<void>;
+   private pending = '';
+   private since = 0;
+
+   constructor(write: (text: string) => Promise<void>) {
+      this.write = write;
+   }
+
+   async add(text: string): Promise<void> {
+      if (this.pending === '') this.since = Date.now();
+      this.pending += text;
+      const size = Buffer.byteLength(this.pending, 'utf8');
+      if (size >= OUTPUT_FLUSH_BYTES || Date.now() - this.since >= OUTPUT_FLUSH_MS) {
+         await this.flush();
+      }
+   }
+
+   async flush(): Promise<void> {
+      if (this.pending === '') return;
+      const text = this.pending;
+      this.pending = '';
+      // Split rather than truncated: a delta over the cap is still the
+      // agent's words, and dropping the tail would lose them from the stream
+      // while the summary still had them.
+      for (const piece of splitUtf8(text, MAX_DELTA_BYTES)) await this.write(piece);
+   }
+}
+
+/**
+ * Cuts text into pieces of at most `maxBytes`, never mid-character.
+ *
+ * Ported from runadmission's splitUTF8, and for the same reason: a delta cut
+ * mid-sequence reaches the browser as a replacement character in the middle of
+ * a word.
+ */
+export function splitUtf8(value: string, maxBytes: number): string[] {
+   if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value === '' ? [] : [value];
+
+   const pieces: string[] = [];
+   let piece = '';
+   let size = 0;
+   for (const character of value) {
+      const width = Buffer.byteLength(character, 'utf8');
+      if (size + width > maxBytes) {
+         pieces.push(piece);
+         piece = '';
+         size = 0;
+      }
+      piece += character;
+      size += width;
+   }
+   if (piece !== '') pieces.push(piece);
+   return pieces;
 }
 
 /**

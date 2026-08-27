@@ -10,7 +10,7 @@ import type {
 } from '@google/adk';
 import type { Part } from '@google/genai';
 import type { Sql } from '../db/pool.ts';
-import { ObjectNotFound, type Storage } from '../storage/storage.ts';
+import { ObjectNotFound, sniffContentType, type Storage } from '../storage/storage.ts';
 
 /**
  * ADK artifacts backed by `run_artifacts` and object storage.
@@ -77,7 +77,11 @@ export class BerryArtifactService implements BaseArtifactService {
    async saveArtifact(request: SaveArtifactRequest): Promise<number> {
       const path = artifactPath(request.filename);
       const body = partToBytes(request.artifact);
-      const contentType = request.artifact.inlineData?.mimeType ?? 'application/octet-stream';
+      // Sniffed rather than defaulted when the part names no type. An agent
+      // writing prose produces a text Part with no mimeType, and recording
+      // that as application/octet-stream makes the browser download a
+      // markdown file instead of showing it.
+      const contentType = request.artifact.inlineData?.mimeType ?? sniffContentType(body);
       const checksum = createHash('sha256').update(body).digest();
 
       const id = this.newId();

@@ -11,6 +11,7 @@ import { secretsMounts } from './mounts/secrets.ts';
 import { boardMounts } from './mounts/boards.ts';
 import { issueMounts } from './mounts/issues.ts';
 import { projectMounts } from './mounts/projects.ts';
+import { internalRunMounts } from './mounts/internal-runs.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
 import { SecretsRepository } from './identity/secrets.ts';
@@ -21,6 +22,8 @@ import { Hub } from './realtime/hub.ts';
 import { Distributed } from './realtime/distributed.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
+import { Storage } from './storage/storage.ts';
+import { AdkExecutor } from './agents/executor.ts';
 
 /**
  * The composition root, the counterpart to server/cmd/api/main.go.
@@ -51,6 +54,40 @@ const projects = new ProjectRepository(sql);
 const broadcaster = new Distributed(new Hub(config.realtimeBuffer), null);
 const idempotency = new IdempotencyStore(sql);
 
+/**
+ * The agent runtime, present only when this server can actually run one.
+ *
+ * Both halves are required and neither has a safe default: without a model
+ * credential there is nothing to call, and without object storage an agent's
+ * files would have nowhere to land — a run that produced work and dropped it
+ * is worse than one that never started.
+ */
+const storage = config.storage
+   ? new Storage({
+        bucket: config.storage.bucket,
+        region: config.storage.region,
+        ...(config.storage.endpoint ? { endpoint: config.storage.endpoint } : {}),
+        forcePathStyle: config.storage.forcePathStyle,
+        ...(config.storage.accessKeyId ? { accessKeyId: config.storage.accessKeyId } : {}),
+        ...(config.storage.secretAccessKey
+           ? { secretAccessKey: config.storage.secretAccessKey }
+           : {}),
+        ...(config.storage.sessionToken ? { sessionToken: config.storage.sessionToken } : {}),
+        maxBytes: config.storage.maxBytes,
+     })
+   : null;
+
+const executor =
+   config.agents && storage
+      ? new AdkExecutor({
+           sql,
+           storage,
+           apiKey: config.agents.apiKey,
+           baseUrl: config.agents.baseUrl,
+           defaultModel: config.agents.defaultModel,
+        })
+      : null;
+
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
@@ -58,6 +95,7 @@ registry.registerAll(secretsMounts({ sessions, secrets }));
 registry.registerAll(boardMounts({ sessions, boards, idempotency }));
 registry.registerAll(issueMounts({ sessions, issues, boards, idempotency, broadcaster }));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
+registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(
    authMounts({
       sessions,
@@ -74,13 +112,16 @@ registry.registerAll(
          // Reported by whichever server answers, so they have to agree. Only
          // what this process can actually do is true; the rest arrive with the
          // mounts that provide them.
-         agentExecution: false,
+         // True only when a model credential and object storage are both
+         // present: this is what the browser uses to decide whether running
+         // an agent is offered at all.
+         agentExecution: executor !== null && config.internalToken !== null,
          // False regardless of configuration: this process does not serve
          // /metrics yet, and a capability the browser is told about must be
          // one the server actually has.
          metrics: false,
          realtime: false,
-         storage: false,
+         storage: storage !== null,
          valkey: false,
          planner: false,
          workflows: false,

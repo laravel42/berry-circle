@@ -17,6 +17,35 @@ export interface Config {
    allowPasswordlessLogin: boolean;
    /** Per-subscriber realtime event buffer, before a slow client is dropped. */
    realtimeBuffer: number;
+   storage: StorageConfig | null;
+   agents: AgentConfig | null;
+   /**
+    * The shared secret that lets Berry's own worker ask this server to execute
+    * a run. Null disables the internal surface entirely rather than leaving it
+    * open — an unauthenticated endpoint that runs agents and spends money is
+    * not something to default into.
+    */
+   internalToken: string | null;
+}
+
+/** Object storage for run artifacts. Null when it is not configured. */
+export interface StorageConfig {
+   bucket: string;
+   region: string;
+   endpoint: string | undefined;
+   forcePathStyle: boolean;
+   accessKeyId: string | undefined;
+   secretAccessKey: string | undefined;
+   sessionToken: string | undefined;
+   maxBytes: number;
+}
+
+/** What agents run on. Null when no model credential is configured. */
+export interface AgentConfig {
+   apiKey: string;
+   baseUrl: string;
+   /** Used when an agent row names no model of its own. */
+   defaultModel: string;
 }
 
 export class ConfigError extends Error {
@@ -54,6 +83,52 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // Per-subscriber event buffer. Reading the same variable Go reads, so a
       // deployment tuned for one server is tuned for both.
       realtimeBuffer: positiveInt(env.REALTIME_BUFFER, 64),
+      storage: storage(env),
+      agents: agents(env),
+      // Trimmed and required to be non-empty: a variable set to whitespace is
+      // an operator who meant to set it, and treating that as "configured"
+      // would accept a token nothing can present.
+      internalToken: (env.BERRY_INTERNAL_TOKEN ?? '').trim() || null,
+   };
+}
+
+/**
+ * Reads the same S3 variables the Go server reads.
+ *
+ * Only the bucket is required. Credentials may be absent on purpose — the AWS
+ * SDK then uses the workload's credential chain, which is how this runs
+ * outside development.
+ */
+function storage(env: NodeJS.ProcessEnv): StorageConfig | null {
+   const bucket = (env.S3_BUCKET ?? '').trim();
+   if (!bucket) return null;
+   return {
+      bucket,
+      region: (env.S3_REGION ?? 'us-east-1').trim(),
+      endpoint: (env.S3_ENDPOINT ?? '').trim() || undefined,
+      // MinIO addresses buckets by path, not by subdomain.
+      forcePathStyle: boolean(env.S3_USE_PATH_STYLE, true),
+      accessKeyId: (env.AWS_ACCESS_KEY_ID ?? '').trim() || undefined,
+      secretAccessKey: (env.AWS_SECRET_ACCESS_KEY ?? '').trim() || undefined,
+      sessionToken: (env.AWS_SESSION_TOKEN ?? '').trim() || undefined,
+      maxBytes: positiveInt(env.STORAGE_MAX_BYTES, 25 * 1024 * 1024),
+   };
+}
+
+/**
+ * The model credential, read from the same variable the gateway reads.
+ *
+ * BERRY_-prefixed first, for the reason the compose file gives: a stale
+ * OPENROUTER_API_KEY exported in a shell would otherwise silently outrank the
+ * one the deployment configured.
+ */
+function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
+   const apiKey = (env.BERRY_OPENROUTER_API_KEY ?? env.OPENROUTER_API_KEY ?? '').trim();
+   if (!apiKey) return null;
+   return {
+      apiKey,
+      baseUrl: (env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').trim(),
+      defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? 'anthropic/claude-sonnet-4.5').trim(),
    };
 }
 
