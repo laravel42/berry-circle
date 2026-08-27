@@ -558,7 +558,10 @@ export class IssueRepository {
             payload,
             occurredAt,
          };
-         const envelope = JSON.stringify({
+         // An object, not a pre-serialised string. Passing text and casting
+         // it with ::jsonb stores a jsonb *string* — the whole envelope
+         // quoted and escaped — which every consumer then fails to decode.
+         const envelope = {
             id: event.id,
             type: event.type,
             occurredAt: occurredAt.toISOString(),
@@ -570,14 +573,14 @@ export class IssueRepository {
             aggregateType: 'issue',
             aggregateId: event.issueId,
             payload: JSON.parse(payload),
-         });
+         };
          await tx`
             INSERT INTO outbox_events (
                id, topic, aggregate_type, aggregate_id, workspace_id, board_id,
                payload, occurred_at, available_at
             ) VALUES (
                ${event.id}, ${event.type}, 'issue', ${event.issueId}, ${event.workspaceId},
-               ${event.boardId}, ${envelope}::jsonb, ${occurredAt.toISOString()},
+               ${event.boardId}, ${tx.json(envelope)}::jsonb, ${occurredAt.toISOString()},
                ${occurredAt.toISOString()}
             )`;
          events.push(event);

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
 import {
    apiStatusToDb,
    dbStatusToApi,
@@ -137,4 +138,24 @@ test('search wildcards are escaped so they match literally', () => {
 test('an identifier is formatted uppercase, as Go formats it', () => {
    assert.equal(formatIdentifier('ber', 57), 'BER-57');
    assert.equal(formatIdentifier('  BER  ', 1), 'BER-1');
+});
+
+test('the outbox envelope is inserted as an object, never a pre-serialised string', () => {
+   // Passing text and casting it with ::jsonb stores a jsonb *string* — the
+   // whole envelope quoted and escaped. Every consumer then fails to decode
+   // it, and Go's workspace event stream answered 500 for two such rows.
+   //
+   // Asserted against the source because the mistake is in how the value
+   // reaches the driver, which no unit test of the returned events can see.
+   const source = readFileSync(new URL('./issues.ts', import.meta.url), 'utf8');
+   const insert = source.slice(source.indexOf('INSERT INTO outbox_events'));
+   const payloadParameter = insert.slice(0, insert.indexOf('::jsonb'));
+   assert.ok(
+      payloadParameter.includes('tx.json(envelope)'),
+      'the envelope must be passed through the driver\'s json() helper'
+   );
+   assert.ok(
+      !/const envelope = JSON\.stringify/.test(source),
+      'the envelope must be built as an object, not stringified first'
+   );
 });
