@@ -14,6 +14,7 @@
       "@aws-sdk/client-s3": "^3.1119.0",
       "@aws-sdk/s3-request-presigner": "^3.1119.0",
       "@google/adk": "^2.0.0",
+      "@google/genai": "^2.19.0",
       "@hono/node-server": "^2.1.1",
       "hono": "^4.13.5",
       "ioredis": "^6.0.0",
