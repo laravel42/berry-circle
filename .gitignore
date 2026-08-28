@@ -5,7 +5,7 @@ dist/
 .env
 .env.*
 !.env.example
-
+.vscode/
 # agent scratch workspaces (large, machine-local)
 .tmp-agents/
 .tmp-pr/
