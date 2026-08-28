@@ -57,6 +57,7 @@ def render_compose() -> dict[str, Any]:
             "BERRY_INTERNAL_TOKEN": "",
             "BERRY_OPENROUTER_API_KEY": "",
             "BERRY_RUNTIME_DRIVER": "",
+            "INTEGRATION_ENCRYPTION_KEY": "",
             "BERRY_RUNTIME_TOKEN": "",
             "BERRY_RUNTIME_URL": "",
             "BERRY_SANDBOX_CPUS": "",
@@ -239,7 +240,12 @@ def check_runtime(services: dict[str, Any]) -> None:
         object_value(services["berry-api"], "berry-api service").get("environment"),
         "berry-api environment",
     )
-    for key in ("BERRY_RUNTIME_DRIVER", "BERRY_RUNTIME_URL", "BERRY_RUNTIME_TOKEN"):
+    for key in (
+        "BERRY_RUNTIME_DRIVER",
+        "BERRY_RUNTIME_URL",
+        "BERRY_RUNTIME_TOKEN",
+        "INTEGRATION_ENCRYPTION_KEY",
+    ):
         if key not in api_environment:
             fail(f"berry-api environment is missing: {key}")
 

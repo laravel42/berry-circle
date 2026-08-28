@@ -72,6 +72,11 @@ services:
       BERRY_RUNTIME_DRIVER: "${BERRY_RUNTIME_DRIVER:-docker}"
       BERRY_RUNTIME_URL: "${BERRY_RUNTIME_URL:-http://runtime:4300}"
       BERRY_RUNTIME_TOKEN: "${BERRY_RUNTIME_TOKEN:-}"
+      # Seals provider credentials at rest. Empty leaves integrations off, so a
+      # run never gets a repository — which is a working deployment, rather
+      # than one that fails at the clone with a decryption error.
+      # Server-side only: never mirror this into a NEXT_PUBLIC_* variable.
+      INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-}"
     ports:
       - "127.0.0.1:${BERRY_API_PORT:-4000}:4000"
     read_only: true

@@ -30,6 +30,11 @@ export interface Config {
     * call rather than a null every caller has to remember to check.
     */
    execution: ExecutionConfig | null;
+   /**
+    * Seals provider credentials at rest. Null leaves integrations off — a
+    * deployment without a key stores nothing rather than storing it in clear.
+    */
+   integrationKey: string | null;
 }
 
 /**
@@ -116,6 +121,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // would accept a token nothing can present.
       internalToken: (env.BERRY_INTERNAL_TOKEN ?? '').trim() || null,
       execution: executionConfig,
+      // No generated fallback: a key that appeared on its own would differ
+      // between restarts and strand every credential already stored.
+      integrationKey: (env.INTEGRATION_ENCRYPTION_KEY ?? '').trim() || null,
    };
 }
 

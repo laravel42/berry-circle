@@ -336,6 +336,46 @@ export class RunLedger {
    }
 
    /**
+    * The repository this run will work in, once it is in the workspace.
+    *
+    * Written before the agent starts, so a person opening a run that is still
+    * cloning sees which repository it is waiting on rather than an empty log.
+    */
+   async appendRepositoryReady(
+      runId: string,
+      params: { repository: string; branch: string; baseCommit: string }
+   ): Promise<void> {
+      await this.appendActiveEvent(runId, 'run.repository.ready', {
+         repository: params.repository,
+         branch: params.branch,
+         baseCommit: params.baseCommit,
+      });
+   }
+
+   /**
+    * What the run delivered, or that it delivered nothing.
+    *
+    * `committed: false` is a legitimate outcome and is recorded as one — an
+    * agent that answered a question changed no files, and a run that says so
+    * is more useful than one that looks like it half-failed.
+    */
+   async appendDelivered(
+      runId: string,
+      params: {
+         committed: boolean;
+         commit: string | null;
+         branch: string;
+         filesChanged: number;
+         insertions: number;
+         deletions: number;
+         files: string[];
+         pullRequest: { number: number; url: string; created: boolean } | null;
+      }
+   ): Promise<void> {
+      await this.appendActiveEvent(runId, 'run.delivered', { ...params });
+   }
+
+   /**
     * Terminal success: usage, the summary, and the task moved to review.
     *
     * Three events in one transaction — usage, completion, and the issue update

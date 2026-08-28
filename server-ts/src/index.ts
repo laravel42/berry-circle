@@ -40,6 +40,8 @@ import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
 import { createExecutionDriver } from './execution/factory.ts';
+import { ConnectionRepository } from './integrations/connections.ts';
+import { sealerFromKey } from './integrations/sealing.ts';
 
 /**
  * The composition root.
@@ -108,6 +110,17 @@ const storage = config.storage
  */
 const execution = createExecutionDriver(config.execution);
 
+/**
+ * Provider connections, when a key exists to open them with.
+ *
+ * Null rather than a repository that cannot decrypt: a run then simply never
+ * gets a repository, which is a working deployment, instead of one that fails
+ * at the clone with a decryption error.
+ */
+const connections = config.integrationKey
+   ? new ConnectionRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
+   : null;
+
 const executor =
    config.agents && storage
       ? new AdkExecutor({
@@ -121,6 +134,7 @@ const executor =
            // refuses every call, and an agent cannot work around a tool it was
            // told it has.
            ...(config.execution ? { execution } : {}),
+           ...(connections ? { connections } : {}),
         })
       : null;
 
@@ -203,6 +217,9 @@ logger.info('Berry server listening', {
    // Named at boot so an operator can see which substrate this process would
    // run an agent's commands on, without reading the environment back.
    executionDriver: execution.name,
+   // Named at boot so an operator can see whether a run can reach a
+   // repository, without reading the environment back.
+   integrations: connections ? 'configured' : 'no encryption key',
    mounts: registry.prefixes,
 });
 

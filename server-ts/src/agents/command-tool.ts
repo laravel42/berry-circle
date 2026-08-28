@@ -45,6 +45,15 @@ export interface CommandToolScope {
     * container's directory layout is a coupling with nothing to gain.
     */
    workdir?: string;
+   /**
+    * The same thing, read at call time.
+    *
+    * The tools are built before the repository is cloned, so a fixed value
+    * would always be the one from before the checkout — which is the workspace
+    * root, and the agent's commands would run beside its repository instead of
+    * inside it.
+    */
+   workdirAt?: () => string | undefined;
    clock?: () => Date;
 }
 
@@ -95,7 +104,7 @@ export function runCommandTool(scope: CommandToolScope): FunctionTool {
 
          const commandId = scope.newId();
          const startedAt = clock().getTime();
-         const directory = cwd ?? scope.workdir ?? null;
+         const directory = cwd ?? scope.workdirAt?.() ?? scope.workdir ?? null;
 
          await scope.ledger.appendCommandStarted(scope.runId, {
             commandId,

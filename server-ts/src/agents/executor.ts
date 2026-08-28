@@ -10,6 +10,11 @@ import { BerrySessionService } from './session-service.ts';
 import { OpenRouterLlm } from './openrouter-llm.ts';
 import { berryTools } from './tools.ts';
 import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
+import { branchName, checkout, parseRepository, type Checkout } from './checkout.ts';
+import { commitAndPush } from './delivery.ts';
+import { repositoryForIssue, type RepositoryContext } from './repository-context.ts';
+import type { ConnectionRepository } from '../integrations/connections.ts';
+import { GitHubClient, GitHubError, type PullRequest } from '../integrations/github.ts';
 import { buildMessage, lastRejection } from './prompt.ts';
 
 /**
@@ -75,6 +80,14 @@ export interface ExecutorOptions {
     * capability it cannot deliver.
     */
    execution?: ExecutionDriver;
+   /**
+    * Where a provider credential comes from. Omitted means a run never gets a
+    * repository, even when its project names one — because a checkout without
+    * a credential is a clone that fails, not a run that works.
+    */
+   connections?: ConnectionRepository;
+   /** Injected in tests. Defaults to the real GitHub API. */
+   github?: (token: string) => GitHubClient;
 }
 
 export interface RunOutcome {
@@ -84,6 +97,30 @@ export interface RunOutcome {
    usage: Usage;
    toolCalls: number;
    failure?: { code: string; message: string; retryable: boolean };
+}
+
+interface IssueRow {
+   title: string;
+   /** `BER-142`, as the product spells it. */
+   reference: string;
+}
+
+interface PreparedRepository {
+   repository: RepositoryContext;
+   checkout: Checkout;
+   defaultBranch: string;
+   issue: IssueRow;
+}
+
+/** The lazily-opened workspace, as `lazyWorkspace` returns it. */
+interface Workspace {
+   open: () => Promise<ExecutionSession>;
+   close: () => Promise<void>;
+}
+
+/** A run that failed before it could spend anything. */
+function usageZero(): Usage {
+   return { inputTokens: 0, outputTokens: 0, totalTokens: 0, costMicros: null, currency: null };
 }
 
 interface AgentRow {
@@ -101,6 +138,8 @@ export class AdkExecutor {
     * `run_command` tool at all — see the note on `ToolScope.commands`.
     */
    private readonly execution: ExecutionDriver | undefined;
+   private readonly connections: ConnectionRepository | undefined;
+   private readonly github: (token: string) => GitHubClient;
    private readonly ledger: RunLedger;
    private readonly apiKey: string;
    private readonly baseUrl: string | undefined;
@@ -119,6 +158,8 @@ export class AdkExecutor {
             ...(options.newId ? { newId: options.newId } : {}),
          });
       this.execution = options.execution;
+      this.connections = options.connections;
+      this.github = options.github ?? ((token) => new GitHubClient({ token }));
       this.apiKey = options.apiKey;
       this.baseUrl = options.baseUrl;
       this.defaultModel = options.defaultModel ?? 'anthropic/claude-sonnet-4.5';
@@ -176,6 +217,11 @@ export class AdkExecutor {
       // and a container started for every run would pay that cost for nothing.
       const workspace = this.execution ? lazyWorkspace(this.execution, dispatch.runId) : null;
 
+      // Set once the repository is in place, and read by the command tool when
+      // the agent runs something — so its commands land in the checkout rather
+      // than at the workspace root.
+      let workdir: string | undefined;
+
       const sessions = new BerrySessionService({
          sql: this.sql,
          workspaceId: dispatch.workspaceId,
@@ -208,6 +254,9 @@ export class AdkExecutor {
                           session: workspace.open,
                           newId: this.newId,
                           clock: this.clock,
+                          // Read at call time, not at construction: the
+                          // checkout happens after the tools are built.
+                          workdirAt: () => workdir,
                        },
                     }
                   : {}),
@@ -222,6 +271,20 @@ export class AdkExecutor {
       const reviewFeedback = await lastRejection(this.sql, dispatch.issueId);
 
       await this.ledger.markRunning(dispatch.runId);
+
+      // The repository, if the task's project names one. Done after the run is
+      // running so a clone that takes a minute is visible as a run in progress
+      // rather than as one that has not started.
+      let prepared: PreparedRepository | null = null;
+      try {
+         prepared = await this.prepare(dispatch, agent, workspace);
+      } catch (error) {
+         // A run that cannot get its repository has not begun its work, and
+         // letting the agent loose in an empty workspace would produce a
+         // confident answer about code it never saw.
+         return await this.fail(dispatch, error, usageZero(), 0);
+      }
+      if (prepared) workdir = prepared.checkout.directory;
       const session = await sessions.createSession({
          appName: 'berry',
          userId: `run:${dispatch.runId}`,
@@ -238,76 +301,233 @@ export class AdkExecutor {
          currency: null,
       };
       const result = new ResultText();
-      const openTools = new Map<string, string>();
-      const output = new OutputBuffer((text) =>
-         this.ledger.appendOutput(dispatch.runId, 'progress', text)
-      );
-      let toolCalls = 0;
-      // Whether this turn arrived as deltas. When it did, the aggregated event
-      // that closes the turn repeats every one of them, and recording its text
-      // too would double the run's output and its report.
-      let streamed = false;
 
+      // The outer try exists only for the finally: the workspace is torn down
+      // whatever happens, and the inner try decides what "whatever" means.
       try {
-         for await (const event of runner.runAsync({
-            userId: session.userId,
-            sessionId: session.id,
-            newMessage: {
-               role: 'user',
-               parts: [{ text: buildMessage({ ...dispatch, reviewFeedback }) }],
-            },
-            // Token by token, as Berry's run stream has always shown it. A run
-            // that only appears when it is over is a run people assume hung.
-            runConfig: { streamingMode: StreamingMode.SSE },
-            ...(signal ? { abortSignal: signal } : {}),
-         })) {
-            if (signal?.aborted) throw new RunCancelled();
-            const skipText = streamed && event.partial !== true;
-            toolCalls += await this.recordEvent(
-               dispatch.runId,
-               event,
-               result,
-               openTools,
-               output,
-               skipText
-            );
-            if (event.partial === true) streamed = true;
-            addUsage(usage, event);
-            // ADK marks the end of a turn; the result accumulator needs it to
-            // tell a report from the progress that preceded it.
-            if (isTurnComplete(event)) {
-               // Flushed at the boundary so the ledger never shows a turn
-               // ending before the text that ended it.
-               await output.flush();
-               result.endTurn();
-               streamed = false;
+         const openTools = new Map<string, string>();
+         const output = new OutputBuffer((text) =>
+            this.ledger.appendOutput(dispatch.runId, 'progress', text)
+         );
+         let toolCalls = 0;
+         // Whether this turn arrived as deltas. When it did, the aggregated event
+         // that closes the turn repeats every one of them, and recording its text
+         // too would double the run's output and its report.
+         let streamed = false;
+
+         try {
+            for await (const event of runner.runAsync({
+               userId: session.userId,
+               sessionId: session.id,
+               newMessage: {
+                  role: 'user',
+                  parts: [{ text: buildMessage({ ...dispatch, reviewFeedback }) }],
+               },
+               // Token by token, as Berry's run stream has always shown it. A run
+               // that only appears when it is over is a run people assume hung.
+               runConfig: { streamingMode: StreamingMode.SSE },
+               ...(signal ? { abortSignal: signal } : {}),
+            })) {
+               if (signal?.aborted) throw new RunCancelled();
+               const skipText = streamed && event.partial !== true;
+               toolCalls += await this.recordEvent(
+                  dispatch.runId,
+                  event,
+                  result,
+                  openTools,
+                  output,
+                  skipText
+               );
+               if (event.partial === true) streamed = true;
+               addUsage(usage, event);
+               // ADK marks the end of a turn; the result accumulator needs it to
+               // tell a report from the progress that preceded it.
+               if (isTurnComplete(event)) {
+                  // Flushed at the boundary so the ledger never shows a turn
+                  // ending before the text that ended it.
+                  await output.flush();
+                  result.endTurn();
+                  streamed = false;
+               }
             }
+
+            await output.flush();
+            result.endTurn();
+            // Every tool the agent left open failed by omission: the iterator
+            // ended without a response for it. Recording nothing would leave the
+            // run stream showing a tool that never stops running.
+            await this.closeOpenTools(dispatch.runId, openTools);
+
+            // Inside the try, because the workspace is torn down in the finally
+            // and the push needs it still standing.
+            const repository = prepared;
+            if (repository) {
+               const [delivered] = result.final();
+               try {
+                  // The same workspace the checkout went into — a new session
+                  // would be an empty container with nothing to push.
+                  await this.deliver(
+                     dispatch,
+                     repository,
+                     await workspace!.open(),
+                     delivered === '' ? null : delivered
+                  );
+               } catch (error) {
+                  // The agent's work is in the ledger either way, but a run that
+                  // reports success with nothing pushed sends a reviewer looking
+                  // for a pull request that was never opened. Undelivered is not
+                  // done.
+                  return await this.fail(dispatch, error, usage, toolCalls);
+               }
+            }
+         } catch (error) {
+            // Whatever was gathered is part of the record even when the run ends
+            // badly: it is what the agent had said before it stopped.
+            await output.flush().catch(() => undefined);
+            result.endTurn();
+            if (error instanceof RunCancelled || signal?.aborted) {
+               // Awaited inside the try so the workspace is not torn down while
+               // the run is still being recorded.
+               return await this.cancel(dispatch, usage, toolCalls);
+            }
+            return await this.fail(dispatch, error, usage, toolCalls);
          }
-      } catch (error) {
-         // Whatever was gathered is part of the record even when the run ends
-         // badly: it is what the agent had said before it stopped.
-         await output.flush().catch(() => undefined);
-         result.endTurn();
-         if (error instanceof RunCancelled || signal?.aborted) {
-            // Awaited inside the try so the workspace is not torn down while
-            // the run is still being recorded.
-            return await this.cancel(dispatch, usage, toolCalls);
-         }
-         return await this.fail(dispatch, error, usage, toolCalls);
+
+         // Outside the catch on purpose: a failure while *recording* success is
+         // not a failed run, and calling fail() on a run the ledger has already
+         // completed would refuse anyway.
+         return await this.succeed(dispatch, result, usage, toolCalls);
       } finally {
          // Whether the run succeeded, failed or was cancelled: "the workspace
          // is destroyed when the run ends" has no exceptions, and a container
-         // left behind is one nothing will ever collect.
+         // left behind is one nothing will ever collect. It runs after the
+         // delivery above, which needs the workspace still standing.
          if (workspace) await workspace.close();
       }
+   }
 
-      await output.flush();
-      result.endTurn();
-      // Every tool the agent left open failed by omission: the iterator ended
-      // without a response for it. Recording nothing would leave the run
-      // stream showing a tool that never stops running.
-      await this.closeOpenTools(dispatch.runId, openTools);
-      return this.succeed(dispatch, result, usage, toolCalls);
+
+   /**
+    * Puts the task's repository in the run's workspace, when it has one.
+    *
+    * Returns null — not an error — when the task is in no project, its project
+    * names no repository, or the deployment has no substrate to clone into.
+    * Plenty of work is answering a question, and a run that fails because
+    * there was no code to change would be wrong about what it was asked.
+    *
+    * A configured repository that *cannot* be prepared does raise, because an
+    * agent turned loose in an empty workspace will answer confidently about
+    * code it never saw.
+    */
+   private async prepare(
+      dispatch: Dispatch,
+      agent: AgentRow,
+      workspace: Workspace | null
+   ): Promise<PreparedRepository | null> {
+      if (!workspace || !this.connections) return null;
+
+      const repository = await repositoryForIssue(this.sql, dispatch.issueId);
+      if (!repository) return null;
+
+      const token = await this.connections.token(dispatch.workspaceId, 'github');
+      const client = this.github(token);
+      const { owner, name } = parseRepository(repository.fullName);
+
+      // Asked before the work rather than after: an agent that spends ten
+      // minutes building something and then cannot push has wasted the tokens
+      // and the wait.
+      const remote = await client.repository(owner, name);
+      if (!remote.canPush) {
+         throw new GitHubError(
+            `the GitHub connection cannot push to ${repository.fullName}`,
+            403,
+            'grant-access'
+         );
+      }
+
+      const issue = await this.loadIssue(dispatch.issueId);
+      const branch = branchName(agent.name, issue.reference, issue.title);
+      const session = await workspace.open();
+      const result = await checkout({
+         session,
+         repository: repository.fullName,
+         branch,
+         token,
+         baseBranch: remote.defaultBranch,
+      });
+
+      await this.ledger.appendRepositoryReady(dispatch.runId, {
+         repository: repository.fullName,
+         branch: result.branch,
+         baseCommit: result.baseCommit,
+      });
+
+      return { repository, checkout: result, defaultBranch: remote.defaultBranch, issue };
+   }
+
+   /**
+    * Pushes what the run produced and opens a pull request for it.
+    *
+    * The token is fetched again rather than held across the run: a run can
+    * take longer than a credential lasts, and a stale one fails at the push
+    * with an error that reads like a permissions problem.
+    */
+   private async deliver(
+      dispatch: Dispatch,
+      prepared: PreparedRepository,
+      session: ExecutionSession,
+      summary: string | null
+   ): Promise<void> {
+      const token = await this.connections!.token(dispatch.workspaceId, 'github');
+
+      const delivery = await commitAndPush({
+         session,
+         directory: prepared.checkout.directory,
+         branch: prepared.checkout.branch,
+         token,
+         message: `${prepared.issue.reference}: ${prepared.issue.title}`,
+         ...(summary ? { body: summary } : {}),
+      });
+
+      let pullRequest: PullRequest | null = null;
+      if (delivery.committed) {
+         const { owner, name } = parseRepository(prepared.repository.fullName);
+         pullRequest = await this.github(token).openPullRequest({
+            owner,
+            name,
+            head: prepared.checkout.branch,
+            base: prepared.defaultBranch,
+            title: `${prepared.issue.reference}: ${prepared.issue.title}`,
+            // The run is named so a reviewer can get from the pull request
+            // back to the log of how it was produced.
+            body: `${summary ?? 'No summary was produced.'}\n\n---\nBerry run \`${dispatch.runId}\` · task ${prepared.issue.reference}`,
+         });
+      }
+
+      await this.ledger.appendDelivered(dispatch.runId, {
+         committed: delivery.committed,
+         commit: delivery.commit,
+         branch: prepared.checkout.branch,
+         filesChanged: delivery.filesChanged,
+         insertions: delivery.insertions,
+         deletions: delivery.deletions,
+         files: delivery.files,
+         pullRequest: pullRequest
+            ? { number: pullRequest.number, url: pullRequest.url, created: pullRequest.created }
+            : null,
+      });
+   }
+
+   /** The task's reference and title, for the branch, the commit and the pull request. */
+   private async loadIssue(issueId: string): Promise<IssueRow> {
+      const [row] = await this.sql<Array<{ title: string; number: number; prefix: string }>>`
+         SELECT i.title, i.number, COALESCE(w.settings->>'issuePrefix', 'BER') AS prefix
+           FROM issues i
+           JOIN boards b ON b.id = i.board_id
+           JOIN workspaces w ON w.id = b.workspace_id
+          WHERE i.id = ${issueId}`;
+      if (!row) throw new Error(`issue ${issueId} was not found`);
+      return { title: row.title, reference: `${row.prefix}-${row.number}` };
    }
 
    /**
