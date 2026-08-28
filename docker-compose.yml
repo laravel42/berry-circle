@@ -1,6 +1,7 @@
 # Berry local stack — product API and backing services.
 #
 #   berry-api  TypeScript product API (localhost:4000)
+#   runtime    Where an agent's commands run — one container per run
 #   postgres   Berry-owned durable product state (issues, runs, comments, ...) — ADR-0002
 #   minio      S3-compatible object storage for run artifacts — ADR-0006
 #
@@ -32,6 +33,8 @@ services:
       # job rather than on minio itself is what makes that ordering real.
       minio-bucket:
         condition: service_completed_successfully
+      runtime:
+        condition: service_healthy
     environment:
       APP_ENV: "${APP_ENV:-development}"
       SERVICE_NAME: "${SERVICE_NAME:-berry-server}"
@@ -63,6 +66,12 @@ services:
       # The shared secret an internal caller presents to run an agent. Empty
       # turns the internal surface off entirely rather than leaving it open.
       BERRY_INTERNAL_TOKEN: "${BERRY_INTERNAL_TOKEN:-}"
+      # Where an agent's commands run. The API reaches the runtime over HTTP
+      # with a shared secret and never touches the Docker socket itself — that
+      # is the whole reason `runtime` is a separate service.
+      BERRY_RUNTIME_DRIVER: "${BERRY_RUNTIME_DRIVER:-docker}"
+      BERRY_RUNTIME_URL: "${BERRY_RUNTIME_URL:-http://runtime:4300}"
+      BERRY_RUNTIME_TOKEN: "${BERRY_RUNTIME_TOKEN:-}"
     ports:
       - "127.0.0.1:${BERRY_API_PORT:-4000}:4000"
     read_only: true
@@ -79,6 +88,71 @@ services:
       start_period: 20s
       retries: 6
     restart: unless-stopped
+
+  runtime:
+    # Where an agent's commands run: one disposable container per run, on this
+    # host's own Docker daemon.
+    #
+    # It exists as a separate service for one reason. Reaching the Docker
+    # socket is root-equivalent on the host, and berry-api runs read-only with
+    # every capability dropped — putting the socket here keeps that posture
+    # intact. berry-api talks to this over HTTP with a shared secret, exactly
+    # as it would talk to a remote substrate.
+    build:
+      context: ./runtime
+      dockerfile: Dockerfile
+    image: berry-runtime:local
+    depends_on:
+      # The image runs happen in has to exist before the first run asks for
+      # one; the service would otherwise pull it mid-run, or fail.
+      sandbox-image:
+        condition: service_completed_successfully
+    environment:
+      RUNTIME_ADDR: "0.0.0.0:4300"
+      # Empty makes every route refuse rather than leaving an unauthenticated
+      # command runner on the Compose network.
+      BERRY_RUNTIME_TOKEN: "${BERRY_RUNTIME_TOKEN:-}"
+      BERRY_SANDBOX_IMAGE: "${BERRY_SANDBOX_IMAGE:-berry-sandbox:local}"
+      BERRY_SANDBOX_WORKDIR: "${BERRY_SANDBOX_WORKDIR:-/workspace}"
+      BERRY_SANDBOX_MEMORY_MB: "${BERRY_SANDBOX_MEMORY_MB:-2048}"
+      BERRY_SANDBOX_CPUS: "${BERRY_SANDBOX_CPUS:-1}"
+      BERRY_SANDBOX_PIDS: "${BERRY_SANDBOX_PIDS:-512}"
+      BERRY_SANDBOX_NETWORK: "${BERRY_SANDBOX_NETWORK:-bridge}"
+      # The ceiling that turns "the host fell over" into "the run waited".
+      BERRY_SANDBOX_MAX_CONTAINERS: "${BERRY_SANDBOX_MAX_CONTAINERS:-8}"
+    volumes:
+      # Root-equivalent on the host. This is the one service that gets it, and
+      # the reason it is not berry-api.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      # Loopback-only, and only for debugging: nothing outside this host should
+      # reach a service that runs commands.
+      - "127.0.0.1:${RUNTIME_PORT:-4300}:4300"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      # Reports degraded when the daemon is unreachable, so an unhealthy
+      # runtime is distinguishable from a missing one.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4300/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 6
+    restart: unless-stopped
+
+  sandbox-image:
+    # Builds the image runs happen in, then exits. A build service rather than
+    # a pull, because the image needs git and a package manager that the stock
+    # node image does not carry.
+    build:
+      context: ./runtime/sandbox
+      dockerfile: Dockerfile
+    image: "${BERRY_SANDBOX_IMAGE:-berry-sandbox:local}"
+    command: ["true"]
+    restart: "no"
 
   minio:
     # S3-compatible object storage for artifacts (ADR-0006). Development runs the

@@ -5,8 +5,10 @@ import { unconfiguredDriver, type ExecutionDriver } from './driver.ts';
 /**
  * Config to a driver.
  *
- * The only place that maps a driver name to an implementation, which is what
- * keeps the choice to one line when a second substrate lands beside this one.
+ * Both substrates speak the same protocol, so this maps a name to a label
+ * rather than to a different client. It stays a switch because the day a
+ * substrate needs its own transport, this is the one place that has to change
+ * — and the compiler will say so.
  *
  * A deployment with no substrate configured gets a driver that refuses, not
  * `null`: the caller then has one failure mode to handle instead of two, and
@@ -19,6 +21,7 @@ export function createExecutionDriver(config: ExecutionConfig | null): Execution
       );
    }
    switch (config.driver) {
+      case 'docker':
       case 'cloudflare':
          return httpDriver({
             baseUrl: config.baseUrl,

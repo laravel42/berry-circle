@@ -40,7 +40,13 @@ export interface Config {
  * the only thing config knows, and the factory maps it to an implementation.
  */
 export interface ExecutionConfig {
-   driver: 'cloudflare';
+   /**
+    * `docker` is the runtime service in `runtime/`, for a self-hosted Berry.
+    * `cloudflare` is the worker in `runtime-worker/`, for the hosted
+    * workspace. They speak the same protocol; the name selects a label, not a
+    * different client.
+    */
+   driver: 'docker' | 'cloudflare';
    baseUrl: string;
    token: string;
 }
@@ -128,9 +134,9 @@ function execution(env: NodeJS.ProcessEnv, problems: string[]): ExecutionConfig 
 
    if (!driver && !baseUrl && !token) return null;
 
-   if (driver !== 'cloudflare') {
+   if (driver !== 'docker' && driver !== 'cloudflare') {
       problems.push(
-         `BERRY_RUNTIME_DRIVER must be 'cloudflare' when execution is configured, got '${driver}'`
+         `BERRY_RUNTIME_DRIVER must be 'docker' or 'cloudflare' when execution is configured, got '${driver}'`
       );
       return null;
    }
@@ -138,7 +144,7 @@ function execution(env: NodeJS.ProcessEnv, problems: string[]): ExecutionConfig 
    if (!token) problems.push('BERRY_RUNTIME_TOKEN is required when BERRY_RUNTIME_DRIVER is set');
    if (!baseUrl || !token) return null;
 
-   return { driver: 'cloudflare', baseUrl, token };
+   return { driver, baseUrl, token };
 }
 
 /**

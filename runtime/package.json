@@ -1,0 +1,20 @@
+{
+   "name": "@berry/runtime",
+   "private": true,
+   "type": "module",
+   "version": "0.0.0",
+   "scripts": {
+      "typecheck": "tsc --noEmit",
+      "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
+      "dev": "node --watch --experimental-strip-types src/index.ts",
+      "start": "node --experimental-strip-types src/index.ts"
+   },
+   "dependencies": {
+      "@hono/node-server": "^2.1.1",
+      "hono": "^4.13.5"
+   },
+   "devDependencies": {
+      "@types/node": "^26.4.0",
+      "typescript": "^7.0.2"
+   }
+}

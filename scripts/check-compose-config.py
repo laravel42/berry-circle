@@ -12,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "docker-compose.yml"
-EXPECTED_SERVICES = {"berry-api", "postgres", "minio", "minio-bucket"}
+EXPECTED_SERVICES = {"berry-api", "runtime", "sandbox-image", "postgres", "minio", "minio-bucket"}
 
 
 def fail(message: str) -> None:
@@ -56,9 +56,20 @@ def render_compose() -> dict[str, Any]:
             ),
             "BERRY_INTERNAL_TOKEN": "",
             "BERRY_OPENROUTER_API_KEY": "",
+            "BERRY_RUNTIME_DRIVER": "",
+            "BERRY_RUNTIME_TOKEN": "",
+            "BERRY_RUNTIME_URL": "",
+            "BERRY_SANDBOX_CPUS": "",
+            "BERRY_SANDBOX_IMAGE": "",
+            "BERRY_SANDBOX_MAX_CONTAINERS": "",
+            "BERRY_SANDBOX_MEMORY_MB": "",
+            "BERRY_SANDBOX_NETWORK": "",
+            "BERRY_SANDBOX_PIDS": "",
+            "BERRY_SANDBOX_WORKDIR": "",
             "MINIO_CONSOLE_PORT": "9001",
             "MINIO_PORT": "9000",
             "OPENROUTER_API_KEY": "",
+            "RUNTIME_PORT": "4300",
             "POSTGRES_USER": "berry",
             "POSTGRES_PASSWORD": "berry",
             "POSTGRES_DB": "berry",
@@ -196,3 +207,53 @@ def check_services(rendered: dict[str, Any]) -> None:
     if "/ready" not in json.dumps(healthcheck.get("test")):
         fail("berry-api healthcheck must probe readiness")
 
+    check_runtime(services)
+
+
+def check_runtime(services: dict[str, Any]) -> None:
+    """The Docker socket is root-equivalent. Only one service may hold it."""
+    socket = "/var/run/docker.sock"
+    holders = sorted(
+        name
+        for name, value in services.items()
+        for mount in object_value(value, f"{name} service").get("volumes", []) or []
+        if isinstance(mount, dict) and mount.get("source") == socket
+    )
+    if holders != ["runtime"]:
+        rendered = ", ".join(holders) if holders else "none"
+        fail(f"only the runtime service may mount the Docker socket (found: {rendered})")
+
+    runtime = object_value(services["runtime"], "runtime service")
+    require_loopback_port(runtime, "runtime", 4300)
+
+    # An unconfigured token makes the service refuse every call. It must be
+    # present as a variable so an operator sets it deliberately.
+    environment = object_value(runtime.get("environment"), "runtime environment")
+    if "BERRY_RUNTIME_TOKEN" not in environment:
+        fail("runtime must receive BERRY_RUNTIME_TOKEN")
+    if environment.get("BERRY_SANDBOX_MAX_CONTAINERS") in (None, ""):
+        fail("runtime must bound concurrent sandboxes")
+
+    # The API reaches the runtime over HTTP; it must never hold the socket.
+    api_environment = object_value(
+        object_value(services["berry-api"], "berry-api service").get("environment"),
+        "berry-api environment",
+    )
+    for key in ("BERRY_RUNTIME_DRIVER", "BERRY_RUNTIME_URL", "BERRY_RUNTIME_TOKEN"):
+        if key not in api_environment:
+            fail(f"berry-api environment is missing: {key}")
+
+
+def main() -> int:
+    try:
+        check_services(render_compose())
+    except (RuntimeError, ValueError) as error:
+        print(f"compose config check failed: {error}", file=sys.stderr)
+        return 1
+
+    print("Compose config is valid and deployment invariants hold.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
