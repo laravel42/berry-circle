@@ -65,6 +65,12 @@ function berryTypeScriptOrigin(): string | null {
  * answered by the wrong one.
  */
 const TYPESCRIPT_ROUTES: readonly string[] = [
+   // Sessions. Both servers read one session table, so a token minted by
+   // either is accepted by either — which is what makes moving this safe
+   // mid-migration rather than a cutover.
+   '/api/v1/auth',
+   '/api/v1/auth/:path*',
+
    // Fully ported mounts, including everything nested beneath them.
    '/api/v1/me',
    '/api/v1/me/:path*',

@@ -2,16 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { RiEditLine, RiSettings3Line } from '@remixicon/react';
+import { RiSettings3Line } from '@remixicon/react';
 import {
    DropdownMenu,
    DropdownMenuContent,
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { CustomizeSidebarDialog } from '@/components/layout/sidebar/customize-sidebar-dialog';
-import { useCreateIssueStore } from '@/store/create-issue-store';
-import { useCreatePlanStore } from '@/store/create-plan-store';
-import { Sparkles } from 'lucide-react';
 import {
    isSidebarItemVisible,
    resolveOrder,
@@ -45,14 +42,6 @@ interface ShellRailProps {
  */
 export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailProps) {
    const { visibility, order } = useSidebarPrefsStore();
-   // Opens the globally mounted CreateNewIssue dialog. The rail holds a trigger
-   // only — the dialog stays mounted by CreateIssueModalProvider so the command
-   // palette and the board group headers keep working from anywhere, including
-   // settings, where the rail shows no trigger at all.
-   const openCreateIssue = useCreateIssueStore((state) => state.openModal);
-   // Same arrangement for the plan prompt: the trigger lives here, the
-   // dialog is mounted once by CreatePlanModalProvider.
-   const openCreatePlan = useCreatePlanStore((state) => state.openModal);
    const [customizeOpen, setCustomizeOpen] = useState(false);
 
    // The preference store is persisted, so its first client value differs from
@@ -148,27 +137,6 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                         <WorkspaceMenuItems orgId={orgId} />
                      </DropdownMenuContent>
                   </DropdownMenu>
-
-                  {/* Sibling of the trigger, not a child: a button inside a button is
-                invalid and breaks activation for both. */}
-                  <button
-                     type="button"
-                     onClick={() => openCreateIssue()}
-                     aria-label="Create task"
-                     title="Create task"
-                     className={`size-7 ${shellIconButton}`}
-                  >
-                     <RiEditLine className="size-4" />
-                  </button>
-                  <button
-                     type="button"
-                     onClick={() => openCreatePlan()}
-                     aria-label="Plan work"
-                     title="Plan work"
-                     className={`size-7 ${shellIconButton}`}
-                  >
-                     <Sparkles className="size-4" />
-                  </button>
                </div>
 
                {SHELL_SECTIONS.map((section) => {

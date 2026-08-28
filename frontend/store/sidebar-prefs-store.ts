@@ -57,10 +57,10 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
  * sidebar keeps its shape across sessions.
  */
 const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
-   personal: ['inbox', 'chat', 'meetings'],
-   workspace: ['my-issues', 'reviews', 'goals', 'analytics', 'projects'],
-   automate: ['autopilot', 'workflow-runs', 'approvals'],
-   configure: ['agent', 'agents'],
+   personal: [],
+   workspace: ['my-issues', 'reviews', 'goals', 'projects'],
+   automate: [],
+   configure: ['agent', 'agents', 'analytics'],
 };
 
 /** The key the previous shape was persisted under; read once, when v4 has nothing. */
