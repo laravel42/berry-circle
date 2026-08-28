@@ -277,6 +277,65 @@ export class RunLedger {
    }
 
    /**
+    * A command an agent ran, recorded verbatim.
+    *
+    * The deliberate exception to the two methods above. A tool's arguments stay
+    * out of the ledger because they are the agent's working notes; a command is
+    * the product surface. An operator reading a run back weeks later has to be
+    * able to see what ran, and "the agent used a tool" does not answer that.
+    *
+    * `commandId` ties the three events together, because output from two
+    * commands can interleave when one is still draining as the next begins.
+    */
+   async appendCommandStarted(
+      runId: string,
+      params: { commandId: string; command: string; cwd: string | null }
+   ): Promise<void> {
+      await this.appendActiveEvent(runId, 'run.command.started', {
+         commandId: params.commandId,
+         command: params.command,
+         cwd: params.cwd,
+      });
+   }
+
+   /**
+    * Output as it arrives, on the stream it was written to.
+    *
+    * Deliberately not added to `runs.output`. That column is the agent's own
+    * prose and is what the result comment is built from; a hundred lines of
+    * test output appended to it would become the answer posted on the task.
+    */
+   async appendCommandOutput(
+      runId: string,
+      params: { commandId: string; stream: 'stdout' | 'stderr'; text: string }
+   ): Promise<void> {
+      await this.appendActiveEvent(runId, 'run.command.output', {
+         commandId: params.commandId,
+         stream: params.stream,
+         text: params.text,
+      });
+   }
+
+   /** How the command ended. `exitCode` is null only when it never reported one. */
+   async appendCommandCompleted(
+      runId: string,
+      params: {
+         commandId: string;
+         exitCode: number | null;
+         durationMs: number;
+         truncated: boolean;
+      }
+   ): Promise<void> {
+      await this.appendActiveEvent(runId, 'run.command.completed', {
+         commandId: params.commandId,
+         exitCode: params.exitCode,
+         durationMs: params.durationMs,
+         // Says so rather than letting a reader assume they have the whole log.
+         truncated: params.truncated,
+      });
+   }
+
+   /**
     * Terminal success: usage, the summary, and the task moved to review.
     *
     * Three events in one transaction — usage, completion, and the issue update

@@ -1,7 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { FunctionTool } from '@google/adk';
 import { z } from 'zod';
 import type { Sql } from '../db/pool.ts';
 import type { BerryArtifactService } from './artifact-service.ts';
+import { runCommandTool, type CommandToolScope } from './command-tool.ts';
 
 /**
  * The tools an agent gets, built per run with its workspace already in scope.
@@ -25,18 +27,31 @@ export interface ToolScope {
    issueId: string;
    /** Bounds what a single read can pull into the prompt. */
    maxBytes?: number;
+   /**
+    * A workspace to run commands in, when the deployment has one.
+    *
+    * Absent means the agent simply does not have `run_command`, rather than
+    * having one that fails on every call. An agent cannot work around a tool
+    * it was never given, and being told a capability exists and then refused
+    * is how a run burns tokens rediscovering the same wall.
+    */
+   commands?: Omit<CommandToolScope, 'newId'> & { newId?: () => string };
 }
 
 const DEFAULT_MAX_BYTES = 64 * 1024;
 
 export function berryTools(scope: ToolScope): FunctionTool[] {
-   return [
+   const tools = [
       listFiles(scope),
       readFile(scope),
       writeFile(scope),
       readIssue(scope),
       listDependencies(scope),
    ];
+   if (scope.commands) {
+      tools.push(runCommandTool({ ...scope.commands, newId: scope.commands.newId ?? randomUUID }));
+   }
+   return tools;
 }
 
 /** What this run has produced so far, including by other agents. */

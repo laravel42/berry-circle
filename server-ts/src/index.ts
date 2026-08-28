@@ -99,6 +99,15 @@ const storage = config.storage
      })
    : null;
 
+/**
+ * Where an agent's commands run.
+ *
+ * Constructed even when nothing is configured — the unconfigured driver
+ * refuses every call with a message naming what is missing, which is a better
+ * failure than a null that reaches a call site expecting a driver.
+ */
+const execution = createExecutionDriver(config.execution);
+
 const executor =
    config.agents && storage
       ? new AdkExecutor({
@@ -107,6 +116,11 @@ const executor =
            apiKey: config.agents.apiKey,
            baseUrl: config.agents.baseUrl,
            defaultModel: config.agents.defaultModel,
+           // Only when one is actually configured. Handing over the
+           // unconfigured driver would give agents a `run_command` that
+           // refuses every call, and an agent cannot work around a tool it was
+           // told it has.
+           ...(config.execution ? { execution } : {}),
         })
       : null;
 
@@ -116,15 +130,6 @@ const executor =
 const modelCatalog = config.agents
    ? new ModelCatalog({ baseUrl: config.agents.baseUrl })
    : null;
-
-/**
- * Where an agent's commands run.
- *
- * Constructed even when nothing is configured — the unconfigured driver
- * refuses every call with a message naming what is missing, which is a better
- * failure than a null that reaches a call site expecting a driver.
- */
-const execution = createExecutionDriver(config.execution);
 
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));

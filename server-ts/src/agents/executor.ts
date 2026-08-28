@@ -9,6 +9,7 @@ import { BerryArtifactService } from './artifact-service.ts';
 import { BerrySessionService } from './session-service.ts';
 import { OpenRouterLlm } from './openrouter-llm.ts';
 import { berryTools } from './tools.ts';
+import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
 import { buildMessage, lastRejection } from './prompt.ts';
 
 /**
@@ -68,6 +69,12 @@ export interface ExecutorOptions {
    defaultModel?: string;
    clock?: () => Date;
    newId?: () => string;
+   /**
+    * Where an agent's commands run. Omitted means the agent has no
+    * `run_command` tool — a deployment without a substrate does not offer a
+    * capability it cannot deliver.
+    */
+   execution?: ExecutionDriver;
 }
 
 export interface RunOutcome {
@@ -89,6 +96,11 @@ interface AgentRow {
 export class AdkExecutor {
    private readonly sql: Sql;
    private readonly storage: Storage;
+   /**
+    * Where an agent's commands run. Absent means the agent has no
+    * `run_command` tool at all — see the note on `ToolScope.commands`.
+    */
+   private readonly execution: ExecutionDriver | undefined;
    private readonly ledger: RunLedger;
    private readonly apiKey: string;
    private readonly baseUrl: string | undefined;
@@ -106,6 +118,7 @@ export class AdkExecutor {
             ...(options.clock ? { clock: options.clock } : {}),
             ...(options.newId ? { newId: options.newId } : {}),
          });
+      this.execution = options.execution;
       this.apiKey = options.apiKey;
       this.baseUrl = options.baseUrl;
       this.defaultModel = options.defaultModel ?? 'anthropic/claude-sonnet-4.5';
@@ -159,6 +172,10 @@ export class AdkExecutor {
          clock: this.clock,
          newId: this.newId,
       });
+      // Opened on the first command and not before: most runs never call one,
+      // and a container started for every run would pay that cost for nothing.
+      const workspace = this.execution ? lazyWorkspace(this.execution, dispatch.runId) : null;
+
       const sessions = new BerrySessionService({
          sql: this.sql,
          workspaceId: dispatch.workspaceId,
@@ -183,6 +200,17 @@ export class AdkExecutor {
                artifacts,
                workspaceId: dispatch.workspaceId,
                issueId: dispatch.issueId,
+               ...(workspace
+                  ? {
+                       commands: {
+                          ledger: this.ledger,
+                          runId: dispatch.runId,
+                          session: workspace.open,
+                          newId: this.newId,
+                          clock: this.clock,
+                       },
+                    }
+                  : {}),
             }),
          }),
          sessionService: sessions,
@@ -261,9 +289,16 @@ export class AdkExecutor {
          await output.flush().catch(() => undefined);
          result.endTurn();
          if (error instanceof RunCancelled || signal?.aborted) {
-            return this.cancel(dispatch, usage, toolCalls);
+            // Awaited inside the try so the workspace is not torn down while
+            // the run is still being recorded.
+            return await this.cancel(dispatch, usage, toolCalls);
          }
-         return this.fail(dispatch, error, usage, toolCalls);
+         return await this.fail(dispatch, error, usage, toolCalls);
+      } finally {
+         // Whether the run succeeded, failed or was cancelled: "the workspace
+         // is destroyed when the run ends" has no exceptions, and a container
+         // left behind is one nothing will ever collect.
+         if (workspace) await workspace.close();
       }
 
       await output.flush();
@@ -600,4 +635,32 @@ function failureCode(error: unknown): string {
 function isRetryable(error: unknown): boolean {
    const status = (error as { status?: number })?.status;
    return status === 429 || (typeof status === 'number' && status >= 500);
+}
+
+/**
+ * A workspace that is created once, on demand, and torn down once.
+ *
+ * `close` never throws. It runs on the success path too, and a substrate that
+ * failed to tidy up must not turn a finished run into a failed one — the
+ * container is leaked either way, and losing the run's result as well helps
+ * nobody.
+ */
+function lazyWorkspace(
+   driver: ExecutionDriver,
+   runId: string
+): { open: () => Promise<ExecutionSession>; close: () => Promise<void> } {
+   let opening: Promise<ExecutionSession> | null = null;
+
+   return {
+      open: () => {
+         // Memoised on the promise, not on its result: two tool calls racing
+         // would otherwise each create a workspace and one would be orphaned.
+         opening ??= driver.createSession({ runId });
+         return opening;
+      },
+      close: async () => {
+         if (!opening) return;
+         await opening.then((session) => session.destroy()).catch(() => undefined);
+      },
+   };
 }
