@@ -20,3 +20,4 @@ dist/
 
 # compiled Go binaries built into the module root
 /server/worker
+.vscode/settings.json
