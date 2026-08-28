@@ -64,7 +64,7 @@ function containerName(runId: string): string {
    return `berry-run-${runId.replace(/[^a-zA-Z0-9_.-]/g, '')}`;
 }
 
-const app = createApp(runtime, { token: config.token });
+const app = createApp(runtime, { token: config.token, workdir: config.workdir });
 
 serve({ fetch: app.fetch, hostname: config.addr.host, port: config.addr.port });
 log('Berry runtime listening', {

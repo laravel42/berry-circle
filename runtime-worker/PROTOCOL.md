@@ -43,6 +43,15 @@ shell.
 `sessionId` is Berry's run id. One run, one workspace: a retried request
 reaches the workspace the run was already using rather than a fresh one.
 
+`cwd` may be relative. A substrate resolves it against its own workspace root,
+so a caller can say `repo/packages/api` without knowing where that root is —
+and Docker rejects a relative working directory outright, so resolving is what
+keeps the two substrates interchangeable rather than subtly different.
+
+`env` is scoped to the single command and does not persist into the container.
+That is load-bearing: it is how a credential reaches `git` without becoming
+readable by the commands an agent runs afterwards.
+
 `stop` kills what is running and leaves the workspace intact, so a stopped
 run's output can still be read. `DELETE` is what destroys it, and Berry calls
 it on the failure path too.

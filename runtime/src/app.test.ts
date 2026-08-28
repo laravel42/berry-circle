@@ -35,7 +35,7 @@ function fakeRuntime(overrides: Partial<Runtime> = {}): Runtime {
 }
 
 function app(runtime: Runtime = fakeRuntime(), token = TOKEN) {
-   return createApp(runtime, { token });
+   return createApp(runtime, { token, workdir: '/workspace' });
 }
 
 function emitting(items: Emitted[]): Runtime {
@@ -276,4 +276,30 @@ test('a request missing its required field is refused before the daemon is touch
    });
    assert.equal(response.status, 400);
    assert.equal(touched, false);
+});
+
+test('a relative working directory is resolved against the workspace root', async () => {
+   // Docker rejects a relative Cwd outright, so a caller that says
+   // `repo/packages/api` would fail on one substrate and work on the other —
+   // which is exactly the difference the protocol exists to remove.
+   const seen: Array<string | undefined> = [];
+   const runtime = fakeRuntime({
+      exec: async function* (_id, _command, options) {
+         seen.push(options.cwd);
+         yield { exitCode: 0 };
+      },
+   });
+   for (const cwd of ['repo', './repo/packages/api', '/absolute/elsewhere', undefined]) {
+      await app(runtime).request('/sessions/r/exec', {
+         method: 'POST',
+         headers: auth,
+         body: JSON.stringify({ command: 'ls', ...(cwd === undefined ? {} : { cwd }) }),
+      });
+   }
+   assert.deepEqual(seen, [
+      '/workspace/repo',
+      '/workspace/repo/packages/api',
+      '/absolute/elsewhere',
+      undefined,
+   ]);
 });

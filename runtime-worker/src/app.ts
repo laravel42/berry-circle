@@ -46,6 +46,21 @@ export type ResolveSandbox = (env: Env, runId: string) => SandboxLike;
 export const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
+ * The workspace root a relative `cwd` is resolved against.
+ *
+ * The protocol lets a caller say `repo/packages/api` without knowing where the
+ * substrate puts a workspace. Resolving it the same way here as in `runtime/`
+ * is what keeps the two interchangeable.
+ */
+export const WORKSPACE_ROOT = '/workspace';
+
+function resolveCwd(cwd: unknown): string | undefined {
+   if (typeof cwd !== 'string') return undefined;
+   if (cwd.startsWith('/')) return cwd;
+   return `${WORKSPACE_ROOT}/${cwd.replace(/^\.\//, '')}`;
+}
+
+/**
  * Reads the SSE frames one sandbox stream produces. Injectable so a test can
  * drive the translation without the SDK's parser.
  */
@@ -202,8 +217,9 @@ function execOptions(request: ExecRequestBody): {
    env?: Record<string, string>;
    timeout: number;
 } {
+   const cwd = resolveCwd(request.cwd);
    return {
-      ...(typeof request.cwd === 'string' ? { cwd: request.cwd } : {}),
+      ...(cwd !== undefined ? { cwd } : {}),
       ...(isStringMap(request.env) ? { env: request.env } : {}),
       timeout:
          typeof request.timeoutMs === 'number' && request.timeoutMs > 0

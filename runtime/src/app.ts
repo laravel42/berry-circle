@@ -18,6 +18,15 @@ import type { Frame } from './demux.ts';
 
 export interface Env {
    token: string;
+   /**
+    * The workspace root a relative `cwd` is resolved against.
+    *
+    * The protocol lets a caller say `repo/packages/api` without knowing where
+    * the substrate puts a workspace — and Docker rejects a relative Cwd
+    * outright, so resolving here is what keeps the two substrates
+    * interchangeable rather than subtly different.
+    */
+   workdir: string;
 }
 
 /** What this service needs from a container runtime, and nothing more. */
@@ -42,6 +51,13 @@ export interface Runtime {
 
 export function createApp(runtime: Runtime, env: Env): Hono {
    const app = new Hono();
+
+   /** Absolute paths are honoured; anything else hangs off the workspace root. */
+   const resolveCwd = (cwd: string | undefined): string | undefined => {
+      if (cwd === undefined) return undefined;
+      if (cwd.startsWith('/')) return cwd;
+      return `${env.workdir.replace(/\/$/, '')}/${cwd.replace(/^\.\//, '')}`;
+   };
 
    /** Public: reachability only, and says nothing about the caller. */
    app.get('/health', async (context) => {
@@ -90,7 +106,7 @@ export function createApp(runtime: Runtime, env: Env): Hono {
       let stdout = '';
       let stderr = '';
       let exitCode: number | null = null;
-      for await (const item of runtime.exec(container, request.command, execOptions(request))) {
+      for await (const item of runtime.exec(container, request.command, execOptions(request, resolveCwd))) {
          if ('exitCode' in item) exitCode = item.exitCode;
          else if (item.kind === 'stdout') stdout += item.data;
          else stderr += item.data;
@@ -109,7 +125,7 @@ export function createApp(runtime: Runtime, env: Env): Hono {
          return context.json({ error: 'command is required' }, 400);
       }
       const command = request.command;
-      const options = execOptions(request);
+      const options = execOptions(request, resolveCwd);
 
       const encoder = new TextEncoder();
       const body = new ReadableStream<Uint8Array>({
@@ -206,6 +222,17 @@ export function createApp(runtime: Runtime, env: Env): Hono {
    }
 }
 
+function execOptions(
+   request: ExecBody,
+   resolveCwd: (cwd: string | undefined) => string | undefined
+): { cwd?: string; env?: Record<string, string> } {
+   const cwd = resolveCwd(typeof request.cwd === 'string' ? request.cwd : undefined);
+   return {
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(isStringMap(request.env) ? { env: request.env } : {}),
+   };
+}
+
 interface ExecBody {
    command?: unknown;
    cwd?: unknown;
@@ -213,12 +240,7 @@ interface ExecBody {
    timeoutMs?: unknown;
 }
 
-function execOptions(request: ExecBody): { cwd?: string; env?: Record<string, string> } {
-   return {
-      ...(typeof request.cwd === 'string' ? { cwd: request.cwd } : {}),
-      ...(isStringMap(request.env) ? { env: request.env } : {}),
-   };
-}
+
 
 function notFound(context: { json: (body: unknown, status: 404) => Response }): Response {
    return context.json({ error: 'unknown session' }, 404);
