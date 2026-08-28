@@ -303,3 +303,25 @@ test('a relative working directory is resolved against the workspace root', asyn
       undefined,
    ]);
 });
+
+test('a command is bounded even when the caller does not ask', async () => {
+   // An unbounded command holds a container open until something else reaps
+   // it. The protocol says a substrate bounds what it runs, so the default
+   // lives here rather than in every caller.
+   const seen: Array<number | undefined> = [];
+   const runtime = fakeRuntime({
+      exec: async function* (_id, _command, options) {
+         seen.push(options.timeoutMs);
+         yield { exitCode: 0 };
+      },
+   });
+   for (const body of [{ command: 'sleep 1' }, { command: 'sleep 1', timeoutMs: 2_000 }]) {
+      await app(runtime).request('/sessions/r/exec', {
+         method: 'POST',
+         headers: auth,
+         body: JSON.stringify(body),
+      });
+   }
+   assert.ok((seen[0] ?? 0) > 0, 'an unbounded command was allowed through');
+   assert.equal(seen[1], 2_000, 'the caller\'s ceiling was ignored');
+});

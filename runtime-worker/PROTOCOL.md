@@ -48,6 +48,11 @@ so a caller can say `repo/packages/api` without knowing where that root is —
 and Docker rejects a relative working directory outright, so resolving is what
 keeps the two substrates interchangeable rather than subtly different.
 
+`timeoutMs` bounds a single command. A substrate applies its own default when
+one is not given: an unbounded command holds a container open until something
+else reaps it, so "no ceiling" is not a state either substrate offers. A
+command stopped this way reports a non-zero exit like any other failure.
+
 `env` is scoped to the single command and does not persist into the container.
 That is load-bearing: it is how a credential reaches `git` without becoming
 readable by the commands an agent runs afterwards.

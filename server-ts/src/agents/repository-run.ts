@@ -5,6 +5,7 @@ import type { ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubError, type GitHubClient, type PullRequest } from '../integrations/github.ts';
 import { branchName, checkout, parseRepository, type Checkout } from './checkout.ts';
 import { commitAndPush } from './delivery.ts';
+import { summarise, verify, type VerificationReport } from './verification.ts';
 import { repositoryForIssue, type RepositoryContext } from './repository-context.ts';
 
 /**
@@ -118,6 +119,30 @@ export async function deliverRepository(
    const token = await deps.connections!.token(dispatch.workspaceId, 'github');
    const title = `${prepared.issue.reference}: ${prepared.issue.title}`;
 
+   // Before the push, so the evidence describes the tree being delivered
+   // rather than whatever the branch looked like afterwards. A failing check
+   // does not stop the delivery: the reviewer is the point, and they need to
+   // see the failure with the diff that caused it.
+   const report = await verify({
+      session: input.session,
+      directory: prepared.checkout.directory,
+      commands: prepared.repository.verifyCommands,
+   });
+   if (report.results.length > 0) {
+      await deps.ledger.appendVerified(dispatch.runId, {
+         passed: report.passed,
+         complete: report.complete,
+         durationMs: report.durationMs,
+         results: report.results.map((result) => ({
+            command: result.command,
+            exitCode: result.exitCode,
+            passed: result.passed,
+            durationMs: result.durationMs,
+            error: result.error,
+         })),
+      });
+   }
+
    const delivery = await commitAndPush({
       session: input.session,
       directory: prepared.checkout.directory,
@@ -138,7 +163,7 @@ export async function deliverRepository(
          title,
          // The run is named so a reviewer can get from the pull request back to
          // the log of how it was produced.
-         body: `${summary ?? 'No summary was produced.'}\n\n---\nBerry run \`${dispatch.runId}\` · task ${prepared.issue.reference}`,
+         body: pullRequestBody(summary, report, dispatch.runId, prepared.issue.reference),
       });
    }
 
@@ -166,4 +191,28 @@ export async function loadIssue(sql: Sql, issueId: string): Promise<IssueReferen
        WHERE i.id = ${issueId}`;
    if (!row) throw new Error(`issue ${issueId} was not found`);
    return { title: row.title, reference: `${row.prefix}-${row.number}` };
+}
+
+/**
+ * What a reviewer reads before opening anything.
+ *
+ * The evidence goes above the fold, because the question it answers — did this
+ * pass — is the one they opened the pull request to ask.
+ */
+export function pullRequestBody(
+   summary: string | null,
+   report: VerificationReport,
+   runId: string,
+   reference: string
+): string {
+   const sections = [summary ?? 'No summary was produced.'];
+
+   const evidence = summarise(report);
+   if (evidence !== '') {
+      const verdict = report.passed ? 'All checks passed.' : 'Some checks did not pass.';
+      sections.push(`## Evidence\n\n${verdict}\n\n${evidence}`);
+   }
+
+   sections.push(`---\nBerry run \`${runId}\` · task ${reference}`);
+   return sections.join('\n\n');
 }

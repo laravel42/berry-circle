@@ -39,7 +39,7 @@ export interface Runtime {
    exec(
       containerId: string,
       command: string,
-      options: { cwd?: string; env?: Record<string, string> }
+      options: { cwd?: string; env?: Record<string, string>; timeoutMs?: number }
    ): AsyncGenerator<Frame | { exitCode: number }>;
    putFile(containerId: string, path: string, content: string): Promise<void>;
    getFile(containerId: string, path: string): Promise<string>;
@@ -48,6 +48,9 @@ export interface Runtime {
    /** Refuses a new workspace when the host is already at its ceiling. */
    atCapacity(): Promise<boolean>;
 }
+
+/** Bounds a command that would otherwise hold a container open indefinitely. */
+export const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
 
 export function createApp(runtime: Runtime, env: Env): Hono {
    const app = new Hono();
@@ -225,11 +228,19 @@ export function createApp(runtime: Runtime, env: Env): Hono {
 function execOptions(
    request: ExecBody,
    resolveCwd: (cwd: string | undefined) => string | undefined
-): { cwd?: string; env?: Record<string, string> } {
+): { cwd?: string; env?: Record<string, string>; timeoutMs?: number } {
    const cwd = resolveCwd(typeof request.cwd === 'string' ? request.cwd : undefined);
+   // Defaulted here rather than left to the caller: an unbounded command holds
+   // a container open until something else reaps it, and the protocol says a
+   // substrate bounds what it runs.
+   const timeoutMs =
+      typeof request.timeoutMs === 'number' && request.timeoutMs > 0
+         ? request.timeoutMs
+         : DEFAULT_COMMAND_TIMEOUT_MS;
    return {
       ...(cwd !== undefined ? { cwd } : {}),
       ...(isStringMap(request.env) ? { env: request.env } : {}),
+      timeoutMs,
    };
 }
 

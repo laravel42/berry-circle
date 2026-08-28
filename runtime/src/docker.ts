@@ -37,6 +37,8 @@ export interface ExecInput {
    command: string;
    cwd?: string;
    env?: Record<string, string>;
+   /** Absent leaves the command unbounded, which only the caller may choose. */
+   timeoutMs?: number;
 }
 
 export class DockerError extends Error {
@@ -147,7 +149,15 @@ export class Docker {
             AttachStdout: true,
             AttachStderr: true,
             Tty: false,
-            Cmd: ['sh', '-c', input.command],
+            // `timeout` rather than tearing down the stream from this side:
+            // the container kills its own process, so a bounded command
+            // actually stops instead of being abandoned still running. Exit
+            // 124 is what `timeout` reports, and a non-zero code is already
+            // read as a failure everywhere above.
+            //
+            // Passed as argv, so the command needs no second round of shell
+            // quoting to survive being wrapped.
+            Cmd: timeoutArgv(input.timeoutMs, input.command),
             ...(input.cwd ? { WorkingDir: input.cwd } : {}),
             ...(input.env
                ? { Env: Object.entries(input.env).map(([key, value]) => `${key}=${value}`) }
@@ -302,6 +312,19 @@ interface SendOptions {
    contentType?: string;
    /** Zero disables the ceiling. Used only for the exec stream. */
    timeoutMs?: number;
+}
+
+/**
+ * The command, wrapped in a timeout when one was asked for.
+ *
+ * Seconds because that is what `timeout` takes; anything under a second is
+ * rounded up to one, since a sub-second ceiling on a real command is a
+ * configuration mistake rather than an intention.
+ */
+function timeoutArgv(timeoutMs: number | undefined, command: string): string[] {
+   if (timeoutMs === undefined || timeoutMs <= 0) return ['sh', '-c', command];
+   const seconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+   return ['timeout', String(seconds), 'sh', '-c', command];
 }
 
 function splitPath(path: string): { directory: string; name: string } {

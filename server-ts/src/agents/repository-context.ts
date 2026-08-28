@@ -21,6 +21,8 @@ export interface RepositoryContext {
    fullName: string;
    projectId: string;
    projectName: string;
+   /** Run against the tree before it is pushed. Empty means no evidence. */
+   verifyCommands: string[];
 }
 
 export async function repositoryForIssue(
@@ -28,9 +30,14 @@ export async function repositoryForIssue(
    issueId: string
 ): Promise<RepositoryContext | null> {
    const [row] = await sql<
-      Array<{ project_id: string; name: string; github_repo_full_name: string }>
+      Array<{
+         project_id: string;
+         name: string;
+         github_repo_full_name: string;
+         verify_commands: string[];
+      }>
    >`
-      SELECT p.id AS project_id, p.name, p.github_repo_full_name
+      SELECT p.id AS project_id, p.name, p.github_repo_full_name, p.verify_commands
         FROM issue_project_links l
         JOIN projects p ON p.id = l.project_id
        WHERE l.issue_id = ${issueId}
@@ -41,5 +48,6 @@ export async function repositoryForIssue(
       fullName: row.github_repo_full_name,
       projectId: row.project_id,
       projectName: row.name,
+      verifyCommands: row.verify_commands ?? [],
    };
 }

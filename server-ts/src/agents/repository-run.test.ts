@@ -3,7 +3,13 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { RunLedger } from '../runs/ledger.ts';
-import { deliverRepository, loadIssue, prepareRepository, type RepositoryRunDeps } from './repository-run.ts';
+import {
+   deliverRepository,
+   loadIssue,
+   prepareRepository,
+   pullRequestBody,
+   type RepositoryRunDeps,
+} from './repository-run.ts';
 import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubError, type GitHubClient, type PullRequest, type Repository } from '../integrations/github.ts';
 import { CheckoutFailed } from './checkout.ts';
@@ -35,6 +41,7 @@ describe(
       let sql: Sql;
       const fixture: Record<string, string> = {};
       let events: Recorded[] = [];
+      let openedBodies: string[] = [];
       let commands: Array<{ command: string; env: Record<string, string> | undefined }> = [];
 
       before(async () => {
@@ -122,7 +129,8 @@ describe(
                   canPush: true,
                   ...overrides.repository,
                }),
-               openPullRequest: async (): Promise<PullRequest> => {
+               openPullRequest: async (input: { body: string }): Promise<PullRequest> => {
+                  openedBodies.push(input.body);
                   if (overrides.pull instanceof Error) throw overrides.pull;
                   return {
                      number: 381,
@@ -138,7 +146,10 @@ describe(
 
       function deps(over: Partial<RepositoryRunDeps> = {}): RepositoryRunDeps {
          events = [];
+         openedBodies = [];
          const ledger = {
+            appendVerified: async (_id: string, p: object) =>
+               void events.push({ type: 'verified', ...p }),
             appendRepositoryReady: async (_id: string, p: object) =>
                void events.push({ type: 'repository.ready', ...p }),
             appendDelivered: async (_id: string, p: object) =>
@@ -158,7 +169,8 @@ describe(
       let repoId = 5000;
       async function newIssue(
          title: string,
-         repository: string | null
+         repository: string | null,
+         verifyCommands: string[] = []
       ): Promise<{ issueId: string; runId: string; dispatch: never }> {
          const issueId = randomUUID();
          const runId = randomUUID();
@@ -172,9 +184,10 @@ describe(
          if (repository) {
             const projectId = randomUUID();
             await sql`
-               INSERT INTO projects (id, workspace_id, name, github_repo_full_name, github_repo_id, created_by)
+               INSERT INTO projects (id, workspace_id, name, github_repo_full_name, github_repo_id,
+                                     verify_commands, created_by)
                VALUES (${projectId}, ${fixture.workspaceId!}, ${`P${(repoId += 1)}`},
-                       ${repository}, ${repoId}, ${fixture.userId!})`;
+                       ${repository}, ${repoId}, ${verifyCommands}, ${fixture.userId!})`;
             await sql`
                INSERT INTO issue_project_links (workspace_id, issue_id, project_id, linked_by)
                VALUES (${fixture.workspaceId!}, ${issueId}, ${projectId}, ${fixture.userId!})`;
@@ -393,6 +406,106 @@ describe(
       test('an issue that does not exist is named in the error', async () => {
          const missing = randomUUID();
          await assert.rejects(loadIssue(sql, missing), new RegExp(missing));
+      });
+
+      test("a project's checks run before the push, and land in the pull request", async () => {
+         const { dispatch } = await newIssue('Checked work', 'berry/frontend', [
+            'pnpm lint',
+            'pnpm test',
+         ]);
+         const collaborators = deps();
+         const prepared = await prepareRepository(collaborators, {
+            dispatch,
+            agentName: 'Forge',
+            session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
+         });
+         assert.ok(prepared);
+         assert.deepEqual(prepared.repository.verifyCommands, ['pnpm lint', 'pnpm test']);
+
+         events = [];
+         commands = [];
+         await deliverRepository(collaborators, {
+            dispatch,
+            prepared,
+            session: fakeSession({
+               'pnpm test': { exitCode: 1, stdout: '2 failed\n' },
+               numstat: { stdout: '1\t0\ta.ts\n' },
+               'rev-parse': { stdout: 'abc\n' },
+            }),
+            summary: 'Added the abort signal.',
+         });
+
+         const verified = events.find((event) => event.type === 'verified')!;
+         assert.equal(verified.passed, false);
+         assert.equal(events.indexOf(verified), 0);
+
+         // Checks describe the tree being delivered, so they run before it is
+         // committed rather than after.
+         const ranAt = commands.findIndex((call) => call.command.includes('pnpm test'));
+         const committedAt = commands.findIndex((call) => call.command.includes('git commit'));
+         assert.ok(ranAt >= 0 && ranAt < committedAt, 'checks must run before the commit');
+
+         // A failing check does not withhold the pull request — the reviewer is
+         // the point, and they need to see it.
+         const delivered = events.find((event) => event.type === 'delivered')!;
+         assert.equal(delivered.committed, true);
+         assert.ok(delivered.pullRequest);
+
+         assert.match(openedBodies[0]!, /## Evidence/);
+         assert.match(openedBodies[0]!, /Some checks did not pass/);
+         assert.match(openedBodies[0]!, /`pnpm test` — failed \(exit 1\)/);
+      });
+
+      test('a project with no checks delivers without an evidence section', async () => {
+         const { dispatch } = await newIssue('Unchecked', 'berry/frontend');
+         const collaborators = deps();
+         const prepared = await prepareRepository(collaborators, {
+            dispatch,
+            agentName: 'Forge',
+            session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
+         });
+         events = [];
+         await deliverRepository(collaborators, {
+            dispatch,
+            prepared: prepared!,
+            session: fakeSession({
+               numstat: { stdout: '1\t0\ta.ts\n' },
+               'rev-parse': { stdout: 'abc\n' },
+            }),
+            summary: null,
+         });
+
+         assert.equal(
+            events.find((event) => event.type === 'verified'),
+            undefined
+         );
+         assert.doesNotMatch(openedBodies[0]!, /## Evidence/);
+      });
+
+      test('the pull request body puts the verdict where a reviewer looks first', () => {
+         const body = pullRequestBody(
+            'Added an abort signal.',
+            {
+               passed: true,
+               complete: true,
+               durationMs: 1000,
+               results: [
+                  {
+                     command: 'pnpm test',
+                     exitCode: 0,
+                     passed: true,
+                     durationMs: 900,
+                     output: '',
+                     error: null,
+                  },
+               ],
+            },
+            'run-1',
+            'RUN-7'
+         );
+         assert.match(body, /^Added an abort signal\./);
+         assert.match(body, /All checks passed\./);
+         assert.match(body, /Berry run `run-1` · task RUN-7$/);
       });
    }
 );

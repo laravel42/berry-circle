@@ -353,6 +353,39 @@ export class RunLedger {
    }
 
    /**
+    * The project's checks, run against the tree the run is about to push.
+    *
+    * Recorded whether they passed or not: the reviewer is the point, and a
+    * failing check they can see is worth more than a pull request that never
+    * arrived. `passed: false` is evidence, not an error.
+    */
+   async appendVerified(
+      runId: string,
+      params: {
+         passed: boolean;
+         complete: boolean;
+         durationMs: number;
+         results: Array<{
+            command: string;
+            exitCode: number | null;
+            passed: boolean;
+            durationMs: number;
+            error: string | null;
+         }>;
+      }
+   ): Promise<void> {
+      await this.appendActiveEvent(runId, 'run.verified', {
+         passed: params.passed,
+         complete: params.complete,
+         durationMs: params.durationMs,
+         // Output is deliberately absent: it is in the pull request body where
+         // a reviewer reads it, and a ledger row per test log would make the
+         // run stream unreadable.
+         results: params.results,
+      });
+   }
+
+   /**
     * What the run delivered, or that it delivered nothing.
     *
     * `committed: false` is a legitimate outcome and is recorded as one — an
