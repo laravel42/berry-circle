@@ -1,13 +1,15 @@
 # ADR-0008: Run agents in-process with the Google Agent Development Kit
 
-- **Status:** Accepted — stages 1–5 shipped; stage 6 blocked on AUTOMATE
+- **Status:** Accepted — implemented. The runtime this record replaces was
+  removed from the repository on 2026-08-28, along with the server that adapted
+  it; the OpenFang detail below is retained because it is the evidence for the
+  decision, not a description of anything that still runs.
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
-- **Related:** [ADR-0003](0003-pin-openfang-by-commit.md) (pin OpenFang by
-  commit), [ADR-0004](0004-go-product-server.md) (Go product server),
-  [ADR-0005](0005-temporal-run-orchestration.md) (Temporal run orchestration),
-  [ADR-0006](0006-agent-run-artifacts.md) (agent run artifacts),
-  [Berry ↔ OpenFang integration](../integrations/berry-openfang.md)
+- **Related:** [ADR-0006](0006-agent-run-artifacts.md) (agent run artifacts),
+  [ADR-0009](0009-typescript-product-server.md) (TypeScript product server).
+  ADR-0003 (pin OpenFang by commit), ADR-0004 (Go product server) and ADR-0005
+  (Temporal run orchestration) were withdrawn with their subjects.
 
 ## Context
 

@@ -3,10 +3,17 @@
 - **Status:** Accepted
 - **Date:** 2026-08-24
 - **Deciders:** Berry platform
-- **Related:** [ADR-0004](0004-go-product-server.md) (Go product server),
-  [ADR-0005](0005-temporal-run-orchestration.md) (Temporal run orchestration),
-  [Berry ↔ OpenFang integration](../integrations/berry-openfang.md),
-  [Gateway API contract](../api/gateway-v1.md)
+- **Related:** [ADR-0008](0008-adk-agent-runtime.md) (ADK agent runtime),
+  [ADR-0009](0009-typescript-product-server.md) (TypeScript product server),
+  [Gateway API contract](../api/gateway-v1.md). ADR-0004 (Go product server) and
+  ADR-0005 (Temporal run orchestration) were withdrawn with their subjects.
+
+> **Amended 2026-08-28.** The decision stands: run artifacts live in
+> object storage and are indexed as attachments. The *mechanism* below does
+> not. There is no longer a runtime volume to promote from — under
+> [ADR-0008](0008-adk-agent-runtime.md) an agent calls `write_file` and the
+> artifact service writes to the bucket directly, so the read-only mount and
+> the post-run sweep described in "Promotion" no longer exist.
 
 ## Context
 

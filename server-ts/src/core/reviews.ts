@@ -1,8 +1,7 @@
 import { toRFC3339, type Sql } from '../db/pool.ts';
 
 /**
- * AutoGate verdicts on an issue, ported from
- * server/internal/repository/collaboration's ListIssueAutoReviews.
+ * AutoGate verdicts on an issue.
  *
  * This route exists because of a specific failure: a rejected review left the
  * task sitting in review with nothing to read. The verdict was recorded and

@@ -30,7 +30,7 @@ test('a timezone must be one the runtime resolves', () => {
    assert.ok(validTimezone('UTC'));
    assert.ok(!validTimezone('Mars/Olympus'));
    assert.ok(!validTimezone(''));
-   // Go's time.LoadLocation accepts this, so both servers must.
+   // Accepted historically, so a stored profile may already carry it.
    assert.ok(validTimezone('Local'));
 });
 

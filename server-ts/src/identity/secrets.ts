@@ -13,8 +13,7 @@ import type { TimeCursor } from '../http/cursor.ts';
 import type { Membership } from './workspaces.ts';
 
 /**
- * Personal access tokens and workspace invitations, ported from
- * server/internal/identity/secrets.go.
+ * Personal access tokens and workspace invitations.
  *
  * Neither secret is ever stored. A personal token keeps an indexed public
  * half and the SHA-256 of its secret; an invitation keeps only the digest of

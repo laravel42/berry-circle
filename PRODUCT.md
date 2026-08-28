@@ -63,10 +63,10 @@ Issue → Assign (human or agent) → Work on issue → In review → Done
 ```
 
 1. **Issue** — Work starts as an issue with project, properties, status, priority, relationships, and assignee.
-2. **Assign to an agent** — Berry mints its own run record, dispatches through the server-side OpenFang adapter, and correlates steps, events, usage, and cost to that run and issue.
+2. **Assign to an agent** — Berry mints its own run record, runs the agent server-side, and correlates steps, events, usage, and cost to that run and issue.
 3. **Work on the issue** — The agent posts progress as issue comments; status transitions as work moves. A human can interject, redirect, or take over at any time.
 4. **Review gate** — Delivered work enters *in review*. Human acceptance is required before *done*.
-5. **Done & audit** — Acceptance and workflow history are durable Berry records. OpenFang audit evidence links as execution evidence; it does not replace Berry's run ledger.
+5. **Done & audit** — Acceptance and workflow history are durable Berry records. Run artifacts link as execution evidence; they do not replace Berry's run ledger.
 
 Status flow: `backlog → todo → in_progress → in_review → done` (with `cancelled` available).
 
@@ -113,7 +113,6 @@ Features are grouped the way the shell rail organizes them. Some surfaces are li
 
 | Feature | Purpose |
 | --- | --- |
-| **Runtimes** | OpenFang execution environment projection — agent kernel availability, not Berry-owned runtime code. |
 | **Agents** | Agent roster, configuration, builder entry points, per-agent detail. |
 
 ### Settings & workspace administration

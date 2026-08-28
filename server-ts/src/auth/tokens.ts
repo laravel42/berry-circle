@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 /**
- * Bearer credential primitives, ported from server/internal/auth/tokens.go.
+ * Bearer credential primitives.
  *
  * The parsing rules here are deliberately strict and are load-bearing: scheme
  * casing, extra whitespace, base64 padding and additional credentials are all

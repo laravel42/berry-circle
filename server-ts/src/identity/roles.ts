@@ -1,6 +1,5 @@
 /**
- * Berry's workspace permission matrix, ported from
- * server/internal/identity/models.go.
+ * Berry's workspace permission matrix.
  *
  * Written out per role rather than derived from a hierarchy. A hierarchy would
  * be shorter and would quietly grant an admin the one thing they must not

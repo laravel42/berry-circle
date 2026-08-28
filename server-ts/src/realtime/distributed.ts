@@ -3,8 +3,7 @@ import type { Broadcaster, Hub, Observer, Subscription } from './hub.ts';
 import type { Relay } from './relay.ts';
 
 /**
- * The hub and the relay together, ported from
- * server/internal/realtime/distributed.go.
+ * The hub and the relay together.
  *
  * Publishing means two things: deliver to this node's subscribers now, and
  * tell the other nodes. Receiving means the reverse. The pieces that make that

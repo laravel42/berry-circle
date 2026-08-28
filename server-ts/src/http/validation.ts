@@ -1,11 +1,10 @@
 /**
- * Field validators, ported from
- * server/internal/handlers/identity/validation.go.
+ * Field validators.
  *
- * These decide what reaches the database, so each one matches Go's rule rather
- * than a reasonable equivalent: while both servers answer the same frontend, a
- * value one accepts and the other refuses is a bug that appears only for
- * whichever prefix has already moved.
+ * These decide what reaches the database, so each keeps the rule the API has
+ * always enforced rather than a reasonable equivalent: a value that used to be
+ * accepted and is now refused is a break for every client already sending it,
+ * and one already stored is a row that can no longer be updated.
  */
 
 /** Rune count, not UTF-16 length: Go bounds by runes and an emoji is one. */
@@ -63,8 +62,8 @@ export function validEmail(value: string): boolean {
    if (value !== value.toLowerCase() || !boundedLength(value, 3, 320)) return false;
    const [local, domain, ...rest] = value.split('@');
    if (rest.length > 0 || !local || !domain) return false;
-   // No dot is required in the domain: Go's mail.ParseAddress accepts "a@b",
-   // and both servers have to agree on what an address is.
+   // No dot is required in the domain: "a@b" has always been accepted, and
+   // addresses like it are already stored.
    return (
       /^[^\s<>@,"'\\]+$/.test(local) &&
       /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(domain)

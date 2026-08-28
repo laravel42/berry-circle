@@ -12,7 +12,7 @@ import { Conflict, Forbidden, NotFound } from '../identity/errors.ts';
 import type { Mount } from '../http/registry.ts';
 
 /**
- * `/api/v1/boards`, ported from server/internal/handlers/boards.
+ * `/api/v1/boards`.
  *
  * This mount answers its own error shapes rather than the identity mount's:
  * a bad page query is 400 INVALID_REQUEST here and 422 VALIDATION_FAILED

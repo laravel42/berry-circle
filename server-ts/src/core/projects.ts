@@ -5,8 +5,7 @@ import { allows, type Permission } from '../identity/roles.ts';
 import type { Scope } from './boards.ts';
 
 /**
- * Projects and their resources, ported from
- * server/internal/repository/projects.
+ * Projects and their resources.
  *
  * Every statement is scoped by workspace *and* id, not by id alone. That is
  * what makes a project in another workspace invisible rather than merely

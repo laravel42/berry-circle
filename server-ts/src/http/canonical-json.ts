@@ -1,10 +1,10 @@
 /**
- * Go's `json.Marshal` of a decoded `any`, reproduced byte for byte.
+ * The canonical serialization idempotency fingerprints are hashed over.
  *
- * Idempotency fingerprints are hashes of this, and during the migration a
- * client can POST to one server and retry against the other — so the two must
- * agree on what "the same request body" means. Four things differ from
- * `JSON.stringify`, and each one changes the hash:
+ * It is Go's `json.Marshal` of a decoded `any`, reproduced byte for byte,
+ * because fingerprints computed that way are already stored and a request that
+ * hashed differently would stop matching its own replay. Four things differ
+ * from `JSON.stringify`, and each one changes the hash:
  *
  *   - Go marshals a map with its keys sorted; JavaScript preserves insertion
  *     order, so `{"b":2,"a":1}` and `{"a":1,"b":2}` would hash differently.

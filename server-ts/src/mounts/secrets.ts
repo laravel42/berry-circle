@@ -21,8 +21,7 @@ import type { Mount } from '../http/registry.ts';
 
 /**
  * `/api/v1/tokens` and `/api/v1/invitations`, plus the invitation routes that
- * hang off a workspace. Ported from
- * server/internal/handlers/identity/invitations_tokens.go.
+ * hang off a workspace.
  *
  * Every response that carries a secret is sent `Cache-Control: no-store`,
  * because the secret exists exactly once and a cached copy is one more place

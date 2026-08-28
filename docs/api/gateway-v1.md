@@ -8,7 +8,7 @@ This document is the normative HTTP and Server-Sent Events (SSE) contract for th
 
 The contract uses conventional resource-oriented JSON, opaque cursor pagination, and stable error envelopes. These are interoperability conventions, not a copy of another product's schema. Unless this document explicitly says otherwise, clients MUST ignore unknown response fields and unknown SSE event types.
 
-Current implementation note: the Go product server at `server/` implements this contract, including run persistence. Where the database and this contract differ, this contract is the target public interface; storage names are not API field names.
+Current implementation note: the server at `server-ts/` implements part of this contract. This document is the **target** public interface, not an inventory of what answers today — `server-ts/SCOPE.md` lists the prefixes that are not served and answer 404, and `server-ts/ROUTING.md` records what was verified against it. Where the database and this contract differ, this contract wins; storage names are not API field names.
 
 Shipped but not yet specified here — treat the implementation as authoritative until these sections are written:
 
@@ -442,7 +442,7 @@ A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved;
 
 ### Workflow
 
-A workflow (Go and SQL identifiers say `automation`) is a stored `WorkflowDefinition v1`: `{ "version": "1", "trigger": Trigger, "steps": Step[], "entry": [stepId] }`. Step `type` values stay snake_case: `action`, `condition`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`, `switch`, `foreach`, `transform` and `subworkflow` all execute natively (a deployment that narrows the set answers `NODE_TYPE_UNSUPPORTED`). `WorkflowStatus` is one of `draft`, `active`, `paused`, `archived`.
+A workflow (SQL identifiers say `automation`) is a stored `WorkflowDefinition v1`: `{ "version": "1", "trigger": Trigger, "steps": Step[], "entry": [stepId] }`. Step `type` values stay snake_case: `action`, `condition`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`, `switch`, `foreach`, `transform` and `subworkflow` all execute natively (a deployment that narrows the set answers `NODE_TYPE_UNSUPPORTED`). `WorkflowStatus` is one of `draft`, `active`, `paused`, `archived`.
 
 Triggers, `{ "id", "type", ... }`:
 

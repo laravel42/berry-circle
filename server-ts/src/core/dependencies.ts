@@ -3,8 +3,7 @@ import { Conflict, NotFound } from '../identity/errors.ts';
 import { dbStatusToApi } from './issues.ts';
 
 /**
- * Issue dependencies, ported from
- * server/internal/repository/core/issue_dependencies.go.
+ * Issue dependencies.
  *
  * An edge says "this issue waits on that one". Almost none of the rules live
  * here: a trigger refuses a cycle, a foreign key refuses an edge that crosses

@@ -51,7 +51,7 @@ test('a per-token price becomes the per-million figure the product shows', () =>
 });
 
 test('a repeated provider prefix is stripped, and a real one is not', () => {
-   // The quirk is inherited from the OpenFang catalogue, and stored pairings
+   // The quirk is inherited from the previous catalogue, and stored pairings
    // still carry it: dropping this would make every one of them unavailable.
    assert.equal(normalizeModelId('openrouter', 'openrouter/anthropic/claude-sonnet-4'), 'anthropic/claude-sonnet-4');
    assert.equal(normalizeModelId('openrouter', 'anthropic/claude-sonnet-4'), 'anthropic/claude-sonnet-4');

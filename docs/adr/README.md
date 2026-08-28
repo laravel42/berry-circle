@@ -20,13 +20,20 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 
 | ADR | Decision | Status | Date |
 |---|---|---|---|
-| [0001](0001-bun-hono-gateway.md) | Use Bun and Hono for the gateway | Superseded by [0004](0004-go-product-server.md) | 2026-08-22 |
 | [0002](0002-valkey-for-ephemeral-state.md) | Use Valkey for cache and ephemeral coordination state | Accepted | 2026-08-22 |
-| [0003](0003-pin-openfang-by-commit.md) | Pin and validate the OpenFang integration by commit | Accepted | 2026-08-22 |
-| [0004](0004-go-product-server.md) | Adopt a Go product server | Accepted | 2026-08-22 |
-| [0005](0005-temporal-run-orchestration.md) | Adopt Temporal for run orchestration | Proposed | 2026-08-23 |
 | [0006](0006-agent-run-artifacts.md) | Store agent run artifacts in object storage, indexed as attachments | Accepted | 2026-08-24 |
-| [0007](0007-workflows-planning-and-activepieces-adapter.md) | Workflows, AI planning, and an optional Activepieces adapter | Proposed | 2026-08-25 |
+| [0008](0008-adk-agent-runtime.md) | Run agents in-process with the Google Agent Development Kit | Accepted | 2026-08-27 |
+| [0009](0009-typescript-product-server.md) | Reimplement the product server in TypeScript | Accepted | 2026-08-27 |
+
+### Withdrawn records
+
+0001, 0003, 0004, 0005 and 0007 were removed on 2026-08-28 together with the
+subjects they decided — the Bun/Hono gateway, the pinned OpenFang runtime, the
+Go product server, Temporal orchestration, and the Activepieces adapter. The
+numbers are not reused. What replaced them is recorded in
+[0008](0008-adk-agent-runtime.md) and [0009](0009-typescript-product-server.md);
+this is the only case in which a record is deleted rather than superseded, and
+it happens because the code it described no longer exists to conform to it.
 
 ## Adding a record
 

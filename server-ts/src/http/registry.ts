@@ -10,13 +10,12 @@ import type { Env, Hono } from 'hono';
 type AnyHono = Hono<any, any, any>;
 
 /**
- * Disjoint prefix mounts, ported from server/internal/httpapi/router.go.
+ * Disjoint prefix mounts.
  *
- * Domain packages contribute subtrees and the registry refuses two that could
- * ever match the same path. That rule is load-bearing twice over: it is why no
- * central package has to import every handler, and it is what makes the
- * migration possible at all — a prefix that cannot overlap another can be
- * moved to this server on its own, while the Go server keeps the rest.
+ * Domain modules contribute subtrees and the registry refuses two that could
+ * ever match the same path. That rule is why no central module has to import
+ * every handler, and why a prefix can be added, moved or retired on its own
+ * without auditing what else might answer the same request.
  *
  * Overlap is checked at startup rather than discovered at request time,
  * because a route silently shadowed by another is the kind of bug that only

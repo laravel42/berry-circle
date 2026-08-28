@@ -13,10 +13,9 @@ import {
 } from './tokens.ts';
 
 /**
- * Ported from server/internal/auth/auth_test.go. These assertions are the
- * specification: the strict-parse rules are what make every malformed
- * credential indistinguishable, and the sessions in the database were issued
- * under exactly these rules.
+ * These assertions are the specification: the strict-parse rules are what make
+ * every malformed credential indistinguishable, and the sessions already in
+ * the database were issued under exactly these rules.
  */
 
 test('a generated token is 256 bits of unpadded base64url', () => {

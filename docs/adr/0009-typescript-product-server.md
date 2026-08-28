@@ -1,11 +1,12 @@
 # ADR-0009: Reimplement the product server in TypeScript
 
-- **Status:** Proposed
+- **Status:** Accepted — the Go server was removed on 2026-08-28 and this is
+  the only server. It is not feature-complete; `server-ts/SCOPE.md` records what
+  is missing.
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
-- **Supersedes:** [ADR-0004](0004-go-product-server.md) (Go product server)
+- **Supersedes:** ADR-0004 (Go product server), withdrawn with its subject
 - **Related:** [ADR-0008](0008-adk-agent-runtime.md) (ADK agent runtime),
-  [ADR-0005](0005-temporal-run-orchestration.md) (Temporal run orchestration),
   [Multica reuse provenance](../provenance/multica-server-reuse.md)
 
 ## Context
@@ -18,7 +19,7 @@ a claim about behaviour, or maintain the product without an intermediary — and
 in practice every change this month has gone through one. A codebase its owner
 cannot read is a codebase they cannot be responsible for.
 
-This reverses [ADR-0004](0004-go-product-server.md), taken five days ago on
+This reverses ADR-0004 (withdrawn), taken five days ago on
 2026-08-22, which moved Berry from a Bun/Hono gateway to Go in order to absorb
 owner-authorised Multica Go product material. That rationale is not disputed;
 it is outweighed.

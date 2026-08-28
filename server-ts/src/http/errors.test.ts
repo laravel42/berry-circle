@@ -5,9 +5,8 @@ import { isValidRequestId, newRequestId } from './request-id.ts';
 
 /**
  * The envelope is a public contract, so these assertions are pinned against
- * responses captured from the running Go server rather than written from the
- * Go source. During the migration both servers answer the same frontend; a
- * difference here is a difference the browser sees.
+ * captured responses rather than transcribed from the code that produces them.
+ * A difference here is a difference the browser sees.
  */
 
 /** Captured from `curl http://127.0.0.1:4000/api/v1/issues` on 2026-08-27. */

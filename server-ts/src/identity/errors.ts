@@ -1,8 +1,7 @@
 import { ApiError } from '../http/errors.ts';
 
 /**
- * Identity domain failures, ported from
- * server/internal/handlers/identity/handlers.go's writeDomainError.
+ * Identity domain failures.
  *
  * Each carries the status, code and wording Go sends, because the frontend
  * switches on `code` and shows `message`.

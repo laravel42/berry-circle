@@ -2,8 +2,7 @@ import type { Context } from 'hono';
 import { ApiError, type FieldError } from './errors.ts';
 
 /**
- * Request body decoding, ported from
- * server/internal/handlers/identity/validation.go.
+ * Request body decoding.
  *
  * Go's decoder is strict in ways a permissive JSON.parse is not, and each
  * strictness is observable: an unknown field is a 422 rather than a silently

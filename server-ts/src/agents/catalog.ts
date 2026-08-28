@@ -1,14 +1,13 @@
 /**
  * The models an agent can be switched to.
  *
- * Ported from server/internal/modelcatalog, minus the half that made it
- * complicated. There, the runtime reported a catalogue with its OpenRouter
- * entries compiled into the binary, so they went stale and a working pairing
- * read as unavailable; the Go package exists to splice OpenRouter's live list
- * over them and keep the runtime's other providers.
+ * Minus the half that used to make this complicated. The runtime reported a
+ * catalogue with its OpenRouter entries compiled in, so they went stale and a
+ * working pairing read as unavailable, and Berry spliced OpenRouter's live
+ * list over them while keeping the runtime's other providers.
  *
- * Under ADK there are no other providers. Berry talks to OpenRouter, so the
- * live list is the whole catalogue and there is nothing to merge.
+ * There are no other providers now. Berry talks to OpenRouter, so the live
+ * list is the whole catalogue and there is nothing to merge.
  */
 
 const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
@@ -121,7 +120,7 @@ function toCatalogModel(entry: WireModel): CatalogModel {
       displayName: entry.name || entry.id!,
       provider: PROVIDER,
       // OpenRouter publishes no tier. Empty rather than invented: the field
-      // exists because the OpenFang catalogue had one, and a guess here would
+      // exists because the catalogue Berry used to read had one, and a guess would
       // be shown in a column people read as fact.
       tier: '',
       contextWindow: entry.context_length ?? 0,
@@ -168,8 +167,8 @@ export function resolveModel(
 /**
  * Strips a provider prefix repeated inside a model id.
  *
- * Kept from the Go adapter because the stored pairings still carry it: agents
- * configured against the OpenFang catalogue hold ("openrouter",
+ * Kept because the stored pairings still carry it: agents configured against
+ * the previous catalogue hold ("openrouter",
  * "openrouter/anthropic/claude-sonnet-4"), and dropping the normalisation
  * would make every one of them read as unavailable.
  */

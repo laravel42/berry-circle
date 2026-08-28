@@ -1,76 +1,43 @@
-# What may be routed to the TypeScript server
+# What the server answers, and how it was verified
 
-The frontend reaches the API through `frontend/next.config.ts`. It sends
-everything to Go unless `BERRY_TS_API_ORIGIN` is set, and then moves only the
-prefixes in that file's `TYPESCRIPT_ROUTES` list. The migration moves prefixes
-across one at a time, so this file records which are ready and — more
-importantly — why the others are not. A prefix answered by both servers is only
-safe to move when the responses agree; "it returns 200" is not the bar.
+The frontend reaches the API through `frontend/next.config.ts`, which proxies
+`/api/*`, `/health` and `/ready` to `BERRY_API_ORIGIN`. There is one server, so
+routing is no longer a decision — but what each mount was checked against still
+is, and this file is that record.
 
-See `SCOPE.md` for the sections that are not being migrated at all.
+See `SCOPE.md` for what was deliberately not reimplemented.
 
-## Turning it on
+## Verified
 
-```
-BERRY_TS_API_ORIGIN=http://127.0.0.1:4100
-```
-
-**The TypeScript server must be running.** With the variable set and nothing
-listening, the routed prefixes fail — the proxy does not fall back to Go, and a
-silent fallback would be worse: it would hide an outage behind a working app.
-Unset the variable to put everything back on Go.
-
-The patterns are narrow on purpose. `/api/v1/issues/:issueRef` matches one
-segment, so `/api/v1/issues/BER-1/comments` falls through to Go — the only
-server that has comments. A `:path*` there would 404 every nested route.
-
-Check with `scripts/contract-diff.ts` against both servers pointed at the **same
-database**, or the drift you see is data, not contract. It compares headers as
-well as bodies: this server once answered every path with a byte-identical body
-and no Content-Security-Policy at all, and a body-only diff called that a pass.
-
-## Ready
+These were compared response by response against captured baselines — bodies,
+status codes and headers — for the same database.
 
 | Prefix | Verified |
 |---|---|
 | `/health` | byte-identical |
 | `/api/v1/me` | 33 probes — reads, writes, validation edges — body, status and headers |
 | `/api/v1/workspaces` | 35 probes, including pagination, authorization and the last-owner rule |
-| `/api/v1/tokens` | create/replay/conflict compared per server; issued secrets authenticate against both |
+| `/api/v1/tokens` | create/replay/conflict; issued secrets authenticate |
 | `/api/v1/invitations` | 44 probes, plus 17 addresses at the email-validation boundary |
 | `/api/v1/boards` | 31 probes, including the column-in-use guard in both directions |
 | `/api/v1/projects` | 45 probes plus a full lifecycle; see the caveat below |
+| `/api/v1/issues` | 38 probes on the read paths; cursors verified in both directions |
+| `/api/v1/events` | 4,090 board frames and 196 workspace frames, byte-identical |
 | the error envelope | byte-identical for 401 and 404, request id aside |
 
-Timestamps written by this server carry millisecond precision where Go's carry
-microseconds, because Node's clock stops there. Ordering is unaffected — the
-`(created_at, id)` cursor breaks ties on the id — but two rows created in the
-same millisecond share a `created_at` here where Go would separate them.
+Timestamps written here carry millisecond precision where the previous
+implementation carried microseconds, because Node's clock stops there. Ordering
+is unaffected — the `(created_at, id)` cursor breaks ties on the id — but two
+rows created in the same millisecond share a `created_at` where they would once
+have been separated.
 
-## Not ready, and what blocks each
+## Known gaps
 
-| Prefix | Blocked on |
+| Prefix | State |
 |---|---|
-| `/ready`, `/readyz` | Go probes `database`, `realtime`, `triggerdispatch` and `valkey`; this server has only `database`. Routing it would report a narrower readiness than the deployment actually has, and an orchestrator would believe it. |
-| `/metrics` | Go serves Prometheus text and metrics are **enabled** in the running deployment. This server returns 404, so scraping would silently stop. Lands with the observability port. |
-| `/api/v1/config` | `capabilities` tells the browser which features to render. This server can only honestly report `metrics` and would switch off agent execution, planner, workflows, storage, realtime and valkey in the UI. Moves when those subsystems do. |
-| `/api/v1/auth` | ported and tested, but session issuance writing from two servers has not been exercised under load. |
-| `/api/v1/issues` | **reads only.** `GET /` and `GET /:issueRef` are verified across 38 probes, and cursors cross between the servers in both directions. Creating and updating an issue publishes to the realtime hub; a mount that wrote correctly but published nothing would leave every open board silently stale, so those routes wait for the hub rather than shipping with a no-op broadcaster. |
-
-## Comparing a create
-
-Both servers share a database, so a create cannot simply be sent to both.
-
-With the **same** `Idempotency-Key`, the first server creates and the second
-correctly *replays* — same id, no secret, `Idempotency-Replayed: true`. That is
-the mechanism working, and the matching ids are the proof.
-
-With `distinctKeys: true`, each server executes for real — which is what you
-want, until the resource has a uniqueness rule of its own. An invitation is
-unique per pending address, so the second server then conflicts legitimately.
-
-Neither mode compares such an endpoint cleanly. Verify those per server, one
-request each against a reset table, as the invitation and token checks do.
+| `/ready` | probes `database` only. A deployment that also runs Valkey or an external dispatcher gets a narrower readiness report than it has. |
+| `/metrics` | answers 404, and `capabilities.metrics` is false to match. Lands with the observability port. |
+| `/api/v1/config` | honest but narrow: `planner`, `workflows` and `valkey` are reported false because this process does not provide them. |
 
 ## The one known divergence: linking a GitHub repository
 
@@ -80,59 +47,52 @@ the connection cannot see, and the stored pair would then disagree about where
 the project delivers. A database constraint keeps the two columns together.
 
 This server has no resolver, so it refuses with **412
-INTEGRATIONS_NOT_CONFIGURED** — which is Go's own answer for a deployment
-without one. The running Go server *has* a resolver, so it refuses with **422
+INTEGRATIONS_NOT_CONFIGURED**. A deployment that *has* one refuses with **422
 REPOSITORY_UNAVAILABLE** instead.
 
 Both refuse, and neither writes a half-link, so no project can end up in a
 broken state. But the codes differ, and a client that switches on them would
-see the difference. No project in this deployment currently has a repository
-linked, which is why projects are routed anyway.
+see the difference.
 
-## Agents: ported, with one deliberate difference
+## Agents: rows, not a projection
 
-`GET /api/v1/agents` used to reconcile against the OpenFang runtime on **every**
-request — `SyncWorkspace` before the listing was read, erroring rather than
+`GET /api/v1/agents` used to reconcile against an external runtime on **every**
+request — a workspace sync before the listing was read, erroring rather than
 degrading when the runtime was absent. The agent list was a live projection of
-runtime state, not a table. Under `BERRY_AGENT_RUNTIME=adk` it is a table,
-which is what let this mount move at all.
+another process's state, not a table. It is a table now.
 
-`GET /`, `GET /{id}` and `GET /capabilities` are **identical** to Go's, verified
-by `contract-diff` against the same rows. Two routes are new, because a
-rows-only agent needs them and a projected one never did:
+`GET /`, `GET /{id}` and `GET /capabilities` are identical to what they were,
+verified against the same rows. Two routes are new, because a rows-only agent
+needs them and a projected one never did:
 
 | route | why it is new |
 |---|---|
-| `POST /` | agents were spawned in OpenFang and discovered by sync, so Berry has never had a way to author one |
+| `POST /` | agents used to be spawned in the runtime and discovered by sync, so Berry had no way to author one |
 | `DELETE /{id}` | archives; the protected orchestrator refuses with 409 `AGENT_PROTECTED` |
 
 `PUT /{id}/config` keeps its request and response, and changes what it does.
-Go pushed the configuration to OpenFang **before** storing it, so a save meant
-the runtime had accepted it. There is no upstream now, so storing it *is* the
-operation — and the model is written to the row, which Go never did: it read
-the model back from OpenFang after pushing it. A save that did not store it
-would silently do nothing.
+The configuration used to be pushed to the runtime **before** being stored, so
+a save meant the runtime had accepted it. There is no upstream now, so storing
+it *is* the operation — and the model is written to the row, which never used
+to happen: it was read back from the runtime after being pushed. A save that
+did not store it would silently do nothing.
 
-`POST /{id}/ask` stays on Go and is not routed here. It is a chat completion
-through OpenFang, nothing in the product calls it, and what it should mean
-under ADK is a separate decision from moving the mount.
+`POST /{id}/ask` is absent. It was a chat completion passed through to that
+runtime, nothing in the product calls it, and what it should mean now is its
+own decision.
 
-### `GET /models` differs on purpose
-
-This is the one route where the two servers answer differently, and the
-difference is the point.
+### `GET /models` is smaller on purpose
 
 | | |
 |---|---|
-| Go | 458 models: 417 from OpenRouter, plus 41 compiled into the OpenFang binary for `anthropic`, `codex`, `groq`, `ollama`, `openai`, `lmstudio`, `vllm` |
-| TypeScript | 417 models, all OpenRouter's |
+| before | 458 models: 417 from OpenRouter, plus 41 compiled into the runtime for `anthropic`, `codex`, `groq`, `ollama`, `openai`, `lmstudio`, `vllm` |
+| now | 417 models, all OpenRouter's |
 
-Berry's ADK runtime has exactly one model client, and it talks to OpenRouter.
-An agent pointed at `anthropic/claude-sonnet-4-6` — a real entry in Go's list —
-would fail on its next task, because OpenRouter has never heard of that id.
-Go's catalogue is now *wrong* for this deployment: it offers models that cannot
-run. Every stored pairing in the database is already `openrouter/…`, so nothing
-depends on the dropped providers.
+Berry has exactly one model client and it talks to OpenRouter. An agent pointed
+at `anthropic/claude-sonnet-4-6` — a real entry in the old list — would fail on
+its next task, because OpenRouter has never heard of that id. The old catalogue
+offered models that could not run. Every stored pairing in the database is
+already `openrouter/…`, so nothing depends on the dropped providers.
 
 The prefix-stripping quirk is kept (`openrouter/anthropic/claude-sonnet-4` →
 `anthropic/claude-sonnet-4`), because stored pairings still carry it and
@@ -142,36 +102,67 @@ dropping it would make every one of them read as unavailable.
 
 | | |
 |---|---|
-| ~~the realtime hub~~ | ported: hub, relay and the distributed broadcaster |
 | goal linking | `applyGoalChange` when a create or patch names a goal |
 | assignee validation | that the actor exists *in this workspace* |
 | the approval boundary | `ErrApprovalRequired` on a gated board |
 
-The realtime port is verified against Go in both directions on a live Valkey
-stream, but nothing is wired into a mount yet — no route publishes and no SSE
-endpoint subscribes. Those land with the issue write path and the `runs` and
-`events` mounts.
+## The event streams
 
-## A second shadowed port
+`GET /api/v1/events` is one stream per board and one per workspace, and the
+split matters: a board stream carries what happens on that board, while a
+workspace stream carries facts belonging to no board at all — goals, workflows,
+approvals, plans.
 
-The container's Valkey publishes to `127.0.0.1:6379`, and a **host Redis
-listens there too** — exactly like the PostgreSQL collision. A relay pointed at
-6379 from the host reads an empty stream and reports nothing wrong. Bridge it
-the same way:
+It replays from `outbox_events` and is only *woken* by Valkey. That is why it
+can carry events for lanes this server does not otherwise implement: those are
+rows in a table it can read, not state in a process it would have to talk to.
+It is also why the relay being unwired costs latency rather than facts — the
+500ms poll finds everything, just later.
+
+Verified by comparing whole streams: 4,090 board frames and 196 workspace
+frames byte-identical, resume from `after` and from `Last-Event-ID` identical,
+and the heartbeat cadence the same over a 25-second idle window.
+
+## Goals reach across the unimplemented line, deliberately
+
+`GET /goals/:id/workflows`, `/approvals` and `/plans` read tables no mount here
+owns — automations and approvals belong to AUTOMATE, plans to the planner. They
+are served for the same reason the event stream is: they depend on those
+**tables**, not on that code. A goal has to be able to say what points at it
+without owning any of it.
+
+The same argument does not extend to writing any of them. Nothing here creates
+an automation, decides an approval or compiles a plan.
+
+## The presigned download URL that did not work
+
+`GET /api/v1/attachments/:id/download-url` returns a URL the browser can fetch
+the bytes from directly, so a download does not stream through Berry. The
+previous implementation's URL was rejected:
 
 ```
-docker run -d --rm --name berry-valkey-bridge --network berry-stack_default \
-  -p 56379:6379 alpine/socat tcp-listen:6379,fork,reuseaddr tcp:valkey:6379
+400 AccessDenied — There were headers present in the request which were not signed
 ```
+
+Verified against the same object, from inside the compose network, with a
+minimal client sending no headers of its own. The difference is visible in the
+query itself — the AWS SDK signs `X-Amz-Content-Sha256`, and the old URL
+carried no equivalent.
+
+Nothing had hit it because the product does not use this route: a listing's
+`downloadUrl` points at `/download`, which streams through Berry. So it was a
+latent fault on a route only an API client would reach, and it is fixed here
+rather than reproduced.
 
 ## The escaping every mount was getting wrong
 
 Go's `encoding/json` escapes `<`, `>` and `&` — for callers embedding JSON in
-HTML — and escapes U+2028/U+2029, which `JSON.stringify` leaves literal. So
-every ported mount had been emitting subtly different bytes from Go since the
-first one landed.
+HTML — and escapes U+2028/U+2029, which `JSON.stringify` leaves literal. Every
+ported mount had been emitting subtly different bytes since the first one
+landed, and the fingerprints and captured baselines all assume the escaped
+form.
 
-Nothing caught it, because `contract-diff` only compares the data it is given
+Nothing caught it, because a contract diff only compares the data it is given
 and none of that data happened to contain an ampersand. It surfaced when the
 event stream was compared: 4,090 board frames, of which **three** differed, all
 because an agent had written `Node 20 & 22` in a comment.
@@ -183,56 +174,6 @@ mount was fixed at once.
 
 Worth remembering as a method: a contract diff over a hand-picked path proves
 less than one over a stream of four thousand real events.
-
-## The event streams
-
-`GET /api/v1/events` is one stream per board and one per workspace, and the
-split matters: a board stream carries what happens on that board, while a
-workspace stream carries facts belonging to no board at all — goals,
-workflows, approvals, plans.
-
-It replays from `outbox_events` and is only *woken* by Valkey. That is what
-makes it portable while AUTOMATE stays on Go: the excluded lane's run events
-are rows in a table this server can read, not state in a process it would have
-to talk to. It is also why the relay being unwired costs latency rather than
-facts — the 500ms poll finds everything, just later.
-
-Verified against Go by comparing whole streams: 4,090 board frames and 196
-workspace frames byte-identical, resume from `after` and from `Last-Event-ID`
-identical, and the heartbeat cadence the same over a 25-second idle window.
-
-## Goals reach across the excluded line, deliberately
-
-`GET /goals/:id/workflows`, `/approvals` and `/plans` read tables whose own
-mounts stay on Go — automations and approvals are AUTOMATE, plans is being
-refactored. They moved anyway, for the same reason the event stream could: they
-depend on those **tables**, not on that code. A goal has to be able to say what
-points at it without owning any of it, and the alternative — leaving three
-routes of one mount behind — would split `/api/v1/goals` across two servers.
-
-The same argument does not extend to writing any of them. Nothing here creates
-an automation, decides an approval or compiles a plan.
-
-## Go's presigned download URLs do not work
-
-`GET /api/v1/attachments/:id/download-url` returns a URL the browser can fetch
-the bytes from directly, so a download does not stream through Berry. Go's is
-rejected:
-
-```
-400 AccessDenied — There were headers present in the request which were not signed
-```
-
-Verified against the same object, from inside the compose network, with a
-minimal client sending no headers of its own: Go's URL fails and this server's
-returns the file with the content disposition applied. The difference is
-visible in the query itself — the AWS SDK signs `X-Amz-Content-Sha256`, and
-Go's URL carries no equivalent.
-
-Nothing has hit it because the product does not use this route: a listing's
-`downloadUrl` points at `/download`, which streams through Berry and works on
-both servers. So it is a latent fault on a route only an API client would
-reach, and it is fixed here rather than reproduced.
 
 ## Running the database-backed tests
 
@@ -256,15 +197,12 @@ docker run -d --rm --name berry-pg-bridge --network berry-stack_default \
   -p 15432:15432 alpine/socat tcp-listen:15432,fork,reuseaddr tcp:postgres:5432
 
 BERRY_TEST_DATABASE_URL='postgres://berry:berry@127.0.0.1:15432/berry_test?sslmode=disable' \
-  npm test
+  pnpm test:server
 ```
 
-Without the variable the suite skips them and still passes, so `npm test` works
-on a machine with no stack running.
+Without the variable the suite skips them and still passes, so `pnpm
+test:server` works on a machine with no stack running.
 
-## The rule
-
-A prefix moves when `contract-diff` reports `identical` or `identical apart from
-request ids and timestamps` for every path under it, against the same database.
-Anything else means the two servers would answer the same question differently,
-which is the one thing the strangler cannot survive.
+Note that a host PostgreSQL on 5432 shadows the container's published port, and
+a host Redis shadows 6379 the same way. A client pointed at either from the
+host may not be talking to the container — hence the socat bridge above.

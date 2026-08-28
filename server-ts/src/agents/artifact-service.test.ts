@@ -7,7 +7,7 @@ import { InvalidKey, sniffContentType, validateKey } from '../storage/storage.ts
  * The pure halves of the artifact path. The parts that need PostgreSQL and a
  * bucket were driven against both directly: two agents sharing one run, one
  * writing a file and the other listing, reading and quoting it — which is the
- * handoff OpenFang's per-agent volume made impossible.
+ * handoff a per-agent volume made impossible.
  */
 
 test('a filename passes through, separators and all', () => {

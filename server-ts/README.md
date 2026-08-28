@@ -1,60 +1,56 @@
-# Berry product server (TypeScript)
+# Berry product server
 
-Berry's server, being reimplemented in TypeScript ([ADR-0009](../docs/adr/0009-typescript-product-server.md)).
+Berry's server, in TypeScript ([ADR-0009](../docs/adr/0009-typescript-product-server.md)).
 
-It is grown by strangling the Go server at `../server`, not by replacing it in
-one step. `frontend/next.config.ts` proxies `/api/:path*` to a configurable
-origin and the Go router enforces disjoint prefix mounts, so prefixes move here
-one at a time while both servers run against the same database and the same
-migrations. Berry stays usable throughout.
+It was grown by strangling the previous implementation rather than replacing it
+in one step, and that history still shapes the code: the wire shape is a contract, and
+assertions here are pinned against captured responses rather than transcribed
+from source, because the point is what goes on the wire.
 
 ## What that means for code here
-
-**The Go server is the specification.** There is no OpenAPI document — the
-contract in `docs/api/gateway-v1.md` covers about half the surface in prose and
-disclaims the rest. So a port starts by reading the Go implementation and its
-tests, and finishes by comparing responses against the running Go server.
 
 **The wire shape does not change.** `/api/v1`, the error envelope, cursor
 pagination, `Idempotency-Key`, opaque session tokens and `berry_pat_` personal
 access tokens keep their exact shapes. Anything a browser can observe is
-already a contract. Assertions here are pinned against captured Go responses
-rather than transcribed from Go source, because the point is what goes on the
-wire, not what the source says should.
+already a contract — and cursors and idempotency fingerprints that clients and
+the database already hold have to keep decoding.
 
-**Migrations belong to `../server/migrations`.** Same files, same
-`berry_schema_migrations` table, same checksums and advisory lock. One schema,
-two servers.
+**This server owns the schema.** `migrations/` is forward-only and immutable,
+applied by `src/migrate` under an advisory lock with a SHA-256 per file
+recorded in `berry_schema_migrations`. Never edit an applied migration; add a
+new one.
+
+**It is not finished.** `SCOPE.md` lists what was deliberately left out.
+`ROUTING.md` records what was verified and how, and the gaps that remain.
 
 ## Running
 
 ```
 pnpm typecheck:server
 pnpm test:server
+pnpm dev:server
 ```
 
-## Proving a port
+The server runs its `.ts` sources directly under `--experimental-strip-types`,
+so there is no build step and nothing that emits code — enums, namespaces,
+parameter properties — is allowed. `erasableSyntaxOnly` enforces that.
 
-There is no OpenAPI document, so the check is empirical: ask both servers the
-same question and compare what comes back, key order included.
+## Migrations and seed
 
 ```
-# with the Go server on :4000 and this one on :4100
-pnpm contract:server /health /ready /api/v1/config
+export DATABASE_URL=postgres://berry:berry@127.0.0.1:5432/berry?sslmode=disable
+
+pnpm migrate:server   # forward-only, idempotent, exits non-zero on drift
+pnpm seed:server      # local development dataset, idempotent
 ```
 
-It reports one of three verdicts per path. `identical` means byte-for-byte.
-`same shape, different data` means the contract matches and only values differ
-— a request id, a timestamp, a capability this process does not yet provide.
-`CONTRACT DIFFERS` means the shape itself differs, which is a bug unless the
-mount is knowingly half-ported.
-
-Capture the Go side before moving a mount, and run it again after.
+Compose runs both before starting the server, so a clean volume comes up
+migrated and with something to log into.
 
 ## Database-backed tests
 
-Gated the way Go gates its own — without the variable they skip, so the default
-suite stays offline.
+Gated on `BERRY_TEST_DATABASE_URL` — without it they skip, so the default suite
+stays offline.
 
 ```
 createdb berry_ts_test
@@ -64,5 +60,6 @@ BERRY_TEST_DATABASE_URL=postgres://berry:berry@127.0.0.1:5432/berry_ts_test pnpm
 ```
 
 Note that a host PostgreSQL on 5432 shadows the container's published port, so
-`127.0.0.1:5432` may not be the database the Go server is using. Check before
-pointing anything real at it.
+`127.0.0.1:5432` may not be the database the stack is using. Check before
+pointing anything real at it. `ROUTING.md` has a socat bridge for the case
+where it is not.

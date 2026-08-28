@@ -1,5 +1,5 @@
 ---
-description: Frontend conventions — Circle shell, gateway seam, design tokens
+description: Frontend conventions — Circle shell, API seam, design tokens
 globs: frontend/**
 alwaysApply: false
 ---
@@ -8,13 +8,13 @@ alwaysApply: false
 
 Next.js App Router (see `package.json` for the installed version). Prettier
 **3-space**, single quotes, semicolons, `es5` trailing commas, `printWidth`
-100. Alias `@/*` → frontend root. Zod 4. No test runner — `bun run lint` and
-`bun run build`, plus a manual check of the changed view.
+100. Alias `@/*` → frontend root. Zod 4. No test runner — `pnpm lint` and
+`pnpm build`, plus a manual check of the changed view.
 
 ## Data and API
 
-- Call the gateway only through `lib/api.ts` (`apiUrl` / `apiFetch`). Do not
-  hand-roll `fetch`. Do not call OpenFang from the browser.
+- Call Berry only through `lib/api.ts` (`apiUrl` / `apiFetch`). Do not
+  hand-roll `fetch`. Never call a model provider from the browser.
 - Config lives in `lib/config.ts` (`NEXT_PUBLIC_*`, inlined at build). Empty
   `NEXT_PUBLIC_BERRY_API_URL` means boot with no data (`isApiConfigured`).
 - `data/*` holds domain types and empty collections on purpose. Zustand stores

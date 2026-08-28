@@ -6,10 +6,11 @@ import type { BerryArtifactService } from './artifact-service.ts';
 /**
  * The tools an agent gets, built per run with its workspace already in scope.
  *
- * This is the seam OpenFang never had. There, an agent was a separate process
- * with no per-workspace credential store, so it could not act as the
- * workspace — which is why delivery was Berry's job rather than the agent's
- * and why agents could not touch anything outside their own directory.
+ * This is a seam the previous runtime never had. There, an agent was a
+ * separate process with no per-workspace credential store, so it could not act
+ * as the workspace — which is why delivery was Berry's job rather than the
+ * agent's, and why agents could not touch anything outside their own
+ * directory.
  *
  * Here a tool is a closure. The workspace, run and issue are captured when the
  * tool is constructed, so an agent cannot name another workspace: there is no

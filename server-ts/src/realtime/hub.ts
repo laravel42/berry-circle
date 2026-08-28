@@ -1,8 +1,7 @@
 import { eventScopes, normalizeEvent, type Event } from './event.ts';
 
 /**
- * The in-process broadcaster, ported from
- * server/internal/realtime/realtime.go.
+ * The in-process broadcaster.
  *
  * Every subscriber gets a fixed-size buffer, and one that fills it is
  * disconnected rather than waited for. That is the whole design: an event is a

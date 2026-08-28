@@ -1,7 +1,7 @@
 import { toRFC3339, type Sql } from '../db/pool.ts';
 
 /**
- * Identity reads, ported from server/internal/identity/repository.go.
+ * Identity reads.
  *
  * Workspace membership is the security boundary for everything above it: a
  * workspace a user is not a member of does not appear here, so a handler
@@ -146,13 +146,13 @@ export class IdentityRepository {
    }
 
    /**
-    * The clock is injected so tests can pin timestamps, as Go's is.
+    * The clock is injected so tests can pin timestamps.
     *
     * Note that `updated_at` is not actually settable: a
     * `berry_users_set_updated_at` trigger overwrites it on every UPDATE. The
-    * parameter is kept because Go passes one too, so both servers behave the
-    * same, and because a reader comparing the two would otherwise wonder which
-    * had dropped it.
+    * parameter is kept so the write states the time it means, rather than
+    * leaving a reader to discover the trigger before they can tell what sets
+    * it.
     */
    private now(): string {
       return this.clock().toISOString();

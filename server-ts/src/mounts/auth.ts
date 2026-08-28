@@ -11,7 +11,7 @@ import { ApiError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
 
 /**
- * `/api/v1/auth`, ported from server/internal/handlers/auth/handlers.go.
+ * `/api/v1/auth`.
  *
  * The first mount the browser actually depends on: `frontend/lib/session.ts`
  * calls login, keeps the raw token in a closure and sessionStorage, and sends

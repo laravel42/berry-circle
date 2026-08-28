@@ -38,16 +38,17 @@ import { Storage } from './storage/storage.ts';
 import { AdkExecutor } from './agents/executor.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
+import { createLogger } from './observability/log.ts';
 
 /**
- * The composition root, the counterpart to server/cmd/api/main.go.
+ * The composition root.
  *
  * Domain modules contribute mounts and this file is the only place that knows
- * about all of them — the same arrangement the Go server uses, and the reason
- * no package there imports every handler.
+ * about all of them, which is why no module imports every handler.
  */
 
 const config = loadConfig();
+const logger = createLogger(config.serviceName);
 const sql = openDatabase({ url: config.databaseUrl });
 
 const sessions = new SessionService({
@@ -181,25 +182,20 @@ registry.registerAll(
 const app = createApp(registry);
 
 const server = serve({ fetch: app.fetch, hostname: config.apiAddr.host, port: config.apiAddr.port });
-log('info', 'Berry TypeScript server listening', {
+logger.info('Berry server listening', {
    apiAddr: `${config.apiAddr.host}:${config.apiAddr.port}`,
    environment: config.appEnv,
    mounts: registry.prefixes,
 });
 
-// The Go server drains on SIGTERM before closing the pool, so a request in
-// flight finishes rather than failing at the socket.
+// Drain on SIGTERM before closing the pool, so a request in flight finishes
+// rather than failing at the socket.
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
    process.once(signal, () => {
-      log('info', 'shutting down', { signal });
+      logger.info('shutting down', { signal });
       server.close(() => {
          void closeDatabase(sql).then(() => process.exit(0));
       });
    });
 }
 
-function log(level: string, msg: string, fields: Record<string, unknown> = {}): void {
-   // The same JSON line shape the Go server emits, so one log pipeline reads
-   // both while the migration is in flight.
-   console.log(JSON.stringify({ time: new Date().toISOString(), level: level.toUpperCase(), msg, service: config.serviceName, ...fields }));
-}

@@ -20,7 +20,7 @@ import type { Sql } from '../db/pool.ts';
  * checksummed migrations. Storage is supplied here instead so there stays
  * exactly one migrator and one place the schema is described.
  *
- * This is what replaces OpenFang's per-agent directory. A session is a row: it
+ * This is what replaces the runtime's per-agent directory. A session is a row: it
  * cannot be marked crashed for being idle, it does not need reconciling
  * against an upstream list, and two agents can be given the same one on
  * purpose rather than by accident.

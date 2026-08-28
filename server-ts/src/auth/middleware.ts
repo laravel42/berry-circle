@@ -4,7 +4,7 @@ import { parseAuthorization, Unauthenticated } from './tokens.ts';
 import type { SessionService, User } from './sessions.ts';
 
 /**
- * Bearer authentication, ported from server/internal/auth/middleware.go.
+ * Bearer authentication.
  *
  * Every failure — absent header, wrong scheme, malformed token, expired
  * session, revoked session — produces the identical 401 envelope. Nothing

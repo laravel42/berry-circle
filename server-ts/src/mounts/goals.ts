@@ -23,12 +23,12 @@ import {
 } from '../core/goals.ts';
 
 /**
- * `/api/v1/goals`, ported from server/internal/handlers/goals.
+ * `/api/v1/goals`.
  *
- * Three of its sub-lists read tables whose own mounts stay on Go —
- * automations and approvals are AUTOMATE, plans is being refactored. They
- * move anyway because they depend on those *tables* and not on that code: a
- * goal has to be able to say what points at it without owning any of it.
+ * Three of its sub-lists read tables no mount here owns — automations and
+ * approvals belong to AUTOMATE, plans to the planner. They are served anyway
+ * because they depend on those *tables* and not on that code: a goal has to
+ * be able to say what points at it without owning any of it.
  */
 
 const MAX_TITLE = 500;

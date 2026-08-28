@@ -28,8 +28,7 @@ import type { SecretsRepository } from '../identity/secrets.ts';
 import type { Mount } from '../http/registry.ts';
 
 /**
- * `/api/v1/workspaces`, ported from
- * server/internal/handlers/identity/workspaces.go.
+ * `/api/v1/workspaces`.
  *
  * Authorization lives in the repository, next to the statements it guards, so
  * a route cannot reach the data without passing it. These handlers validate

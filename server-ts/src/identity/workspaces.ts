@@ -6,7 +6,7 @@ import type { NameCursor, TimeCursor } from '../http/cursor.ts';
 import type { Workspace, WorkspaceSettings } from './repository.ts';
 
 /**
- * Workspaces and memberships, ported from server/internal/identity.
+ * Workspaces and memberships.
  *
  * Membership is the security boundary: every query here joins
  * `workspace_memberships`, so a workspace the caller does not belong to is not
@@ -416,7 +416,7 @@ function toMembership(row: Record<string, unknown>): Membership {
 
 /**
  * The default issue prefix: up to three alphanumerics from the name, or the
- * slug, or `WS`. Ported from server/internal/issueid.
+ * slug, or `WS`.
  */
 export function prefixFromName(name: string, slug: string): string {
    return prefixFrom(name) ?? prefixFrom(slug) ?? 'WS';

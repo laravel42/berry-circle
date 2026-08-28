@@ -9,7 +9,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 /**
- * Object storage, ported from server/internal/storage.
+ * Object storage.
  *
  * Berry keeps agent output in S3 (MinIO in development) and its identity in
  * PostgreSQL. This is the half that holds bytes; `run_artifacts` holds what

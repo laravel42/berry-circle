@@ -12,7 +12,7 @@ import {
 } from './issues.ts';
 
 /**
- * Scopes produced by the running Go server for the same seven filters.
+ * Captured scopes for the same seven filters.
  *
  * A cursor is only valid for the query that produced it, and the scope is what
  * enforces that — so it is hashed over Go's `json.Marshal` of a struct:

@@ -5,7 +5,7 @@ import { allows, type Permission } from '../identity/roles.ts';
 import type { Scope } from './boards.ts';
 
 /**
- * Comments, ported from server/internal/repository/core/comments.go.
+ * Comments.
  *
  * A comment is one level deep: a reply hangs off a root comment and nothing
  * hangs off a reply. That is enforced when the parent is locked rather than by

@@ -116,7 +116,7 @@ test('the prompt carries the task and ends with the contracts', () => {
    // No repository means no delivery contract: telling an agent how to hand
    // back code it was not asked to write is noise it has to read.
    assert.doesNotMatch(message, /Delivering your work/);
-   // The contracts describe the tools that exist, not OpenFang's directory.
+   // The contracts describe the tools that exist, not the old output directory.
    assert.match(message, /write_file/);
    assert.doesNotMatch(message, /output\//);
 });

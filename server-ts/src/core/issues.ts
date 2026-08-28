@@ -6,7 +6,7 @@ import { structJSON } from '../http/canonical-json.ts';
 import type { Scope } from './boards.ts';
 
 /**
- * Issues, ported from server/internal/repository/core/issues.go.
+ * Issues.
  *
  * An issue is reachable two ways — by UUID and by its workspace identifier,
  * `BER-57` — and both resolve through board and workspace membership, so an
@@ -679,9 +679,9 @@ export class IssueRepository {
  * one filter and then changing the filter yields INVALID_CURSOR rather than a
  * page that silently skips rows.
  *
- * The hash is over Go's `json.Marshal` of a struct — declaration order, never
- * sorted, and a nil slice is `null` where an empty slice is `[]`. Verified
- * against seven filter shapes hashed by the running Go server.
+ * The hash is over the canonical struct form — declaration order, never
+ * sorted, and an absent slice is `null` where an empty one is `[]`. Verified
+ * against seven captured filter shapes.
  */
 export function issueCursorScope(filter: {
    boardId: string;

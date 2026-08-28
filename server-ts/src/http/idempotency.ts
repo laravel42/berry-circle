@@ -3,8 +3,7 @@ import type { Sql } from '../db/pool.ts';
 import { canonicalJSON, parseWithRawNumbers } from './canonical-json.ts';
 
 /**
- * Durable idempotency claims, ported from
- * server/internal/httpapi/idempotency.go.
+ * Durable idempotency claims.
  *
  * A claim is taken before the work runs and completed with the response, so a
  * retried request replays what the first one produced rather than doing it
@@ -52,10 +51,9 @@ export function validateIdempotencyKey(key: string): boolean {
  * Hashes a canonical form of the body, so whitespace and key order do not
  * make the same request look like a different one.
  *
- * The canonical form is Go's, not JavaScript's — verified against 15 bodies
- * hashed by the running Go server. It has to be: during the migration a client
- * can POST to one server and retry against the other, and a fingerprint that
- * disagreed would turn a replay into an IDEMPOTENCY_CONFLICT.
+ * The canonical form is not JavaScript's — see `canonical-json.ts`. It cannot
+ * be: fingerprints of past requests are already stored, and a form that hashed
+ * them differently would turn a legitimate replay into an IDEMPOTENCY_CONFLICT.
  *
  * Throws when the body is not exactly one JSON value — a caller sending
  * something unparseable has not made a request worth claiming a key for.
@@ -91,7 +89,7 @@ export function replayHeaders(headers: Record<string, string[]>): Record<string,
    return result;
 }
 
-/** Go stores headers in Go's canonical form; matching it keeps replays identical. */
+/** Headers are stored canonicalised, so a replay fingerprints to the same bytes. */
 function canonical(name: string): string {
    return name
       .split('-')

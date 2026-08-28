@@ -19,9 +19,9 @@ cannot be filled, write `Unknown` or `N/A` and say why; do not leave it blank.
 2. Replace every `<placeholder>` and fill every table row. Delete guidance
    comments (`<!-- ... -->`) as you go.
 3. Ground each entry: link the PR (`#123`), the issue (`BERR-NN`), or paste the
-   command and its result. The smoke report at
-   `docs/integrations/openfang-smoke-report.md` is a model for how to cite a
-   check honestly, including partial failures.
+   command and its result. Cite a check honestly, including partial failures —
+   "Pass" with no evidence is not acceptable, and a skipped suite is reported as
+   skipped rather than as a pass.
 4. Record the go/no-go decision last, after every check above it has a result.
 5. Deliver the finished report as the issue comment on the RC's tracking issue
    and commit the file. Cross-link it from the changelog entry for the release.
@@ -68,12 +68,13 @@ cannot be filled, write `Unknown` or `N/A` and say why; do not leave it blank.
 
 | Check | Command | Result | Evidence |
 | --- | --- | --- | --- |
-| Gateway unit tests | `cd apps/gateway && bun test` | Pass / Fail / N/A | `<PR check / log>` |
-| Gateway typecheck | `cd apps/gateway && bun run typecheck` | Pass / Fail / N/A | `<log>` |
-| Gateway lint | `cd apps/gateway && bun run lint` | Pass / Fail / N/A | `<log>` |
-| OpenFang smoke | `cd apps/gateway && bun run test:smoke:openfang` | `<N/M groups>` | `<smoke report link>` |
-| Frontend build | `cd frontend && bun run build` | Pass / Fail / N/A | `<log>` |
-| Frontend lint | `cd frontend && bun run lint` | Pass / Fail / N/A | `<log>` |
+| Server tests | `pnpm test:server` | Pass / Fail / N/A | `<PR check / log>` |
+| Server typecheck | `pnpm typecheck:server` | Pass / Fail / N/A | `<log>` |
+| Server DB tests | `BERRY_TEST_DATABASE_URL=… pnpm test:server` | `<N ran / N skipped>` | `<log>` |
+| Compose invariants | `python3 scripts/check-compose-config.py` | Pass / Fail / N/A | `<log>` |
+| Deployment pins | `python3 scripts/check-deploy-pins.py` | Pass / Fail / N/A | `<log>` |
+| Frontend build | `cd frontend && pnpm build` | Pass / Fail / N/A | `<log>` |
+| Frontend lint | `cd frontend && pnpm lint` | Pass / Fail / N/A | `<log>` |
 
 **Coverage gaps / not exercised:** `<what these checks do NOT cover for this RC>` — or `None`.
 
@@ -116,5 +117,5 @@ verifies each before deploy. If NO-GO, list the blockers and their issues.>`
 
 ---
 
-*Sources: project pipeline gates (Berry — Web App, Release 1); gateway and
-frontend `package.json` scripts; `docs/integrations/openfang-smoke-report.md`.*
+*Sources: project pipeline gates (Berry — Web App, Release 1); the root and
+frontend `package.json` scripts.*

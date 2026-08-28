@@ -24,7 +24,7 @@ import {
 import type { Mount } from '../http/registry.ts';
 
 /**
- * `/api/v1/me`, ported from server/internal/handlers/identity/user.go.
+ * `/api/v1/me`.
  *
  * `bootstrap` is the first authenticated call the app makes — everything the
  * shell needs to render before it knows what page it is on — so it is the

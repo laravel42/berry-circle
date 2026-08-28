@@ -1,4 +1,5 @@
 packages:
    - frontend
    - server-ts
-   - apps/gateway
+   - runtime
+   - runtime-worker

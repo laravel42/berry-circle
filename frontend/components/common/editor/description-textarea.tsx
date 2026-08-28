@@ -27,7 +27,7 @@ interface DescriptionTextareaProps {
  * Plain-text editor for description fields.
  *
  * Markdown remains the storage format — it is what PostgreSQL holds, what is
- * rendered elsewhere, and what OpenFang round-trips for agents — but it is
+ * rendered elsewhere, and what the agent runtime round-trips — but it is
  * edited as raw text. The field therefore holds exactly the bytes that are
  * saved: nothing is parsed, normalised, escaped, or re-serialised between load
  * and save, so what a user reads is what the agent runtime receives.

@@ -4,7 +4,14 @@
 - **Date:** 2026-08-22
 - **Deciders:** Berry architecture team
 - **Related:** [Product brief](../product-brief.md),
-  [ADR-0001](0001-bun-hono-gateway.md)
+  ADR-0001 (withdrawn)
+
+> **Amended 2026-08-28.** The decision stands — PostgreSQL is the system of
+> record and anything ephemeral belongs elsewhere — but Valkey is not in the
+> Compose stack. The relay is implemented (`server-ts/src/realtime/relay.ts`)
+> and the broadcaster is constructed with it set to null, so events replay from
+> `outbox_events` and reach other processes on the next poll rather than
+> instantly. `capabilities.valkey` reports false.
 
 ## Context
 

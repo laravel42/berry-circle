@@ -1,12 +1,11 @@
 import postgres from 'postgres';
 
 /**
- * The database, ported from server/internal/database/database.go.
+ * The database.
  *
- * Both servers run against one PostgreSQL and one set of migrations for the
- * length of the migration, so nothing here owns schema — `../server/migrations`
- * does, and the Go binary applies it. This is a connection and a transaction
- * helper, nothing more.
+ * Nothing here owns schema — `../migrations` does, applied by `src/migrate`
+ * before the server starts. This is a connection and a transaction helper,
+ * nothing more.
  */
 
 export type Sql = postgres.Sql<{ timestamptz: string; timestamp: string; date: string }>;

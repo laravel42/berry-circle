@@ -21,18 +21,17 @@ import {
 } from '../agents/catalog.ts';
 
 /**
- * `/api/v1/agents`, ported from server/internal/handlers/agents.
+ * `/api/v1/agents`.
  *
- * The port is what ADR-0008 stage 5 means in practice. In Go this mount
- * reconciled against OpenFang on every request — `SyncWorkspace` before a
- * listing, a detail call before a read — so the agent list was a live
- * projection of runtime state rather than a table. Here it is a table, which
- * is why it can be served from PostgreSQL at all.
+ * This mount is what ADR-0008 means in practice. Berry used to reconcile
+ * against a separate agent runtime on every request — a workspace sync before
+ * a listing, a detail call before a read — so the agent list was a live
+ * projection of another process's state rather than a table. Here it is a
+ * table, which is why it can be served from PostgreSQL at all.
  *
- * `POST /:agentId/ask` is deliberately absent and stays on Go: it is a chat
- * completion through OpenFang, nothing in the product calls it, and giving it
- * an ADK answer is a separate decision from moving the mount. The proxy does
- * not route it here.
+ * `POST /:agentId/ask` is deliberately absent. It was a chat completion passed
+ * through to that runtime, nothing in the product calls it, and what it should
+ * mean now that agents run in-process is its own decision.
  */
 
 const STATUSES = new Set(['available', 'busy', 'offline', 'unknown']);
@@ -153,8 +152,8 @@ export function agentMounts(options: AgentOptions): Mount[] {
    /**
     * Creates an agent.
     *
-    * New surface: under OpenFang an agent was spawned upstream and discovered
-    * by a sync, so Berry has never had a way to author one. Idempotent,
+    * New surface: an agent used to be spawned in the runtime and discovered
+    * by a sync, so Berry had no way to author one. Idempotent,
     * because creating two identical agents from a retried request is exactly
     * the sort of duplicate that then cannot be told apart.
     */

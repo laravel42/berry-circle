@@ -1,12 +1,10 @@
 /**
- * Berry's only JSON error representation, ported from
- * server/internal/httpapi/errors.go.
+ * Berry's only JSON error representation.
  *
  * The shape is a public contract: `frontend/lib/api.ts` parses exactly
  * `{ error: { code, message, requestId, details } }` and reads the
- * `x-request-id` response header. During the migration both servers answer the
- * same frontend, so this has to be indistinguishable from the Go one — same
- * keys, same order, same `details: null` rather than an omitted field.
+ * `x-request-id` response header. The shape is fixed down to the details —
+ * same keys, same order, same `details: null` rather than an omitted field.
  */
 
 /** A stable validation detail using JSON Pointer-style paths. */

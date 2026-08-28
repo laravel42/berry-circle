@@ -32,7 +32,7 @@ import {
 import type { Mount } from '../http/registry.ts';
 
 /**
- * `/api/v1/issues`, ported from server/internal/handlers/issues.
+ * `/api/v1/issues`.
  *
  * Mutations publish through the realtime broadcaster after their transaction
  * commits. The events are already in the outbox by then, so a publish that

@@ -11,8 +11,8 @@ This matrix classifies the complete Multica web surface inspected at:
 
 All evidence paths below are repository-relative paths at that commit. They are
 inventory evidence, not permission to copy legacy UI, assets, names, or
-branding. Go reuse is limited by the provenance record and
-[ADR-0004](../adr/0004-go-product-server.md).
+branding. Reuse is limited by the
+[provenance record](../provenance/multica-server-reuse.md).
 
 ### Verified inventory facts
 
@@ -53,7 +53,7 @@ Primary evidence:
 |---|---|
 | `required-core` | Must work in the default self-hosted web product. |
 | `optional-hosted` | May ship as an explicitly enabled hosted/cloud module; disabled by default and fail-closed in self-hosted deployments. |
-| `replaced-by-openfang` | The user-facing product outcome may remain, but Multica's execution-side implementation is not ported; Berry projects or controls the capability through its OpenFang adapter. |
+| `replaced-by-runtime` | The user-facing product outcome may remain, but Multica's execution-side implementation is not ported; Berry provides the capability through its own in-process agent runtime (ADR-0008). |
 | `excluded-nonweb` | Outside Berry's web-product scope. |
 | `excluded-dead-dev` | Placeholder, compatibility shim, or temporary test surface that must not be recreated. |
 
@@ -61,19 +61,19 @@ Primary evidence:
 
 | Phase | Exit theme |
 |---|---|
-| `P0` | Provenance, Go scaffold, storage/security boundaries, and shared contract fixtures. |
+| `P0` | Provenance, server scaffold, storage/security boundaries, and shared contract fixtures. |
 | `P1` | Identity, onboarding, multi-workspace shell, navigation, and settings foundation. |
 | `P2` | Issues, projects, collaboration, inbox, and notifications. |
-| `P3` | Agent product surfaces, chat, OpenFang-backed runtime projections, run evidence, and usage. |
+| `P3` | Agent product surfaces, chat, runtime projections, run evidence, and usage. |
 | `P4` | Automation, integrations, plugins, realtime hardening, and four-locale parity. |
 | `P5` | Optional hosted/cloud modules and public marketing site. |
 | `X` | Deliberate replacement or exclusion; completion evidence proves the boundary rather than an implementation. |
 
-API status in this document means Berry's normative `/api/v1` contract and Go
+API status in this document means Berry's normative `/api/v1` contract and its
 implementation, not presence in the legacy router. `partial` means the current
 [gateway contract](../api/gateway-v1.md) covers only part of the behavior;
-`gap` means the contract and Go implementation have not landed; `adapter-gap`
-means Berry must define an OpenFang-backed product projection; and `N/A` means
+`gap` means the contract and implementation have not landed; `adapter-gap`
+means Berry must define a runtime-backed product projection; and `N/A` means
 no Berry API should exist. `test missing` means no Berry acceptance evidence is
 linked yet, even when Multica has source tests.
 
@@ -132,9 +132,9 @@ added and classified here.
 | `apps/web/app/[workspaceSlug]/(dashboard)/my-issues/page.tsx` | `required-core` | P2 | Personal issue view; API gap; test missing | [ ] TBD |
 | `apps/web/app/[workspaceSlug]/(dashboard)/projects/[id]/page.tsx` | `required-core` | P2 | Project detail route; API gap; test missing | [ ] TBD |
 | `apps/web/app/[workspaceSlug]/(dashboard)/projects/page.tsx` | `required-core` | P2 | Project list route; API gap; test missing | [ ] TBD |
-| `apps/web/app/[workspaceSlug]/(dashboard)/runtimes/[id]/page.tsx` | `replaced-by-openfang` | P3 | Berry runtime projection over OpenFang; adapter-gap; test missing | [ ] TBD |
-| `apps/web/app/[workspaceSlug]/(dashboard)/runtimes/[id]/runtime/[runtimeId]/page.tsx` | `replaced-by-openfang` | P3 | OpenFang execution detail projection; adapter-gap; test missing | [ ] TBD |
-| `apps/web/app/[workspaceSlug]/(dashboard)/runtimes/page.tsx` | `replaced-by-openfang` | P3 | OpenFang runtime/agent availability projection; adapter-gap; test missing | [ ] TBD |
+| `apps/web/app/[workspaceSlug]/(dashboard)/runtimes/[id]/page.tsx` | `replaced-by-runtime` | P3 | Berry runtime projection; adapter-gap; test missing | [ ] TBD |
+| `apps/web/app/[workspaceSlug]/(dashboard)/runtimes/[id]/runtime/[runtimeId]/page.tsx` | `replaced-by-runtime` | P3 | Execution detail projection; adapter-gap; test missing | [ ] TBD |
+| `apps/web/app/[workspaceSlug]/(dashboard)/runtimes/page.tsx` | `replaced-by-runtime` | P3 | Runtime/agent availability projection; adapter-gap; test missing | [ ] TBD |
 | `apps/web/app/[workspaceSlug]/(dashboard)/settings/page.tsx` | `required-core` | P1 | Settings shell; domain APIs are phased below; test missing | [ ] TBD |
 | `apps/web/app/[workspaceSlug]/(dashboard)/skills/[id]/page.tsx` | `required-core` | P3 | Skill detail/catalog route; API gap; test missing | [ ] TBD |
 | `apps/web/app/[workspaceSlug]/(dashboard)/skills/page.tsx` | `required-core` | P3 | Skill list/catalog route; API gap; test missing | [ ] TBD |
@@ -161,7 +161,7 @@ Evidence: `packages/views/layout/app-sidebar.tsx`.
 | Agents | `required-core` | P3 | API partial; navigation/presence test missing | [ ] TBD |
 | Squads | `required-core` | P3 | API gap; navigation test missing | [ ] TBD |
 | Usage | `required-core` | P3 | API gap; navigation/chart test missing | [ ] TBD |
-| Runtimes | `replaced-by-openfang` | P3 | Adapter-gap; OpenFang projection test missing | [ ] TBD |
+| Runtimes | `replaced-by-runtime` | P3 | Adapter-gap; projection test missing | [ ] TBD |
 | Skills | `required-core` | P3 | API gap; navigation test missing | [ ] TBD |
 | Settings | `required-core` | P1 | Domain APIs phased below; tab routing test missing | [ ] TBD |
 
@@ -196,7 +196,7 @@ plugins are source feature-flagged; Labs is an explicit empty placeholder in
 | Issue statuses (`issue-statuses`) | `required-core` | P2 | API gap; transition/order test missing | [ ] TBD |
 | Properties (`properties`) | `required-core` | P2 | API gap; schema/value test missing | [ ] TBD |
 | Quick actions (`quick-actions`) | `required-core` | P2 | API gap; render/run test missing | [ ] TBD |
-| MCP (`mcp`) | `required-core` | P3 | Berry catalog/OpenFang binding API gap; test missing | [ ] TBD |
+| MCP (`mcp`) | `required-core` | P3 | Berry catalog/runtime binding API gap; test missing | [ ] TBD |
 | Plugins (`plugins`, flag-gated) | `required-core` | P4 | Product install/consent API gap; execution adapter test missing | [ ] TBD |
 
 ## Feature-family completion matrix
@@ -228,7 +228,7 @@ plugins are source feature-flagged; Labs is an explicit empty placeholder in
 | Workspace roles, member profile, invite, role update, and removal | `apps/docs/content/docs/members-roles.mdx`, `packages/core/workspace/` | `required-core` | P1 | Membership API gap; authorization matrix test missing | [ ] TBD |
 | Personal invitation list, preview, accept, decline, and revoke | `apps/web/app/(auth)/invitations/`, `packages/core/api/client.ts` | `required-core` | P1 | Invitation API gap; expiry/race test missing | [ ] TBD |
 | Share-link create, preview, join, limits, expiry, and revoke | `packages/core/api/client.ts`, router share-link routes | `required-core` | P1 | Share-link API gap; abuse/expiry test missing | [ ] TBD |
-| Workspace-scoped authorization on HTTP, WebSocket, and persisted rows | `server/internal/middleware/`, `server/cmd/server/router.go` | `required-core` | P0 | Auth contract/Go middleware gap; cross-workspace test missing | [ ] TBD |
+| Workspace-scoped authorization on HTTP, WebSocket, and persisted rows | `server/internal/middleware/`, `server/cmd/server/router.go` | `required-core` | P0 | Auth contract/middleware gap; cross-workspace test missing | [ ] TBD |
 | Personal access token create/list/renew/revoke without secret replay | `packages/core/api/client.ts`, router `/api/tokens` | `required-core` | P1 | Token API gap; hashing/revocation test missing | [ ] TBD |
 
 ### Issues, views, detail, and collaboration
@@ -250,8 +250,8 @@ plugins are source feature-flagged; Labs is an explicit empty placeholder in
 | Subscribers, subscribe/unsubscribe, subtree behavior, and actor visibility | client subscriber methods, router subscriber routes | `required-core` | P2 | Subscriber API gap; notification test missing | [ ] TBD |
 | Attachment upload, binding, metadata, preview, download, and deletion | `packages/core/attachments/`, router attachment routes | `required-core` | P2 | Attachment API gap; auth/content-policy test missing | [ ] TBD |
 | Timeline and execution log with ordered events, output, usage, and terminal state | router timeline/task-run routes, `packages/core/api/client.ts` | `required-core` | P3 | Run API partial; event-order/replay test missing | [ ] TBD |
-| Run-event SSE with durable replay/cursor semantics and no duplicate dispatch on reconnect | Berry run contract, OpenFang integration specification | `required-core` | P3 | SSE contract partial; disconnect/resume test missing | [ ] TBD |
-| Cancel and explicit rerun without duplicate dispatch | client `cancelTask`/`rerunIssue`, OpenFang integration contract | `replaced-by-openfang` | P3 | Adapter/run-ledger gap; ambiguity test missing | [ ] TBD |
+| Run-event SSE with durable replay/cursor semantics and no duplicate dispatch on reconnect | Berry run contract, the agent runtime contract | `required-core` | P3 | SSE contract partial; disconnect/resume test missing | [ ] TBD |
+| Cancel and explicit rerun without duplicate dispatch | client `cancelTask`/`rerunIssue`, the agent runtime contract | `replaced-by-runtime` | P3 | Adapter/run-ledger gap; ambiguity test missing | [ ] TBD |
 | Human-only review decision with run evidence before release | Berry product brief and run contract | `required-core` | P3 | Review resource/workflow API gap; authorization test missing | [ ] TBD |
 | Issue/project/view pin, unpin, reorder, missing-target handling | `packages/core/pins/`, sidebar pin code | `required-core` | P2 | Pins API gap; realtime/delete test missing | [ ] TBD |
 | Labels, custom statuses, property definitions/icons, and quick-action definitions | settings tabs, `e2e/property-icons.spec.ts`, `e2e/quick-actions.spec.ts` | `required-core` | P2 | Catalog/action APIs gap; tests missing | [ ] TBD |
@@ -285,12 +285,12 @@ plugins are source feature-flagged; Labs is an explicit empty placeholder in
 | Skill list/search/create/import/detail/edit/delete/refresh | `packages/core/skills/`, router skill routes | `required-core` | P3 | Skill API gap; provenance/CRUD test missing | [ ] TBD |
 | Skill files, labels, agent assignment, ordering, and enabled state | router skill/agent-skill routes | `required-core` | P3 | API gap; authorization/merge test missing | [ ] TBD |
 | Workspace MCP catalog with write-only credentials | settings MCP tab, router workspace MCP routes | `required-core` | P3 | Catalog API gap; redaction/role test missing | [ ] TBD |
-| Agent MCP assignment, enable state, and creator-only management | router agent MCP routes, `e2e/agent-mcp.spec.ts` | `required-core` | P3 | Binding/OpenFang adapter gap; role test missing | [ ] TBD |
+| Agent MCP assignment, enable state, and creator-only management | router agent MCP routes, `e2e/agent-mcp.spec.ts` | `required-core` | P3 | Binding/runtime adapter gap; role test missing | [ ] TBD |
 | Squad list/detail/CRUD, members, roles, and status | `packages/core/squads/`, router squad routes | `required-core` | P3 | Squad API gap; role/evaluation test missing | [ ] TBD |
-| Runtime availability, model/capability display, and agent binding as OpenFang projection | runtime pages, OpenFang integration spec | `replaced-by-openfang` | P3 | Adapter-gap; projection/absence-of-daemon test missing | [ ] TBD |
-| Local runtime update, model scan, local skill import, and machine heartbeat | router runtime/daemon routes | `replaced-by-openfang` | X | No legacy API; boundary test missing | [ ] TBD |
+| Runtime availability, model/capability display, and agent binding as a runtime projection | runtime pages, the agent runtime contract | `replaced-by-runtime` | P3 | Adapter-gap; projection/absence-of-daemon test missing | [ ] TBD |
+| Local runtime update, model scan, local skill import, and machine heartbeat | router runtime/daemon routes | `replaced-by-runtime` | X | No legacy API; boundary test missing | [ ] TBD |
 | Workspace usage totals, by-agent/by-hour/day charts, run time, and failures | `packages/core/dashboard/`, router dashboard routes | `required-core` | P3 | Run-ledger analytics API gap; reconciliation test missing | [ ] TBD |
-| Issue and runtime usage/cost drill-down tied to Berry run IDs | client usage methods, OpenFang usage mapping | `required-core` | P3 | API/run-ledger gap; accounting test missing | [ ] TBD |
+| Issue and runtime usage/cost drill-down tied to Berry run IDs | client usage methods, runtime usage mapping | `required-core` | P3 | API/run-ledger gap; accounting test missing | [ ] TBD |
 
 ### Automation, VCS, channels, Composio, and plugins
 
@@ -310,7 +310,7 @@ plugins are source feature-flagged; Labs is an explicit empty placeholder in
 | Plugin preview/consent/install/configure/enable/disable/uninstall | `packages/core/plugins/`, router workspace plugin routes | `required-core` | P4 | Product API gap; consent/role test missing | [ ] TBD |
 | Plugin tokens, invocation audit, MCP tool schema approval, and storage scopes | router plugin routes and `/api/v1/plugin` | `required-core` | P4 | Berry product API gap; scope/redaction test missing | [ ] TBD |
 | Plugin action UI and iframe bridge with origin/token/scroll isolation | plugin views, `e2e/iframe-scroll-bridge.spec.ts` | `required-core` | P4 | Host bridge contract gap; sandbox test missing | [ ] TBD |
-| Plugin/agent tool execution | daemon plugin hooks and MCP credential routes | `replaced-by-openfang` | P4 | OpenFang MCP/tool adapter gap; no-daemon test missing | [ ] TBD |
+| Plugin/agent tool execution | daemon plugin hooks and MCP credential routes | `replaced-by-runtime` | P4 | Runtime MCP/tool adapter gap; no-daemon test missing | [ ] TBD |
 
 ### Optional hosted/cloud and public marketing
 
@@ -319,7 +319,7 @@ plugins are source feature-flagged; Labs is an explicit empty placeholder in
 | Account cloud balance, prices, checkout, portal, transactions, batches, and top-ups | `packages/core/billing/`, router `/api/cloud-billing` | `optional-hosted` | P5 | Optional module API gap; disabled/fail-closed test missing | [ ] TBD |
 | Workspace subscriptions, prices, entitlements, seats, checkout, and portal | settings billing tab, router `/api/cloud-subscriptions` | `optional-hosted` | P5 | Optional module API gap; disabled/role test missing | [ ] TBD |
 | Managed cloud fleet provisioning and lifecycle | `packages/core/runtimes/cloud-runtime.ts`, router `/api/cloud-runtime` | `optional-hosted` | P5 | Optional module gap; absent-config test missing | [ ] TBD |
-| Cloud node arbitrary execution/provider plumbing | router `/api/cloud-runtime/nodes/exec` and legacy provider code | `replaced-by-openfang` | X | No Berry endpoint; exclusion test missing | [ ] TBD |
+| Cloud node arbitrary execution/provider plumbing | router `/api/cloud-runtime/nodes/exec` and legacy provider code | `replaced-by-runtime` | X | No Berry endpoint; exclusion test missing | [ ] TBD |
 | Contact-sales submission and abuse controls | landing contact page, router `/api/contact-sales` | `optional-hosted` | P5 | Optional API gap; rate-limit/privacy test missing | [ ] TBD |
 | About, homepage, use cases, changelog, and localized marketing content | `apps/web/app/(landing)/`, `apps/web/features/landing/` | `optional-hosted` | P5 | Public site target; content API optional; tests missing | [ ] TBD |
 | Download marketing page | `apps/web/app/(landing)/download/page.tsx` | `optional-hosted` | P5 | Page may link external artifacts; native clients excluded; test missing | [ ] TBD |
@@ -333,7 +333,7 @@ snake_case wire shapes.
 
 | Legacy API/domain family | Source evidence | Classification | Phase | Berry API / test status | Acceptance evidence |
 |---|---|---|---:|---|---|
-| Health, readiness, request IDs, CORS, metrics | router operational routes and middleware | `required-core` | P0 | Go operational contract gap; boot/probe test missing | [ ] TBD |
+| Health, readiness, request IDs, CORS, metrics | router operational routes and middleware | `required-core` | P0 | Operational contract gap; boot/probe test missing | [ ] TBD |
 | Product WebSocket subscriptions and fanout | router `/ws`, `packages/core/realtime/` | `required-core` | P4 | Berry WS contract gap; auth/backpressure test missing | [ ] TBD |
 | Auth, sessions, OAuth, profile, onboarding | router auth and `/api/me*` | `required-core` | P1 | `/api/v1` gap; security tests missing | [ ] TBD |
 | Public config and self-host feature availability | router `/api/config`, `packages/core/config/` | `required-core` | P0 | Config contract gap; safe-default test missing | [ ] TBD |
@@ -341,7 +341,7 @@ snake_case wire shapes.
 | Attachments, avatars, uploads, signed downloads | router attachment/avatar/upload routes | `required-core` | P2 | `/api/v1` gap; storage/auth tests missing | [ ] TBD |
 | Workspaces, memberships, invitations, share links | router `/api/workspaces`, invitations/share routes | `required-core` | P1 | `/api/v1` gap; isolation tests missing | [ ] TBD |
 | Personal access tokens | router `/api/tokens` | `required-core` | P1 | `/api/v1` gap; secret tests missing | [ ] TBD |
-| CLI token issuance | router `/api/cli-token` | `replaced-by-openfang` | X | No Berry endpoint; OpenFang owns execution-client access; boundary test missing | [ ] TBD |
+| CLI token issuance | router `/api/cli-token` | `replaced-by-runtime` | X | No Berry endpoint; the server owns execution-client access; boundary test missing | [ ] TBD |
 | Issues, search, grouped queries, table groups/rows/facets | router `/api/issues` | `required-core` | P2 | Partial/gap; query/cursor tests missing | [ ] TBD |
 | Issue views and view preferences | router issue-view routes | `required-core` | P2 | API gap; persistence tests missing | [ ] TBD |
 | Comments, reactions, subscribers, timeline | issue/comment routes | `required-core` | P2 | Comments partial; remainder gap; tests missing | [ ] TBD |
@@ -351,12 +351,12 @@ snake_case wire shapes.
 | Inbox and notification preferences | router inbox/preference routes | `required-core` | P2 | API gap; tests missing | [ ] TBD |
 | Agents and builder sessions | router agent/builder routes | `required-core` | P3 | Agent read partial; mutations/builder gap; tests missing | [ ] TBD |
 | Skills and agent-skill bindings | router skill routes | `required-core` | P3 | API gap; tests missing | [ ] TBD |
-| Workspace/agent MCP catalogs and bindings | workspace and agent MCP routes | `required-core` | P3 | Product/OpenFang adapter gap; tests missing | [ ] TBD |
+| Workspace/agent MCP catalogs and bindings | workspace and agent MCP routes | `required-core` | P3 | Product/runtime adapter gap; tests missing | [ ] TBD |
 | Squads and leader evaluation | router squad routes | `required-core` | P3 | API gap; tests missing | [ ] TBD |
 | Berry runs, task messages, cancel/rerun, usage | issue task/run routes and current Berry run contract | `required-core` | P3 | Run contract partial; projection gap; tests missing | [ ] TBD |
-| Legacy task claim/lease/progress/complete/fail/session/GC APIs | router `/api/daemon` | `replaced-by-openfang` | X | No legacy endpoint; boundary test missing | [ ] TBD |
-| Legacy daemon registration, heartbeat, workspace sync, and daemon WS | router `/api/daemon` | `replaced-by-openfang` | X | No legacy endpoint; boundary test missing | [ ] TBD |
-| Runtime profile, update, local model, and local skill request APIs | workspace/runtime routes | `replaced-by-openfang` | P3 | OpenFang projection gap; tests missing | [ ] TBD |
+| Legacy task claim/lease/progress/complete/fail/session/GC APIs | router `/api/daemon` | `replaced-by-runtime` | X | No legacy endpoint; boundary test missing | [ ] TBD |
+| Legacy daemon registration, heartbeat, workspace sync, and daemon WS | router `/api/daemon` | `replaced-by-runtime` | X | No legacy endpoint; boundary test missing | [ ] TBD |
+| Runtime profile, update, local model, and local skill request APIs | workspace/runtime routes | `replaced-by-runtime` | P3 | Runtime projection gap; tests missing | [ ] TBD |
 | Dashboard, runtime, issue, agent activity, and run-count analytics | router dashboard/usage/activity routes | `required-core` | P3 | Run-ledger API gap; reconciliation tests missing | [ ] TBD |
 | Chat sessions, messages, pending tasks, pinned agents, draft restores | router chat routes | `required-core` | P3 | API gap; tests missing | [ ] TBD |
 | Autopilots, triggers, runs, collaborators, deliveries, webhooks | router autopilot routes | `required-core` | P4 | API gap; scheduler/idempotency tests missing | [ ] TBD |
@@ -369,11 +369,11 @@ snake_case wire shapes.
 | Telegram installation, binding, and channel adapter | router Telegram routes | `required-core` | P4 | Config-gated API gap; tests missing | [ ] TBD |
 | Composio toolkits, connections, connect state, callback | router Composio routes | `required-core` | P4 | Config-gated API gap; tests missing | [ ] TBD |
 | Plugin install/config/audit/storage/action surface | workspace plugin and `/api/v1/plugin` routes | `required-core` | P4 | Berry API gap; tests missing | [ ] TBD |
-| Plugin hooks/MCP execution via daemon | daemon plugin routes | `replaced-by-openfang` | P4 | OpenFang tool adapter gap; no-daemon test missing | [ ] TBD |
+| Plugin hooks/MCP execution via daemon | daemon plugin routes | `replaced-by-runtime` | P4 | Runtime tool adapter gap; no-daemon test missing | [ ] TBD |
 | Cloud billing and Stripe webhook proxy | router cloud-billing routes | `optional-hosted` | P5 | Optional API gap; fail-closed tests missing | [ ] TBD |
 | Workspace subscriptions and entitlement proxy | router cloud-subscriptions routes | `optional-hosted` | P5 | Optional API gap; fail-closed tests missing | [ ] TBD |
 | Managed cloud runtime fleet lifecycle | router cloud-runtime routes except `exec` | `optional-hosted` | P5 | Optional API gap; disabled tests missing | [ ] TBD |
-| Cloud node `exec`, legacy self-exec, provider adapters, filesystem execution | cloud-runtime `exec`, `server/internal/selfexec/`, daemon/provider code | `replaced-by-openfang` | X | No Berry implementation; repository boundary test missing | [ ] TBD |
+| Cloud node `exec`, legacy self-exec, provider adapters, filesystem execution | cloud-runtime `exec`, `server/internal/selfexec/`, daemon/provider code | `replaced-by-runtime` | X | No Berry implementation; repository boundary test missing | [ ] TBD |
 | Contact sales and public-site content | public router/landing files | `optional-hosted` | P5 | Optional API/content gap; tests missing | [ ] TBD |
 
 The 413 legacy up migrations are schema history evidence, not an instruction to
@@ -392,12 +392,12 @@ between source code inventory and capabilities promised in user documentation.
 |---|---|---:|---|---|
 | `index`, `concepts`, `how-multica-works`, `tutorial` | `required-core` | P1-P4 | Berry product docs gap; API/test links must match the relevant rows above | [ ] TBD |
 | `workspaces`, `members-roles`, `issues`, `projects`, `project-resources`, `comments`, `inbox` | `required-core` | P1-P2 | Berry feature docs gap; APIs/tests gap as above | [ ] TBD |
-| `agents`, `agents-create`, `assigning-issues`, `mentioning-agents`, `triggering-agents`, `tasks`, `chat`, `skills`, `squads`, `autopilots`, `channels` | `required-core` | P3-P4 | Berry/OpenFang-boundary docs gap; APIs/tests gap as above | [ ] TBD |
+| `agents`, `agents-create`, `assigning-issues`, `mentioning-agents`, `triggering-agents`, `tasks`, `chat`, `skills`, `squads`, `autopilots`, `channels` | `required-core` | P3-P4 | Berry/runtime-boundary docs gap; APIs/tests gap as above | [ ] TBD |
 | `github-integration`, `vcs-integration`, `slack-bot-integration`, `lark-bot-integration`, `dingtalk-bot-integration`, `telegram-bot-integration` | `required-core` | P4 | Config-gated integration docs/APIs/tests gap | [ ] TBD |
 | `auth-setup`, `auth-tokens`, `security-model`, `self-host-quickstart`, `environment-variables`, `troubleshooting` | `required-core` | P0-P1 | Berry operations/security docs gap; boot/auth tests missing | [ ] TBD |
 | `developers/architecture`, `developers/contributing`, `developers/conventions`, `community-maintained` | `required-core` | P0 | Berry contributor/architecture docs partial; link validation/review missing | [ ] TBD |
 | `cloud-quickstart` | `optional-hosted` | P5 | Optional module docs gap; disabled-self-host test missing | [ ] TBD |
-| `cli`, `daemon-runtimes`, `install-agent-runtime`, `providers` | `replaced-by-openfang` | X | Berry docs must point to the supported OpenFang boundary, not port instructions | [ ] TBD |
+| `cli`, `daemon-runtimes`, `install-agent-runtime`, `providers` | `replaced-by-runtime` | X | Berry docs must point to the supported runtime boundary, not port instructions | [ ] TBD |
 | `desktop-app`, `mobile-app` | `excluded-nonweb` | X | No Berry native-client docs or parity claim | [ ] TBD |
 
 ## Pinned E2E journey contract
@@ -453,9 +453,9 @@ authorization/failure assertions.
 |---|---|---:|---|---|
 | Desktop application and desktop-only settings/platform adapters | `excluded-nonweb` | X | No desktop workspace, packaging, updater, or desktop-only parity claim | [ ] TBD |
 | Mobile application and mobile-native platform code | `excluded-nonweb` | X | Responsive web may ship; no native mobile import or parity claim | [ ] TBD |
-| CLI client and CLI token/bootstrap flows | `replaced-by-openfang` | X | No Berry CLI binary or CLI-only API; execution-client access remains with OpenFang | [ ] TBD |
-| Daemon binary, daemon WebSocket, machine pairing, heartbeat, claim/lease loop | `replaced-by-openfang` | X | Repository scan and integration tests show OpenFang is the only execution substrate | [ ] TBD |
-| Local launchers, provider adapters, model plumbing, sandbox, and filesystem execution | `replaced-by-openfang` | X | No implementation in `server/`; all dispatch crosses the pinned adapter | [ ] TBD |
+| CLI client and CLI token/bootstrap flows | `replaced-by-runtime` | X | No Berry CLI binary or CLI-only API; execution-client access stays server-side | [ ] TBD |
+| Daemon binary, daemon WebSocket, machine pairing, heartbeat, claim/lease loop | `replaced-by-runtime` | X | Repository scan and integration tests show the in-process runtime is the only execution path | [ ] TBD |
+| Local launchers, provider adapters, model plumbing, sandbox, and filesystem execution | `replaced-by-runtime` | X | No implementation in `server-ts/`; all dispatch stays inside the server | [ ] TBD |
 | Labs settings placeholder | `excluded-dead-dev` | X | No empty Labs tab or dead API | [ ] TBD |
 | Temporary workspace billing test page (`packages/views/billing/billing-test-page.tsx`) | `excluded-dead-dev` | X | No test-quality billing route; optional real hosted billing is tracked separately | [ ] TBD |
 | Deprecated onboarding runtime-bootstrap shims and transitional API aliases | `excluded-dead-dev` | X | No compatibility shim without a Berry migration requirement and removal date | [ ] TBD |

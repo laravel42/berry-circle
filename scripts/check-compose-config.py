@@ -12,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "docker-compose.yml"
-EXPECTED_SERVICES = {"berry-api", "openfang", "postgres", "valkey"}
+EXPECTED_SERVICES = {"berry-api", "postgres", "minio", "minio-bucket"}
 
 
 def fail(message: str) -> None:
@@ -38,55 +38,39 @@ def require_loopback_port(service: dict[str, Any], name: str, port_number: int) 
 
 
 def render_compose() -> dict[str, Any]:
-    try:
-        pin = json.loads(
-            (ROOT / "deploy" / "openfang.pin.json").read_text(encoding="utf-8")
-        )
-        openfang_commit = pin["commit"]
-        openfang_short_commit = pin["shortCommit"]
-    except (OSError, KeyError, TypeError, json.JSONDecodeError) as error:
-        raise RuntimeError(f"cannot read deploy/openfang.pin.json: {error}") from error
-
-    if not isinstance(openfang_commit, str) or not isinstance(openfang_short_commit, str):
-        raise RuntimeError("deploy/openfang.pin.json commit fields must be strings")
-
+    # Pinned rather than inherited: the point is to assert the defaults this
+    # file ships, and a variable exported in the running shell would otherwise
+    # substitute itself into the answer.
     env = os.environ.copy()
     env.update(
         {
-            "ANTHROPIC_API_KEY": "",
+            "APP_ENV": "development",
+            "AUTH_ALLOW_PASSWORDLESS_LOGIN": "",
             "AWS_ACCESS_KEY_ID": "",
             "AWS_SECRET_ACCESS_KEY": "",
             "AWS_SESSION_TOKEN": "",
+            "BERRY_AGENT_DEFAULT_MODEL": "",
             "BERRY_API_PORT": "4000",
             "BERRY_DATABASE_URL": (
                 "postgres://berry:berry@postgres:5432/berry?sslmode=disable"
             ),
-            "BERRY_VALKEY_URL": "redis://valkey:6379/0",
-            "GROQ_API_KEY": "",
-            "OLLAMA_BASE_URL": "",
-            "OPENAI_API_KEY": "",
-            "OPENFANG_COMMIT": openfang_commit,
-            "OPENFANG_COMMIT_SHORT": openfang_short_commit,
-            "OPENFANG_API_KEY": "compose-check-placeholder",
-            "OPENFANG_PORT": "4200",
+            "BERRY_INTERNAL_TOKEN": "",
+            "BERRY_OPENROUTER_API_KEY": "",
+            "MINIO_CONSOLE_PORT": "9001",
+            "MINIO_PORT": "9000",
+            "OPENROUTER_API_KEY": "",
             "POSTGRES_USER": "berry",
             "POSTGRES_PASSWORD": "berry",
             "POSTGRES_DB": "berry",
             "POSTGRES_PORT": "5432",
-            "REALTIME_NODE_ID": "",
-            "REALTIME_READ_BLOCK": "5s",
-            "REALTIME_RELAY_REQUIRED": "true",
-            "REALTIME_STREAM_MAXLEN": "10000",
-            "REALTIME_STREAM_TTL": "15m",
+            "REALTIME_BUFFER": "",
             "S3_BUCKET": "",
             "S3_ENDPOINT": "",
             "S3_REGION": "",
             "S3_USE_PATH_STYLE": "",
-            "VALKEY_ENABLED": "true",
-            "VALKEY_REQUIRED": "true",
-            "VALKEY_PORT": "6379",
-            "VLLM_API_KEY": "",
-            "VLLM_BASE_URL": "",
+            "SERVICE_NAME": "",
+            "SESSION_TTL": "",
+            "STORAGE_MAX_BYTES": "",
         }
     )
 
@@ -132,60 +116,55 @@ def check_services(rendered: dict[str, Any]) -> None:
         fail("postgres must remain on postgres:16-alpine until a separate-volume upgrade")
     require_loopback_port(postgres, "postgres", 5432)
 
-    openfang = object_value(services["openfang"], "openfang service")
-    require_loopback_port(openfang, "openfang", 4200)
-
-    valkey = object_value(services["valkey"], "valkey service")
-    require_loopback_port(valkey, "valkey", 6379)
+    # Weak development credentials: the API and the console must never be
+    # reachable from outside this host.
+    minio = object_value(services["minio"], "minio service")
+    require_loopback_port(minio, "minio", 9000)
+    require_loopback_port(minio, "minio", 9001)
 
     api = object_value(services["berry-api"], "berry-api service")
     build = object_value(api.get("build"), "berry-api build")
-    if Path(str(build.get("context"))).resolve() != (ROOT / "server").resolve():
-        fail("berry-api build context must be server/")
+    if Path(str(build.get("context"))).resolve() != (ROOT / "server-ts").resolve():
+        fail("berry-api build context must be server-ts/")
     if build.get("dockerfile") != "Dockerfile":
-        fail("berry-api must build server/Dockerfile")
+        fail("berry-api must build server-ts/Dockerfile")
 
     dependencies = object_value(api.get("depends_on"), "berry-api depends_on")
-    for dependency in ("postgres", "valkey", "openfang"):
-        config = object_value(dependencies.get(dependency), f"berry-api {dependency} dependency")
-        if config.get("condition") != "service_healthy":
-            fail(f"berry-api must wait for healthy {dependency}")
+    postgres_dependency = object_value(
+        dependencies.get("postgres"), "berry-api postgres dependency"
+    )
+    if postgres_dependency.get("condition") != "service_healthy":
+        fail("berry-api must wait for healthy postgres")
+    # The bucket is created by a job that exits, so healthy is not the state
+    # to wait for — completion is.
+    bucket_dependency = object_value(
+        dependencies.get("minio-bucket"), "berry-api minio-bucket dependency"
+    )
+    if bucket_dependency.get("condition") != "service_completed_successfully":
+        fail("berry-api must wait for the artifact bucket to be created")
 
+    # Readiness must never race schema setup, so the migrator runs to
+    # completion before the server binds a port.
     command = json.dumps(api.get("command"))
-    if "berry-migrate" not in command or "berry-api" not in command:
-        fail("berry-api must run migrations before starting the API")
+    if "src/migrate/index.ts" not in command or "src/index.ts" not in command:
+        fail("berry-api must run migrations before starting the server")
 
     require_loopback_port(api, "berry-api", 4000)
 
     environment = object_value(api.get("environment"), "berry-api environment")
-    if "OPENFANG_API_KEY" not in environment:
-        fail("berry-api must receive the OpenFang key server-side")
     expected_environment = {
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
-        "REALTIME_NODE_ID",
-        "REALTIME_READ_BLOCK",
-        "REALTIME_RELAY_REQUIRED",
-        "REALTIME_STREAM_MAXLEN",
-        "REALTIME_STREAM_TTL",
+        "BERRY_INTERNAL_TOKEN",
+        "DATABASE_URL",
+        "S3_BUCKET",
         "S3_USE_PATH_STYLE",
     }
     missing_environment = sorted(expected_environment.difference(environment))
     if missing_environment:
         fail(f"berry-api environment is missing: {', '.join(missing_environment)}")
-    for required_true in ("VALKEY_ENABLED", "VALKEY_REQUIRED", "REALTIME_RELAY_REQUIRED"):
-        if environment.get(required_true) != "true":
-            fail(f"berry-api must default {required_true}=true for multi-instance readiness")
-    expected_realtime_defaults = {
-        "REALTIME_NODE_ID": "",
-        "REALTIME_STREAM_MAXLEN": "10000",
-        "REALTIME_STREAM_TTL": "15m",
-        "REALTIME_READ_BLOCK": "5s",
-    }
-    for key, expected in expected_realtime_defaults.items():
-        if environment.get(key) != expected:
-            fail(f"berry-api must default {key}={expected!r}")
+
     leaked = sorted(
         f"{service_name}.{key}"
         for service_name, service_value in services.items()
@@ -197,11 +176,12 @@ def check_services(rendered: dict[str, Any]) -> None:
 
     # Object-store credentials belong only to the services that read or write
     # objects. Naming them keeps the credential off everything else — the
-    # frontend, the runtime, the databases — rather than letting it spread by
-    # habit. berry-api serves uploads, berry-worker promotes what a run
-    # produced, and berry-api-ts is where an ADK agent's files are written.
+    # databases, the frontend — rather than letting it spread by habit.
+    # berry-api is where an agent's files are written and where attachments
+    # are served from; minio is the store itself and reads them under its own
+    # MINIO_ROOT_* names.
     s3_credentials = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"}
-    storage_services = {"berry-api", "berry-worker", "berry-api-ts"}
+    storage_services = {"berry-api"}
     for service_name, service_value in services.items():
         if service_name in storage_services:
             continue
@@ -216,17 +196,3 @@ def check_services(rendered: dict[str, Any]) -> None:
     if "/ready" not in json.dumps(healthcheck.get("test")):
         fail("berry-api healthcheck must probe readiness")
 
-
-def main() -> int:
-    try:
-        check_services(render_compose())
-    except (RuntimeError, ValueError) as error:
-        print(f"compose config check failed: {error}", file=sys.stderr)
-        return 1
-
-    print("Compose config is valid and deployment invariants hold.")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

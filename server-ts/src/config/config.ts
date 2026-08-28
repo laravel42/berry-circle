@@ -1,10 +1,8 @@
 /**
- * Environment, ported from server/internal/config/config.go — the subset this
- * server needs so far.
+ * Environment — the subset this server needs.
  *
- * Same variable names as the Go server on purpose: both read the same
- * docker-compose environment during the migration, so a name that drifts is a
- * setting that silently stops applying to one of them.
+ * The variable names are long-standing and deployments are configured with
+ * them, so a rename here is a setting that silently stops applying.
  */
 
 export interface Config {
@@ -61,7 +59,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
    const databaseUrl = (env.DATABASE_URL ?? '').trim();
    if (!databaseUrl) problems.push('DATABASE_URL is required');
 
-   // Go's default is 0.0.0.0:4000, set in the Dockerfile.
+   // The Dockerfile sets this; the default matches it so a bare `node` run agrees.
    const addr = (env.API_ADDR ?? '0.0.0.0:4000').trim();
    const separator = addr.lastIndexOf(':');
    const host = separator > 0 ? addr.slice(0, separator) : '0.0.0.0';
@@ -80,8 +78,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       metricsEnabled: boolean(env.METRICS_ENABLED, true),
       sessionTtlMs: duration(env.SESSION_TTL, 30 * 24 * 60 * 60 * 1000),
       allowPasswordlessLogin: boolean(env.AUTH_ALLOW_PASSWORDLESS_LOGIN, true),
-      // Per-subscriber event buffer. Reading the same variable Go reads, so a
-      // deployment tuned for one server is tuned for both.
+      // Per-subscriber event buffer, before a slow client is dropped.
       realtimeBuffer: positiveInt(env.REALTIME_BUFFER, 64),
       storage: storage(env),
       agents: agents(env),
@@ -93,7 +90,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 }
 
 /**
- * Reads the same S3 variables the Go server reads.
+ * Object storage, from the standard S3 variables.
  *
  * Only the bucket is required. Credentials may be absent on purpose — the AWS
  * SDK then uses the workload's credential chain, which is how this runs
@@ -116,7 +113,7 @@ function storage(env: NodeJS.ProcessEnv): StorageConfig | null {
 }
 
 /**
- * The model credential, read from the same variable the gateway reads.
+ * The model credential.
  *
  * BERRY_-prefixed first, for the reason the compose file gives: a stale
  * OPENROUTER_API_KEY exported in a shell would otherwise silently outrank the
@@ -133,9 +130,11 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
 }
 
 /**
- * Go duration strings, as the compose file writes them: `720h`, `30m`, `1s`.
- * Compound forms like `2h5m` are accepted here even though Temporal's `ms`
- * parser rejects them, because this reads the same environment Go does.
+ * Duration strings as the compose file writes them: `720h`, `30m`, `1s`.
+ *
+ * Compound forms like `2h5m` are accepted because a deployment may already
+ * have one configured, and rejecting it would turn a working setting into a
+ * boot failure.
  */
 function duration(value: string | undefined, fallback: number): number {
    const trimmed = (value ?? '').trim();
@@ -156,7 +155,7 @@ function boolean(value: string | undefined, fallback: boolean): boolean {
    return trimmed === 'true' || trimmed === '1' || trimmed === 'yes';
 }
 
-/** A positive integer, or the fallback. Matches Go's positiveInt. */
+/** A positive integer, or the fallback. */
 function positiveInt(value: string | undefined, fallback: number): number {
    const trimmed = (value ?? '').trim();
    if (!trimmed || !/^\d+$/.test(trimmed)) return fallback;

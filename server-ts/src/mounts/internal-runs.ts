@@ -16,9 +16,9 @@ import { RunConflict, RunNotFound, RunTerminal } from '../runs/ledger.ts';
  * session, so it does not belong in the surface the session middleware
  * guards.
  *
- * This is temporary by construction. Once the orchestration is ported the
- * executor is called in-process and this mount goes away with the Go worker
- * that needs it.
+ * This is temporary by construction. Once run orchestration lives here the
+ * executor is called directly and this mount goes away with the external
+ * caller that needs it.
  */
 
 export interface InternalRunOptions {

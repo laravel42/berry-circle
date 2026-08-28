@@ -4,8 +4,7 @@ import { json } from '../http/app.ts';
 import type { Mount } from '../http/registry.ts';
 
 /**
- * Process health and the browser-safe capability list, ported from
- * server/internal/handlers/platform/handlers.go.
+ * Process health and the browser-safe capability list.
  *
  * The first mount to move, because it is the least coupled thing the server
  * answers: no authentication, no workspace scoping, and one dependency it can
@@ -90,10 +89,10 @@ function readyRoute(options: PlatformOptions): Hono {
 /**
  * Metrics are not served yet.
  *
- * Go answers 404 with the ordinary envelope only when metrics are *disabled*,
- * and they are enabled in the running deployment — so this is a real
- * difference, not an equivalent one. `/metrics` must stay routed to Go until
- * the observability port lands, or scraping silently starts returning 404.
+ * The route exists so the path answers the ordinary error envelope rather than
+ * the router's bare not-found, and `capabilities.metrics` is reported false to
+ * match. Anything scraping this endpoint is getting 404s and should be told,
+ * rather than left to infer it from an empty graph.
  */
 function metricsRoute(): Hono {
    const route = new Hono();

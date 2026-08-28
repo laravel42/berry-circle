@@ -42,9 +42,8 @@ The following Multica material is outside the approved import scope:
 - model/provider adapters, agent execution loops, sandboxing, and filesystem
   execution.
 
-Those execution responsibilities remain with OpenFang, as described by the
-[integration specification](../integrations/berry-openfang.md) and
-[ADR-0004](../adr/0004-go-product-server.md). An excluded implementation may be
+Those execution responsibilities are Berry's own, as described by
+[ADR-0008](../adr/0008-adk-agent-runtime.md). An excluded implementation may be
 read to understand a product contract, but its code must not be ported into
 Berry.
 
@@ -74,9 +73,17 @@ Every future import or substantial adaptation must append a row before merge.
 Use one row per cohesive source-to-target mapping; use `None` only when the
 change contains no Multica-derived code.
 
+> **Note, 2026-08-28.** The `server/` tree named in the Berry-path column below
+> was removed when the product server was reimplemented in TypeScript
+> ([ADR-0009](../adr/0009-typescript-product-server.md)). The rows are left
+> exactly as recorded: they describe what was reused and when, and both state
+> that no legacy source was copied, so nothing survives in the current tree that
+> a corrected path would point at. The equivalent behaviour now lives under
+> `server-ts/src/` and `server-ts/migrations/`.
+
 | Berry path | Multica path | Source commit | Reuse form | Dependency/license audit | Reviewer and date |
 |---|---|---|---|---|---|
-| `server/` shared platform scaffold | `server/cmd/server/main.go` (startup/shutdown ordering); `server/cmd/migrate/main.go` (session-pinned advisory lock); `server/internal/realtime/hub.go` (bounded subscriber backpressure); `server/internal/storage/local.go` (atomic local writes and containment) | `8c9b7503a12ded3f28553da48b9851621f10be6b` | Berry-native implementation informed by the named behavioral patterns; no legacy source copied. Berry uses its own API, migration squash, domain language, OpenFang boundary, and tests. | [`server/THIRD_PARTY_NOTICES.md`](../../server/THIRD_PARTY_NOTICES.md) plus the scaffold dependency audit | Implementation record; reviewer pending · 2026-08-22 |
+| `server/` shared platform scaffold | `server/cmd/server/main.go` (startup/shutdown ordering); `server/cmd/migrate/main.go` (session-pinned advisory lock); `server/internal/realtime/hub.go` (bounded subscriber backpressure); `server/internal/storage/local.go` (atomic local writes and containment) | `8c9b7503a12ded3f28553da48b9851621f10be6b` | Berry-native implementation informed by the named behavioral patterns; no legacy source copied. Berry uses its own API, migration squash, domain language, runtime boundary, and tests. | `server/THIRD_PARTY_NOTICES.md` plus the scaffold dependency audit | Implementation record; reviewer pending · 2026-08-22 |
 | `server/internal/identity/`, `server/internal/handlers/identity/`, `server/internal/auth/credentials.go`, `server/migrations/004_identity_workspaces.up.sql` | `server/internal/middleware/workspace.go`; `server/internal/handler/invitation.go`; `server/internal/handler/personal_access_token.go`; migrations `011` and `041` | `8c9b7503a12ded3f28553da48b9851621f10be6b` | Berry-native implementation informed by hidden workspace-membership boundaries, invitation lifecycle, one-time token return, hash-only token storage, expiry, last-use, and idempotent revocation behavior. No source code, product naming, daemon/cloud execution, or legacy API shape was copied. | No new dependency; existing Go dependency audit remains unchanged | Implementation record; reviewer pending · 2026-08-22 |
 
 If a later change draws from another Multica commit, record a new pin and

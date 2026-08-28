@@ -10,15 +10,23 @@ how releases are cut.
 ## [Unreleased]
 
 No version has been tagged yet — Berry is pre-release. The first tagged release is cut at
-milestone **M6 (Release 1)**; until then all shipped work accumulates here. This first
-entry covers everything merged to `main` as of 2026-08-24, spanning the foundation
-docs/knowledge base (**M0**), the OpenFang integration proof (**M1**), the gateway
-service core (**M2**), and the Go product server, Temporal run orchestration, and Berry
-shell that followed (**M3**). See the
-[M2 milestone run report](docs/milestones/m2-gateway.md) for the integrated test state
-and known issues.
+milestone **M6 (Release 1)**; until then all shipped work accumulates here.
+
+Entries below are a running record and are not rewritten. Several name components that no
+longer exist — the Bun/Hono gateway, the Go product server, the pinned OpenFang runtime
+and Temporal — all removed on 2026-08-28; see the `Removed` section.
 
 ### Added
+
+- Schema migration and development seeding in TypeScript: `server-ts/src/migrate` applies
+  `server-ts/migrations/*.up.sql` forward-only under the `pg_advisory_lock` Berry has
+  always used, against the same `berry_schema_migrations` ledger and the same SHA-256 per
+  file, so a database migrated before the port is already current. `server-ts/src/seed`
+  writes the development dataset. Both are idempotent and both run before the server binds
+  a port (`pnpm migrate:server`, `pnpm seed:server`). Migration `032` drops
+  `issues.openfang_run_id`, `agents.openfang_agent_id` and
+  `model_role_agents.openfang_agent_id`; `agents.openfang_agent_id` was `NOT NULL`, so
+  creating an agent had required inventing an id for a process that would never exist.
 
 - Planning and workflows, phase 4.5 (server): the extended node set and triggers. `switch`
   (first matching case, else the default; the other branches are recorded as skipped),
@@ -190,7 +198,7 @@ and known issues.
   tenant-scoped versioned keys, single-flight loading, exact/prefix invalidation,
   bounded operation timeouts, and fail-open circuit breaking. Domain helpers cover board
   and issue hot reads; route adoption remains a known integration gap in the
-  [M2 report](docs/milestones/m2-gateway.md) — BERR-25 ([#19]).
+  M2 report — BERR-25 ([#19]).
 - Gateway run-event SSE transport at `GET /api/v1/runs/{runId}/events`, with retained
   cursor replay, gap-free live fan-out, heartbeats, bounded subscriber buffers,
   disconnect cleanup, and terminal-event stream closure. Connecting OpenFang producers
@@ -235,6 +243,17 @@ and known issues.
 
 ### Changed
 
+- `docker-compose.yml` runs the TypeScript server as `berry-api` on `127.0.0.1:4000`,
+  built from `server-ts/Dockerfile`, with `postgres`, `minio` and the `minio-bucket` job.
+  It migrates and seeds before starting. `scripts/check-compose-config.py` asserts the new
+  invariants; `scripts/check-deploy-pins.py` now validates only the Multica pin.
+- `frontend/next.config.ts` proxies to one origin. `BERRY_TS_API_ORIGIN` and the
+  `TYPESCRIPT_ROUTES` split are gone, as is the `/uploads/*` rewrite — the server has no
+  such route.
+- `.env.example` covers only what the stack reads. Variables for the removed components
+  (OpenFang, Temporal, intake, the planner, Activepieces, Infobip, the integration OAuth
+  clients, Valkey, `STORAGE_BACKEND`, `TRUSTED_ORIGINS`, `METRICS_ENABLED`) are gone.
+
 - Durable events carry an explicit board scope. `outbox_events` gains `board_id`
   (migration `019_outbox_scope`) and `workspace_id` always holds the workspace; the run
   lane used to store the board id there, which hid every comment and collaboration event
@@ -257,6 +276,32 @@ and known issues.
   [439512b].
 
 ### Removed
+
+- The Go product server (`server/`), its Temporal worker, and the Bun/Hono gateway
+  (`apps/gateway/`). With them go the prefixes only they served: `/api/v1/runs`,
+  `/workflows`, `/workflow-runs`, `/hooks`, `/approvals`, `/plans`, `/conversations`,
+  `/integrations`, `/inbox`, `/search`, `/views`, `/catalogs`, `/runtime`, the multipart
+  upload at `/issues/:ref/attachments`, and `/metrics`. Those paths answer 404, and
+  `GET /api/v1/config` reports the reduced capability set. **There is no run
+  orchestration:** `POST /internal/runs` is the only way to start an agent and nothing in
+  the product calls it.
+- The pinned OpenFang runtime, its compose service, `deploy/openfang.pin.json`,
+  `deploy/openfang/config.toml`, and the `openfang-data` volume. Berry runs agents
+  in-process (ADR-0008).
+- The `temporal` and `temporal-ui` services (their only client was the Go worker), the
+  `valkey` service (the realtime hub is built with a null relay, so events replay from
+  PostgreSQL on the next poll), and the `berry-uploads` volume (artifacts are S3-only).
+- `deploy/sqlc-artifacts.lock.json` and `scripts/check-sqlc-artifacts.py`, which gated
+  Go code generation.
+- The frontend model playground (`components/common/settings/model-playground.tsx`) and
+  `lib/runtime.ts`. Both existed to probe `/api/v1/runtime/*`, which no longer exists.
+- ADRs 0001 (Bun/Hono gateway), 0003 (pin OpenFang by commit), 0004 (Go product server),
+  0005 (Temporal run orchestration) and 0007 (workflows, planning and the Activepieces
+  adapter) were withdrawn with the subjects they decided, along with
+  `docs/integrations/berry-openfang.md`, `docs/api/openfang-gateway-consumption.md`,
+  `docs/integrations/native-providers.md`, `docs/integrations/openfang-smoke-report.md`,
+  `docs/milestones/m2-gateway.md` and `docs/plans/temporal-run-orchestration.md`. The
+  numbers are not reused; `docs/adr/README.md` records the gap.
 
 - The Crew/team module: 17 routes, 15 components, and its stores. Crew created a board
   and attached a lead and members client-side to a store with no persistence, so the

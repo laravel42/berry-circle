@@ -1,7 +1,7 @@
 import { toRFC3339, type Sql } from '../db/pool.ts';
 
 /**
- * Durable event replay, ported from server/internal/repository/ledger/outbox.go
+ * Durable event replay
  * and repository/runs/replay.go.
  *
  * A stream never reads Valkey. Valkey is a wakeup — it says something happened

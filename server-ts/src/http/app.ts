@@ -7,10 +7,10 @@ import type { Registry } from './registry.ts';
  * The application shell: request ids, the single error path, and the two
  * envelopes the router itself answers with.
  *
- * Everything a client can observe here is a contract the Go server already
- * publishes — `frontend/lib/api.ts` reads `x-request-id` and parses the error
- * envelope — so this file exists to make the two servers indistinguishable
- * rather than to express a preference.
+ * Everything a client can observe here is a published contract —
+ * `frontend/lib/api.ts` reads `x-request-id` and parses the error envelope —
+ * so this file exists to hold that shape fixed rather than to express a
+ * preference.
  */
 
 export interface AppVariables {
@@ -58,11 +58,11 @@ export function createApp(registry: Registry): BerryApp {
 }
 
 /**
- * Headers Go sets on every response, from httpapi.securityHeaders.
+ * The security headers set on every response.
  *
- * The values are copied exactly. A browser applies whichever it is given, so a
- * looser CSP here than in Go would mean the protection depends on which server
- * answered — and during the strangler that varies by prefix.
+ * Set here, once, rather than per mount. A browser applies whichever it is
+ * given, so a response that slipped out without them would be protected only
+ * by whichever route happened to add its own.
  */
 const STANDARD_HEADERS: ReadonlyArray<readonly [string, string]> = [
    ['X-Content-Type-Options', 'nosniff'],

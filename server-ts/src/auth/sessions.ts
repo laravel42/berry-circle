@@ -9,7 +9,7 @@ import {
 } from './tokens.ts';
 
 /**
- * Opaque session lifecycle, ported from server/internal/auth/sessions.go.
+ * Opaque session lifecycle.
  *
  * Only the SHA-256 hash of a token is ever persisted, so a database leak hands
  * an attacker nothing usable. The raw token exists once, in the login

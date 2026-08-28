@@ -1,5 +1,6 @@
 # Frontend
 
+- 2026-08-28 — **Supersedes the API-seam entries below.** One backend origin: `BERRY_API_ORIGIN`, proxied by `next.config.ts` for `/api/*`, `/health` and `/ready`. The runs page's endpoints (`/api/v1/issues/{id}/runs`, `/api/v1/runs/{id}/events`) are not served and answer 404. The model playground and `lib/runtime.ts` were removed with the runtime they probed.
 - 2026-08-22 — Circle template (MIT, upstream `7785985`) vendored into `frontend/`, demo data stripped, rebranded to Berry (BERR-28). Notice stays in `frontend/LICENSE.md`.
 - 2026-08-22 — Removed the sidebar "UI based on Circle (MIT)" attribution; HelpButton remains in `SidebarFooter`.
 - 2026-08-22 — Stack from `frontend/package.json`: Next.js App Router, React 19, Tailwind v4, shadcn/Radix, Zustand, nuqs, Zod 4. Tooling is Bun + Prettier 3-space + ESLint. README/playbook still say Next 15 — trust `package.json`.

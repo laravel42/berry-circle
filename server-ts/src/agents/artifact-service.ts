@@ -15,8 +15,8 @@ import { ObjectNotFound, sniffContentType, type Storage } from '../storage/stora
 /**
  * ADK artifacts backed by `run_artifacts` and object storage.
  *
- * This is what replaces OpenFang's per-agent volume, and it is the reason
- * agents can hand each other work. Under OpenFang every file tool was scoped
+ * This is what replaces the previous runtime's per-agent volume, and it is the
+ * reason agents can hand each other work. There every file tool was scoped
  * to the agent's own directory, so a task depending on finished work received
  * it as text pasted into a prompt. A shared artifact store means the second
  * agent reads what the first actually wrote.

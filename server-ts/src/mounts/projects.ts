@@ -23,12 +23,11 @@ import type {
 import type { Mount } from '../http/registry.ts';
 
 /**
- * `/api/v1/projects`, ported from server/internal/handlers/projects.
+ * `/api/v1/projects`.
  *
  * `POST /:projectId/generated-issues` is deliberately absent. It decomposes a
- * project into issues with an agent, and Go refuses it outright without a
- * runtime rather than pretending to think — so it stays on Go, and the proxy
- * does not route it here. See SCOPE.md.
+ * project into issues with an agent, and what it should mean now that agents
+ * run in-process is its own decision. See SCOPE.md.
  */
 
 const STATUSES = new Set(['planned', 'active', 'paused', 'completed', 'cancelled']);
@@ -669,10 +668,9 @@ function assertValid(fields: FieldError[]): void {
  * the two columns together, so writing a name without an id is not merely
  * incomplete, it is rejected.
  *
- * This is Go's own answer for a deployment without the resolver. Note that the
- * running Go server *has* one, so it answers 422 REPOSITORY_UNAVAILABLE where
- * this answers 412 — the only known divergence in this mount. Recorded in
- * ROUTING.md.
+ * This is the answer for a deployment without the resolver. A deployment that
+ * has one answers 422 REPOSITORY_UNAVAILABLE instead, which is the case this
+ * server does not yet cover. Recorded in ROUTING.md.
  */
 function requireRepositoryResolver(): never {
    throw new ApiError(

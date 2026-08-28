@@ -4,8 +4,7 @@ import { MAX_EVENT_PAYLOAD_BYTES, normalizeEvent, validateEvent, type Event } fr
 import type { Observer } from './hub.ts';
 
 /**
- * The cross-process relay, ported from
- * server/internal/realtime/valkey_relay.go.
+ * The cross-process relay.
  *
  * One Berry node publishes a fact; every other node's subscribers need to hear
  * it. The relay is a Valkey stream carrying those invalidations — bounded,
@@ -193,12 +192,12 @@ interface Envelope {
 }
 
 /**
- * The wire format shared with the Go server.
+ * The envelope every node publishes into the shared stream.
  *
- * Field order and names are Go's struct tags, and `occurredAt` is RFC 3339 —
- * both servers publish into one stream during the migration, so an envelope
- * either side cannot read is an event the other side's clients never see.
- * `boardId` is omitted when empty, matching Go's omitempty.
+ * Field order, names and the RFC 3339 `occurredAt` are fixed: every process on
+ * the stream has to read what the others write, so an envelope one node cannot
+ * decode is an event that node's clients never see. `boardId` is omitted when
+ * empty rather than sent as an empty string.
  */
 export function encodeEnvelope(nodeId: string, event: Event): string {
    const wire: Record<string, unknown> = {

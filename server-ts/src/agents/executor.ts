@@ -14,15 +14,15 @@ import { buildMessage, lastRejection } from './prompt.ts';
 /**
  * Runs one Berry run through ADK, writing the ledger Berry already keeps.
  *
- * This is what replaces internal/service/runadmission's consumption of the
- * OpenFang stream. The ledger does not change — the same `run_events`, the
+ * This is what replaces Berry's consumption of a separate runtime's event
+ * stream. The ledger does not change — the same `run_events`, the
  * same statuses, the same result comment on the task — because those are
  * product surfaces read by the run stream, the task timeline and the peer
  * reviewer. What changes is who produces them, and that the agent now has
  * tools that reach Berry itself.
  *
- * One failure from the OpenFang era is worth keeping in view, because it
- * shaped this loop. OpenFang emitted `done` at the end of every model turn and
+ * One failure from the previous runtime is worth keeping in view, because it
+ * shaped this loop. It emitted `done` at the end of every model turn and
  * kept the connection open when the agent had called a tool, so treating the
  * first `done` as the end recorded runs as succeeded seconds in — with "I'll
  * look into this" posted as the result — while the agent worked on for minutes
@@ -46,13 +46,13 @@ const SUBSTANTIVE_RESULT_BYTES = 400;
 /**
  * How much streamed text is gathered before it becomes one ledger event.
  *
- * OpenFang emitted whole sentences and Berry wrote one event per chunk;
- * OpenRouter emits tokens, and one transaction per token would mean thousands
+ * The previous runtime emitted whole sentences and Berry wrote one event per
+ * chunk; OpenRouter emits tokens, and one transaction per token would mean thousands
  * of row-locked writes for one answer and a `run_events` table that is mostly
  * single words. Gathering to roughly a sentence keeps the stream live without
  * making the ledger a token log.
  *
- * The cap matches Go's publicChunkBytes ceiling on a single delta.
+ * The cap is the long-standing ceiling on a single published delta.
  */
 const OUTPUT_FLUSH_BYTES = 240;
 const OUTPUT_FLUSH_MS = 250;

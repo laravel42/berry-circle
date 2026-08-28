@@ -3,15 +3,14 @@ import type { Dispatch } from '../runs/ledger.ts';
 import { truncateUtf8 } from '../runs/result-comment.ts';
 
 /**
- * The message a run sends its agent, ported from
- * server/internal/service/runadmission/service.go's buildMessage.
+ * The message a run sends its agent.
  *
  * The task text is carried over unchanged. The contracts at the end are not:
- * they exist because the runtime gave the agent no way to discover how its
- * work is collected, and under ADK the answer is different. OpenFang agents
- * wrote into an `output/` directory that Berry swept after the run; an ADK
- * agent calls `write_file`, and telling it about a directory that does not
- * exist would produce nothing at all.
+ * they exist because an agent has no way to discover how its work is
+ * collected, and the answer changed. Agents used to write into an `output/`
+ * directory that Berry swept after the run; an ADK agent calls `write_file`,
+ * and telling it about a directory that does not exist would produce nothing
+ * at all.
  */
 
 const MAX_PROMPT_BYTES = 64 * 1024;

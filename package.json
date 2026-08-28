@@ -12,16 +12,18 @@
    },
    "scripts": {
       "dev:frontend": "pnpm --filter berry-frontend dev",
-      "dev:gateway": "pnpm --filter @berry/gateway dev",
       "lint:frontend": "pnpm --filter berry-frontend lint",
-      "lint:gateway": "pnpm --filter @berry/gateway lint",
       "build:frontend": "pnpm --filter berry-frontend build",
-      "build:gateway": "pnpm --filter @berry/gateway build",
-      "typecheck:gateway": "pnpm --filter @berry/gateway typecheck",
-      "test:gateway": "pnpm --filter @berry/gateway test",
+      "dev:server": "pnpm --filter @berry/server dev",
       "typecheck:server": "pnpm --filter @berry/server typecheck",
       "test:server": "pnpm --filter @berry/server test",
-      "dev:server": "pnpm --filter @berry/server dev",
-      "contract:server": "pnpm --filter @berry/server contract"
+      "migrate:server": "pnpm --filter @berry/server migrate",
+      "seed:server": "pnpm --filter @berry/server seed",
+      "typecheck:worker": "pnpm --filter @berry/runtime-worker typecheck",
+      "test:worker": "pnpm --filter @berry/runtime-worker test",
+      "deploy:worker": "pnpm --filter @berry/runtime-worker deploy",
+      "typecheck:runtime": "pnpm --filter @berry/runtime typecheck",
+      "test:runtime": "pnpm --filter @berry/runtime test",
+      "dev:runtime": "pnpm --filter @berry/runtime dev"
    }
 }

@@ -13,8 +13,8 @@ import {
 /**
  * Wraps a route so a repeated request replays rather than repeats.
  *
- * Ported from server/internal/handlers/boards/idempotency.go. The claim is
- * taken before the handler runs and completed with whatever it returned, so a
+ * The claim is taken before the handler runs and completed with whatever it
+ * returned, so a
  * client that retries after a timeout gets the original answer instead of a
  * second board, a second run, or a second charge.
  */

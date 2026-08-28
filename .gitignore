@@ -10,13 +10,3 @@ dist/
 .tmp-agents/
 .tmp-pr/
 .impeccable/
-
-# compiled Go binaries built into the module root
-/server/api
-/server/seed
-
-# runtime volumes
-/server/data/
-
-# compiled Go binaries built into the module root
-/server/worker

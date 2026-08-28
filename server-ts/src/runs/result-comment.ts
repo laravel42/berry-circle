@@ -4,10 +4,9 @@ import { toRFC3339, type Sql } from '../db/pool.ts';
 /**
  * The agent's final message, posted on the task as its comment.
  *
- * Ported from the one write a run makes outside its own ledger
- * (server/internal/service/runadmission/service.go's postResult, over
- * repository/core's CreateComment). It matters more than it looks: the run
- * ledger is where an operator looks, and the comment is where the person who
+ * The one write a run makes outside its own ledger. It matters more than it
+ * looks: the run ledger is where an operator looks, and the comment is where
+ * the person who
  * asked for the work looks. A run that finishes without one has done its work
  * somewhere nobody reads.
  */

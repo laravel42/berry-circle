@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 /**
- * Realtime events, ported from server/internal/realtime/event.go.
+ * Realtime events.
  *
  * An event is an ephemeral projection of a fact already written to PostgreSQL.
  * Losing one is survivable — the client refetches — which is what lets the hub

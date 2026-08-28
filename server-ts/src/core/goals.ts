@@ -7,7 +7,7 @@ import { dbStatusToApi } from './issues.ts';
 import type { ActorRef } from './comments.ts';
 
 /**
- * Goals, ported from server/internal/repository/goals.
+ * Goals.
  *
  * A goal is the thing work is *for*: issues link to it, automations run
  * against it, approvals decide about it. Almost everything here is either the
@@ -411,10 +411,10 @@ export class GoalRepository {
    /**
     * The goal's automations, approvals and plans.
     *
-    * Three reads of tables whose own mounts stay on Go — automations and
-    * approvals are AUTOMATE, plans is being refactored. That is fine because
-    * these depend on the tables and not on that code: a goal has to be able to
-    * say what points at it without owning any of it.
+    * Three reads of tables no mount here owns — automations and approvals
+    * belong to AUTOMATE, plans to the planner. That is fine because these
+    * depend on the tables and not on that code: a goal has to be able to say
+    * what points at it without owning any of it.
     */
    async listWorkflows(goalId: string, workspaceId: string, limit = 100) {
       const rows = await this.sql`

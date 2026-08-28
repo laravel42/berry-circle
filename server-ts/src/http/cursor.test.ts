@@ -9,9 +9,8 @@ import {
 } from './cursor.ts';
 
 /**
- * Captured from the Go implementation for the same key and scope. A client can
- * page a list on one server and send the cursor to the other while the
- * migration is in progress, so these bytes are a contract, not an artefact.
+ * Captured bytes for this key and scope. Clients hold cursors across restarts
+ * and deployments, so these are a contract, not an artefact.
  */
 const SCOPE = 'identity.workspaces.11111111-1111-4111-8111-111111111101';
 const KEY = {

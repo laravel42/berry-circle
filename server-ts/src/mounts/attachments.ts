@@ -9,11 +9,11 @@ import { ObjectNotFound, type Storage } from '../storage/storage.ts';
 import type { Attachment, AttachmentRepository } from '../core/attachments.ts';
 
 /**
- * `/api/v1/attachments`, ported from server/internal/handlers/attachments.
+ * `/api/v1/attachments`.
  *
  * The four routes that reach an attachment by its own id. The nested
- * `/issues/:ref/attachments` pair stays on Go, because moving the path would
- * move the upload with it — see server-ts/SCOPE.md.
+ * `/issues/:ref/attachments` pair is not here: it carries the multipart
+ * upload, which has not been ported — see server-ts/SCOPE.md.
  */
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

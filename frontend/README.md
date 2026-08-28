@@ -5,8 +5,8 @@ agents plan, execute, and review work together. Vendored from the MIT-licensed
 [Circle](https://github.com/ln-dev7/circle) template (see `LICENSE.md` for the
 upstream notice) with its demo/mock data layer stripped.
 
-The browser calls Berry only, through `lib/api.ts`. It never receives
-`OPENFANG_API_KEY` or talks to OpenFang. Empty same-origin config and an empty
+The browser calls Berry only, through `lib/api.ts`. It never receives a
+provider credential or talks to a model provider. Empty same-origin config and an empty
 `NEXT_PUBLIC_BOARD_ID` boot with no remote issues. Local create-issue writes the
 Zustand store only. Do not restore Circle demo datasets or invent run records.
 
@@ -63,7 +63,7 @@ is reserved for explicit cross-origin development:
 `BERRY_API_ORIGIN` is read only by the Next.js server and must not contain
 credentials. `NEXT_PUBLIC_BERRY_API_URL` is inlined into the browser bundle;
 leave it empty outside deliberate cross-origin development and never put a
-token or OpenFang URL in it.
+token or upstream URL in it.
 
 The Berry client lives in `lib/api.ts` (`apiUrl` / `apiFetch`). It includes
 same-origin credentials, parses Berry error envelopes and request IDs, and

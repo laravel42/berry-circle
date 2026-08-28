@@ -17,7 +17,7 @@ import {
 } from '../realtime/replay.ts';
 
 /**
- * `GET /api/v1/events`, ported from server/internal/handlers/events.
+ * `GET /api/v1/events`.
  *
  * One stream per board and one per workspace, and the split is not cosmetic:
  * a board stream carries what happens on that board, while a workspace stream

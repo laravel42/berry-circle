@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
 
 /**
- * The run ledger, ported from server/internal/repository/runs/transitions.go.
+ * The run ledger.
  *
  * Berry records what an agent did as an append-only sequence of events per
- * run, and the run row is a projection of that sequence. Replacing OpenFang
- * with ADK changes who produces the events; it does not change the ledger,
+ * run, and the run row is a projection of that sequence. Moving execution
+ * in-process changed who produces the events; it did not change the ledger,
  * because the ledger is a product surface — the run stream, the task timeline
  * and the peer reviewer all read it.
  *
@@ -189,8 +189,8 @@ export class RunLedger {
    /**
     * Records that the agent actually started.
     *
-    * Deliberately separate from the claim: under OpenFang this waited for a
-    * valid stream, and it keeps the same meaning here — a run is `running`
+    * Deliberately separate from the claim: this used to wait for a valid
+    * stream, and it keeps the same meaning here — a run is `running`
     * once the model accepted the request, not once Berry decided to send it.
     */
    async markRunning(runId: string): Promise<Run> {

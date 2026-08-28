@@ -4,7 +4,7 @@ import { allows, type Permission } from '../identity/roles.ts';
 import type { ActorRef } from './comments.ts';
 
 /**
- * Attachments, ported from server/internal/repository/collaboration.
+ * Attachments.
  *
  * Only the read half moved. Uploading is a multipart body staged to disk with
  * an idempotency fingerprint taken over the file's own bytes, and nothing in

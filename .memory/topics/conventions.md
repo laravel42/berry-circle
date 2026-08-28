@@ -1,5 +1,6 @@
 # Conventions
 
+- 2026-08-28 — **Supersedes the workspace-specific entries below.** Gates are `pnpm typecheck:server` + `pnpm test:server` and frontend `pnpm lint` + `pnpm build`. Commit scopes are `server-ts` and `frontend`. Backend PR Adversary reviews the server.
 - 2026-08-22 — Coding playbook is `docs/coding-playbook.md` (BERR-13). TypeScript `strict`, no `any`, path aliases, Zod at boundaries, central Hono errors.
 - 2026-08-22 — Commits: `type(scope): imperative summary (BERR-NN)`. Agent branches `agent/<name>/<hash>`; hand branches `fix/berr-NN-short-slug`. One issue per PR.
 - 2026-08-22 — Reviewers: Sentinel (frontend), Backend PR Adversary (gateway). Zero blocking findings merges; re-review is full-PR. Skip `in_review` after a clean review this cycle.

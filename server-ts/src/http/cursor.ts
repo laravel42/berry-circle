@@ -1,16 +1,15 @@
 import { ApiError } from './errors.ts';
 
 /**
- * Opaque pagination cursors, ported from server/internal/httpapi/cursor.go.
+ * Opaque pagination cursors.
  *
  * The envelope is versioned and scoped so a cursor cannot be replayed against
  * a different collection: a token minted for one user's workspaces decodes to
  * nothing anywhere else. Scope is checked before the key is read.
  *
- * Byte-for-byte compatibility matters more here than anywhere else in the
- * migration. During the strangler a client can page a list on one server and
- * send the resulting cursor to the other, so the two must encode the same
- * envelope for the same key — same field order, same timestamp format.
+ * The encoding is fixed byte for byte. Clients hold cursors across restarts
+ * and deployments, so a change to the field order or the timestamp format
+ * would invalidate every token already in a browser's hands.
  */
 
 const SCOPE = /^[a-z][a-z0-9._-]{0,99}$/;

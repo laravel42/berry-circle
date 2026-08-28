@@ -5,12 +5,11 @@ import { canonicalJSON, parseWithRawNumbers } from './canonical-json.ts';
 import { fingerprintJSON, replayHeaders, validateIdempotencyKey } from './idempotency.ts';
 
 /**
- * Hashes produced by the running Go server for these exact bodies.
+ * Captured hashes for these exact bodies.
  *
  * The fingerprint decides whether a retried request replays or is refused as a
- * conflict, and during the migration a client can POST to one server and retry
- * against the other. If the two disagree on the canonical form of a body, a
- * legitimate retry becomes an IDEMPOTENCY_CONFLICT.
+ * conflict, and fingerprints of past requests are already stored. A change to
+ * the canonical form turns a legitimate retry into an IDEMPOTENCY_CONFLICT.
  */
 const GO_FINGERPRINTS: Array<[string, string]> = [
    [String.raw`{"a":1,"b":2}`, '43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777'],

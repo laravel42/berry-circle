@@ -5,7 +5,7 @@ import { allows, type Permission } from '../identity/roles.ts';
 import type { TimeCursor } from '../http/cursor.ts';
 
 /**
- * Boards, ported from server/internal/repository/core/boards.go.
+ * Boards.
  *
  * A board belongs to a workspace, and every read here joins through
  * `workspace_memberships` — so a board in a workspace the caller does not

@@ -9,8 +9,7 @@ import { DependencyCycle, type DependencyRepository } from '../core/dependencies
 import type { ReviewRepository } from '../core/reviews.ts';
 
 /**
- * `/api/v1/issues/:issueRef/dependencies` and `/reviews`, ported from
- * server/internal/handlers/issues.
+ * `/api/v1/issues/:issueRef/dependencies` and `/reviews`.
  *
  * Both hang under an issue and belong to it, so like comments they are a
  * router the issues mount owns rather than a mount of their own.

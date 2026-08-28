@@ -21,7 +21,7 @@ import {
 } from '../core/comments.ts';
 
 /**
- * Comments, ported from server/internal/handlers/comments.
+ * Comments.
  *
  * Two mounts, as in Go. The collection hangs under an issue, because a comment
  * only means anything against the thing it is about; a single comment is
@@ -179,10 +179,9 @@ export function issueCommentRoutes(options: CommentOptions) {
  * The cursor's scope: `comments.list.` and the first eight bytes of the
  * issue id's SHA-256.
  *
- * Hashed rather than plain, and byte-for-byte Go's, because during the
- * migration a client can page a list on one server and send the cursor to the
- * other — so the two must derive the same scope from the same issue or the
- * token decodes to nothing.
+ * Hashed rather than plain, and unchanged from the shape clients already
+ * hold: a cursor handed out before this server existed must still decode, so
+ * the scope has to be derived from the issue the same way it always was.
  */
 export function commentCursorScope(issueId: string): string {
    return `comments.list.${createHash('sha256').update(issueId).digest('hex').slice(0, 16)}`;

@@ -85,7 +85,7 @@ export function agentModelDisplay(
    };
 }
 
-/** Load workspace agents; OpenFang summaries are reconciled server-side. */
+/** Load workspace agents. */
 export async function loadWorkspaceAgents(): Promise<Agent[]> {
    const collected: Agent[] = [];
    let after: string | undefined;
@@ -119,9 +119,8 @@ export async function getWorkspaceAgent(agentId: string): Promise<Agent> {
 /**
  * Write the agent configuration Berry authors.
  *
- * The server pushes this to OpenFang before storing it, so a resolved promise
- * means the runtime accepted the change — not merely that Berry recorded it.
- * An omitted field is left unchanged; an empty string clears it.
+ * A resolved promise means the server accepted and stored the change. An
+ * omitted field is left unchanged; an empty string clears it.
  */
 const modelSchema = z.object({
    id: z.string(),
