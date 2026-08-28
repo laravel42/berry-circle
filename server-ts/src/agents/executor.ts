@@ -10,11 +10,14 @@ import { BerrySessionService } from './session-service.ts';
 import { OpenRouterLlm } from './openrouter-llm.ts';
 import { berryTools } from './tools.ts';
 import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
-import { branchName, checkout, parseRepository, type Checkout } from './checkout.ts';
-import { commitAndPush } from './delivery.ts';
-import { repositoryForIssue, type RepositoryContext } from './repository-context.ts';
 import type { ConnectionRepository } from '../integrations/connections.ts';
-import { GitHubClient, GitHubError, type PullRequest } from '../integrations/github.ts';
+import { GitHubClient } from '../integrations/github.ts';
+import {
+   deliverRepository,
+   prepareRepository,
+   type PreparedRepository,
+   type RepositoryRunDeps,
+} from './repository-run.ts';
 import { buildMessage, lastRejection } from './prompt.ts';
 
 /**
@@ -97,19 +100,6 @@ export interface RunOutcome {
    usage: Usage;
    toolCalls: number;
    failure?: { code: string; message: string; retryable: boolean };
-}
-
-interface IssueRow {
-   title: string;
-   /** `BER-142`, as the product spells it. */
-   reference: string;
-}
-
-interface PreparedRepository {
-   repository: RepositoryContext;
-   checkout: Checkout;
-   defaultBranch: string;
-   issue: IssueRow;
 }
 
 /** The lazily-opened workspace, as `lazyWorkspace` returns it. */
@@ -277,7 +267,11 @@ export class AdkExecutor {
       // rather than as one that has not started.
       let prepared: PreparedRepository | null = null;
       try {
-         prepared = await this.prepare(dispatch, agent, workspace);
+         prepared = await prepareRepository(this.repositoryDeps(), {
+            dispatch,
+            agentName: agent.name,
+            session: workspace ? workspace.open : null,
+         });
       } catch (error) {
          // A run that cannot get its repository has not begun its work, and
          // letting the agent loose in an empty workspace would produce a
@@ -364,14 +358,15 @@ export class AdkExecutor {
             if (repository) {
                const [delivered] = result.final();
                try {
-                  // The same workspace the checkout went into — a new session
-                  // would be an empty container with nothing to push.
-                  await this.deliver(
+                  await deliverRepository(this.repositoryDeps(), {
                      dispatch,
-                     repository,
-                     await workspace!.open(),
-                     delivered === '' ? null : delivered
-                  );
+                     prepared: repository,
+                     // The same workspace the checkout went into — a new
+                     // session would be an empty container with nothing to
+                     // push.
+                     session: await workspace!.open(),
+                     summary: delivered === '' ? null : delivered,
+                  });
                } catch (error) {
                   // The agent's work is in the ledger either way, but a run that
                   // reports success with nothing pushed sends a reviewer looking
@@ -407,127 +402,15 @@ export class AdkExecutor {
    }
 
 
-   /**
-    * Puts the task's repository in the run's workspace, when it has one.
-    *
-    * Returns null — not an error — when the task is in no project, its project
-    * names no repository, or the deployment has no substrate to clone into.
-    * Plenty of work is answering a question, and a run that fails because
-    * there was no code to change would be wrong about what it was asked.
-    *
-    * A configured repository that *cannot* be prepared does raise, because an
-    * agent turned loose in an empty workspace will answer confidently about
-    * code it never saw.
-    */
-   private async prepare(
-      dispatch: Dispatch,
-      agent: AgentRow,
-      workspace: Workspace | null
-   ): Promise<PreparedRepository | null> {
-      if (!workspace || !this.connections) return null;
 
-      const repository = await repositoryForIssue(this.sql, dispatch.issueId);
-      if (!repository) return null;
-
-      const token = await this.connections.token(dispatch.workspaceId, 'github');
-      const client = this.github(token);
-      const { owner, name } = parseRepository(repository.fullName);
-
-      // Asked before the work rather than after: an agent that spends ten
-      // minutes building something and then cannot push has wasted the tokens
-      // and the wait.
-      const remote = await client.repository(owner, name);
-      if (!remote.canPush) {
-         throw new GitHubError(
-            `the GitHub connection cannot push to ${repository.fullName}`,
-            403,
-            'grant-access'
-         );
-      }
-
-      const issue = await this.loadIssue(dispatch.issueId);
-      const branch = branchName(agent.name, issue.reference, issue.title);
-      const session = await workspace.open();
-      const result = await checkout({
-         session,
-         repository: repository.fullName,
-         branch,
-         token,
-         baseBranch: remote.defaultBranch,
-      });
-
-      await this.ledger.appendRepositoryReady(dispatch.runId, {
-         repository: repository.fullName,
-         branch: result.branch,
-         baseCommit: result.baseCommit,
-      });
-
-      return { repository, checkout: result, defaultBranch: remote.defaultBranch, issue };
-   }
-
-   /**
-    * Pushes what the run produced and opens a pull request for it.
-    *
-    * The token is fetched again rather than held across the run: a run can
-    * take longer than a credential lasts, and a stale one fails at the push
-    * with an error that reads like a permissions problem.
-    */
-   private async deliver(
-      dispatch: Dispatch,
-      prepared: PreparedRepository,
-      session: ExecutionSession,
-      summary: string | null
-   ): Promise<void> {
-      const token = await this.connections!.token(dispatch.workspaceId, 'github');
-
-      const delivery = await commitAndPush({
-         session,
-         directory: prepared.checkout.directory,
-         branch: prepared.checkout.branch,
-         token,
-         message: `${prepared.issue.reference}: ${prepared.issue.title}`,
-         ...(summary ? { body: summary } : {}),
-      });
-
-      let pullRequest: PullRequest | null = null;
-      if (delivery.committed) {
-         const { owner, name } = parseRepository(prepared.repository.fullName);
-         pullRequest = await this.github(token).openPullRequest({
-            owner,
-            name,
-            head: prepared.checkout.branch,
-            base: prepared.defaultBranch,
-            title: `${prepared.issue.reference}: ${prepared.issue.title}`,
-            // The run is named so a reviewer can get from the pull request
-            // back to the log of how it was produced.
-            body: `${summary ?? 'No summary was produced.'}\n\n---\nBerry run \`${dispatch.runId}\` · task ${prepared.issue.reference}`,
-         });
-      }
-
-      await this.ledger.appendDelivered(dispatch.runId, {
-         committed: delivery.committed,
-         commit: delivery.commit,
-         branch: prepared.checkout.branch,
-         filesChanged: delivery.filesChanged,
-         insertions: delivery.insertions,
-         deletions: delivery.deletions,
-         files: delivery.files,
-         pullRequest: pullRequest
-            ? { number: pullRequest.number, url: pullRequest.url, created: pullRequest.created }
-            : null,
-      });
-   }
-
-   /** The task's reference and title, for the branch, the commit and the pull request. */
-   private async loadIssue(issueId: string): Promise<IssueRow> {
-      const [row] = await this.sql<Array<{ title: string; number: number; prefix: string }>>`
-         SELECT i.title, i.number, COALESCE(w.settings->>'issuePrefix', 'BER') AS prefix
-           FROM issues i
-           JOIN boards b ON b.id = i.board_id
-           JOIN workspaces w ON w.id = b.workspace_id
-          WHERE i.id = ${issueId}`;
-      if (!row) throw new Error(`issue ${issueId} was not found`);
-      return { title: row.title, reference: `${row.prefix}-${row.number}` };
+   /** The collaborators the repository half needs, in one place. */
+   private repositoryDeps(): RepositoryRunDeps {
+      return {
+         sql: this.sql,
+         ledger: this.ledger,
+         connections: this.connections,
+         github: this.github,
+      };
    }
 
    /**
