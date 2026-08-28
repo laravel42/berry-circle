@@ -39,6 +39,7 @@ import { AdkExecutor } from './agents/executor.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
+import { createExecutionDriver } from './execution/factory.ts';
 
 /**
  * The composition root.
@@ -116,6 +117,15 @@ const modelCatalog = config.agents
    ? new ModelCatalog({ baseUrl: config.agents.baseUrl })
    : null;
 
+/**
+ * Where an agent's commands run.
+ *
+ * Constructed even when nothing is configured — the unconfigured driver
+ * refuses every call with a message naming what is missing, which is a better
+ * failure than a null that reaches a call site expecting a driver.
+ */
+const execution = createExecutionDriver(config.execution);
+
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
@@ -185,6 +195,9 @@ const server = serve({ fetch: app.fetch, hostname: config.apiAddr.host, port: co
 logger.info('Berry server listening', {
    apiAddr: `${config.apiAddr.host}:${config.apiAddr.port}`,
    environment: config.appEnv,
+   // Named at boot so an operator can see which substrate this process would
+   // run an agent's commands on, without reading the environment back.
+   executionDriver: execution.name,
    mounts: registry.prefixes,
 });
 

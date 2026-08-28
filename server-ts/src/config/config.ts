@@ -24,6 +24,25 @@ export interface Config {
     * not something to default into.
     */
    internalToken: string | null;
+   /**
+    * Where an agent's commands run. Null when no substrate is configured, in
+    * which case the composition root installs a driver that refuses every
+    * call rather than a null every caller has to remember to check.
+    */
+   execution: ExecutionConfig | null;
+}
+
+/**
+ * The execution substrate.
+ *
+ * `driver` exists so a self-hosted deployment can select a local container
+ * runtime without this file learning what Cloudflare is — the driver name is
+ * the only thing config knows, and the factory maps it to an implementation.
+ */
+export interface ExecutionConfig {
+   driver: 'cloudflare';
+   baseUrl: string;
+   token: string;
 }
 
 /** Object storage for run artifacts. Null when it is not configured. */
@@ -68,6 +87,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       problems.push(`API_ADDR must end in a port, got ${addr}`);
    }
 
+   // Read before the check below, so a misconfigured substrate is reported
+   // with everything else rather than collected into a list nobody throws.
+   const executionConfig = execution(env, problems);
+
    if (problems.length > 0) throw new ConfigError(problems);
 
    return {
@@ -86,7 +109,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // an operator who meant to set it, and treating that as "configured"
       // would accept a token nothing can present.
       internalToken: (env.BERRY_INTERNAL_TOKEN ?? '').trim() || null,
+      execution: executionConfig,
    };
+}
+
+/**
+ * Reads the execution substrate, or nothing.
+ *
+ * Both halves are required together. A base URL with no token would present
+ * no credential and be refused on every call, and a token with no URL has
+ * nothing to authenticate to — either alone is a misconfiguration worth
+ * reporting at boot rather than at the first run.
+ */
+function execution(env: NodeJS.ProcessEnv, problems: string[]): ExecutionConfig | null {
+   const driver = (env.BERRY_RUNTIME_DRIVER ?? '').trim();
+   const baseUrl = (env.BERRY_RUNTIME_URL ?? '').trim();
+   const token = (env.BERRY_RUNTIME_TOKEN ?? '').trim();
+
+   if (!driver && !baseUrl && !token) return null;
+
+   if (driver !== 'cloudflare') {
+      problems.push(
+         `BERRY_RUNTIME_DRIVER must be 'cloudflare' when execution is configured, got '${driver}'`
+      );
+      return null;
+   }
+   if (!baseUrl) problems.push('BERRY_RUNTIME_URL is required when BERRY_RUNTIME_DRIVER is set');
+   if (!token) problems.push('BERRY_RUNTIME_TOKEN is required when BERRY_RUNTIME_DRIVER is set');
+   if (!baseUrl || !token) return null;
+
+   return { driver: 'cloudflare', baseUrl, token };
 }
 
 /**
