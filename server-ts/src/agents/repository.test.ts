@@ -32,7 +32,7 @@ describe('agents', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' },
       await closeDatabase(sql);
    });
 
-   test('Berry can author an agent, which is what OpenFang left no room for', async () => {
+   test('Berry can author an agent, which the old runtime left no room for', async () => {
       const created = await agents.create({
          workspaceId: fixture.workspaceId,
          name: 'Rows Writer',
@@ -132,7 +132,7 @@ describe('agents', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' },
    });
 
    test('the model is stored, because nothing projects it any more', async () => {
-      // Go read the model back from OpenFang after pushing it upstream. There
+      // Berry used to read the model back from the runtime after pushing it. There
       // is nothing to read it back from now, so a save that did not store it
       // would silently do nothing at all.
       const created = await agents.create({ workspaceId: fixture.workspaceId, name: 'Switcher' });

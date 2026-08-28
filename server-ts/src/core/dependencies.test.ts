@@ -211,14 +211,14 @@ async function seed(sql: Sql, fixture: Record<string, string>): Promise<void> {
    // reviewer is its author. The rule that an agent never reviews its own work
    // is enforced by the schema, not only by the service that writes it.
    const [author] = await sql`
-      INSERT INTO agents (id, workspace_id, board_id, openfang_agent_id, name, status)
-      VALUES (${randomUUID()}, ${fixture.workspaceId}, ${fixture.boardId}, ${randomUUID()},
+      INSERT INTO agents (id, workspace_id, board_id, name, status)
+      VALUES (${randomUUID()}, ${fixture.workspaceId}, ${fixture.boardId},
               'Author', 'available')
       RETURNING id`;
    fixture.agentId = author!.id as string;
    const [peer] = await sql`
-      INSERT INTO agents (id, workspace_id, board_id, openfang_agent_id, name, status)
-      VALUES (${randomUUID()}, ${fixture.workspaceId}, ${fixture.boardId}, ${randomUUID()},
+      INSERT INTO agents (id, workspace_id, board_id, name, status)
+      VALUES (${randomUUID()}, ${fixture.workspaceId}, ${fixture.boardId},
               'Reviewer', 'available')
       RETURNING id`;
    fixture.peerId = peer!.id as string;

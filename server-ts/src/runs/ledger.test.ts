@@ -332,8 +332,8 @@ async function seed(sql: Sql, fixture: Record<string, string>): Promise<void> {
    fixture.boardId = board!.id as string;
 
    const [agent] = await sql`
-      INSERT INTO agents (id, workspace_id, board_id, openfang_agent_id, name, instructions)
-      VALUES (${randomUUID()}, ${fixture.workspaceId}, ${fixture.boardId}, ${randomUUID()},
+      INSERT INTO agents (id, workspace_id, board_id, name, instructions)
+      VALUES (${randomUUID()}, ${fixture.workspaceId}, ${fixture.boardId},
               'Ledger Agent', 'Be brief.')
       RETURNING id`;
    fixture.agentId = agent!.id as string;

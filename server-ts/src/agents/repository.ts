@@ -3,10 +3,10 @@ import { toRFC3339, type Sql } from '../db/pool.ts';
 import { Conflict, Forbidden, NotFound } from '../identity/errors.ts';
 
 /**
- * Agents as Berry rows, ported from server/internal/handlers/agents/store.go.
+ * Agents as Berry rows.
  *
  * The port is mostly a subtraction. In Go an agent row is a projection of an
- * OpenFang process: `SyncWorkspace` runs before every listing, a detail call
+ * external process: `SyncWorkspace` ran before every listing, a detail call
  * runs before every read, and the model, capabilities and status are all
  * copied down from upstream. None of that survives here, because under ADK
  * there is no upstream to copy from — an agent is a name, a system prompt and
@@ -191,23 +191,18 @@ export class AgentRepository {
    /**
     * Creates an agent.
     *
-    * This is the route OpenFang never left room for: an agent was spawned
-    * upstream and discovered by a sync, so Berry has never had a way to author
-    * one. Under ADK there is nothing to spawn — the row is the agent.
-    *
-    * `openfang_agent_id` is still filled, with an id that names nothing. The
-    * column is NOT NULL and several Go readers still scan it into a non-null
-    * type, so it stays vestigial until the Go server goes rather than becoming
-    * a nullable column that crashes a reader mid-migration.
+    * There is nothing to spawn — the row is the agent. Earlier the substrate
+    * owned the identity and Berry discovered it by syncing, which is why
+    * authoring one was not a route the product had at all.
     */
    async create(input: CreateAgentInput): Promise<Agent> {
       const id = this.newId();
       const [row] = await this.sql`
          INSERT INTO agents (
-            id, workspace_id, board_id, openfang_agent_id, name, description, avatar_url,
+            id, workspace_id, board_id, name, description, avatar_url,
             status, capabilities, skills, instructions, model_provider, model_name
          ) VALUES (
-            ${id}, ${input.workspaceId}, NULL, ${this.newId()}, ${input.name},
+            ${id}, ${input.workspaceId}, NULL, ${input.name},
             ${input.description ?? null}, ${input.avatarUrl ?? null},
             -- Available on creation: Berry owns the agent's availability now,
             -- and nothing else will ever set it. 'unknown' would be a lie
@@ -222,9 +217,9 @@ export class AgentRepository {
    /**
     * Writes the configuration Berry authors.
     *
-    * The model is written here, which Go never did — it read the model back
-    * from OpenFang after pushing it. There is nothing to read it back from
-    * now, so a config save that did not store it would silently do nothing.
+    * The model is written here. Berry used to read it back from the substrate
+    * after pushing it; there is nothing to read it back from now, so a config
+    * save that did not store it would silently do nothing.
     */
    async setConfig(agentId: string, workspaceId: string, patch: AgentConfigPatch): Promise<Agent> {
       const setsInstructions = patch.instructions !== undefined;
