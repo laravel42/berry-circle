@@ -84,6 +84,8 @@ export interface IssueOptions {
    nested?: Hono<{ Variables: AuthVariables }> | undefined;
    /** An issue's dependencies and its AutoGate verdicts. */
    relations?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** An issue's runs: the listing, and the request that starts one. */
+   runs?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
 }
 
@@ -97,6 +99,7 @@ export function issueMounts(options: IssueOptions): Mount[] {
    // to refuse.
    if (options.nested) route.route('/', options.nested);
    if (options.relations) route.route('/', options.relations);
+   if (options.runs) route.route('/', options.runs);
 
    const { issues, boards } = options;
 

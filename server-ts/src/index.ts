@@ -16,6 +16,9 @@ import { goalMounts } from './mounts/goals.ts';
 import { attachmentMounts } from './mounts/attachments.ts';
 import { projectMounts } from './mounts/projects.ts';
 import { internalRunMounts } from './mounts/internal-runs.ts';
+import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
+import { RunRepository } from './runs/repository.ts';
+import { RunLedger } from './runs/ledger.ts';
 import { agentMounts } from './mounts/agents.ts';
 import { eventMounts } from './mounts/events.ts';
 import { IdentityRepository } from './identity/repository.ts';
@@ -145,11 +148,25 @@ const modelCatalog = config.agents
    ? new ModelCatalog({ baseUrl: config.agents.baseUrl })
    : null;
 
+// Reading the ledger, and admitting a run. The executor builds its own ledger
+// per run because it writes as the run happens; this one is for the request
+// path, which only reads and cancels.
+const runOptions = {
+   sessions,
+   runs: new RunRepository(sql),
+   ledger: new RunLedger({ sql }),
+   issues,
+   boards,
+   idempotency,
+};
+
 const registry = new Registry();
 registry.registerAll(meMounts({ sessions, identity }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
 registry.registerAll(secretsMounts({ sessions, secrets }));
-registry.registerAll(boardMounts({ sessions, boards, idempotency }));
+registry.registerAll(
+   boardMounts({ sessions, boards, idempotency, nested: boardRunRoutes(runOptions) })
+);
 const commentOptions = { sessions, comments, issues, idempotency, broadcaster };
 registry.registerAll(
    issueMounts({
@@ -160,6 +177,7 @@ registry.registerAll(
       broadcaster,
       nested: issueCommentRoutes(commentOptions),
       relations: issueRelationRoutes({ issues, dependencies, reviews }),
+      runs: issueRunRoutes(runOptions),
    })
 );
 registry.registerAll(commentMounts(commentOptions));
@@ -167,6 +185,7 @@ registry.registerAll(goalMounts({ sessions, goals, issues, idempotency, broadcas
 registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
+registry.registerAll(runMounts(runOptions));
 registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog }));
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })

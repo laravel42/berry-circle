@@ -48,11 +48,20 @@ export interface BoardOptions {
    sessions: SessionService;
    boards: BoardRepository;
    idempotency: IdempotencyStore;
+   /**
+    * Routes that hang under a board and belong to it — today, its runs.
+    *
+    * Attached here rather than mounted separately because the registry refuses
+    * overlapping prefixes, and `/api/v1/boards/:id/runs` sits inside this one.
+    */
+   nested?: Hono<{ Variables: AuthVariables }> | undefined;
 }
 
 export function boardMounts(options: BoardOptions): Mount[] {
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
+
+   if (options.nested) route.route('/', options.nested);
 
    const { boards } = options;
 
