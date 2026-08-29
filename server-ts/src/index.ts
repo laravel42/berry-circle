@@ -22,6 +22,9 @@ import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
 import { workspaceReadMounts } from './mounts/workspace-reads.ts';
 import { conversationMounts } from './mounts/conversations.ts';
+import { planMounts } from './mounts/plans.ts';
+import { PlanRepository } from './plans/repository.ts';
+import { PlanGenerator } from './plans/generator.ts';
 import { ConversationRepository } from './conversations/repository.ts';
 import { ConversationResponder } from './conversations/responder.ts';
 import { InboxRepository } from './inbox/repository.ts';
@@ -199,6 +202,27 @@ registry.registerAll(internalRunMounts({ executor, token: config.internalToken }
 registry.registerAll(runMounts(runOptions));
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
 registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+registry.registerAll(
+   planMounts({
+      sessions,
+      plans: new PlanRepository(sql),
+      // Reading a plan works without a model credential; only generating one
+      // needs it, and a null generator answers PLANNER_UNAVAILABLE rather
+      // than opening a plan nothing will ever fill in.
+      generator: config.agents
+         ? new PlanGenerator({
+              sql,
+              apiKey: config.agents.apiKey,
+              baseUrl: config.agents.baseUrl,
+              defaultModel: config.agents.defaultModel,
+           })
+         : null,
+      boards,
+      idempotency,
+      sql,
+      logger,
+   })
+);
 registry.registerAll(
    conversationMounts({
       sessions,
