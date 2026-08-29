@@ -206,6 +206,18 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
 }
 
 /**
+ * What the plan will land in, when the caller knows.
+ *
+ * Passed in rather than looked up, so the validator stays a pure function of
+ * its inputs: the same plan and the same context are the same verdict, which
+ * is the property that makes a plan's risk mean anything.
+ */
+export interface PlanContext {
+   /** A project for the tasks to land in, or null when the plan names none. */
+   project: { name: string; hasRepository: boolean } | null;
+}
+
+/**
  * Whether this plan could be compiled.
  *
  * `blocked` outranks `invalid`: a plan whose assumptions carry a blocking
@@ -215,7 +227,7 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
  */
 export function validatePlan(
    plan: Plan,
-   context: { seed?: FieldProblem[] } = {}
+   context: { seed?: FieldProblem[]; context?: PlanContext } = {}
 ): ValidationReport {
    const errors: FieldProblem[] = [...(context.seed ?? [])];
    const warnings: FieldProblem[] = [];
@@ -271,6 +283,29 @@ export function validatePlan(
          code: 'cycle',
          message: 'These tasks wait on each other in a circle.',
       });
+   }
+
+   // Warned rather than refused, and only when there is work to warn about.
+   // A plan of writing and decisions is a legitimate plan; one whose tasks
+   // are code with nowhere to check it out is a plan whose agents will fail
+   // at the first command, and that is worth saying before Start Plan rather
+   // than after.
+   if (plan.issues.length > 0 && context.context) {
+      const project = context.context.project;
+      if (!project) {
+         warnings.push({
+            path: '/goal',
+            code: 'no_project',
+            message:
+               'These tasks are not in a project, so an agent has no repository to check out.',
+         });
+      } else if (!project.hasRepository) {
+         warnings.push({
+            path: '/goal',
+            code: 'no_repository',
+            message: `${project.name} has no repository linked, so an agent has nothing to check out.`,
+         });
+      }
    }
 
    const ambiguities = plan.assumptions

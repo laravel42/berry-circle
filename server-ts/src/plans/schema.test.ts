@@ -154,6 +154,34 @@ test('a blocking question outranks everything else', () => {
    ]);
 });
 
+test('tasks with nowhere to check out are warned about, not refused', () => {
+   // An agent given one of these fails at the clone, after the model has
+   // already been paid for. Said before Start Plan rather than after.
+   const noProject = validatePlan(planWith({ issues: [issue('a')] }), {
+      context: { project: null },
+   });
+   assert.equal(noProject.status, 'valid');
+   assert.equal(noProject.warnings[0]?.code, 'no_project');
+
+   const noRepository = validatePlan(planWith({ issues: [issue('a')] }), {
+      context: { project: { name: 'Platform', hasRepository: false } },
+   });
+   assert.equal(noRepository.warnings[0]?.code, 'no_repository');
+   assert.match(noRepository.warnings[0]!.message, /Platform/);
+
+   // A project with a repository is the case nobody needs telling about.
+   const fine = validatePlan(planWith({ issues: [issue('a')] }), {
+      context: { project: { name: 'Platform', hasRepository: true } },
+   });
+   assert.deepEqual(fine.warnings, []);
+});
+
+test('a plan with no tasks is not warned about having no repository', () => {
+   // There is nothing to check out, so the warning would be noise.
+   const report = validatePlan(planWith(), { context: { project: null } });
+   assert.ok(!report.warnings.some((warning) => warning.code === 'no_project'));
+});
+
 test('an empty plan is a warning, not an error', () => {
    // "Berry found nothing to create" is a legitimate answer to a request.
    const report = validatePlan(planWith());

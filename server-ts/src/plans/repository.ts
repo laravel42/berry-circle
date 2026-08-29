@@ -25,6 +25,7 @@ export interface PlanRecord {
    id: string;
    workspaceId: string;
    goalId: string | null;
+   /** The goal's project, which is where the tasks will land. */
    projectId: string | null;
    boardId: string | null;
    autoGate: boolean;
@@ -147,15 +148,40 @@ export class PlanRepository {
          // The table requires it (`plans_scope_ck`), and so does the product:
          // a plan proposes work *for* something, and a plan with nothing to
          // serve is a list of tasks nobody asked for.
+         //
+         // The project rides on the goal rather than on the plan.
+         // `plans_scope_ck` forbids `project_id` on anything but an
+         // orchestrator plan, and `goals.project_id` is the column that exists
+         // for exactly this — it is what tells the compile which repository
+         // the tasks belong to.
+         const projectId = input.projectId
+            ? ((
+                 await tx`
+                    SELECT id FROM projects
+                     WHERE id = ${input.projectId} AND workspace_id = ${input.workspaceId}
+                       AND deleted_at IS NULL`
+              )[0]?.id as string | undefined) ?? null
+            : null;
+         if (input.projectId && !projectId) throw new NotFound();
+
          const goalId =
             input.goalId ??
             ((
                await tx`
-                  INSERT INTO goals (workspace_id, title, description, status, created_by)
-                  VALUES (${input.workspaceId}, ${goalTitle(input.prompt)},
+                  INSERT INTO goals (workspace_id, project_id, title, description, status, created_by)
+                  VALUES (${input.workspaceId}, ${projectId}, ${goalTitle(input.prompt)},
                           ${input.prompt}, 'draft', ${input.createdBy})
                   RETURNING id`
             )[0]!.id as string);
+
+         // A goal the caller named already says which project it serves, and
+         // overwriting that from a plan request would let one plan move
+         // somebody else's goal.
+         if (input.goalId && projectId) {
+            await tx`
+               UPDATE goals SET project_id = ${projectId}, updated_at = now()
+                WHERE id = ${input.goalId} AND project_id IS NULL`;
+         }
 
          await tx`
             INSERT INTO plans (id, workspace_id, goal_id, project_id, board_id, status, source,
@@ -268,14 +294,23 @@ export class PlanRepository {
    }
 
    /** Re-runs the deterministic checks on the stored document. */
+   /**
+    * Re-runs the deterministic checks and records the verdict.
+    *
+    * The verdict itself is `get`'s, which already computed it against the
+    * workspace as it is now. Recomputing here would have to rebuild the same
+    * context, and a second implementation of "what does this plan land in" is
+    * how the page and the compile end up disagreeing.
+    */
    async revalidate(planId: string): Promise<PlanRecord> {
       const record = await this.get(planId);
       if (!record.plan) throw new PlanBusy();
-      const validation = validatePlan(record.plan);
       await this.#sql`
-         UPDATE plans SET validation_status = ${validation.status}, updated_at = ${this.#clock().toISOString()}
+         UPDATE plans
+            SET validation_status = ${record.validation.status},
+                updated_at = ${this.#clock().toISOString()}
           WHERE id = ${planId}`;
-      return { ...record, validation };
+      return record;
    }
 
    async close(planId: string, note: string | null): Promise<PlanRecord> {
@@ -309,7 +344,10 @@ export class PlanRepository {
       if (!OPEN.has(record.rawStatus)) throw new PlanNotOpen();
       if (!record.plan) throw new PlanBusy();
 
-      const validation = validatePlan(record.plan);
+      // The record's own verdict, which was computed against this workspace
+      // as it is now. Re-deriving it here without the context would drop the
+      // project warning and could disagree with what the person read.
+      const validation = record.validation;
       if (validation.status !== 'valid') throw new PlanInvalid(validation);
 
       const plan = record.plan;
@@ -357,6 +395,16 @@ export class PlanRepository {
                INSERT INTO plan_issues (workspace_id, issue_id, plan_id)
                VALUES (${record.workspaceId}, ${issueId}, ${input.planId})
                ON CONFLICT (issue_id) DO NOTHING`;
+
+            // The link that lets an agent find a repository. Without it the
+            // task is work with nowhere to check out, and the run fails at the
+            // clone after the model has already been paid for.
+            if (record.projectId) {
+               await tx`
+                  INSERT INTO issue_project_links (workspace_id, issue_id, project_id, linked_by)
+                  VALUES (${record.workspaceId}, ${issueId}, ${record.projectId}, ${input.userId})
+                  ON CONFLICT (issue_id) DO NOTHING`;
+            }
 
             for (const capability of issue.requiredCapabilities) {
                const labelId = labelIds.get(capability);
@@ -484,6 +532,17 @@ export class PlanRepository {
           WHERE plan_id = ${row.id as string} ORDER BY version DESC LIMIT 1`;
       const critique = latest?.critic ?? null;
 
+      // The goal's project, not the plan's: `plans_scope_ck` forbids one on an
+      // `ai` plan, and the goal is where it lives.
+      const [project] = row.goal_id
+         ? await sql`
+              SELECT project.id, project.name, project.github_repo_full_name
+                FROM goals AS goal
+                JOIN projects AS project
+                  ON project.id = goal.project_id AND project.deleted_at IS NULL
+               WHERE goal.id = ${row.goal_id as string}`
+         : [];
+
       let issueIds: string[] = [];
       let approvalIds: string[] = [];
       if (compiled) {
@@ -499,7 +558,7 @@ export class PlanRepository {
          id: row.id as string,
          workspaceId: row.workspace_id as string,
          goalId: (row.goal_id as string | null) ?? null,
-         projectId: (row.project_id as string | null) ?? null,
+         projectId: (project?.id as string | undefined) ?? null,
          boardId: (row.board_id as string | null) ?? null,
          autoGate: Boolean(row.auto_gate),
          status: toWireStatus(row.status as string),
@@ -521,7 +580,16 @@ export class PlanRepository {
          // Recomputed on every read rather than stored: the plan is checked
          // against the workspace as it is now, not as it was when generated.
          validation: plan
-            ? validatePlan(plan)
+            ? validatePlan(plan, {
+                 context: {
+                    project: project
+                       ? {
+                            name: project.name as string,
+                            hasRepository: Boolean(project.github_repo_full_name),
+                         }
+                       : null,
+                 },
+              })
             : {
                  status: (row.validation_status as ValidationReport['status']) ?? 'unknown',
                  errors: [],

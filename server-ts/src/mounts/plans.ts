@@ -148,6 +148,8 @@ export function planMounts(options: PlanOptions): Mount[] {
                planId: error.planId,
             });
          }
+         // A project in another workspace, or one that is gone.
+         if (error instanceof NotFound) throw ApiError.notFound('Project');
          throw error;
       }
 
