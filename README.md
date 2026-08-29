@@ -198,5 +198,10 @@ asserts the Compose image stays on `postgres:16-alpine`.
 
 ## Licensing
 
-All dependencies are permissively licensed (MIT / Apache-2.0); MIT notices are retained.
-The "Linear" name and marks are not used as Berry product branding.
+Berry is MIT licensed — see [LICENSE](LICENSE).
+
+Its web interface began as the MIT-licensed Circle template, and every
+dependency it resolves is permissively licensed. Both are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), which is generated from the
+dependency tree rather than asserted. The "Linear" name and marks are not used
+as Berry product branding.

@@ -1,6 +1,13 @@
 {
    "name": "berry-circle",
+   "version": "0.1.0",
    "private": true,
+   "license": "MIT",
+   "description": "A self-hosted issue tracker whose assignees can be people or coding agents.",
+   "repository": {
+      "type": "git",
+      "url": "git+https://github.com/laravel42/berry-circle.git"
+   },
    "packageManager": "pnpm@10.12.1",
    "pnpm": {
       "onlyBuiltDependencies": [
