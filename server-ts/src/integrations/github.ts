@@ -25,6 +25,26 @@ export interface Repository {
    canPush: boolean;
 }
 
+/** One row in the repository picker. */
+export interface RepositoryChoice {
+   id: number;
+   fullName: string;
+   name: string;
+   private: boolean;
+   defaultBranch: string;
+   description?: string;
+}
+
+interface RepositoryRow {
+   id: number;
+   full_name: string;
+   name: string;
+   private: boolean;
+   default_branch?: string;
+   description?: string | null;
+   permissions?: { push?: boolean };
+}
+
 export class GitHubError extends Error {
    override readonly name = 'GitHubError';
    readonly status: number;
@@ -90,6 +110,43 @@ export class GitHubClient {
     * second pull request from it. That is not an error — the pull request the
     * caller wanted exists — so it is looked up and returned instead.
     */
+   /**
+    * Repositories this credential can push to, most recently touched first.
+    *
+    * Filtered to what the agent could actually work in: a repository the
+    * person can only read would appear in the picker, be chosen, and fail at
+    * the push — after a run had already done the work.
+    *
+    * Paged to a ceiling rather than exhaustively. Someone with 900
+    * repositories does not scroll to find one; they type. The cap keeps a
+    * settings page from making nine API calls before it can draw.
+    */
+   async listRepositories(options: { maxPages?: number } = {}): Promise<RepositoryChoice[]> {
+      const maxPages = options.maxPages ?? 3;
+      const collected: RepositoryChoice[] = [];
+      for (let page = 1; page <= maxPages; page += 1) {
+         const rows = await this.#json<RepositoryRow[]>(
+            'GET',
+            `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`
+         );
+         for (const row of rows) {
+            if (row.permissions?.push !== true) continue;
+            collected.push({
+               id: Number(row.id),
+               fullName: String(row.full_name),
+               name: String(row.name),
+               private: Boolean(row.private),
+               defaultBranch: String(row.default_branch ?? 'main'),
+               ...(typeof row.description === 'string' && row.description !== ''
+                  ? { description: row.description }
+                  : {}),
+            });
+         }
+         if (rows.length < 100) break;
+      }
+      return collected;
+   }
+
    async openPullRequest(input: {
       owner: string;
       name: string;

@@ -15,10 +15,22 @@ export interface Connection {
    id: string;
    workspaceId: string;
    provider: string;
+   externalAccountId: string | null;
    externalAccountName: string | null;
    scopes: string[];
    status: 'connected' | 'expired' | 'revoked' | 'disconnected' | string;
+   statusDetail: string | null;
    expiresAt: string | null;
+   createdAt: string;
+   updatedAt: string;
+}
+
+export interface ToolGrant {
+   /** Null for a grant that applies to every agent in the workspace. */
+   agentId: string | null;
+   provider: string;
+   tool: string;
+   maxEffect: string;
 }
 
 export class ConnectionUnavailable extends Error {
@@ -63,7 +75,7 @@ export class ConnectionRepository {
    /** The workspace's live connection for a provider, or null. */
    async find(workspaceId: string, provider: string): Promise<Connection | null> {
       const [row] = await this.#sql<ConnectionRow[]>`
-         SELECT id, workspace_id, provider, external_account_name, scopes, status, expires_at
+         SELECT ${this.#sql.unsafe(COLUMNS)}
            FROM integration_connections
           WHERE workspace_id = ${workspaceId}
             AND provider = ${provider}
@@ -71,6 +83,92 @@ export class ConnectionRepository {
           ORDER BY created_at DESC
           LIMIT 1`;
       return row ? toConnection(row) : null;
+   }
+
+   /** Every live connection in the workspace, for the settings page. */
+   async list(workspaceId: string): Promise<Connection[]> {
+      const rows = await this.#sql<ConnectionRow[]>`
+         SELECT ${this.#sql.unsafe(COLUMNS)}
+           FROM integration_connections
+          WHERE workspace_id = ${workspaceId} AND status <> 'disconnected'
+          ORDER BY provider ASC`;
+      return rows.map(toConnection);
+   }
+
+   /**
+    * Records a credential the OAuth exchange just returned.
+    *
+    * One live connection per provider per workspace: reconnecting replaces
+    * rather than accumulates, so `token` never has to guess which of several
+    * rows is the real one. The previous row is marked disconnected rather than
+    * deleted, because it is the record of an access that existed.
+    *
+    * The token is sealed here and nowhere else, so there is exactly one place
+    * in the server where a provider credential is written in the clear.
+    */
+   async save(input: {
+      workspaceId: string;
+      provider: string;
+      connectedByUserId: string;
+      accessToken: string;
+      refreshToken?: string | null;
+      expiresAt?: string | null;
+      scopes?: string[];
+      externalAccountId?: string | null;
+      externalAccountName?: string | null;
+   }): Promise<Connection> {
+      const now = this.#clock().toISOString();
+      return this.#sql.begin(async (transaction) => {
+         const tx = transaction as unknown as Sql;
+         await tx`
+            UPDATE integration_connections
+               SET status = 'disconnected', status_detail = 'replaced by a new connection',
+                   access_token_encrypted = NULL, refresh_token_encrypted = NULL,
+                   updated_at = ${now}
+             WHERE workspace_id = ${input.workspaceId}
+               AND provider = ${input.provider}
+               AND status <> 'disconnected'`;
+
+         const [row] = await tx<ConnectionRow[]>`
+            INSERT INTO integration_connections
+               (workspace_id, provider, connected_by_user_id, external_account_id,
+                external_account_name, access_token_encrypted, refresh_token_encrypted,
+                expires_at, scopes, status, created_at, updated_at)
+            VALUES (${input.workspaceId}, ${input.provider}, ${input.connectedByUserId},
+                    ${input.externalAccountId ?? null}, ${input.externalAccountName ?? null},
+                    ${this.#sealer.seal(input.accessToken)},
+                    ${input.refreshToken ? this.#sealer.seal(input.refreshToken) : null},
+                    ${input.expiresAt ?? null}, ${input.scopes ?? []}, 'connected',
+                    ${now}, ${now})
+            RETURNING ${tx.unsafe(COLUMNS)}`;
+         return toConnection(row!);
+      }) as Promise<Connection>;
+   }
+
+   /**
+    * Ends a connection, and every grant that rode on it.
+    *
+    * The credential is cleared rather than kept beside a `disconnected`
+    * status: a token nothing will ever use again is only a liability.
+    */
+   async disconnect(workspaceId: string, provider: string): Promise<boolean> {
+      const now = this.#clock().toISOString();
+      return this.#sql.begin(async (transaction) => {
+         const tx = transaction as unknown as Sql;
+         const rows = await tx`
+            UPDATE integration_connections
+               SET status = 'disconnected', status_detail = 'disconnected by a person',
+                   access_token_encrypted = NULL, refresh_token_encrypted = NULL,
+                   updated_at = ${now}
+             WHERE workspace_id = ${workspaceId} AND provider = ${provider}
+               AND status <> 'disconnected'
+             RETURNING id`;
+         if (rows.length === 0) return false;
+         await tx`
+            DELETE FROM integration_permissions
+             WHERE workspace_id = ${workspaceId} AND provider = ${provider}`;
+         return true;
+      }) as Promise<boolean>;
    }
 
    /**
@@ -111,6 +209,27 @@ export class ConnectionRepository {
       return this.#sealer.open(Buffer.from(row.access_token_encrypted));
    }
 
+   /**
+    * Grants recorded against this workspace.
+    *
+    * A row here is a deliberate decision someone made; the absence of one
+    * means the provider's default applies, which is the caller's business to
+    * fill in rather than this repository's to invent.
+    */
+   async grants(workspaceId: string): Promise<ToolGrant[]> {
+      const rows = await this.#sql`
+         SELECT agent_id, provider, tool, max_effect
+           FROM integration_permissions
+          WHERE workspace_id = ${workspaceId}
+          ORDER BY provider ASC, tool ASC`;
+      return rows.map((row) => ({
+         agentId: (row.agent_id as string | null) ?? null,
+         provider: row.provider as string,
+         tool: row.tool as string,
+         maxEffect: row.max_effect as string,
+      }));
+   }
+
    #isExpired(expiresAt: string | null): boolean {
       if (expiresAt === null) return false;
       const expiry = Date.parse(toRFC3339(expiresAt) ?? expiresAt);
@@ -119,14 +238,21 @@ export class ConnectionRepository {
    }
 }
 
+const COLUMNS = `id, workspace_id, provider, external_account_id, external_account_name,
+   scopes, status, status_detail, expires_at, created_at, updated_at`;
+
 interface ConnectionRow {
    id: string;
    workspace_id: string;
    provider: string;
+   external_account_id: string | null;
    external_account_name: string | null;
    scopes: string[];
    status: string;
+   status_detail: string | null;
    expires_at: string | null;
+   created_at: string;
+   updated_at: string;
 }
 
 interface TokenRow {
@@ -140,9 +266,13 @@ function toConnection(row: ConnectionRow): Connection {
       id: row.id,
       workspaceId: row.workspace_id,
       provider: row.provider,
+      externalAccountId: row.external_account_id,
       externalAccountName: row.external_account_name,
-      scopes: row.scopes,
+      scopes: row.scopes ?? [],
       status: row.status,
+      statusDetail: row.status_detail,
       expiresAt: toRFC3339(row.expires_at),
+      createdAt: toRFC3339(row.created_at) ?? '',
+      updatedAt: toRFC3339(row.updated_at) ?? '',
    };
 }

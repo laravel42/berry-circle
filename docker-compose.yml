@@ -77,6 +77,17 @@ services:
       # than one that fails at the clone with a decryption error.
       # Server-side only: never mirror this into a NEXT_PUBLIC_* variable.
       INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-}"
+      # Connecting GitHub. Without both halves the catalogue reports the
+      # provider as not configured, which is a better answer than a Connect
+      # button that leads to a redirect the provider refuses.
+      GITHUB_CLIENT_ID: "${GITHUB_CLIENT_ID:-}"
+      GITHUB_CLIENT_SECRET: "${GITHUB_CLIENT_SECRET:-}"
+      # Where GitHub sends the browser back. Not derivable from a request:
+      # behind a proxy the request's own host is the proxy's, and a
+      # redirect_uri that does not match the registered one is refused before
+      # Berry sees it.
+      BERRY_PUBLIC_URL: "${BERRY_PUBLIC_URL:-http://localhost:4000}"
+      BERRY_APP_URL: "${BERRY_APP_URL:-http://localhost:3000}"
     ports:
       - "127.0.0.1:${BERRY_API_PORT:-4000}:4000"
     read_only: true

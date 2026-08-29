@@ -17,6 +17,8 @@ import { attachmentMounts } from './mounts/attachments.ts';
 import { projectMounts } from './mounts/projects.ts';
 import { internalRunMounts } from './mounts/internal-runs.ts';
 import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
+import { integrationMounts } from './mounts/integrations.ts';
+import { OAuthStateStore } from './integrations/oauth.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
@@ -187,6 +189,20 @@ registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(runMounts(runOptions));
+registry.registerAll(
+   integrationMounts({
+      sessions,
+      boards,
+      connections,
+      // The state store needs no key of its own — it holds a hash, not a
+      // secret — but a deployment that cannot seal a token cannot finish a
+      // handshake either, so the two travel together.
+      states: connections ? new OAuthStateStore({ sql }) : null,
+      github: config.integrations.github,
+      publicUrl: config.integrations.publicUrl,
+      appUrl: config.integrations.appUrl,
+   })
+);
 registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog }));
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
@@ -259,7 +275,11 @@ logger.info('Berry server listening', {
    runDispatch: dispatcher ? `${config.agents!.concurrency} at a time` : 'off',
    // Named at boot so an operator can see whether a run can reach a
    // repository, without reading the environment back.
-   integrations: connections ? 'configured' : 'no encryption key',
+   integrations: connections
+      ? config.integrations.github && config.integrations.publicUrl
+         ? 'github'
+         : 'no provider credentials'
+      : 'no encryption key',
    mounts: registry.prefixes,
 });
 

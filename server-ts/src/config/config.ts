@@ -35,6 +35,15 @@ export interface Config {
     * deployment without a key stores nothing rather than storing it in clear.
     */
    integrationKey: string | null;
+   /**
+    * What this deployment can connect to, and where a provider sends the
+    * browser back.
+    *
+    * Null for either half is a working deployment: the catalogue then says a
+    * provider is not configured, which is a better answer than a Connect
+    * button that leads to a redirect loop.
+    */
+   integrations: IntegrationsConfig;
 }
 
 /**
@@ -66,6 +75,20 @@ export interface StorageConfig {
    secretAccessKey: string | undefined;
    sessionToken: string | undefined;
    maxBytes: number;
+}
+
+/** OAuth credentials, and the origins a provider redirects between. */
+export interface IntegrationsConfig {
+   github: { clientId: string; clientSecret: string } | null;
+   /**
+    * This server's own public origin — where the provider sends the browser
+    * back. Not derivable from a request: behind a proxy the request's own
+    * host is the proxy's, and a redirect_uri that does not match the one
+    * registered with the provider is refused before Berry sees it.
+    */
+   publicUrl: string | null;
+   /** Where the browser lands afterwards. The frontend, when it is separate. */
+   appUrl: string | null;
 }
 
 /** What agents run on. Null when no model credential is configured. */
@@ -133,6 +156,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // No generated fallback: a key that appeared on its own would differ
       // between restarts and strand every credential already stored.
       integrationKey: (env.INTEGRATION_ENCRYPTION_KEY ?? '').trim() || null,
+      integrations: integrations(env),
    };
 }
 
@@ -203,6 +227,29 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? 'anthropic/claude-sonnet-4.5').trim(),
       concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
    };
+}
+
+function integrations(env: NodeJS.ProcessEnv): IntegrationsConfig {
+   const clientId = (env.GITHUB_CLIENT_ID ?? '').trim();
+   const clientSecret = (env.GITHUB_CLIENT_SECRET ?? '').trim();
+   return {
+      // Both or neither: half a credential cannot complete an exchange, and
+      // reporting the provider as configured would promise that it can.
+      github: clientId && clientSecret ? { clientId, clientSecret } : null,
+      publicUrl: origin(env.BERRY_PUBLIC_URL),
+      appUrl: origin(env.BERRY_APP_URL),
+   };
+}
+
+/** A URL with no trailing slash, or null when it is not one. */
+function origin(value: string | undefined): string | null {
+   const trimmed = (value ?? '').trim();
+   if (!trimmed) return null;
+   try {
+      return new URL(trimmed).origin;
+   } catch {
+      return null;
+   }
 }
 
 /** A count, when the value given is one. Anything else keeps the default. */

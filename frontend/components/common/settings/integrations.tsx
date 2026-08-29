@@ -11,10 +11,8 @@ import {
    AlertDialogHeader,
    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { UrlBox } from '@/components/common/copy-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { absoluteApiUrl } from '@/lib/api';
 import {
    BUILT_IN_PROVIDER,
    describeConnectionResult,
@@ -25,13 +23,8 @@ import {
    listConnections,
    listGrants,
    listProviders,
-   providerHookPath,
-   providerHookSecretName,
    startAuthorize,
-   supportsInboundDeliveries,
-   toolKind,
    toolOperation,
-   triggerTools,
    type Provider,
    type ProviderConnection,
    type ProviderTool,
@@ -110,7 +103,6 @@ function ToolsTable({ provider, grants }: { provider: Provider; grants: ToolGran
             <thead>
                <tr className="text-left text-muted-foreground">
                   <th className="px-4 py-1.5 font-medium">Tool</th>
-                  <th className="px-2 py-1.5 font-medium">Kind</th>
                   <th className="px-2 py-1.5 font-medium">Effect</th>
                   <th className="px-2 py-1.5 font-medium">Approval</th>
                   <th className="px-2 py-1.5 font-medium">Default</th>
@@ -121,7 +113,6 @@ function ToolsTable({ provider, grants }: { provider: Provider; grants: ToolGran
             </thead>
             <tbody>
                {provider.tools.map((tool) => {
-                  const kind = toolKind(tool);
                   const grant = granted(tool);
                   return (
                      <tr key={tool.name} className="border-t border-border/40 align-top">
@@ -133,7 +124,6 @@ function ToolsTable({ provider, grants }: { provider: Provider; grants: ToolGran
                               </span>
                            )}
                         </td>
-                        <td className="px-2 py-1.5 text-muted-foreground">{kind}</td>
                         <td
                            className={cn(
                               'px-2 py-1.5',
@@ -170,44 +160,12 @@ function ToolsTable({ provider, grants }: { provider: Provider; grants: ToolGran
    );
 }
 
-/** Where the provider sends its events, and what Berry does with them. */
-function InboundDeliveries({ provider, workspaceId }: { provider: Provider; workspaceId: string }) {
-   const secret = providerHookSecretName(provider.id);
-   const events = triggerTools(provider);
-   return (
-      <div className="border-t border-border/60 px-4 py-3">
-         <p className="font-medium">Inbound deliveries</p>
-         <p className="mt-0.5 text-muted-foreground">
-            Register this URL as the {provider.name} webhook. A verified delivery becomes the
-            workspace fact <code className="font-mono">integration.webhook.received</code>
-            {events.length > 0 &&
-               ` (${events.length} event${events.length === 1 ? '' : 's'} this provider sends)`}
-            .
-         </p>
-         <div className="mt-2">
-            <UrlBox
-               label={`${provider.name} webhook URL`}
-               url={absoluteApiUrl(providerHookPath(provider.id, workspaceId))}
-            />
-         </div>
-         <p className="mt-1.5 text-muted-foreground">
-            {secret
-               ? `Deliveries are verified with ${secret} on the deployment; without it the route answers 404.`
-               : 'Deliveries are verified with the provider’s secret on the deployment.'}
-            {!provider.connected &&
-               ' Connect the provider first: a delivery is routed to this workspace through its connection.'}
-         </p>
-      </div>
-   );
-}
-
 function ProviderCard({
    provider,
    connection,
    grants,
    highlighted,
    busy,
-   workspaceId,
    onConnect,
    onDisconnect,
 }: {
@@ -216,7 +174,6 @@ function ProviderCard({
    grants: ToolGrant[];
    highlighted: boolean;
    busy: boolean;
-   workspaceId: string;
    onConnect: () => void;
    onDisconnect: () => void;
 }) {
@@ -225,7 +182,6 @@ function ProviderCard({
    const builtIn = provider.id === BUILT_IN_PROVIDER;
    const approvals = provider.tools.filter((tool) => tool.requiresApproval).length;
    const destructive = provider.tools.filter((tool) => tool.effect === 'destructive').length;
-   const triggers = provider.tools.filter((tool) => toolKind(tool) === 'trigger').length;
    const scopes = connection?.scopes?.length ? connection.scopes : (provider.scopes ?? []);
    return (
       <section
@@ -322,16 +278,12 @@ function ProviderCard({
                )}
             />
             {provider.tools.length} tool{provider.tools.length === 1 ? '' : 's'}
-            {triggers > 0 && ` · ${triggers} trigger${triggers === 1 ? '' : 's'}`}
             {approvals > 0 && ` · ${approvals} need${approvals === 1 ? 's' : ''} approval`}
             {destructive > 0 && (
                <span className="text-status-danger"> · {destructive} destructive</span>
             )}
          </button>
          {toolsOpen && <ToolsTable provider={provider} grants={grants} />}
-         {supportsInboundDeliveries(provider) && (
-            <InboundDeliveries provider={provider} workspaceId={workspaceId} />
-         )}
       </section>
    );
 }
@@ -483,7 +435,6 @@ function IntegrationsDirectory() {
                   grants={grants}
                   highlighted={highlighted === provider.id}
                   busy={busy === provider.id}
-                  workspaceId={workspace?.id ?? ''}
                   onConnect={() => void connect(provider)}
                   onDisconnect={() => setDisconnecting(provider)}
                />

@@ -4,9 +4,8 @@ import { BerryApiError, apiFetch } from './api';
 /**
  * Integrations: the provider catalog with this workspace's connection state
  * folded in, the connections themselves, the OAuth start and disconnect
- * calls, and the grants that say which tools an agent may reach. Workflow
- * `action` steps name a tool by provider and operation; settings shows the
- * same catalog with Connect and Disconnect beside each provider.
+ * calls, and the grants that say which tools an agent may reach. Settings
+ * shows the catalog with Connect and Disconnect beside each provider.
  *
  * No call here ever returns a credential: the server's resources have no
  * field that could hold one, and the OAuth code lands on the server, not in
@@ -146,69 +145,6 @@ export function findTool(
    if (!owner) return undefined;
    const tool = owner.tools.find((candidate) => toolOperation(candidate.name) === operation);
    return tool ? { provider: owner, tool } : undefined;
-}
-
-const EVENT_SUFFIX =
-   /_(created|updated|changed|completed|failed|started|assigned|approved|rejected|received|deleted|cancelled|expired)$/;
-
-/**
- * Whether a workflow uses the tool to start a run or to do something. The
- * catalog says so when the server sends `kind`; until it does, a read-only
- * tool named after something that happened is a trigger.
- */
-export function toolKind(tool: ProviderTool): 'trigger' | 'action' {
-   if (tool.kind === 'trigger' || tool.kind === 'action') return tool.kind;
-   return tool.effect === 'read' && EVENT_SUFFIX.test(toolOperation(tool.name))
-      ? 'trigger'
-      : 'action';
-}
-
-/**
- * Tools a person can put in an action step: writes and side effects, not
- * the read-only lookups an agent would use, and not Berry's own event
- * topics, which are triggers rather than actions.
- */
-export function actionTools(provider: Provider): ProviderTool[] {
-   return provider.tools.filter((tool) => tool.effect !== 'read');
-}
-
-/** The events a provider can start a workflow on: its tools of kind `trigger`. */
-export function triggerTools(provider: Provider): ProviderTool[] {
-   return provider.tools.filter((tool) => toolKind(tool) === 'trigger');
-}
-
-/**
- * True for a provider whose deliveries Berry ingests at
- * `/api/v1/hooks/{provider}`: it publishes trigger events and is not Berry
- * itself, whose triggers are the workspace's own facts.
- */
-export function supportsInboundDeliveries(provider: Provider): boolean {
-   return provider.id !== BUILT_IN_PROVIDER && triggerTools(provider).length > 0;
-}
-
-/** Providers that carry no account id at authorisation, so their hook URL names the workspace. */
-const WORKSPACE_ROUTED_PROVIDERS = new Set(['github', 'linear']);
-
-/** The ingestor path to register with the provider, workspace query included where routing needs it. */
-export function providerHookPath(providerId: string, workspaceId: string): string {
-   const base = `/api/v1/hooks/${encodeURIComponent(providerId)}`;
-   return WORKSPACE_ROUTED_PROVIDERS.has(providerId)
-      ? `${base}?workspaceId=${encodeURIComponent(workspaceId)}`
-      : base;
-}
-
-/** Which deployment secret verifies a provider's deliveries, for the note beside the URL. */
-export function providerHookSecretName(providerId: string): string | null {
-   switch (providerId) {
-      case 'github':
-         return 'GITHUB_WEBHOOK_SECRET';
-      case 'slack':
-         return 'SLACK_SIGNING_SECRET';
-      case 'linear':
-         return 'LINEAR_WEBHOOK_SECRET';
-      default:
-         return null;
-   }
 }
 
 export function describeToolEffect(effect: string): string {
