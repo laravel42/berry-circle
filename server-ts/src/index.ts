@@ -20,6 +20,10 @@ import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
 import { integrationMounts } from './mounts/integrations.ts';
 import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
+import { workspaceReadMounts } from './mounts/workspace-reads.ts';
+import { conversationMounts } from './mounts/conversations.ts';
+import { ConversationRepository } from './conversations/repository.ts';
+import { ConversationResponder } from './conversations/responder.ts';
 import { InboxRepository } from './inbox/repository.ts';
 import { ApprovalRepository } from './approvals/repository.ts';
 import { OAuthStateStore } from './integrations/oauth.ts';
@@ -194,6 +198,25 @@ registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(runMounts(runOptions));
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
+registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+registry.registerAll(
+   conversationMounts({
+      sessions,
+      conversations: new ConversationRepository(sql),
+      boards,
+      sql,
+      // Reading a thread works without a model credential; only answering
+      // needs one, and a null responder says so rather than failing the turn.
+      responder: config.agents
+         ? new ConversationResponder({
+              sql,
+              apiKey: config.agents.apiKey,
+              baseUrl: config.agents.baseUrl,
+              defaultModel: config.agents.defaultModel,
+           })
+         : null,
+   })
+);
 registry.registerAll(
    approvalMounts({
       sessions,
