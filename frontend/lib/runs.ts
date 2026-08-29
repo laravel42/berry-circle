@@ -298,24 +298,95 @@ function activeRunIdFromDetails(details: unknown): string | undefined {
 }
 
 export function textFromRunEvent(event: RunEvent): string {
-   if (
-      typeof event.payload !== 'object' ||
-      event.payload === null ||
-      Array.isArray(event.payload)
-   ) {
-      return '';
-   }
-   const payload = event.payload as Record<string, unknown>;
+   const payload = payloadOf(event);
+   if (!payload) return '';
    if (event.type === 'run.output.delta' && typeof payload.text === 'string') {
       return payload.text;
    }
    if (event.type === 'run.tool.started' && typeof payload.name === 'string') {
       return `\n[${payload.name}]\n`;
    }
+   // The command log. The server records what an agent ran verbatim, its
+   // output as it happened, and how it ended — the evidence a person reads to
+   // decide whether the work is right. Dropping it here would leave a run
+   // showing "the agent used a tool" and nothing about what the tool did.
+   if (event.type === 'run.command.started' && typeof payload.command === 'string') {
+      const cwd = typeof payload.cwd === 'string' && payload.cwd ? ` (in ${payload.cwd})` : '';
+      return `\n$ ${payload.command}${cwd}\n`;
+   }
+   if (event.type === 'run.command.output' && typeof payload.text === 'string') {
+      return payload.text;
+   }
+   if (event.type === 'run.command.completed') {
+      const code = typeof payload.exitCode === 'number' ? payload.exitCode : null;
+      const truncated = payload.truncated === true ? ' · output truncated' : '';
+      // A command that never reported an exit is not a command that
+      // succeeded, and the log says which happened.
+      return code === null
+         ? `\n[the command did not finish${truncated}]\n`
+         : `\n[exit ${code}${truncated}]\n`;
+   }
    if (event.type === 'run.failed' && typeof payload.message === 'string') {
       return payload.message;
    }
    return '';
+}
+
+/** What a run left behind: a branch, and the pull request on it. */
+export interface RunDelivery {
+   committed: boolean;
+   commit: string | null;
+   branch: string;
+   filesChanged: number;
+   insertions: number;
+   deletions: number;
+   files: string[];
+   pullRequest: { number: number; url: string; created: boolean } | null;
+   mergeRequiresApproval: boolean;
+}
+
+/**
+ * The delivery a `run.delivered` frame carries, or null.
+ *
+ * `committed: false` is a real outcome, not a missing one — an agent that
+ * answered a question changed no files — so it is returned rather than
+ * treated as nothing to show.
+ */
+export function deliveryFromRunEvent(event: RunEvent): RunDelivery | null {
+   if (event.type !== 'run.delivered') return null;
+   const payload = payloadOf(event);
+   if (!payload || typeof payload.branch !== 'string') return null;
+   const pull = payload.pullRequest;
+   return {
+      committed: payload.committed === true,
+      commit: typeof payload.commit === 'string' ? payload.commit : null,
+      branch: payload.branch,
+      filesChanged: numberOr(payload.filesChanged, 0),
+      insertions: numberOr(payload.insertions, 0),
+      deletions: numberOr(payload.deletions, 0),
+      files: Array.isArray(payload.files)
+         ? payload.files.filter((file): file is string => typeof file === 'string')
+         : [],
+      pullRequest:
+         typeof pull === 'object' && pull !== null && typeof (pull as Record<string, unknown>).url === 'string'
+            ? {
+                 number: numberOr((pull as Record<string, unknown>).number, 0),
+                 url: (pull as Record<string, unknown>).url as string,
+                 created: (pull as Record<string, unknown>).created === true,
+              }
+            : null,
+      mergeRequiresApproval: payload.mergeRequiresApproval === true,
+   };
+}
+
+function payloadOf(event: RunEvent): Record<string, unknown> | null {
+   return typeof event.payload === 'object' && event.payload !== null && !Array.isArray(event.payload)
+      ? (event.payload as Record<string, unknown>)
+      : null;
+}
+
+function numberOr(value: unknown, fallback: number): number {
+   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 /**

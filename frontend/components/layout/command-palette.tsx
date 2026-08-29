@@ -37,7 +37,6 @@ import {
    Bell,
    Layers,
    Link2,
-   ListChecks,
    PackagePlus,
    ShieldCheck,
    Sparkles,

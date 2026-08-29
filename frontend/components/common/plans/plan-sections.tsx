@@ -12,7 +12,6 @@ import {
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useMembersStore } from '@/store/members-store';
-import { Workflow, Zap } from 'lucide-react';
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 

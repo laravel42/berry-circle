@@ -5,15 +5,18 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { GitBranch, GitPullRequest } from 'lucide-react';
 import { BerryApiError } from '@/lib/api';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import {
    cancelRun,
+   deliveryFromRunEvent,
    isTerminalRunEvent,
    isTerminalRunStatus,
    loadBoardRuns,
    streamRunEvents,
    textFromRunEvent,
+   type RunDelivery,
    type RunRecord,
 } from '@/lib/runs';
 import { cn } from '@/lib/utils';
@@ -54,6 +57,55 @@ function runWhen(run: RunRecord): string {
    return relativeTime(run.completedAt ?? run.startedAt ?? run.createdAt);
 }
 
+/**
+ * What the run left behind: the branch, the diff, and the pull request.
+ *
+ * The run resource carries none of this — it is in the ledger, on the
+ * `run.delivered` frame — and without it a person watching a run sees the
+ * agent finish and has no way to reach the work. A run that changed nothing
+ * says so, because that is a real outcome and not a missing one.
+ */
+function DeliveryStrip({ delivery }: { delivery: RunDelivery }) {
+   if (!delivery.committed) {
+      return (
+         <p className="mt-3 border-t border-border/60 pt-3 text-muted-foreground">
+            No files changed.
+         </p>
+      );
+   }
+   return (
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border/60 pt-3">
+         <span className="inline-flex items-center gap-1.5">
+            <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="font-mono">{delivery.branch}</span>
+         </span>
+         <span className="text-muted-foreground">
+            {delivery.filesChanged} file{delivery.filesChanged === 1 ? '' : 's'}
+            {' · '}
+            <span className="text-status-success">+{delivery.insertions}</span>
+            {' '}
+            <span className="text-status-danger">−{delivery.deletions}</span>
+         </span>
+         {delivery.pullRequest ? (
+            <a
+               href={delivery.pullRequest.url}
+               target="_blank"
+               rel="noreferrer"
+               className="inline-flex items-center gap-1.5 underline underline-offset-2"
+            >
+               <GitPullRequest className="size-3.5 shrink-0" />#{delivery.pullRequest.number}
+               <span className="text-muted-foreground">
+                  {delivery.pullRequest.created ? 'opened' : 'updated'}
+               </span>
+            </a>
+         ) : null}
+         {delivery.mergeRequiresApproval ? (
+            <span className="text-muted-foreground">A person has to merge it.</span>
+         ) : null}
+      </div>
+   );
+}
+
 export default function RunOverview() {
    const { orgId } = useParams<{ orgId: string }>();
    const router = useRouter();
@@ -68,6 +120,7 @@ export default function RunOverview() {
 
    const [selectedRunId, setSelectedRunId] = useState<string | null>(searchParams.get('run'));
    const [transcript, setTranscript] = useState('');
+   const [delivery, setDelivery] = useState<RunDelivery | null>(null);
    const [streamStatus, setStreamStatus] = useState<string>('');
    const [cancelling, setCancelling] = useState(false);
 
@@ -98,6 +151,7 @@ export default function RunOverview() {
       const controller = new AbortController();
       let output = '';
       setTranscript('');
+      setDelivery(null);
       setStreamStatus('listening');
       void (async () => {
          try {
@@ -107,6 +161,11 @@ export default function RunOverview() {
                   output += chunk;
                   setTranscript(output);
                }
+               // What the run left behind. Read from the frame rather than
+               // from the run record, because the run resource carries no
+               // branch or pull request — the ledger is where they are.
+               const delivered = deliveryFromRunEvent(event);
+               if (delivered) setDelivery(delivered);
                if (event.type === 'run.started') setStreamStatus('running');
                if (isTerminalRunEvent(event.type)) {
                   setStreamStatus(event.type.replace('run.', ''));
@@ -178,6 +237,7 @@ export default function RunOverview() {
                      selectedRun.failure?.message ||
                      'Waiting for output…'}
                </pre>
+               {delivery ? <DeliveryStrip delivery={delivery} /> : null}
             </div>
          ) : null}
 
