@@ -252,6 +252,11 @@ export class AdkExecutor {
                           // Checked inside the call, so a revoked permission
                           // refuses rather than merely hiding the affordance.
                           permissions: agent.permissions,
+                          // Cancellation has to reach the command, not just
+                          // the model call: the check below only runs between
+                          // events, and a tool waiting on `pnpm test` produces
+                          // none for minutes.
+                          ...(signal ? { signal } : {}),
                        },
                     }
                   : {}),
@@ -350,6 +355,14 @@ export class AdkExecutor {
                   streamed = false;
                }
             }
+
+            // ADK ends its iterator when the abort signal fires rather than
+            // raising, so a run cancelled mid-turn arrives here looking exactly
+            // like one that finished. Reporting success would then contradict a
+            // ledger that already says cancelled — and `completeSuccess`
+            // refuses a terminal run, so the run would end as an unexplained
+            // error instead of as the cancellation the person asked for.
+            if (signal?.aborted) throw new RunCancelled();
 
             await output.flush();
             result.endTurn();

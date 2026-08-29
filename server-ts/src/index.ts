@@ -19,6 +19,7 @@ import { internalRunMounts } from './mounts/internal-runs.ts';
 import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
+import { Dispatcher } from './runs/dispatcher.ts';
 import { agentMounts } from './mounts/agents.ts';
 import { eventMounts } from './mounts/events.ts';
 import { IdentityRepository } from './identity/repository.ts';
@@ -227,6 +228,24 @@ registry.registerAll(
    })
 );
 
+/**
+ * What turns a queued run into a running one.
+ *
+ * Only where there is an executor: a server with no model credential can serve
+ * the ledger and admit runs, and a dispatcher there would claim work it cannot
+ * do and fail every run it touched.
+ */
+const dispatcher =
+   executor && config.agents
+      ? new Dispatcher({
+           sql,
+           executor,
+           logger,
+           concurrency: config.agents.concurrency,
+        })
+      : null;
+dispatcher?.start();
+
 const app = createApp(registry);
 
 const server = serve({ fetch: app.fetch, hostname: config.apiAddr.host, port: config.apiAddr.port });
@@ -236,6 +255,9 @@ logger.info('Berry server listening', {
    // Named at boot so an operator can see which substrate this process would
    // run an agent's commands on, without reading the environment back.
    executionDriver: execution.name,
+   // Named at boot because a server that admits runs but does not execute them
+   // looks identical from outside until the first one sits queued forever.
+   runDispatch: dispatcher ? `${config.agents!.concurrency} at a time` : 'off',
    // Named at boot so an operator can see whether a run can reach a
    // repository, without reading the environment back.
    integrations: connections ? 'configured' : 'no encryption key',
@@ -248,7 +270,12 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
    process.once(signal, () => {
       logger.info('shutting down', { signal });
       server.close(() => {
-         void closeDatabase(sql).then(() => process.exit(0));
+         // The dispatcher first: it aborts what it is running, and a run left
+         // mid-flight is reclaimed from its lease rather than recorded from a
+         // process that is on its way out.
+         void (dispatcher ? dispatcher.stop() : Promise.resolve())
+            .then(() => closeDatabase(sql))
+            .then(() => process.exit(0));
       });
    });
 }

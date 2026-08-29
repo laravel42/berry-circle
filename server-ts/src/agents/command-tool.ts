@@ -63,6 +63,15 @@ export interface CommandToolScope {
     * hidden button, and a hidden button is not an enforcement point.
     */
    permissions?: PermissionSet;
+   /**
+    * Aborted when the run is cancelled.
+    *
+    * Without it a cancelled run's `pnpm test` runs to completion: the model
+    * call is abandoned between events, but the tool is parked inside the
+    * command's own stream and nothing there is watching. The run then reads as
+    * cancelled while the work carries on in a container nobody will reap.
+    */
+   signal?: AbortSignal;
    clock?: () => Date;
 }
 
@@ -138,7 +147,10 @@ export function runCommandTool(scope: CommandToolScope): FunctionTool {
          let failure: string | null = null;
 
          try {
-            const options = directory === null ? {} : { cwd: directory };
+            const options = {
+               ...(directory === null ? {} : { cwd: directory }),
+               ...(scope.signal ? { signal: scope.signal } : {}),
+            };
             for await (const event of session.stream(trimmed, options)) {
                switch (event.type) {
                   case 'stdout':
@@ -157,18 +169,30 @@ export function runCommandTool(scope: CommandToolScope): FunctionTool {
                }
             }
          } catch (error) {
-            // A stream that broke mid-command. The command may well have run,
-            // so this is reported rather than retried.
-            failure = error instanceof Error ? error.message : String(error);
+            // Cancellation is not a broken stream, and must not be recorded as
+            // one: the person asked for this, and the agent should say so
+            // rather than report an infrastructure fault it can retry.
+            failure = scope.signal?.aborted
+               ? 'the run was cancelled'
+               : error instanceof Error
+                 ? error.message
+                 : String(error);
          }
 
-         await recorder.flush();
-         await scope.ledger.appendCommandCompleted(scope.runId, {
-            commandId,
-            exitCode,
-            durationMs: clock().getTime() - startedAt,
-            truncated: recorder.truncated,
-         });
+         // The ledger refuses an append to a run that has ended, which is
+         // exactly the case a cancellation creates: the run went terminal
+         // while this command was still draining. That is not the command's
+         // failure and must not be raised as one — the tool still owes the
+         // model a result, and the run's own ending is already recorded.
+         await recorder.flush().catch(() => undefined);
+         await scope.ledger
+            .appendCommandCompleted(scope.runId, {
+               commandId,
+               exitCode,
+               durationMs: clock().getTime() - startedAt,
+               truncated: recorder.truncated,
+            })
+            .catch(() => undefined);
 
          if (failure !== null && exitCode === null) {
             return { error: failure, exitCode: null };

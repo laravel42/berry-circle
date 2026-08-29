@@ -52,6 +52,15 @@ export interface ExecOptions {
     * container open until something else reaps it.
     */
    timeoutMs?: number;
+   /**
+    * Stops the command before it finishes.
+    *
+    * This is how cancelling a run reaches a `pnpm test` that is three minutes
+    * in. Without it the model call can be abandoned while the command it was
+    * waiting on runs to completion, holding the container open — the run reads
+    * as cancelled while the work carries on behind it.
+    */
+   signal?: AbortSignal;
 }
 
 export interface CreateSessionInput {

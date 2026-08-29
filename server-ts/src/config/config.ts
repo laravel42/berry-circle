@@ -74,6 +74,15 @@ export interface AgentConfig {
    baseUrl: string;
    /** Used when an agent row names no model of its own. */
    defaultModel: string;
+   /**
+    * How many runs this process executes at once.
+    *
+    * Two by default, and low on purpose: each run holds a container and a
+    * model call, so this is a cost ceiling as much as a load one. Raising it
+    * on one server and running several servers are both ways to go faster,
+    * and the claim is safe either way.
+    */
+   concurrency: number;
 }
 
 export class ConfigError extends Error {
@@ -192,7 +201,14 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       apiKey,
       baseUrl: (env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').trim(),
       defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? 'anthropic/claude-sonnet-4.5').trim(),
+      concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
    };
+}
+
+/** A count, when the value given is one. Anything else keeps the default. */
+function positive(value: string | undefined, fallback: number): number {
+   const parsed = /^\d+$/.test((value ?? '').trim()) ? Number(value) : Number.NaN;
+   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 /**

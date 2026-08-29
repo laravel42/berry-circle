@@ -44,12 +44,23 @@ export function httpDriver(options: HttpDriverOptions): ExecutionDriver {
    const doFetch = options.fetch ?? globalThis.fetch;
    const requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 
-   const call = async (path: string, init: RequestInit & { stream?: boolean }): Promise<Response> => {
-      const { stream, ...rest } = init;
+   const call = async (
+      path: string,
+      init: RequestInit & { stream?: boolean; abort?: AbortSignal | undefined }
+   ): Promise<Response> => {
+      const { stream, abort, ...rest } = init;
       // A stream is bounded by the command's own timeout, not by this one —
       // aborting a live test suite after 30s because the client got bored is
-      // exactly the failure this call exists to avoid.
-      const signal = stream ? undefined : AbortSignal.timeout(requestTimeoutMs);
+      // exactly the failure this call exists to avoid. The caller's own signal
+      // still applies: that one means the run was cancelled.
+      // Both, for a non-stream call: the request still has a ceiling, and a
+      // cancelled run still stops it early. `any` rather than a choice,
+      // because keeping only one of them loses a guarantee either way.
+      const signal = stream
+         ? abort
+         : abort
+           ? AbortSignal.any([abort, AbortSignal.timeout(requestTimeoutMs)])
+           : AbortSignal.timeout(requestTimeoutMs);
       let response: Response;
       try {
          response = await doFetch(`${base}${path}`, {
@@ -130,6 +141,7 @@ export function httpDriver(options: HttpDriverOptions): ExecutionDriver {
                   const response = await call(at('/exec/stream'), {
                      method: 'POST',
                      stream: true,
+                     abort: execOptions?.signal,
                      body: JSON.stringify({ command, ...serializeOptions(execOptions) }),
                   });
                   if (!response.body) {

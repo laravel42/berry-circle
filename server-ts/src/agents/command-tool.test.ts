@@ -257,6 +257,95 @@ test('a working directory is passed through, and omitted when unset', async () =
    assert.deepEqual(seen, [{ cwd: '/workspace/repo' }, {}]);
 });
 
+test('the run\'s cancellation reaches the command, not just the model call', async () => {
+   // The gap this closes: the model loop only checks between events, and a
+   // tool parked on `pnpm test` produces none for minutes. Without the signal
+   // reaching the substrate the run reads as cancelled while the command runs
+   // to completion in a container nobody will reap.
+   const { ledger } = fakeLedger();
+   const seen: unknown[] = [];
+   const controller = new AbortController();
+   const session = fakeSession([{ type: 'exit', seq: 0, exitCode: 0 }], (_command, options) =>
+      seen.push(options)
+   );
+
+   const cancellable = runCommandTool({
+      ledger,
+      runId: 'run-1',
+      session: async () => session,
+      newId: () => 'cmd-1',
+      signal: controller.signal,
+   });
+   await call(cancellable as ReturnType<typeof tool>, { command: 'pnpm test' });
+
+   assert.deepEqual(seen, [{ signal: controller.signal }]);
+});
+
+test('a cancelled command says so, rather than reporting a broken substrate', async () => {
+   // The person asked for this. Reporting it as an infrastructure fault would
+   // have the agent retry a command it was told to stop.
+   const { ledger, events } = fakeLedger();
+   const controller = new AbortController();
+   const session = {
+      id: 'run-1',
+      exec: async () => ({ stdout: '', stderr: '', exitCode: 0 }),
+      stream: () => ({
+         async *[Symbol.asyncIterator]() {
+            yield { type: 'stdout', seq: 0, data: 'building\n' } as ExecEvent;
+            controller.abort();
+            throw new Error('The operation was aborted');
+         },
+      }),
+      writeFile: async () => undefined,
+      readFile: async () => '',
+      stop: async () => undefined,
+      destroy: async () => undefined,
+   } satisfies ExecutionSession;
+
+   const cancellable = runCommandTool({
+      ledger,
+      runId: 'run-1',
+      session: async () => session,
+      newId: () => 'cmd-1',
+      signal: controller.signal,
+   });
+   const result = await call(cancellable as ReturnType<typeof tool>, { command: 'pnpm build' });
+
+   assert.equal(result.exitCode, null);
+   assert.equal(result.error, 'the run was cancelled');
+   // What it had produced is still part of the record.
+   assert.equal(events.find((event) => event.type === 'output')?.text, 'building\n');
+   assert.equal(events.find((event) => event.type === 'completed')?.exitCode, null);
+});
+
+test('a run that ends mid-command still gets a result, not an exception', async () => {
+   // The ledger refuses an append to a terminal run, and a cancellation makes
+   // the run terminal while the command is still draining. The tool owes the
+   // model a result either way — throwing would surface the run's own ending
+   // as a tool fault.
+   const refusing = {
+      appendCommandStarted: async () => undefined,
+      appendCommandOutput: async () => {
+         throw new Error('run is terminal');
+      },
+      appendCommandCompleted: async () => {
+         throw new Error('run is terminal');
+      },
+   } as unknown as RunLedger;
+
+   const session = fakeSession([
+      { type: 'stdout', seq: 0, data: 'partial\n' },
+      { type: 'exit', seq: 1, exitCode: 0 },
+   ]);
+   // A clock that never advances, so the only ledger write is the final flush
+   // and the completion beside it — the two the tool makes after the command
+   // is already over.
+   const result = await call(tool(session, refusing, () => new Date(0)), {
+      command: 'pnpm build',
+   });
+   assert.equal(result.exitCode, 0);
+});
+
 test('a revoked permission refuses the call rather than hiding the button', async () => {
    // The claim is that the runtime refuses. A check that only decided whether
    // to offer the tool would be a hidden button, and a hidden button is not an
