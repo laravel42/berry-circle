@@ -106,6 +106,15 @@ export interface AgentConfig {
     * and the claim is safe either way.
     */
    concurrency: number;
+   /**
+    * How many times a plan may be sent back to be fixed, and how many times
+    * the critic may ask for a revision.
+    *
+    * Low on purpose: a model that cannot fix its own dependency graph in two
+    * attempts will not fix it in ten, and every attempt is paid for.
+    */
+   maxRepairs: number;
+   maxCriticRounds: number;
 }
 
 export class ConfigError extends Error {
@@ -226,6 +235,8 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       baseUrl: (env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').trim(),
       defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? 'anthropic/claude-sonnet-4.5').trim(),
       concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
+      maxRepairs: positive(env.PLANNER_MAX_REPAIRS, 2),
+      maxCriticRounds: positive(env.PLANNER_MAX_CRITIC_ROUNDS, 1),
    };
 }
 

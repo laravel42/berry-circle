@@ -234,6 +234,8 @@ registry.registerAll(
               apiKey: config.agents.apiKey,
               baseUrl: config.agents.baseUrl,
               defaultModel: config.agents.defaultModel,
+              maxRepairs: config.agents.maxRepairs,
+              maxCriticRounds: config.agents.maxCriticRounds,
            })
          : null,
       boards,

@@ -25,8 +25,8 @@ attachments-by-id, agents, runs, integrations, approvals, the inbox, conversatio
 search, saved views, catalogs, plans, file uploads, Prometheus metrics, and the
 realtime event streams.
 
-Its planner runs one model stage rather than the classifier → repair → critic
-pipeline the contract describes; everything else the frontend calls is served.
+Everything the frontend calls is served. The planner's `intent` and `context`
+stages are the one thing in the contract it does not run.
 Those paths answer 404. `GET /api/v1/config` reports the capabilities this deployment
 actually has, so the UI switches off what is missing rather than offering it.
 

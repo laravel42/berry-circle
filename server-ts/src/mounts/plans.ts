@@ -276,15 +276,26 @@ async function generate(
 ): Promise<void> {
    const started = Date.now();
    try {
-      const generated = await options.generator!.generate({ prompt });
+      const generated = await options.generator!.generate({
+         prompt,
+         // Written as each stage begins, so a person watching sees where the
+         // plan is rather than a spinner. Failing to write it must not fail
+         // the generation.
+         onStage: (stage) => {
+            void options.plans.markStage(record.id, stage).catch(() => undefined);
+         },
+      });
       await options.plans.recordGeneration({
          planId: record.id,
          workspaceId: record.workspaceId,
          plan: generated.plan,
          validation: generated.validation,
+         critique: generated.critique,
+         stages: generated.stages,
          usage: generated.usage,
          model: generated.model,
          provider: generated.provider,
+         exhausted: generated.exhausted,
          durationMs: Date.now() - started,
          createdBy: userId,
       });
@@ -292,11 +303,15 @@ async function generate(
          planId: record.id,
          issues: generated.plan.issues.length,
          validation: generated.validation.status,
+         stages: generated.stages.map((stage) => stage.stage).join('→'),
+         ...(generated.exhausted ? { exhausted: true } : {}),
       });
    } catch (error) {
+      // `<code> at <stage>`, as the contract words it: knowing the critic
+      // timed out is different from knowing the planner was never reachable.
       const message =
          error instanceof PlannerUnavailable
-            ? error.message
+            ? `${error.message} at ${error.stage}`
             : error instanceof Error
               ? error.message
               : String(error);

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
 import { NotFound } from '../identity/errors.ts';
+import type { StageRecord } from './generator.ts';
 import { inDependencyOrder, validatePlan, type Plan, type ValidationReport } from './schema.ts';
 
 /**
@@ -86,7 +87,7 @@ export class OpenPlanExists extends Error {
 
 const COLUMNS = `id, workspace_id, goal_id, project_id, board_id, auto_gate, status, source,
    source_prompt, ir, ir_version, current_version, planner_version, confidence,
-   generation_status, generation_error, validation_status, compile_status, compile_error,
+   generation_status, generation_error, generation_stage, validation_status, compile_status, compile_error,
    compiled_at, created_at, updated_at`;
 
 /** Statuses a person can still act on, as the column spells them. */
@@ -169,15 +170,25 @@ export class PlanRepository {
       }) as Promise<PlanRecord>;
    }
 
-   /** Records a finished generation: the document, its verdict, and the stage that ran. */
+   /** The stage in flight, so a person watching sees where the plan is. */
+   async markStage(planId: string, stage: string): Promise<void> {
+      await this.#sql`
+         UPDATE plans SET generation_stage = ${stage}, updated_at = ${this.#clock().toISOString()}
+          WHERE id = ${planId} AND generation_status = 'running'`;
+   }
+
+   /** Records a finished generation: the document, its verdict, and every stage that ran. */
    async recordGeneration(input: {
       planId: string;
       workspaceId: string;
       plan: Plan;
       validation: ValidationReport;
+      critique: unknown;
+      stages: StageRecord[];
       usage: { inputTokens: number; outputTokens: number };
       model: string;
       provider: string;
+      exhausted: boolean;
       durationMs: number;
       createdBy: string;
    }): Promise<void> {
@@ -188,7 +199,12 @@ export class PlanRepository {
             UPDATE plans
                SET ir = ${tx.json(input.plan as never)}, ir_version = '1',
                    current_version = current_version + 1,
-                   generation_status = 'succeeded', generation_error = NULL,
+                   generation_status = 'succeeded',
+                   -- The contract's wording. Bounded repairs that ran out is
+                   -- not a failed generation: the document exists and its
+                   -- errors are named, which is something a person can fix.
+                   generation_error = ${input.exhausted ? 'PLAN_INVALID' : null},
+                   generation_stage = NULL,
                    validation_status = ${input.validation.status},
                    confidence = ${input.plan.confidence ?? null},
                    planner_version = ${input.model},
@@ -198,31 +214,30 @@ export class PlanRepository {
 
          await tx`
             INSERT INTO plan_versions (workspace_id, plan_id, version, origin, ir, ir_version,
-                                       validation, created_by_type, created_by)
+                                       validation, critic, created_by_type, created_by)
             VALUES (${input.workspaceId}, ${input.planId}, ${Number(row!.current_version)},
                     'generated', ${tx.json(input.plan as never)}, '1',
-                    ${tx.json(input.validation as never)}, 'user', ${input.createdBy})`;
+                    ${tx.json(input.validation as never)},
+                    ${input.critique === null ? null : tx.json(input.critique as never)},
+                    'user', ${input.createdBy})`;
 
-         await appendEvent(tx, {
-            workspaceId: input.workspaceId,
-            planId: input.planId,
-            stage: 'generate',
-            role: 'planner',
-            provider: input.provider,
-            model: input.model,
-            inputTokens: input.usage.inputTokens,
-            outputTokens: input.usage.outputTokens,
-            durationMs: input.durationMs,
-            // The column's vocabulary is ok / invalid / error / timeout /
-            // skipped — narrower than the validation statuses, so `blocked`
-            // is recorded as `invalid` and the detail carries the difference.
-            outcome: input.validation.status === 'valid' ? 'ok' : 'invalid',
-            detail: {
-               issues: input.plan.issues.length,
-               errors: input.validation.errors.length,
-               validation: input.validation.status,
-            },
-         });
+         // One row per stage, in the order they ran: what a person opens when
+         // they want to know why a plan came out the way it did.
+         for (const stage of input.stages) {
+            await appendEvent(tx, {
+               workspaceId: input.workspaceId,
+               planId: input.planId,
+               stage: stage.stage,
+               ...(stage.role ? { role: stage.role } : {}),
+               ...(stage.provider ? { provider: stage.provider } : {}),
+               ...(stage.model ? { model: stage.model } : {}),
+               inputTokens: stage.inputTokens,
+               outputTokens: stage.outputTokens,
+               durationMs: stage.durationMs,
+               outcome: stage.outcome,
+               detail: stage.detail,
+            });
+         }
       });
    }
 
@@ -238,7 +253,7 @@ export class PlanRepository {
          await tx`
             UPDATE plans
                SET generation_status = 'failed', generation_error = ${input.message},
-                   updated_at = ${now}
+                generation_stage = NULL, updated_at = ${now}
              WHERE id = ${input.planId}`;
          await appendEvent(tx, {
             workspaceId: input.workspaceId,
@@ -464,6 +479,11 @@ export class PlanRepository {
       const plan = (row.ir ?? null) as Plan | null;
       const compiled = row.compile_status !== 'not_started';
 
+      const [latest] = await sql`
+         SELECT critic FROM plan_versions
+          WHERE plan_id = ${row.id as string} ORDER BY version DESC LIMIT 1`;
+      const critique = latest?.critic ?? null;
+
       let issueIds: string[] = [];
       let approvalIds: string[] = [];
       if (compiled) {
@@ -493,8 +513,10 @@ export class PlanRepository {
          generation: {
             status: row.generation_status as string,
             error: (row.generation_error as string | null) ?? null,
-            // One stage, because one stage is what runs. See the generator.
-            stage: row.generation_status === 'running' ? 'generate' : null,
+            stage:
+               row.generation_status === 'running'
+                  ? ((row.generation_stage as string | null) ?? 'generate')
+                  : null,
          },
          // Recomputed on every read rather than stored: the plan is checked
          // against the workspace as it is now, not as it was when generated.
@@ -509,7 +531,10 @@ export class PlanRepository {
                  risk: 'low',
                  needsAdminActivation: false,
               },
-         critic: null,
+         // From the latest version rather than a column: the critique belongs
+         // to the document it reviewed, and a plan regenerated would otherwise
+         // carry the previous one's verdict.
+         critic: critique,
          compile: compiled
             ? {
                  status: row.compile_status as string,
