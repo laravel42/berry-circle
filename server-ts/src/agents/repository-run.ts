@@ -7,6 +7,7 @@ import { branchName, checkout, parseRepository, type Checkout } from './checkout
 import { commitAndPush } from './delivery.ts';
 import { summarise, verify, type VerificationReport } from './verification.ts';
 import { repositoryForIssue, type RepositoryContext } from './repository-context.ts';
+import type { PermissionSet } from './permissions.ts';
 
 /**
  * The repository half of a run: getting the code in, and getting the work out.
@@ -28,6 +29,8 @@ export interface PreparedRepository {
    checkout: Checkout;
    defaultBranch: string;
    issue: IssueReference;
+   /** Carried forward, because delivery has its own permission to check. */
+   permissions: PermissionSet;
 }
 
 export interface RepositoryRunDeps {
@@ -55,6 +58,7 @@ export async function prepareRepository(
    input: {
       dispatch: Dispatch;
       agentName: string;
+      permissions: PermissionSet;
       /** Opens the run's workspace. Not called when there is no repository. */
       session: (() => Promise<ExecutionSession>) | null;
    }
@@ -63,6 +67,11 @@ export async function prepareRepository(
 
    const repository = await repositoryForIssue(deps.sql, input.dispatch.issueId);
    if (!repository) return null;
+
+   // Checked before the credential is opened, so an agent that may not read
+   // the repository never causes a token to be decrypted on its behalf.
+   input.permissions.require('read_repository');
+   input.permissions.require('create_branches');
 
    const token = await deps.connections.token(input.dispatch.workspaceId, 'github');
    const client = deps.github(token);
@@ -95,7 +104,13 @@ export async function prepareRepository(
       baseCommit: result.baseCommit,
    });
 
-   return { repository, checkout: result, defaultBranch: remote.defaultBranch, issue };
+   return {
+      repository,
+      checkout: result,
+      defaultBranch: remote.defaultBranch,
+      issue,
+      permissions: input.permissions,
+   };
 }
 
 /**
@@ -154,6 +169,9 @@ export async function deliverRepository(
 
    let pullRequest: PullRequest | null = null;
    if (delivery.committed) {
+      // The push has happened — the branch exists and the work is not lost —
+      // but opening a pull request is a separate act with its own permission.
+      prepared.permissions.require('open_pull_requests');
       const { owner, name } = parseRepository(prepared.repository.fullName);
       pullRequest = await deps.github(token).openPullRequest({
          owner,
@@ -163,7 +181,9 @@ export async function deliverRepository(
          title,
          // The run is named so a reviewer can get from the pull request back to
          // the log of how it was produced.
-         body: pullRequestBody(summary, report, dispatch.runId, prepared.issue.reference),
+         body: pullRequestBody(summary, report, dispatch.runId, prepared.issue.reference, {
+            mergeRequiresApproval: !prepared.permissions.has('merge_without_approval'),
+         }),
       });
    }
 
@@ -178,6 +198,10 @@ export async function deliverRepository(
       pullRequest: pullRequest
          ? { number: pullRequest.number, url: pullRequest.url, created: pullRequest.created }
          : null,
+      // Recorded even though nothing in Berry merges yet: when something does,
+      // it reads this rather than deciding for itself, and until then a run's
+      // record already says what the gate was.
+      mergeRequiresApproval: !prepared.permissions.has('merge_without_approval'),
    });
 }
 
@@ -203,7 +227,8 @@ export function pullRequestBody(
    summary: string | null,
    report: VerificationReport,
    runId: string,
-   reference: string
+   reference: string,
+   gate: { mergeRequiresApproval: boolean } = { mergeRequiresApproval: true }
 ): string {
    const sections = [summary ?? 'No summary was produced.'];
 
@@ -211,6 +236,12 @@ export function pullRequestBody(
    if (evidence !== '') {
       const verdict = report.passed ? 'All checks passed.' : 'Some checks did not pass.';
       sections.push(`## Evidence\n\n${verdict}\n\n${evidence}`);
+   }
+
+   // Said where the reviewer is, not only in Berry: the person looking at this
+   // pull request is the gate, and they should not have to know that.
+   if (gate.mergeRequiresApproval) {
+      sections.push('This was produced by an agent and needs a human approval before it merges.');
    }
 
    sections.push(`---\nBerry run \`${runId}\` · task ${reference}`);

@@ -403,6 +403,7 @@ export class RunLedger {
          deletions: number;
          files: string[];
          pullRequest: { number: number; url: string; created: boolean } | null;
+         mergeRequiresApproval: boolean;
       }
    ): Promise<void> {
       await this.appendActiveEvent(runId, 'run.delivered', { ...params });

@@ -14,6 +14,7 @@ import { ConnectionUnavailable, type ConnectionRepository } from '../integration
 import { GitHubError, type GitHubClient, type PullRequest, type Repository } from '../integrations/github.ts';
 import { CheckoutFailed } from './checkout.ts';
 import type { ExecResult, ExecutionSession } from '../execution/driver.ts';
+import { DEFAULT_PERMISSIONS, PermissionDenied, permissionsOf } from './permissions.ts';
 
 /**
  * The repository half of a run, against a real database and a fake everything
@@ -209,6 +210,7 @@ describe(
          const prepared = await prepareRepository(deps(), {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession(),
          });
          assert.equal(prepared, null);
@@ -219,13 +221,19 @@ describe(
          const { dispatch } = await newIssue('Has a repo', 'berry/frontend');
 
          assert.equal(
-            await prepareRepository(deps(), { dispatch, agentName: 'Forge', session: null }),
+            await prepareRepository(deps(), {
+               dispatch,
+               agentName: 'Forge',
+               permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
+               session: null,
+            }),
             null
          );
          assert.equal(
             await prepareRepository(deps({ connections: undefined }), {
                dispatch,
                agentName: 'Forge',
+               permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
                session: async () => fakeSession(),
             }),
             null
@@ -238,6 +246,7 @@ describe(
          const prepared = await prepareRepository(deps(), {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession({ 'rev-parse': { stdout: '4f2a9c1\n' } }),
          });
 
@@ -266,6 +275,7 @@ describe(
             prepareRepository(deps({ github: fakeGitHub({ repository: { canPush: false } }) }), {
                dispatch,
                agentName: 'Forge',
+               permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
                session: async () => fakeSession(),
             }),
             (error: GitHubError) => {
@@ -281,7 +291,12 @@ describe(
          await assert.rejects(
             prepareRepository(
                deps({ connections: fakeConnections(new ConnectionUnavailable('not connected', 'missing')) }),
-               { dispatch, agentName: 'Forge', session: async () => fakeSession() }
+               {
+                  dispatch,
+                  agentName: 'Forge',
+                  permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
+                  session: async () => fakeSession(),
+               }
             ),
             ConnectionUnavailable
          );
@@ -295,6 +310,7 @@ describe(
             prepareRepository(deps(), {
                dispatch,
                agentName: 'Forge',
+               permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
                session: async () =>
                   fakeSession({ clone: { exitCode: 128, stderr: 'fatal: not found\n' } }),
             }),
@@ -308,6 +324,7 @@ describe(
          const prepared = await prepareRepository(collaborators, {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
          });
          assert.ok(prepared);
@@ -338,6 +355,8 @@ describe(
                   url: 'https://github.com/berry/frontend/pull/381',
                   created: true,
                },
+               // The gate is part of the record, not a separate lookup.
+               mergeRequiresApproval: true,
             },
          ]);
       });
@@ -351,6 +370,7 @@ describe(
          const prepared = await prepareRepository(collaborators, {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
          });
          assert.ok(prepared);
@@ -376,6 +396,7 @@ describe(
          const prepared = await prepareRepository(collaborators, {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
          });
          await deliverRepository(collaborators, {
@@ -417,6 +438,7 @@ describe(
          const prepared = await prepareRepository(collaborators, {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
          });
          assert.ok(prepared);
@@ -462,6 +484,7 @@ describe(
          const prepared = await prepareRepository(collaborators, {
             dispatch,
             agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
             session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
          });
          events = [];
@@ -506,6 +529,128 @@ describe(
          assert.match(body, /^Added an abort signal\./);
          assert.match(body, /All checks passed\./);
          assert.match(body, /Berry run `run-1` · task RUN-7$/);
+      });
+
+      test('an agent that may not read the repository never gets a credential opened', async () => {
+         // Checked before the token is decrypted, so a denied agent does not
+         // cause a secret to be unsealed on its behalf.
+         const { dispatch } = await newIssue('Denied read', 'berry/frontend');
+         let opened = 0;
+         const collaborators = deps({
+            connections: {
+               find: async () => null,
+               token: async () => {
+                  opened += 1;
+                  return TOKEN;
+               },
+            } as unknown as ConnectionRepository,
+         });
+
+         await assert.rejects(
+            prepareRepository(collaborators, {
+               dispatch,
+               agentName: 'Forge',
+               permissions: permissionsOf(['run_commands'], 'Forge'),
+               session: async () => fakeSession(),
+            }),
+            (error: PermissionDenied) => {
+               assert.equal(error.name, 'PermissionDenied');
+               assert.equal(error.permission, 'read_repository');
+               return true;
+            }
+         );
+         assert.equal(opened, 0, 'a credential was opened for a denied agent');
+      });
+
+      test('an agent may push its branch and still not open a pull request', async () => {
+         // The push already happened — the work is not lost — but opening a
+         // pull request is a separate act with its own permission.
+         const { dispatch } = await newIssue('No PR permission', 'berry/frontend');
+         const collaborators = deps();
+         const prepared = await prepareRepository(collaborators, {
+            dispatch,
+            agentName: 'Forge',
+            permissions: permissionsOf(
+               ['read_repository', 'create_branches', 'run_commands'],
+               'Forge'
+            ),
+            session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
+         });
+         assert.ok(prepared);
+
+         commands = [];
+         await assert.rejects(
+            deliverRepository(collaborators, {
+               dispatch,
+               prepared,
+               session: fakeSession({
+                  numstat: { stdout: '1\t0\ta.ts\n' },
+                  'rev-parse': { stdout: 'abc\n' },
+               }),
+               summary: null,
+            }),
+            (error: PermissionDenied) => {
+               assert.equal(error.permission, 'open_pull_requests');
+               return true;
+            }
+         );
+         assert.ok(
+            commands.some((call) => call.command.includes('push')),
+            'the branch should still have been pushed'
+         );
+      });
+
+      test('the merge gate is recorded, and said in the pull request itself', async () => {
+         // Nothing in Berry merges yet. Recording the gate now means whatever
+         // does will read this rather than deciding for itself — and the
+         // person looking at the pull request is told without having to know
+         // Berry exists.
+         const { dispatch } = await newIssue('Gated', 'berry/frontend');
+         const collaborators = deps();
+         const prepared = await prepareRepository(collaborators, {
+            dispatch,
+            agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
+            session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
+         });
+         events = [];
+         await deliverRepository(collaborators, {
+            dispatch,
+            prepared: prepared!,
+            session: fakeSession({
+               numstat: { stdout: '1\t0\ta.ts\n' },
+               'rev-parse': { stdout: 'abc\n' },
+            }),
+            summary: null,
+         });
+
+         assert.equal(events.find((e) => e.type === 'delivered')!.mergeRequiresApproval, true);
+         assert.match(openedBodies[0]!, /needs a human approval before it merges/);
+      });
+
+      test('an agent trusted to merge is recorded as such, and the notice is dropped', async () => {
+         const { dispatch } = await newIssue('Trusted', 'berry/frontend');
+         const collaborators = deps();
+         const trusted = permissionsOf([...DEFAULT_PERMISSIONS, 'merge_without_approval'], 'Forge');
+         const prepared = await prepareRepository(collaborators, {
+            dispatch,
+            agentName: 'Forge',
+            permissions: trusted,
+            session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
+         });
+         events = [];
+         await deliverRepository(collaborators, {
+            dispatch,
+            prepared: prepared!,
+            session: fakeSession({
+               numstat: { stdout: '1\t0\ta.ts\n' },
+               'rev-parse': { stdout: 'abc\n' },
+            }),
+            summary: null,
+         });
+
+         assert.equal(events.find((e) => e.type === 'delivered')!.mergeRequiresApproval, false);
+         assert.doesNotMatch(openedBodies[0]!, /needs a human approval/);
       });
    }
 );

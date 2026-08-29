@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { ExecutionSession } from '../execution/driver.ts';
 import { ExecutionUnavailable } from '../execution/driver.ts';
 import type { RunLedger } from '../runs/ledger.ts';
+import { PermissionDenied, type PermissionSet } from './permissions.ts';
 
 /**
  * The tool that makes a run something you can watch.
@@ -54,6 +55,14 @@ export interface CommandToolScope {
     * inside it.
     */
    workdirAt?: () => string | undefined;
+   /**
+    * Checked on every call, not once at construction.
+    *
+    * Berry's claim is that revoking a permission makes the runtime refuse the
+    * call. A check that only decided whether to offer the tool would be a
+    * hidden button, and a hidden button is not an enforcement point.
+    */
+   permissions?: PermissionSet;
    clock?: () => Date;
 }
 
@@ -87,6 +96,17 @@ export function runCommandTool(scope: CommandToolScope): FunctionTool {
          const trimmed = command.trim();
          if (trimmed === '') {
             return { error: 'command was empty', exitCode: null };
+         }
+
+         try {
+            scope.permissions?.require('run_commands');
+         } catch (error) {
+            if (error instanceof PermissionDenied) {
+               // Told plainly so the agent stops trying and says so, rather
+               // than reading a refusal as a transient failure to retry.
+               return { error: error.message, exitCode: null, permissionDenied: true };
+            }
+            throw error;
          }
 
          let session: ExecutionSession;

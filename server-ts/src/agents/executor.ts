@@ -10,6 +10,7 @@ import { BerrySessionService } from './session-service.ts';
 import { OpenRouterLlm } from './openrouter-llm.ts';
 import { berryTools } from './tools.ts';
 import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
+import { permissionsOf, type PermissionSet } from './permissions.ts';
 import type { ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubClient } from '../integrations/github.ts';
 import {
@@ -118,6 +119,7 @@ interface AgentRow {
    name: string;
    instructions: string | null;
    model: string;
+   permissions: PermissionSet;
 }
 
 export class AdkExecutor {
@@ -247,6 +249,9 @@ export class AdkExecutor {
                           // Read at call time, not at construction: the
                           // checkout happens after the tools are built.
                           workdirAt: () => workdir,
+                          // Checked inside the call, so a revoked permission
+                          // refuses rather than merely hiding the affordance.
+                          permissions: agent.permissions,
                        },
                     }
                   : {}),
@@ -270,6 +275,7 @@ export class AdkExecutor {
          prepared = await prepareRepository(this.repositoryDeps(), {
             dispatch,
             agentName: agent.name,
+            permissions: agent.permissions,
             session: workspace ? workspace.open : null,
          });
       } catch (error) {
@@ -538,7 +544,7 @@ export class AdkExecutor {
 
    private async loadAgent(agentId: string): Promise<AgentRow> {
       const [row] = await this.sql`
-         SELECT id, name, instructions, model_name
+         SELECT id, name, instructions, model_name, permissions
            FROM agents
           WHERE id = ${agentId} AND archived_at IS NULL`;
       if (!row) throw new Error(`agent ${agentId} does not exist`);
@@ -549,6 +555,7 @@ export class AdkExecutor {
          // An agent with no model of its own runs on the deployment's default
          // rather than not at all.
          model: (row.model_name as string | null) || this.defaultModel,
+         permissions: permissionsOf(row.permissions as string[] | null, row.name as string),
       };
    }
 }

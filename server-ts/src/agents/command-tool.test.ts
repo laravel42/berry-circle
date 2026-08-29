@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { runCommandTool } from './command-tool.ts';
 import { ExecutionUnavailable, type ExecEvent, type ExecutionSession } from '../execution/driver.ts';
 import type { RunLedger } from '../runs/ledger.ts';
+import { permissionsOf } from './permissions.ts';
 
 /**
  * The tool that turns a run into something you can watch.
@@ -254,4 +255,46 @@ test('a working directory is passed through, and omitted when unset', async () =
    await call(tool(session, ledger), { command: 'ls' });
 
    assert.deepEqual(seen, [{ cwd: '/workspace/repo' }, {}]);
+});
+
+test('a revoked permission refuses the call rather than hiding the button', async () => {
+   // The claim is that the runtime refuses. A check that only decided whether
+   // to offer the tool would be a hidden button, and a hidden button is not an
+   // enforcement point — so this calls the tool directly, as a model would.
+   const { ledger, events } = fakeLedger();
+   let opened = false;
+   const refusing = runCommandTool({
+      ledger,
+      runId: 'run-1',
+      session: async () => {
+         opened = true;
+         return fakeSession([]);
+      },
+      newId: () => 'cmd-1',
+      permissions: permissionsOf(['read_repository'], 'Forge'),
+   });
+
+   const result = await call(refusing as ReturnType<typeof tool>, { command: 'rm -rf /' });
+   assert.equal(result.exitCode, null);
+   assert.equal(result.permissionDenied, true);
+   assert.match(result.error as string, /Forge does not have permission to run commands/);
+
+   // Nothing was opened and nothing was recorded: the refusal happens before
+   // a workspace is touched.
+   assert.equal(opened, false);
+   assert.deepEqual(events, []);
+});
+
+test('a granted permission lets the call through', async () => {
+   const { ledger } = fakeLedger();
+   const permitted = runCommandTool({
+      ledger,
+      runId: 'run-1',
+      session: async () => fakeSession([{ type: 'exit', seq: 0, exitCode: 0 }]),
+      newId: () => 'cmd-1',
+      permissions: permissionsOf(['run_commands'], 'Forge'),
+   });
+   const result = await call(permitted as ReturnType<typeof tool>, { command: 'ls' });
+   assert.equal(result.exitCode, 0);
+   assert.equal(result.permissionDenied, undefined);
 });
