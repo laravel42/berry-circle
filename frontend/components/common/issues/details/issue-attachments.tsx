@@ -7,10 +7,11 @@ import {
    downloadAttachment,
    formatFileSize,
    loadIssueAttachments,
+   uploadIssueAttachment,
 } from '@/lib/attachments';
 import { cn } from '@/lib/utils';
-import { Bot, Download, FileText, Loader2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { Bot, Download, FileText, Loader2, Paperclip } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * Files a person put on this issue.
@@ -24,7 +25,9 @@ import { useCallback, useEffect, useState } from 'react';
 export function IssueAttachments({ issueRef }: { issueRef: string }) {
    const [attachments, setAttachments] = useState<ApiAttachment[]>([]);
    const [pending, setPending] = useState<string | null>(null);
+   const [uploading, setUploading] = useState(false);
    const [error, setError] = useState<string | null>(null);
+   const picker = useRef<HTMLInputElement>(null);
 
    useEffect(() => {
       if (!issueRef) {
@@ -58,14 +61,64 @@ export function IssueAttachments({ issueRef }: { issueRef: string }) {
       }
    }, []);
 
-   if (attachments.length === 0) return null;
+   const upload = useCallback(
+      async (files: FileList | null) => {
+         if (!files || files.length === 0) return;
+         setUploading(true);
+         setError(null);
+         try {
+            for (const file of Array.from(files)) {
+               const saved = await uploadIssueAttachment(issueRef, file);
+               // Replaced rather than appended when it is the same file: the
+               // server deduplicates by content, so a second drop of one
+               // screenshot must not appear twice in the list.
+               setAttachments((current) => [
+                  saved,
+                  ...current.filter((entry) => entry.id !== saved.id),
+               ]);
+            }
+         } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'The file could not be uploaded.');
+         } finally {
+            setUploading(false);
+            if (picker.current) picker.current.value = '';
+         }
+      },
+      [issueRef]
+   );
 
    return (
       <div className="mt-6">
-         <h3 className="mb-2 font-medium text-muted-foreground">
-            Files ({attachments.length})
-         </h3>
+         <div className="mb-2 flex items-center justify-between gap-3">
+            <h3 className="font-medium text-muted-foreground">
+               {attachments.length > 0 ? `Files (${attachments.length})` : 'Files'}
+            </h3>
+            <Button
+               variant="ghost"
+               size="sm"
+               className="h-7"
+               disabled={uploading}
+               onClick={() => picker.current?.click()}
+            >
+               {uploading ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+               ) : (
+                  <Paperclip className="size-3.5" />
+               )}
+               {uploading ? 'Uploading…' : 'Add a file'}
+            </Button>
+            <input
+               ref={picker}
+               type="file"
+               multiple
+               className="hidden"
+               onChange={(event) => void upload(event.target.files)}
+            />
+         </div>
          <div className="flex flex-col">
+            {attachments.length === 0 ? (
+               <p className="py-2 text-muted-foreground">No files yet.</p>
+            ) : null}
             {attachments.map((attachment) => {
                const isAgent = attachment.uploader?.type === 'agent';
                return (

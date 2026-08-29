@@ -86,6 +86,8 @@ export interface IssueOptions {
    relations?: Hono<{ Variables: AuthVariables }> | undefined;
    /** An issue's runs: the listing, and the request that starts one. */
    runs?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** An issue's files: the listing, and the multipart upload. */
+   attachments?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
 }
 
@@ -100,6 +102,7 @@ export function issueMounts(options: IssueOptions): Mount[] {
    if (options.nested) route.route('/', options.nested);
    if (options.relations) route.route('/', options.relations);
    if (options.runs) route.route('/', options.runs);
+   if (options.attachments) route.route('/', options.attachments);
 
    const { issues, boards } = options;
 

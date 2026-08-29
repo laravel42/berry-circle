@@ -22,11 +22,11 @@ The server is the reimplementation described in
 [ADR-0009](docs/adr/0009-typescript-product-server.md), and it is not finished. It serves
 identity, workspaces, boards, issues, comments, dependencies, reviews, goals, projects,
 attachments-by-id, agents, runs, integrations, approvals, the inbox, conversations,
-search, saved views, catalogs, plans, and the realtime event streams.
+search, saved views, catalogs, plans, file uploads, Prometheus metrics, and the
+realtime event streams.
 
-It does **not** yet serve the multipart upload at `/issues/:ref/attachments` or
-`/metrics`, and its planner runs one model stage rather than the classifier →
-repair → critic pipeline the contract describes.
+Its planner runs one model stage rather than the classifier → repair → critic
+pipeline the contract describes; everything else the frontend calls is served.
 Those paths answer 404. `GET /api/v1/config` reports the capabilities this deployment
 actually has, so the UI switches off what is missing rather than offering it.
 

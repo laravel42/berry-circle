@@ -2,7 +2,7 @@
    "name": "@berry/server",
    "private": true,
    "type": "module",
-   "version": "0.0.0",
+   "version": "0.1.0",
    "scripts": {
       "typecheck": "tsc --noEmit",
       "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",

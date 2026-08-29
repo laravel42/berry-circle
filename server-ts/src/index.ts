@@ -1,4 +1,14 @@
 import { serve } from '@hono/node-server';
+
+/**
+ * The build, for `berry_build_info` and nothing else.
+ *
+ * Read from the environment rather than from `package.json`: a container built
+ * from a commit knows which commit it was, and the manifest's version only
+ * changes when someone remembers to change it.
+ */
+const VERSION = (process.env.BERRY_VERSION ?? '').trim() || '0.1.0-dev';
+
 import { loadConfig } from './config/config.ts';
 import { checkDatabase, closeDatabase, openDatabase } from './db/pool.ts';
 import { createApp } from './http/app.ts';
@@ -12,6 +22,7 @@ import { boardMounts } from './mounts/boards.ts';
 import { issueMounts } from './mounts/issues.ts';
 import { commentMounts, issueCommentRoutes } from './mounts/comments.ts';
 import { issueRelationRoutes } from './mounts/issue-relations.ts';
+import { issueAttachmentRoutes } from './mounts/issue-attachments.ts';
 import { goalMounts } from './mounts/goals.ts';
 import { attachmentMounts } from './mounts/attachments.ts';
 import { projectMounts } from './mounts/projects.ts';
@@ -192,6 +203,14 @@ registry.registerAll(
       nested: issueCommentRoutes(commentOptions),
       relations: issueRelationRoutes({ issues, dependencies, reviews }),
       runs: issueRunRoutes(runOptions),
+      attachments: issueAttachmentRoutes({
+         attachments,
+         issues,
+         storage,
+         // Without storage there is no cap to enforce, because there is
+         // nowhere to put a file; the route answers 503 before it reads one.
+         maxBytes: config.storage?.maxBytes ?? 0,
+      }),
    })
 );
 registry.registerAll(commentMounts(commentOptions));
@@ -280,6 +299,14 @@ registry.registerAll(
 registry.registerAll(
    platformMounts({
       database: () => checkDatabase(sql),
+      metrics: {
+         sql,
+         // Null rather than zero on a server that does not dispatch: "this
+         // process runs no runs" and "this process is running none right now"
+         // are different facts, and a zero would read as the second.
+         inflight: () => dispatcher?.inflight ?? null,
+         version: VERSION,
+      },
       capabilities: {
          // Reported by whichever server answers, so they have to agree. Only
          // what this process can actually do is true; the rest arrive with the
@@ -288,10 +315,7 @@ registry.registerAll(
          // present: this is what the browser uses to decide whether running
          // an agent is offered at all.
          agentExecution: executor !== null && config.internalToken !== null,
-         // False regardless of configuration: this process does not serve
-         // /metrics yet, and a capability the browser is told about must be
-         // one the server actually has.
-         metrics: false,
+         metrics: true,
          // The event streams are served here now. The relay is not wired, so
          // a fact published by another process arrives on the next poll
          // rather than instantly — later, never lost, because the stream
@@ -299,7 +323,8 @@ registry.registerAll(
          realtime: true,
          storage: storage !== null,
          valkey: false,
-         planner: false,
+         // The planner runs when there is a model credential to run it with.
+         planner: config.agents !== null,
       },
    })
 );

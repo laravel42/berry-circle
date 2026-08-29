@@ -29,6 +29,36 @@ export async function loadIssueAttachments(issueRef: string): Promise<ApiAttachm
 }
 
 /**
+ * Put a file on an issue.
+ *
+ * `FormData` without a content-type header: the browser sets it, including the
+ * multipart boundary, and a header set by hand would be missing that boundary
+ * and unparseable on the other end.
+ *
+ * The server deduplicates by the file's own bytes, so dropping the same
+ * screenshot twice answers 200 with the attachment that already exists rather
+ * than making a second one. Both are the file being there, which is what the
+ * caller wanted.
+ */
+export async function uploadIssueAttachment(
+   issueRef: string,
+   file: File,
+   commentId?: string
+): Promise<ApiAttachment> {
+   const form = new FormData();
+   form.append('file', file);
+   if (commentId) form.append('commentId', commentId);
+
+   const json: unknown = await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/attachments`,
+      { method: 'POST', body: form }
+   );
+   const parsed = attachmentSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Upload response was not recognized');
+   return parsed.data;
+}
+
+/**
  * Download an attachment to the viewer's machine.
  *
  * Fetched rather than linked because the download route needs the session

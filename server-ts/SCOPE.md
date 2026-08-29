@@ -40,7 +40,6 @@ places still reach across the line:
 | `POST /api/v1/projects/:id/generated-issues` | decomposes a project with an agent; waits for ADK |
 | `POST /api/v1/agents/:id/ask` | a chat completion passed through to the old runtime; nothing in the product calls it, and what it should mean now is its own decision |
 | `/api/v1/plans` | the planner is being refactored, so porting it first would be work thrown away twice — the same reason AUTOMATE is excluded |
-| `GET\|POST /api/v1/issues/:ref/attachments` | the upload is a multipart body staged to disk with an idempotency fingerprint taken over the file's own bytes — ~700 lines nothing in the product calls. The four routes that reach an attachment by its own id are served. |
 
 ## Nothing still open
 

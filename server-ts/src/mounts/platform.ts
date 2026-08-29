@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { ApiError, buildErrorEnvelope } from '../http/errors.ts';
 import { json } from '../http/app.ts';
 import type { Mount } from '../http/registry.ts';
+import { renderMetrics, type MetricsSource } from '../observability/metrics.ts';
 
 /**
  * Process health and the browser-safe capability list.
@@ -30,6 +31,8 @@ export interface PlatformOptions {
    /** Optional probes; an absent one is treated as passing, as in Go. */
    checks?: Record<string, Checker | undefined>;
    capabilities: Capabilities;
+   /** Null on a deployment that reports `metrics: false`; the route then 404s. */
+   metrics?: MetricsSource | null;
 }
 
 export function platformMounts(options: PlatformOptions): Mount[] {
@@ -37,7 +40,7 @@ export function platformMounts(options: PlatformOptions): Mount[] {
       { prefix: '/health', handler: healthRoute() },
       { prefix: '/ready', handler: readyRoute(options) },
       { prefix: '/readyz', handler: readyRoute(options) },
-      { prefix: '/metrics', handler: metricsRoute() },
+      { prefix: '/metrics', handler: metricsRoute(options.metrics ?? null) },
       { prefix: '/api/v1/config', handler: configRoute(options.capabilities) },
    ];
 }
@@ -86,17 +89,25 @@ function readyRoute(options: PlatformOptions): Hono {
 }
 
 /**
- * Metrics are not served yet.
+ * The Prometheus endpoint.
  *
- * The route exists so the path answers the ordinary error envelope rather than
- * the router's bare not-found, and `capabilities.metrics` is reported false to
- * match. Anything scraping this endpoint is getting 404s and should be told,
- * rather than left to infer it from an empty graph.
+ * Unauthenticated, like `/health`, because a scraper is not a session and
+ * every number here is an aggregate: how many runs are queued, how many tasks
+ * are done. Nothing identifies a workspace, a person or a piece of work, so
+ * there is nothing here to protect that binding to a private network does not
+ * already protect better.
+ *
+ * A deployment with metrics off answers the ordinary error envelope rather
+ * than the router's bare not-found, so a scraper is told rather than left to
+ * infer it from an empty graph.
  */
-function metricsRoute(): Hono {
+function metricsRoute(source: MetricsSource | null): Hono {
    const route = new Hono();
-   route.get('/', () => {
-      throw ApiError.routeNotFound();
+   route.get('/', async () => {
+      if (!source) throw ApiError.routeNotFound();
+      return new Response(await renderMetrics(source), {
+         headers: { 'content-type': 'text/plain; version=0.0.4; charset=utf-8' },
+      });
    });
    return route;
 }

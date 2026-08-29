@@ -83,6 +83,88 @@ export class AttachmentRepository {
    }
 
    /**
+    * An issue's ready attachments, newest first.
+    *
+    * Same shape of authorization as `get`: the membership is a join, so an
+    * issue in another workspace lists nothing rather than being refused.
+    */
+   async listByIssue(
+      actorId: string,
+      issueId: string,
+      after: { createdAt: string; id: string } | null,
+      limit: number
+   ): Promise<Attachment[]> {
+      const rows = await this.sql`
+         SELECT ${this.sql.unsafe(ATTACHMENT_COLUMNS)}
+           FROM attachments AS attachment
+           JOIN issues AS issue ON issue.id = attachment.issue_id
+           JOIN boards AS board ON board.id = issue.board_id
+           JOIN workspaces AS workspace
+             ON workspace.id = board.workspace_id AND workspace.deleted_at IS NULL
+           JOIN workspace_memberships AS membership
+             ON membership.workspace_id = workspace.id AND membership.user_id = ${actorId}
+           ${this.sql.unsafe(UPLOADER_JOINS)}
+          WHERE attachment.issue_id = ${issueId} AND attachment.state = 'ready'
+            AND (${after === null} OR (attachment.created_at, attachment.id) <
+                 (${after?.createdAt ?? null}::timestamptz, ${after?.id ?? null}::uuid))
+          ORDER BY attachment.created_at DESC, attachment.id DESC
+          LIMIT ${limit}`;
+      return rows.map(toAttachment);
+   }
+
+   /**
+    * Records an upload that is already in the object store.
+    *
+    * `ready` from the start, not `pending`: the row is written after the
+    * object exists, so there is no window in which a listing shows a file the
+    * store does not have. The reverse — an object with no row — is
+    * unreferenced storage, which is a cost rather than a lie.
+    */
+   async record(input: {
+      id: string;
+      issueId: string;
+      commentId: string | null;
+      uploaderId: string;
+      uploaderName: string;
+      fileName: string;
+      contentType: string;
+      sizeBytes: number;
+      checksumSha256: string;
+      storageKey: string;
+   }): Promise<void> {
+      await this.sql`
+         INSERT INTO attachments (id, issue_id, comment_id, uploader_id, uploader_type,
+                                  uploader_name, file_name, content_type, size_bytes,
+                                  checksum_sha256, storage_key, state, ready_at)
+         VALUES (${input.id}, ${input.issueId}, ${input.commentId}, ${input.uploaderId}, 'user',
+                 ${input.uploaderName}, ${input.fileName}, ${input.contentType},
+                 ${input.sizeBytes}, decode(${input.checksumSha256}, 'hex'),
+                 ${input.storageKey}, 'ready', now())`;
+   }
+
+   /**
+    * An upload this issue already has, by content.
+    *
+    * The fingerprint is the file's own bytes and its name, not a header the
+    * client chose: someone who drops the same screenshot twice means it once,
+    * and a retried request after a dropped connection is the same upload
+    * rather than a second one.
+    */
+   async findByChecksum(
+      issueId: string,
+      checksumSha256: string,
+      fileName: string
+   ): Promise<string | null> {
+      const [row] = await this.sql`
+         SELECT id FROM attachments
+          WHERE issue_id = ${issueId} AND state = 'ready'
+            AND checksum_sha256 = decode(${checksumSha256}, 'hex')
+            AND file_name = ${fileName}
+          LIMIT 1`;
+      return row ? (row.id as string) : null;
+   }
+
+   /**
     * Removes the row and reports the object to delete.
     *
     * The row goes first and the object after, deliberately: an object left
