@@ -87,16 +87,14 @@ parameter properties — is allowed; `erasableSyntaxOnly` enforces it.
 **The server is incomplete on purpose.** It serves identity, workspaces,
 boards, issues, comments, dependencies, reviews, goals, projects,
 attachments-by-id, agents and the realtime streams. It does **not** serve
-`/api/v1/runs`, `/workflows`, `/workflow-runs`, `/hooks`, `/approvals`,
-`/plans`, `/conversations`, `/integrations`, `/inbox`, `/search`, `/views`,
-`/catalogs`, `/runtime`, the multipart upload at `/issues/:ref/attachments`, or
-`/metrics`. Those answer 404. Read [`server-ts/SCOPE.md`](server-ts/SCOPE.md)
-before assuming a prefix is missing by accident.
+`/runtime`. Everything the frontend calls is served. Read
+[`server-ts/SCOPE.md`](server-ts/SCOPE.md) before assuming a prefix is missing
+by accident.
 
-**There is no run orchestration.** `POST /internal/runs` is the only way to
-start an agent, it is guarded by `BERRY_INTERNAL_TOKEN`, and nothing in the
-product calls it yet. Do not write code that assumes a queue, a scheduler, or a
-worker exists.
+**Runs are dispatched in process.** `POST /api/v1/issues/{ref}/runs` writes a
+queued run; `runs/dispatcher.ts` claims it with `SKIP LOCKED`, holds a lease it
+renews, executes it, and sweeps runs whose lease expired. There is no external
+worker and no `/internal/` surface.
 
 **`GET /api/v1/config` is how the browser learns what works.** It reports only
 capabilities this process actually has. A capability reported true that the

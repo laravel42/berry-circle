@@ -18,13 +18,6 @@ export interface Config {
    storage: StorageConfig | null;
    agents: AgentConfig | null;
    /**
-    * The shared secret that lets Berry's own worker ask this server to execute
-    * a run. Null disables the internal surface entirely rather than leaving it
-    * open — an unauthenticated endpoint that runs agents and spends money is
-    * not something to default into.
-    */
-   internalToken: string | null;
-   /**
     * Where an agent's commands run. Null when no substrate is configured, in
     * which case the composition root installs a driver that refuses every
     * call rather than a null every caller has to remember to check.
@@ -160,7 +153,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // Trimmed and required to be non-empty: a variable set to whitespace is
       // an operator who meant to set it, and treating that as "configured"
       // would accept a token nothing can present.
-      internalToken: (env.BERRY_INTERNAL_TOKEN ?? '').trim() || null,
       execution: executionConfig,
       // No generated fallback: a key that appeared on its own would differ
       // between restarts and strand every credential already stored.

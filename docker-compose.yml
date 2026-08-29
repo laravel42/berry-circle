@@ -63,9 +63,6 @@ services:
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-berryminio}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
       AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
-      # The shared secret an internal caller presents to run an agent. Empty
-      # turns the internal surface off entirely rather than leaving it open.
-      BERRY_INTERNAL_TOKEN: "${BERRY_INTERNAL_TOKEN:-}"
       # Where an agent's commands run. The API reaches the runtime over HTTP
       # with a shared secret and never touches the Docker socket itself — that
       # is the whole reason `runtime` is a separate service.

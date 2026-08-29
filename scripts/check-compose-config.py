@@ -54,8 +54,7 @@ def render_compose() -> dict[str, Any]:
             "BERRY_DATABASE_URL": (
                 "postgres://berry:berry@postgres:5432/berry?sslmode=disable"
             ),
-            "BERRY_INTERNAL_TOKEN": "",
-            "BERRY_OPENROUTER_API_KEY": "",
+                "BERRY_OPENROUTER_API_KEY": "",
             "BERRY_RUNTIME_DRIVER": "",
             "INTEGRATION_ENCRYPTION_KEY": "",
             "BERRY_RUNTIME_TOKEN": "",
@@ -168,7 +167,6 @@ def check_services(rendered: dict[str, Any]) -> None:
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
-        "BERRY_INTERNAL_TOKEN",
         "DATABASE_URL",
         "S3_BUCKET",
         "S3_USE_PATH_STYLE",

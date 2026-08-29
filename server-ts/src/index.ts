@@ -26,7 +26,6 @@ import { issueAttachmentRoutes } from './mounts/issue-attachments.ts';
 import { goalMounts } from './mounts/goals.ts';
 import { attachmentMounts } from './mounts/attachments.ts';
 import { projectMounts } from './mounts/projects.ts';
-import { internalRunMounts } from './mounts/internal-runs.ts';
 import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
 import { integrationMounts } from './mounts/integrations.ts';
 import { approvalMounts } from './mounts/approvals.ts';
@@ -217,7 +216,6 @@ registry.registerAll(commentMounts(commentOptions));
 registry.registerAll(goalMounts({ sessions, goals, issues, idempotency, broadcaster }));
 registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
-registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(runMounts(runOptions));
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
 registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
@@ -316,7 +314,12 @@ registry.registerAll(
          // True only when a model credential and object storage are both
          // present: this is what the browser uses to decide whether running
          // an agent is offered at all.
-         agentExecution: executor !== null && config.internalToken !== null,
+         // A model credential and object storage, which is what an agent
+         // needs to run at all. Not the dispatcher: a deployment could split
+         // serving from dispatching, and this is reported by whichever server
+         // answers — so it has to be a property of the build and its
+         // configuration rather than of which process was asked.
+         agentExecution: executor !== null,
          metrics: true,
          // The event streams are served here now. The relay is not wired, so
          // a fact published by another process arrives on the next poll
