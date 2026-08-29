@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
-import { assertValid, fieldError } from '../http/body.ts';
+import { assertValid, decodeBody, fieldError } from '../http/body.ts';
 import { decodeTimeCursor, encodeCursor, parsePageQuery } from '../http/cursor.ts';
 import { ApiError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
@@ -12,16 +12,18 @@ import { toRFC3339, type Sql } from '../db/pool.ts';
 import { pathId } from './shared.ts';
 
 /**
- * Three small reads the shell needs before it can draw: `/search`, `/views`
- * and `/catalogs`.
+ * `/search`, `/views` and `/catalogs`.
  *
- * One file rather than three, because each is a single query over a single
- * table and splitting them would be three modules of boilerplate around three
- * SELECTs. They share the same shape — workspace-scoped, cursor-paged, read
- * only — and nothing here decides anything.
+ * One file rather than three, because each is a thin layer over a single
+ * table and splitting them would be three modules of boilerplate. They share
+ * the same shape — workspace-scoped, cursor-paged — and are registered as
+ * three mounts because the registry addresses by prefix and `/search` and
+ * `/views` are not the same resource.
  *
- * They are registered as three mounts, because the registry addresses by
- * prefix and `/search` and `/views` are not the same resource.
+ * `/catalogs` is the only one that writes: it is the workspace's vocabularies,
+ * which is what the settings pages edit. Editing a vocabulary needs
+ * `settings.write`; reading it needs only membership, because every list in
+ * the product renders labels and statuses.
  */
 
 const MAX_QUERY = 200;
@@ -185,6 +187,10 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVar
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
 
+   /**
+    * Labels are workspace vocabulary and a task can carry any of them, so
+    * reading is membership and writing is `settings.write`.
+    */
    route.get('/:workspaceId/issue-labels', async (context) => {
       const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
       await authorizeWorkspace(context, options, workspaceId);
@@ -220,10 +226,194 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVar
       );
    });
 
+   route.post('/:workspaceId/issue-labels', async (context) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      await authorizeWorkspace(context, options, workspaceId, 'settings.write');
+      const input = await readLabel(context);
+
+      const [row] = await options.sql`
+         INSERT INTO issue_labels (workspace_id, name, description, color, created_by)
+         VALUES (${workspaceId}, ${input.name}, ${input.description}, ${input.color},
+                 ${context.get('user').id})
+         ON CONFLICT (workspace_id, lower(name)) WHERE archived_at IS NULL
+         DO NOTHING
+         RETURNING id, workspace_id, name, description, color, created_at, updated_at, archived_at`;
+      // Nothing returned means the name is taken. Reported rather than
+      // silently reusing the existing label: someone creating "urgent" when
+      // "Urgent" exists wants to know, not to be quietly given the other one.
+      if (!row) {
+         throw new ApiError(409, 'CONFLICT', 'A label with that name already exists.');
+      }
+      return json(serializeLabel(row), 201);
+   });
+
+   route.patch('/:workspaceId/issue-labels/:labelId', async (context) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      await authorizeWorkspace(context, options, workspaceId, 'settings.write');
+      const labelId = pathId(context.req.param('labelId'), 'Label');
+      const input = await readLabel(context, { partial: true });
+
+      const [row] = await options.sql`
+         UPDATE issue_labels
+            SET name = COALESCE(${input.name}, name),
+                description = CASE WHEN ${input.describedGiven} THEN ${input.description} ELSE description END,
+                color = COALESCE(${input.color}, color),
+                updated_at = now()
+          WHERE id = ${labelId} AND workspace_id = ${workspaceId}
+          RETURNING id, workspace_id, name, description, color, created_at, updated_at, archived_at`;
+      if (!row) throw ApiError.notFound('Label');
+      return json(serializeLabel(row));
+   });
+
+   /**
+    * Archives a label rather than deleting it.
+    *
+    * A label already on a task has to stay nameable — deleting the row would
+    * leave every task that carries it showing a blank chip, and the unique
+    * index only covers live rows, so the name becomes free again either way.
+    */
+   route.delete('/:workspaceId/issue-labels/:labelId', async (context) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      await authorizeWorkspace(context, options, workspaceId, 'settings.write');
+      const labelId = pathId(context.req.param('labelId'), 'Label');
+
+      const rows = await options.sql`
+         UPDATE issue_labels SET archived_at = now(), updated_at = now()
+          WHERE id = ${labelId} AND workspace_id = ${workspaceId} AND archived_at IS NULL
+          RETURNING id`;
+      if (rows.length === 0) throw ApiError.notFound('Label');
+      return new Response(null, { status: 204 });
+   });
+
+   /**
+    * The statuses a task can be in.
+    *
+    * Seven of them are system rows whose `key` must match their category — the
+    * table enforces it — because the board's columns and the run ledger both
+    * address them by category. They can be renamed and recoloured; they cannot
+    * be removed, and this never offers to.
+    */
+   route.get('/:workspaceId/issue-statuses', async (context) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      await authorizeWorkspace(context, options, workspaceId, 'product.read');
+      const rows = await options.sql`
+         SELECT id, key, name, description, category, color, sort_order, is_system, archived_at
+           FROM issue_status_definitions
+          WHERE workspace_id = ${workspaceId} AND archived_at IS NULL
+          ORDER BY sort_order ASC, key ASC`;
+      return json({
+         nodes: rows.map((row) => ({
+            id: row.id as string,
+            key: row.key as string,
+            name: row.name as string,
+            description: (row.description as string | null) ?? null,
+            category: row.category as string,
+            color: row.color as string,
+            sortOrder: Number(row.sort_order),
+            isSystem: Boolean(row.is_system),
+         })),
+      });
+   });
+
+   route.patch('/:workspaceId/issue-statuses/:statusId', async (context) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      await authorizeWorkspace(context, options, workspaceId, 'settings.write');
+      const statusId = pathId(context.req.param('statusId'), 'Status');
+
+      const { value } = await decodeBody<{
+         name?: string;
+         description?: string;
+         color?: string;
+         sortOrder?: number;
+      }>(context, { name: 'string', description: 'string', color: 'string', sortOrder: 'number' });
+
+      const problems = [];
+      const name = value.name === undefined ? null : value.name.trim();
+      if (name !== null && (name.length < 1 || name.length > 100)) {
+         problems.push(fieldError('/name', 'invalid_length', 'name is 1 to 100 characters.'));
+      }
+      if (value.color !== undefined && !/^#[0-9a-f]{6}$/.test(value.color)) {
+         problems.push(fieldError('/color', 'invalid_value', 'color is a hex value like #6366f1.'));
+      }
+      if (value.sortOrder !== undefined && (!Number.isInteger(value.sortOrder) || value.sortOrder < 0)) {
+         problems.push(fieldError('/sortOrder', 'invalid_value', 'sortOrder is a whole number.'));
+      }
+      if (problems.length > 0) assertValid(problems);
+
+      // Neither `key` nor `category` is patchable, whatever is sent: the board
+      // and the ledger address a status by category, and a rename there would
+      // move every task that is in it.
+      const [row] = await options.sql`
+         UPDATE issue_status_definitions
+            SET name = COALESCE(${name}, name),
+                description = CASE WHEN ${'description' in value} THEN ${value.description ?? null} ELSE description END,
+                color = COALESCE(${value.color ?? null}, color),
+                sort_order = COALESCE(${value.sortOrder ?? null}, sort_order),
+                updated_at = now()
+          WHERE id = ${statusId} AND workspace_id = ${workspaceId}
+          RETURNING id, key, name, description, category, color, sort_order, is_system`;
+      if (!row) throw ApiError.notFound('Status');
+      return json({
+         id: row.id as string,
+         key: row.key as string,
+         name: row.name as string,
+         description: (row.description as string | null) ?? null,
+         category: row.category as string,
+         color: row.color as string,
+         sortOrder: Number(row.sort_order),
+         isSystem: Boolean(row.is_system),
+      });
+   });
+
    return route;
 }
 
 // ------------------------------------------------------------------ helpers
+
+const LABEL_COLOR = /^#[0-9a-f]{6}$/;
+
+function serializeLabel(row: Record<string, unknown>): Record<string, unknown> {
+   return {
+      id: row.id as string,
+      workspaceId: row.workspace_id as string,
+      name: row.name as string,
+      description: (row.description as string | null) ?? null,
+      color: row.color as string,
+      createdAt: toRFC3339(row.created_at as string)!,
+      updatedAt: toRFC3339(row.updated_at as string)!,
+      archivedAt: toRFC3339((row.archived_at as string | null) ?? null),
+   };
+}
+
+async function readLabel(
+   context: Parameters<typeof decodeBody>[0],
+   options: { partial?: boolean } = {}
+) {
+   const { value } = await decodeBody<{ name?: string; description?: string; color?: string }>(
+      context,
+      { name: 'string', description: 'string', color: 'string' }
+   );
+   const problems = [];
+   const name = value.name === undefined ? null : value.name.trim();
+   if (!options.partial && (name === null || name === '')) {
+      problems.push(fieldError('/name', 'required', 'name is required.'));
+   }
+   if (name !== null && name.length > 100) {
+      problems.push(fieldError('/name', 'too_long', 'name is at most 100 characters.'));
+   }
+   const color = value.color ?? (options.partial ? null : '#6366f1');
+   if (color !== null && !LABEL_COLOR.test(color)) {
+      problems.push(fieldError('/color', 'invalid_value', 'color is a hex value like #6366f1.'));
+   }
+   if (problems.length > 0) assertValid(problems);
+
+   return {
+      name: name === '' ? null : name,
+      color,
+      description: (value.description ?? '').trim() || null,
+      describedGiven: 'description' in value,
+   };
+}
 
 function connection<T extends { id: string; createdAt: string }>(
    rows: Array<Record<string, unknown>>,
@@ -259,10 +449,11 @@ async function requireWorkspace(
 async function authorizeWorkspace(
    context: { get: (key: 'user') => { id: string } },
    options: WorkspaceReadOptions,
-   workspaceId: string
+   workspaceId: string,
+   permission: 'product.read' | 'settings.write' = 'product.read'
 ): Promise<void> {
    await options.boards
-      .authorizeWorkspace(context.get('user').id, workspaceId, 'product.read')
+      .authorizeWorkspace(context.get('user').id, workspaceId, permission)
       .catch((error: unknown) => {
          if (error instanceof NotFound || error instanceof Forbidden) {
             throw ApiError.notFound('Workspace');

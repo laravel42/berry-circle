@@ -31,7 +31,7 @@ const THEMES = [
    },
 ] as const;
 
-export function ThemePreferences() {
+export function ThemePreferences({ onChange }: { onChange?: (theme: string) => void } = {}) {
    const { theme, setTheme } = useTheme();
    const [mounted, setMounted] = useState(false);
 
@@ -52,7 +52,12 @@ export function ThemePreferences() {
                      type="button"
                      role="radio"
                      aria-checked={checked}
-                     onClick={() => setTheme(candidate.id)}
+                     onClick={() => {
+                        setTheme(candidate.id);
+                        // The browser applies it now; the account remembers it
+                        // so the next device opens the same way.
+                        onChange?.(candidate.id);
+                     }}
                      className={cn(
                         'flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors',
                         'border-b border-border/60 last:border-b-0 hover:bg-accent/60',

@@ -22,8 +22,8 @@ The server is the reimplementation described in
 [ADR-0009](docs/adr/0009-typescript-product-server.md), and it is not finished. It serves
 identity, workspaces, boards, issues, comments, dependencies, reviews, goals, projects,
 attachments-by-id, agents, runs, integrations, approvals, the inbox, conversations,
-search, saved views, catalogs, plans, file uploads, Prometheus metrics, and the
-realtime event streams.
+search, saved views, catalogs, plans, file uploads, account settings, Prometheus
+metrics, and the realtime event streams.
 
 Everything the frontend calls is served. The planner's `intent` and `context`
 stages are the one thing in the contract it does not run.

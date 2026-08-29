@@ -123,22 +123,28 @@ export function SelectMenu({
    defaultValue,
    value: controlledValue,
    onChange,
+   disabled,
 }: {
    options: string[];
    defaultValue?: string;
    /** Optional controlled value (e.g. wired to next-themes). */
    value?: string;
    onChange?: (value: string) => void;
+   /** While a write is in flight, so a second click cannot race the first. */
+   disabled?: boolean;
 }) {
    const [internal, setInternal] = useState(defaultValue ?? options[0]);
    const value = controlledValue ?? internal;
    return (
       <DropdownMenu>
-         <DropdownMenuTrigger className="h-8 px-3 rounded-md border bg-container inline-flex items-center gap-1.5 hover:bg-accent transition-colors outline-none">
+         <DropdownMenuTrigger
+            disabled={disabled}
+            className="h-8 max-w-56 truncate px-3 rounded-md border bg-container inline-flex items-center gap-1.5 hover:bg-accent transition-colors outline-none disabled:opacity-60"
+         >
             {value}
             <ChevronDown className="size-3.5 text-muted-foreground" />
          </DropdownMenuTrigger>
-         <DropdownMenuContent align="end" className="min-w-40">
+         <DropdownMenuContent align="end" className="max-h-72 min-w-40 overflow-y-auto">
             {options.map((option) => (
                <DropdownMenuItem
                   key={option}

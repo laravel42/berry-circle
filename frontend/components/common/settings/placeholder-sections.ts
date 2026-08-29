@@ -7,6 +7,24 @@ export interface PlaceholderConfig {
 }
 
 export const PLACEHOLDER_SECTIONS: Record<string, PlaceholderConfig> = {
+   'agent-personalization': {
+      title: 'Agent personalization',
+      description:
+         'Personal guidance for the agents you work with. Berry stores an agent\u2019s instructions for the whole workspace; there is nowhere yet for yours alone.',
+      emptyLabel: 'Not built yet',
+   },
+   'code-and-reviews': {
+      title: 'Code & reviews',
+      description:
+         'Preferences for reading a diff inside Berry. The run\u2019s branch and pull request are shown on the run itself; nothing here is stored yet.',
+      emptyLabel: 'Not built yet',
+   },
+   'issue-templates': {
+      title: 'Task templates',
+      description:
+         'Prefilled tasks a person can start from. Berry has no template store yet, so nothing here would survive a reload.',
+      emptyLabel: 'No task templates',
+   },
    slas: {
       title: 'SLAs',
       description: 'Automatically apply deadlines to tasks based on their properties',

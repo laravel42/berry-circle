@@ -34,6 +34,14 @@ export interface Agent {
    modelName: string | null;
    modelTier: string | null;
    limits: unknown;
+   /**
+    * What this agent may do, as `permissions.ts` reads it.
+    *
+    * Carried on the resource because the settings page is where a person
+    * decides it, and a permission model nobody can see is one nobody audits.
+    * Absence is denial, so an unrecognised name here grants nothing.
+    */
+   permissions: string[];
    protected: boolean;
    createdAt: string;
    updatedAt: string;
@@ -83,7 +91,7 @@ const AGENT_COLUMNS = `
    agent.id, agent.board_id, agent.name, agent.description, agent.avatar_url,
    agent.status, agent.capabilities, agent.skills, agent.instructions,
    agent.model_provider, agent.model_name, agent.model_tier,
-   agent.manifest_limits, agent.protected, agent.created_at, agent.updated_at`;
+   agent.manifest_limits, agent.permissions, agent.protected, agent.created_at, agent.updated_at`;
 
 /**
  * One agent works one issue at a time.
@@ -257,6 +265,30 @@ export class AgentRepository {
     * protected orchestrator refuses even this — a workspace without one has
     * nothing to fall back to when no other agent can take a task.
     */
+   /**
+    * Replaces what an agent may do.
+    *
+    * A whole set rather than a patch: permissions are read as a set at every
+    * enforcement point, and a partial update would leave a caller unsure
+    * whether an absent name was "leave it" or "revoke it". The application
+    * drops names it does not know, so an unrecognised one grants nothing here
+    * either.
+    */
+   async setPermissions(
+      agentId: string,
+      workspaceId: string,
+      permissions: string[]
+   ): Promise<Agent> {
+      const [row] = await this.sql`
+         UPDATE agents AS agent
+            SET permissions = ${permissions}, updated_at = now()
+          WHERE agent.id = ${agentId} AND agent.workspace_id = ${workspaceId}
+            AND agent.archived_at IS NULL
+          RETURNING ${this.sql.unsafe(AGENT_COLUMNS)}`;
+      if (!row) throw new NotFound();
+      return toAgent(row);
+   }
+
    async archive(agentId: string, workspaceId: string, now: Date): Promise<void> {
       const [row] = await this.sql`
          SELECT protected FROM agents
@@ -285,6 +317,7 @@ function toAgent(row: Record<string, unknown>): Agent {
       modelName: (row.model_name as string | null) ?? null,
       modelTier: (row.model_tier as string | null) ?? null,
       limits: row.manifest_limits ?? null,
+      permissions: (row.permissions as string[] | null) ?? [],
       protected: row.protected === true,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',

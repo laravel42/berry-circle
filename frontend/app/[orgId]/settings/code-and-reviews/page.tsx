@@ -1,11 +1,12 @@
+import SettingsPlaceholder from '@/components/common/settings/settings-placeholder';
+import { PLACEHOLDER_SECTIONS } from '@/components/common/settings/placeholder-sections';
 import MainLayout from '@/components/layout/main-layout';
-import AccountCodeReviews from '@/components/common/settings/account-code-reviews';
 import Header from '@/components/layout/headers/settings/header';
 
-export default function Page() {
+export default function SettingsPage() {
    return (
       <MainLayout header={<Header />} headersNumber={1}>
-         <AccountCodeReviews />
+         <SettingsPlaceholder config={PLACEHOLDER_SECTIONS['code-and-reviews']} />
       </MainLayout>
    );
 }

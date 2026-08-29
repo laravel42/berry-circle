@@ -1,85 +1,116 @@
 'use client';
 
 import { Switch } from '@/components/ui/switch';
-import { Mail, Monitor, Slack, Smartphone } from 'lucide-react';
-import { EnabledDot, SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
+import {
+   loadNotifications,
+   saveNotification,
+   type NotificationKey,
+   type NotificationSwitches,
+} from '@/lib/settings';
+import { useSessionStore } from '@/store/session-store';
+import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
+import { useSettingsResource } from './use-settings-resource';
 
-const CHANNELS = [
+/**
+ * What Berry tells you about, in the workspace you are in.
+ *
+ * Per workspace because the answer usually differs: every mention in the one
+ * you work in, and nothing from the one you were invited to. The page says
+ * which workspace it is editing rather than leaving that to be inferred.
+ *
+ * The email, Slack and mobile rows this page used to show are gone. Berry
+ * delivers to the inbox and nowhere else yet, and a "Enabled for all
+ * notifications" line under a channel that sends nothing is a claim, not a
+ * setting. Addresses for the day it does deliver are under Connected accounts.
+ */
+
+const ROWS: Array<{ key: NotificationKey; title: string; description: string }> = [
    {
-      icon: <Monitor className="size-4" />,
-      title: 'Desktop',
-      status: 'Enabled for assignments and status changes',
+      key: 'assignments',
+      title: 'Assigned to me',
+      description: 'A task is assigned to you, by a person or by a plan.',
    },
    {
-      icon: <Smartphone className="size-4" />,
-      title: 'Mobile',
-      status: 'Enabled for assignments and status changes',
+      key: 'mentions',
+      title: 'Mentions',
+      description: 'Someone names you in a comment or a description.',
    },
-   { icon: <Mail className="size-4" />, title: 'Email', status: 'Enabled for all notifications' },
-   { icon: <Slack className="size-4" />, title: 'Slack', status: 'Enabled for all notifications' },
+   {
+      key: 'comments',
+      title: 'Comments',
+      description: 'A new comment on a task you are on.',
+   },
+   {
+      key: 'statusChanges',
+      title: 'Status changes',
+      description: 'A task you are on moves, including into review.',
+   },
+   {
+      key: 'approvals',
+      title: 'Approvals',
+      description: 'A decision is waiting on you, or one you asked for is answered.',
+   },
+   {
+      key: 'agentActivity',
+      title: 'Agent activity',
+      description: 'A run on your task finishes, fails, or opens a pull request.',
+   },
+   {
+      key: 'goals',
+      title: 'Goals',
+      description: 'A goal you follow is planned, blocked or completed.',
+   },
+   {
+      key: 'updates',
+      title: 'Everything else',
+      description: 'Workspace changes that do not fit the rest.',
+   },
 ];
 
-/** Personal notification settings (push channels + product updates). */
 export default function AccountNotifications() {
+   const workspace = useSessionStore((state) => state.workspace);
+   const workspaceId = workspace?.id ?? '';
+
+   const switches = useSettingsResource<NotificationSwitches>(
+      () =>
+         workspaceId
+            ? loadNotifications(workspaceId)
+            : Promise.reject(new Error('No workspace is selected.')),
+      [workspaceId]
+   );
+
+   const toggle = (key: NotificationKey, enabled: boolean) => {
+      if (!switches.value) return;
+      void switches.mutate({ ...switches.value, [key]: enabled }, () =>
+         saveNotification(workspaceId, key, enabled)
+      );
+   };
+
    return (
-      <SettingsShell title="Notifications">
-         <SettingsSection
-            title="Push notifications"
-            description="Choose which notifications are pushed to your devices. All notifications will still appear in your inbox."
-         >
+      <SettingsShell
+         title="Notifications"
+         description={
+            workspace
+               ? `What Berry tells you about in ${workspace.name}. These are per workspace.`
+               : 'Select a workspace to change its notifications.'
+         }
+      >
+         <SettingsSection title="In your inbox" description={switches.error ?? undefined}>
             <SettingsCard>
-               {CHANNELS.map((channel) => (
+               {ROWS.map((row) => (
                   <SettingsRow
-                     key={channel.title}
-                     icon={channel.icon}
-                     title={channel.title}
-                     description={<EnabledDot>{channel.status}</EnabledDot>}
-                     chevron
-                     onClick={() => {}}
+                     key={row.key}
+                     title={row.title}
+                     description={row.description}
+                     trailing={
+                        <Switch
+                           checked={switches.value?.[row.key] ?? true}
+                           disabled={switches.loading || switches.saving || !workspaceId}
+                           onCheckedChange={(enabled) => toggle(row.key, enabled)}
+                        />
+                     }
                   />
                ))}
-            </SettingsCard>
-         </SettingsSection>
-
-         <SettingsSection
-            title="Updates from Berry"
-            description="Subscribe to product announcements and important changes from the Berry team"
-         >
-            <h3 className="font-medium mt-2">Changelog</h3>
-            <SettingsCard>
-               <SettingsRow
-                  title="Show updates in sidebar"
-                  description="Highlight new features and improvements in the app sidebar"
-                  trailing={<Switch defaultChecked />}
-               />
-               <SettingsRow
-                  title="Changelog newsletter"
-                  description="Receive an email twice a month highlighting new features and improvements"
-                  trailing={<Switch />}
-               />
-            </SettingsCard>
-
-            <h3 className="font-medium mt-2">Marketing</h3>
-            <SettingsCard>
-               <SettingsRow
-                  title="Marketing and onboarding"
-                  description="Occasional updates to help you get the most out of Berry"
-                  trailing={<Switch />}
-               />
-            </SettingsCard>
-
-            <h3 className="font-medium mt-2">Other updates</h3>
-            <SettingsCard>
-               <SettingsRow
-                  title="Invite accepted"
-                  description="Receive an email when an invite you sent is accepted"
-                  trailing={<Switch defaultChecked />}
-               />
-               <SettingsRow
-                  title="Privacy and legal updates"
-                  description="Important updates about terms of service or privacy policy changes"
-                  trailing={<Switch defaultChecked />}
-               />
             </SettingsCard>
          </SettingsSection>
       </SettingsShell>

@@ -34,11 +34,14 @@ import type { Mount } from '../http/registry.ts';
 export interface MeOptions {
    sessions: SessionService;
    identity: IdentityRepository;
+   /** The account settings that are not the profile: sessions, channels, alerts. */
+   nested?: Hono<{ Variables: AuthVariables }> | undefined;
 }
 
 export function meMounts(options: MeOptions): Mount[] {
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
+   if (options.nested) route.route('/', options.nested);
 
    const { identity } = options;
 

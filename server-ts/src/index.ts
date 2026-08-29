@@ -31,6 +31,7 @@ import { integrationMounts } from './mounts/integrations.ts';
 import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
 import { workspaceReadMounts } from './mounts/workspace-reads.ts';
+import { accountRoutes } from './mounts/account.ts';
 import { conversationMounts } from './mounts/conversations.ts';
 import { planMounts } from './mounts/plans.ts';
 import { PlanRepository } from './plans/repository.ts';
@@ -185,7 +186,7 @@ const runOptions = {
 };
 
 const registry = new Registry();
-registry.registerAll(meMounts({ sessions, identity }));
+registry.registerAll(meMounts({ sessions, identity, nested: accountRoutes({ boards, sql }) }));
 registry.registerAll(workspaceMounts({ sessions, workspaces, secrets }));
 registry.registerAll(secretsMounts({ sessions, secrets }));
 registry.registerAll(

@@ -15,6 +15,11 @@ const agentSchema = z.object({
    instructions: z.string().nullish(),
    modelProvider: z.string().nullish(),
    modelName: z.string().nullish(),
+   /**
+    * What this agent may do. Absence is denial, so an empty list is an agent
+    * that can be assigned work and cannot act on it.
+    */
+   permissions: z.array(z.string()).default([]),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -259,4 +264,41 @@ export function pickRunnableAgent(agents: Agent[]): Agent | undefined {
       agents.find((agent) => agent.status !== 'offline') ??
       agents[0]
    );
+}
+
+/**
+ * What an agent may do, in the order a person reads them.
+ *
+ * `merge_without_approval` is last and separate on purpose: it is the one
+ * that makes the human review gate advisory, and it is not a default.
+ */
+export const AGENT_PERMISSIONS = [
+   { key: 'read_repository', label: 'Read the repository', description: 'Clone it and read its files.' },
+   { key: 'create_branches', label: 'Create branches', description: 'Push a branch named for the task.' },
+   { key: 'run_commands', label: 'Run commands', description: 'Run builds and tests in an isolated workspace.' },
+   {
+      key: 'open_pull_requests',
+      label: 'Open pull requests',
+      description: 'Open a pull request for a person to review.',
+   },
+   {
+      key: 'merge_without_approval',
+      label: 'Merge without approval',
+      description: 'Merge its own work with no human review. Off by default.',
+      dangerous: true,
+   },
+] as const;
+
+/** Replaces the whole set; every enforcement point reads it as a set. */
+export async function setAgentPermissions(
+   agentId: string,
+   permissions: string[]
+): Promise<Agent> {
+   const json: unknown = await apiFetch(
+      `/api/v1/agents/${encodeURIComponent(agentId)}/permissions`,
+      { method: 'PUT', body: JSON.stringify({ permissions }) }
+   );
+   const parsed = agentSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Agent response was not recognized');
+   return parsed.data;
 }

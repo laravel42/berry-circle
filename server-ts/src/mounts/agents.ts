@@ -13,6 +13,7 @@ import {
    type Agent,
    type AgentRepository,
 } from '../agents/repository.ts';
+import { PERMISSIONS } from '../agents/permissions.ts';
 import {
    CatalogUnavailable,
    normalizeModelId,
@@ -123,6 +124,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
                maxConcurrentRuns: MAX_CONCURRENT_RUNS_PER_AGENT,
             },
             limits: agent.limits ?? null,
+      permissions: agent.permissions,
             costProfile: agent.modelTier,
             isOrchestrator: agent.protected,
             updatedAt: agent.updatedAt,
@@ -230,6 +232,44 @@ export function agentMounts(options: AgentOptions): Mount[] {
       return json(serializeAgent(updated));
    });
 
+   /**
+    * What an agent may do.
+    *
+    * `workspace.admin`, not `product.write`: granting an agent the ability to
+    * merge without a review is an administrative decision about the
+    * workspace, not an edit to a piece of work.
+    *
+    * The whole set is replaced, because every enforcement point reads it as a
+    * set — a patch would leave a caller unsure whether an absent name meant
+    * "leave it" or "revoke it".
+    */
+   route.put('/:agentId/permissions', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+
+      const body = await readBody(context.req.raw, new Set(['permissions']));
+      const given = body.permissions;
+      if (!Array.isArray(given) || given.some((entry) => typeof entry !== 'string')) {
+         throw new ApiError(400, 'INVALID_REQUEST', 'permissions is a list of permission names.');
+      }
+      const unknown = (given as string[]).filter(
+         (name) => !(PERMISSIONS as readonly string[]).includes(name)
+      );
+      if (unknown.length > 0) {
+         // Refused rather than dropped. The runtime ignores a name it does not
+         // know, so silently accepting one here would let someone believe they
+         // had granted something.
+         throw new ApiError(400, 'INVALID_REQUEST', `Unknown permission: ${unknown[0]}.`);
+      }
+
+      const updated = await agents
+         .setPermissions(agentId, scope.workspaceId, [...new Set(given as string[])])
+         .catch(rethrowAgent);
+      return json(serializeAgent(updated));
+   });
+
    route.delete('/:agentId', async (context) => {
       const agentId = pathId(context.req.param('agentId'));
       const scope = await agents
@@ -265,6 +305,7 @@ function serializeAgent(agent: Agent): Record<string, unknown> {
       skills: agent.skills,
       instructions: agent.instructions,
       limits: agent.limits ?? null,
+      permissions: agent.permissions,
       modelProvider: agent.modelProvider,
       modelName: agent.modelName,
       createdAt: agent.createdAt,
