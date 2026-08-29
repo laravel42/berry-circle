@@ -18,6 +18,10 @@ import { projectMounts } from './mounts/projects.ts';
 import { internalRunMounts } from './mounts/internal-runs.ts';
 import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
 import { integrationMounts } from './mounts/integrations.ts';
+import { approvalMounts } from './mounts/approvals.ts';
+import { inboxMounts } from './mounts/inbox.ts';
+import { InboxRepository } from './inbox/repository.ts';
+import { ApprovalRepository } from './approvals/repository.ts';
 import { OAuthStateStore } from './integrations/oauth.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
@@ -189,6 +193,16 @@ registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
 registry.registerAll(projectMounts({ sessions, projects, idempotency }));
 registry.registerAll(internalRunMounts({ executor, token: config.internalToken }));
 registry.registerAll(runMounts(runOptions));
+registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
+registry.registerAll(
+   approvalMounts({
+      sessions,
+      approvals: new ApprovalRepository(sql),
+      boards,
+      issues,
+      idempotency,
+   })
+);
 registry.registerAll(
    integrationMounts({
       sessions,
