@@ -133,7 +133,6 @@ export function destinationOf(item: InboxItem, orgId: string): string | null {
    if (item.plan?.id) return `/${orgId}/plan/${item.plan.id}`;
    if (item.goal?.id) return `/${orgId}/goal/${item.goal.id}`;
    if (item.approval?.id) return `/${orgId}/approvals`;
-   if (item.workflowRun?.id) return `/${orgId}/workflow-runs`;
    return null;
 }
 

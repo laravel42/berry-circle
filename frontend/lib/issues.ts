@@ -84,13 +84,6 @@ const issueSchema = z.object({
    createdAt: z.string(),
    updatedAt: z.string(),
    goal: z.object({ id: z.string(), title: z.string() }).nullish(),
-   origin: z
-      .object({
-         workflowId: z.string(),
-         workflowRunId: z.string(),
-         workflowStepRunId: z.string().nullish(),
-      })
-      .nullish(),
    dependsOn: z.array(dependencyRefSchema).default([]),
    blocks: z.array(dependencyRefSchema).default([]),
 });
@@ -224,7 +217,6 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
       issue.activeRunId = apiIssue.activeRunId;
    }
    issue.goal = apiIssue.goal ?? null;
-   issue.origin = apiIssue.origin ?? null;
    issue.dependsOn = apiIssue.dependsOn;
    issue.blocks = apiIssue.blocks;
 

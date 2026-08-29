@@ -391,7 +391,6 @@ function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Re
       createdAt: issue.createdAt,
       updatedAt: issue.updatedAt,
       goal: relations?.goal ?? null,
-      origin: relations?.origin ?? null,
       // Always arrays: the frontend maps over them without a guard.
       dependsOn: relations?.dependsOn ?? [],
       blocks: relations?.blocks ?? [],

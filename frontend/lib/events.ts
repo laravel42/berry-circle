@@ -6,9 +6,9 @@ import { apiStream } from './api';
  * one frame, and an async generator over `GET /api/v1/events?workspaceId=`.
  *
  * Every scope id is optional because the workspace stream carries facts that
- * belong to no board, no issue and no run — a goal was created, a workflow
- * paused, an approval requested — and a frame missing an id must still reach
- * the listener that refreshes the store behind it.
+ * belong to no board, no issue and no run — a goal was created, a plan was
+ * compiled, an approval was requested — and a frame missing an id must still
+ * reach the listener that refreshes the store behind it.
  */
 export const eventEnvelopeSchema = z.object({
    id: z.string(),
@@ -18,8 +18,6 @@ export const eventEnvelopeSchema = z.object({
    boardId: z.string().nullish(),
    issueId: z.string().nullish(),
    runId: z.string().nullish(),
-   workflowId: z.string().nullish(),
-   workflowRunId: z.string().nullish(),
    goalId: z.string().nullish(),
    approvalId: z.string().nullish(),
    planId: z.string().nullish(),
@@ -91,10 +89,10 @@ export interface StreamOptions {
 }
 
 /**
- * Every product change in a workspace, as it happens: goals, workflows and
- * their runs, approvals, plans, and the workspace-wide issue and agent
- * moments. The caller keeps the last id it saw and passes it back as
- * `after` on reconnect, so a dropped connection loses nothing.
+ * Every product change in a workspace, as it happens: goals, approvals,
+ * plans, and the workspace-wide issue and agent moments. The caller keeps
+ * the last id it saw and passes it back as `after` on reconnect, so a
+ * dropped connection loses nothing.
  */
 export async function* streamWorkspaceEvents(
    workspaceId: string,
@@ -108,26 +106,10 @@ export async function* streamWorkspaceEvents(
    yield* readSseFrames(response, 'Workspace event');
 }
 
-/** Frames the workflow run ledger emits, in `sequence` order. */
-export async function* streamWorkflowRunEvents(
-   runId: string,
-   options: StreamOptions = {}
-): AsyncGenerator<EventEnvelope> {
-   const params = new URLSearchParams();
-   if (options.after) params.set('after', options.after);
-   const query = params.toString();
-   const response = await apiStream(
-      `/api/v1/workflow-runs/${encodeURIComponent(runId)}/events${query ? `?${query}` : ''}`,
-      undefined,
-      { signal: options.signal }
-   );
-   yield* readSseFrames(response, 'Workflow run event');
-}
-
-/** The id inside a `plan.*`, `goal.*`, `approval.*` or `workflow.*` payload, when present. */
+/** The id inside a `plan.*`, `goal.*`, `approval.*` or `run.*` payload, when present. */
 export function payloadEntityId(
    event: EventEnvelope,
-   key: 'plan' | 'goal' | 'approval' | 'workflow' | 'run'
+   key: 'plan' | 'goal' | 'approval' | 'run'
 ): string | undefined {
    const payload = event.payload;
    if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined;

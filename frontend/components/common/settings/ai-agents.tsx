@@ -20,7 +20,7 @@ const AGENT_FEATURES = [
    {
       icon: <RefreshCcw className="size-4" />,
       title: 'Loops',
-      description: 'Automated agent workflows that run on a schedule or when a task is updated',
+      description: 'Agents that pick up a task when it is assigned to them',
    },
    {
       icon: <Sparkles className="size-4" />,

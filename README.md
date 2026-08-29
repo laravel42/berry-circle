@@ -21,11 +21,11 @@ Each workspace keeps its own validation commands; both are pnpm packages under
 The server is the reimplementation described in
 [ADR-0009](docs/adr/0009-typescript-product-server.md), and it is not finished. It serves
 identity, workspaces, boards, issues, comments, dependencies, reviews, goals, projects,
-attachments-by-id, agents, and the realtime event streams.
+attachments-by-id, agents, runs, and the realtime event streams.
 
-It does **not** yet serve `/api/v1/runs`, `/workflows`, `/workflow-runs`, `/hooks`,
-`/approvals`, `/plans`, `/conversations`, `/integrations`, `/inbox`, `/search`, `/views`,
-`/catalogs`, `/runtime`, the multipart upload at `/issues/:ref/attachments`, or `/metrics`.
+It does **not** yet serve `/api/v1/approvals`, `/plans`, `/conversations`, `/integrations`,
+`/inbox`, `/search`, `/views`, `/catalogs`, the multipart upload at
+`/issues/:ref/attachments`, or `/metrics`.
 Those paths answer 404. `GET /api/v1/config` reports the capabilities this deployment
 actually has, so the UI switches off what is missing rather than offering it.
 

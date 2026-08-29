@@ -15,7 +15,6 @@ import {
    IssueApprovalSection,
    IssueDependenciesSection,
    IssueGoalSection,
-   IssueOriginSection,
 } from './issue-relations';
 import { Section } from './panel-section';
 import { ReviewerProperty } from './reviewer-property';
@@ -80,7 +79,6 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
 
                <IssueApprovalSection issue={issue} />
                <IssueGoalSection issue={issue} />
-               <IssueOriginSection issue={issue} />
                <IssueDependenciesSection issue={issue} />
 
                {detail.relatedIds && detail.relatedIds.length > 0 && (

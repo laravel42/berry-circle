@@ -1,6 +1,6 @@
 'use client';
 
-import { StatusBadge } from '@/components/common/workflows/workflow-status-badge';
+import { StatusBadge } from '@/components/common/status-badge';
 import { GOAL_STATUS, statusLook } from '@/lib/catalog';
 
 export function GoalStatusBadge({ status, className }: { status: string; className?: string }) {

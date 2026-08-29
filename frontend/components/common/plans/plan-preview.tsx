@@ -40,7 +40,6 @@ import {
    PlanAssumptions,
    PlanConnections,
    PlanIssues,
-   PlanWorkflows,
    Pill,
 } from './plan-sections';
 import {
@@ -77,7 +76,7 @@ function promptTitle(prompt: string | null | undefined): string {
 /**
  * The plan a prompt turned into, read-only, with the one decision that
  * matters: Start Plan. Everything the planner proposed is on the page —
- * tasks, workflows, approvals, assumptions, the connections it needs and
+ * tasks, approvals, assumptions, the connections it needs and
  * what the validator found — because nothing here exists yet, and the person
  * pressing Start is agreeing to all of it at once.
  */
@@ -171,9 +170,8 @@ export default function PlanPreview({ planId }: PlanPreviewProps) {
                            orgId={orgId ?? WORKSPACE_SLUG}
                         />
                         <PlanIssues plan={plan} />
-                        <PlanWorkflows plan={plan} />
                         <PlanApprovals plan={plan} />
-                        {counts.tasks === 0 && counts.workflows === 0 && (
+                        {counts.tasks === 0 && counts.approvals === 0 && (
                            <p className="mt-8 text-muted-foreground">
                               Berry found nothing to create for this request.
                            </p>
@@ -278,7 +276,6 @@ function PlanOutcome({ record, orgId }: { record: PlanRecord; orgId: string }) {
          <p className="mt-1 text-muted-foreground">
             {describePlanCounts({
                tasks: compile.issueIds.length,
-               workflows: compile.workflowIds.length,
                approvals: compile.approvalIds.length,
             })}{' '}
             created.
@@ -338,9 +335,6 @@ function PlanActions({ record }: { record: PlanRecord }) {
          <div className="mx-auto flex w-full max-w-3xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-3 sm:px-8">
             <p className="min-w-0 flex-1 text-muted-foreground">
                {blocker ?? 'Nothing runs until you press Start Plan.'}
-               {!blocker && record.validation.needsAdminActivation && (
-                  <> Workflows in this plan need an admin to activate them.</>
-               )}
                {!blocker && record.validation.risk === 'high' && (
                   <> This plan is high risk, so an admin may have to approve it first.</>
                )}

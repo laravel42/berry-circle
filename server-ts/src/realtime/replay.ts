@@ -29,11 +29,6 @@ export const BOARD_TOPICS = [
  */
 export const WORKSPACE_TOPICS = [
    'goal.created', 'goal.updated', 'goal.started', 'goal.completed', 'goal.cancelled', 'goal.archived',
-   'workflow.created', 'workflow.activated', 'workflow.paused', 'workflow.archived',
-   'workflow.run.started', 'workflow.run.waiting', 'workflow.run.resumed',
-   'workflow.run.succeeded', 'workflow.run.failed', 'workflow.run.cancelled',
-   'workflow.step.started', 'workflow.step.succeeded', 'workflow.step.failed',
-   'workflow.step.skipped', 'workflow.step.waiting',
    'approval.requested', 'approval.approved', 'approval.rejected', 'approval.expired',
    'plan.generated', 'plan.updated', 'plan.blocked', 'plan.patched',
    'plan.approved', 'plan.compiled', 'plan.compile_failed',

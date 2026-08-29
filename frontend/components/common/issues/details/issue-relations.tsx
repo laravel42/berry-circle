@@ -27,9 +27,8 @@ import {
 import { useApprovalsStore } from '@/store/approvals-store';
 import { useGoalsStore } from '@/store/goals-store';
 import { useIssuesStore } from '@/store/issues-store';
-import { useWorkflowsStore } from '@/store/workflows-store';
 import { BerryMark } from '@/components/brand/berry-mark';
-import { Ban, CheckIcon, Plus, Target, Workflow, X } from 'lucide-react';
+import { Ban, CheckIcon, Plus, Target, X } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -136,32 +135,6 @@ export function IssueGoalSection({ issue }: { issue: Issue }) {
          ) : (
             <p className="text-muted-foreground">Serves no goal.</p>
          )}
-      </Section>
-   );
-}
-
-/** "Created by workflow X · run Y", linking to the run that made the task. */
-export function IssueOriginSection({ issue }: { issue: Issue }) {
-   const orgId = useOrgId();
-   const origin = issue.origin;
-   const workflow = useWorkflowsStore((state) =>
-      origin ? state.workflows.find((candidate) => candidate.id === origin.workflowId) : undefined
-   );
-   if (!origin) return null;
-   return (
-      <Section title="Created by">
-         <Link
-            href={`/${orgId}/workflow/${origin.workflowId}/run/${origin.workflowRunId}`}
-            className="-mx-1.5 flex min-w-0 items-center gap-2 rounded px-1.5 py-1 hover:bg-sidebar/50"
-         >
-            <Workflow className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0">
-               <span className="block truncate">{workflow?.name ?? 'A workflow'}</span>
-               <span className="block truncate text-muted-foreground">
-                  run {origin.workflowRunId.slice(0, 8)}
-               </span>
-            </span>
-         </Link>
       </Section>
    );
 }

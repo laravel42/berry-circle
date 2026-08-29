@@ -21,7 +21,7 @@ import {
  *
  * One stream per board and one per workspace, and the split is not cosmetic:
  * a board stream carries what happens on that board, while a workspace stream
- * carries the facts that belong to no board at all — goals, workflows,
+ * carries the facts that belong to no board at all — goals,
  * approvals, plans — plus the few issue and agent moments a workspace-wide
  * consumer has to notice.
  *

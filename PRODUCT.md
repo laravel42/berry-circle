@@ -8,7 +8,7 @@
 
 **Berry is a cloud workspace where humans and AI coding agents plan, execute, and review work together.**
 
-It is issue and project management, collaboration, agent configuration, automation, and legible run evidence in one browser experience. An assignee can be a **person or an agent**; the same issue, status, comment, and review primitives drive both.
+It is issue and project management, collaboration, agent configuration, and legible run evidence in one browser experience. An assignee can be a **person or an agent**; the same issue, status, comment, and review primitives drive both.
 
 Berry is **not** an agent runtime. It is the product and persistence layer on top of **Google ADK** (agent execution substrate). ADK owns execution, sandboxing, scheduling, tools, and model plumbing. Berry owns workspaces, issues, collaboration, review decisions, and the **issue-correlated run ledger**. Browsers call Berry only — never the execution substrate directly.
 
@@ -105,9 +105,13 @@ Features are grouped the way the shell rail organizes them. Some surfaces are li
 
 | Feature | Purpose |
 | --- | --- |
-| **Automations (workflows)** | Visual workflow builder, canvas, history, run list. |
-| **Runs** | Workflow run ledger and per-run detail. |
-| **Approvals** | Human approval steps in automated flows. |
+| **Runs** | The ledger of an agent working a task: commands, output, artifacts, per-run detail. |
+| **Approvals** | The human decisions that gate a plan, a task's start, or an action an agent takes outside Berry. |
+
+Berry has no rules engine, and that is deliberate. A trigger-and-steps builder
+asks a person to keep a rule in agreement with work that lives somewhere else;
+a condition that must be respected belongs in the task's description, where
+the agent doing the work will read it.
 
 ### Manage
 
@@ -123,7 +127,7 @@ Profile, preferences, notifications, issue labels/templates, integrations, AI se
 
 - **Multi-workspace shell** — Workspace switcher on brand row; browser-style tab strip for open routes; collapsible left rail (~218 px).
 - **Command palette** — Global search, navigation, and create actions.
-- **Detail drawers** — Issue, project, review, agent, workflow detail as panels over the workspace (max ~1024 px); list context stays visible behind.
+- **Detail drawers** — Issue, project, review and agent detail as panels over the workspace (max ~1024 px); list context stays visible behind.
 - **Keyboard shortcuts** — Configurable; create-issue and navigation shortcuts are first-class.
 - **Customize sidebar** — Pin, hide, and reorder rail items by section.
 

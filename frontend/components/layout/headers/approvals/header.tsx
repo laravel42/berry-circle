@@ -13,9 +13,9 @@ export default function Header() {
             <div className="min-w-0">
                <span className="font-medium">Approvals</span>
                <p className="mt-1 max-w-2xl text-muted-foreground">
-                  The decisions a person has to make before a plan starts, a task begins or a
-                  workflow step goes on. Who may decide is the addressee, or anyone with that role
-                  or a stronger one.
+                  The decisions a person has to make before a plan starts, a task begins or an
+                  agent acts outside Berry. Who may decide is the addressee, or anyone with that
+                  role or a stronger one.
                </p>
             </div>
             <div className="flex shrink-0 items-center gap-4">

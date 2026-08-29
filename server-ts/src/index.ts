@@ -223,7 +223,6 @@ registry.registerAll(
          storage: storage !== null,
          valkey: false,
          planner: false,
-         workflows: false,
       },
    })
 );

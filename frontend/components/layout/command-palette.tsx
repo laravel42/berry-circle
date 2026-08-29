@@ -21,7 +21,6 @@ import { WORKSPACE_SLUG } from '@/lib/config';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store';
 import { useCreatePlanStore } from '@/store/create-plan-store';
-import { useCreateWorkflowStore } from '@/store/create-workflow-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import {
@@ -48,7 +47,6 @@ import {
    Type,
    UserRoundMinus,
    UserRoundPlus,
-   Workflow,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -96,7 +94,6 @@ export function CommandPalette() {
    } = useIssuesStore();
    const { openModal } = useCreateIssueStore();
    const openPlanModal = useCreatePlanStore((state) => state.openModal);
-   const openWorkflowModal = useCreateWorkflowStore((state) => state.openModal);
    const allProjects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const allLabels = useLabelsStore((state) => state.labels);
@@ -420,16 +417,6 @@ export function CommandPalette() {
                               Plan something…
                               <Keys keys={['P']} />
                            </CommandItem>
-                           <CommandItem
-                              onSelect={() => {
-                                 openWorkflowModal();
-                                 close();
-                              }}
-                           >
-                              <Workflow className="text-muted-foreground" />
-                              New workflow
-                              <Keys keys={['W']} />
-                           </CommandItem>
                         </CommandGroup>
                         <CommandGroup heading="Go to">
                            <CommandItem
@@ -448,13 +435,6 @@ export function CommandPalette() {
                            <CommandItem onSelect={() => go('/goals')}>
                               <Target className="text-muted-foreground" /> Goals
                               <Keys keys={['G', 'G']} />
-                           </CommandItem>
-                           <CommandItem onSelect={() => go('/workflows')}>
-                              <Workflow className="text-muted-foreground" /> Automations
-                              <Keys keys={['G', 'W']} />
-                           </CommandItem>
-                           <CommandItem onSelect={() => go('/workflow-runs')}>
-                              <ListChecks className="text-muted-foreground" /> Runs
                            </CommandItem>
                            <CommandItem onSelect={() => go('/approvals')}>
                               <ShieldCheck className="text-muted-foreground" /> Approvals

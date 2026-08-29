@@ -4,7 +4,6 @@ import { CreateIssueModalProvider } from '@/components/common/issues/create-issu
 import { IssuesHydrator } from '@/components/common/issues/issues-hydrator';
 import { CreateGoalModalProvider } from '@/components/common/goals/create-goal-modal-provider';
 import { CreatePlanModalProvider } from '@/components/common/plans/create-plan-modal-provider';
-import { CreateWorkflowModalProvider } from '@/components/common/workflows/create-workflow-modal-provider';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { cn } from '@/lib/utils';
 
@@ -36,7 +35,6 @@ export default function MainLayout({ children, header }: MainLayoutProps) {
          <IssuesHydrator />
          <CreateIssueModalProvider />
          <CreatePlanModalProvider />
-         <CreateWorkflowModalProvider />
          <CreateGoalModalProvider />
          <CommandPalette />
          {/* No sidebar here: BerryShell owns the rail and the tab strip. The

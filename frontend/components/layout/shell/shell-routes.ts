@@ -32,8 +32,8 @@ export interface ShellRouteDef {
    href?: string;
    /**
     * Extra pathname fragments that count as this route being active, for the
-    * singular detail paths that hang off a plural list (`/workflow/…` under
-    * `/workflows`). Matched with the same longest-match rule as `href`.
+    * singular detail paths that hang off a plural list (`/issue/…` under
+    * `/my-issues`). Matched with the same longest-match rule as `href`.
     */
    match?: string[];
    /**
@@ -124,9 +124,9 @@ export function shellRoute(id: string): ShellRouteDef | undefined {
  *
  * Longest match wins so `/projects/abc` resolves to `projects` rather than
  * matching a shorter unrelated prefix, and a detail path such as
- * `/workflow/abc/history` lights up its list item through `match` without
- * `/runs` ever being part of it — `pathname.includes` would otherwise hand
- * a workflow's run history to the runtimes item.
+ * `/goal/abc/overview` lights up its list item through `match` rather than
+ * through a bare `pathname.includes`, which would hand any path containing
+ * a shorter route's name to the wrong item.
  */
 export function activeShellRoute(pathname: string): ShellRoute | null {
    let match: ShellRouteDef | null = null;

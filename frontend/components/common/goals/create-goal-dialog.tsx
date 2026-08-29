@@ -28,7 +28,7 @@ import { toast } from 'sonner';
 /**
  * A goal written by hand: a title, a description, optionally a project.
  * Berry-written goals come from the plan prompt; this is for the outcome a
- * person already knows and wants to hang tasks and workflows on.
+ * person already knows and wants to hang tasks on.
  */
 export function CreateGoalDialog() {
    const router = useRouter();

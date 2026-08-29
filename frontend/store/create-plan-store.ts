@@ -5,7 +5,7 @@ export interface CreatePlanPrefill {
    prompt?: string;
    goalId?: string;
    projectId?: string;
-   hint?: 'issue' | 'workflow' | 'auto';
+   hint?: 'issue' | 'auto';
 }
 
 interface CreatePlanState {

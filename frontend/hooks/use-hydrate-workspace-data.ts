@@ -12,8 +12,6 @@ import { loadWorkspaceMembers } from '@/lib/members';
 import { loadWorkspaceProjects } from '@/lib/projects';
 import { loadBoardRuns } from '@/lib/runs';
 import { loadWorkspaceViews } from '@/lib/views';
-import { loadWorkspaceWorkflowRuns } from '@/lib/workflow-runs';
-import { loadWorkspaceWorkflows } from '@/lib/workflows';
 import { useAgentsStore } from '@/store/agents-store';
 import { useApprovalsStore } from '@/store/approvals-store';
 import { useGoalsStore } from '@/store/goals-store';
@@ -25,8 +23,6 @@ import { useProjectsStore } from '@/store/projects-store';
 import { useRunsStore } from '@/store/runs-store';
 import { useSessionStore } from '@/store/session-store';
 import { useViewsStore } from '@/store/views-store';
-import { useWorkflowRunsStore } from '@/store/workflow-runs-store';
-import { useWorkflowsStore } from '@/store/workflows-store';
 import { useEffect } from 'react';
 import { useBoardEventStream } from './use-board-event-stream';
 import { useWorkspaceEventStream } from './use-workspace-event-stream';
@@ -36,8 +32,8 @@ import { useWorkspaceEventStream } from './use-workspace-event-stream';
  */
 export function useHydrateWorkspaceData(): void {
    // The initial load below is a snapshot; these keep it current as agents
-   // and workflows work: the board stream for tasks and runs, the workspace
-   // stream for goals, workflows, approvals and the inbox.
+   // work: the board stream for tasks and runs, the workspace stream for
+   // goals, approvals and the inbox.
    useBoardEventStream();
    useWorkspaceEventStream();
 
@@ -55,8 +51,6 @@ export function useHydrateWorkspaceData(): void {
    const hydrateLabels = useLabelsStore((state) => state.hydrateLabels);
    const hydrateViews = useViewsStore((state) => state.hydrateViews);
    const hydrateGoals = useGoalsStore((state) => state.hydrateGoals);
-   const hydrateWorkflows = useWorkflowsStore((state) => state.hydrateWorkflows);
-   const hydrateWorkspaceRuns = useWorkflowRunsStore((state) => state.hydrateWorkspaceRuns);
    const hydrateApprovals = useApprovalsStore((state) => state.hydrateApprovals);
 
    useEffect(() => {
@@ -119,12 +113,6 @@ export function useHydrateWorkspaceData(): void {
       void loadWorkspaceGoals(workspaceId).then((goals) => {
          if (!cancelled) hydrateGoals(goals);
       });
-      void loadWorkspaceWorkflows(workspaceId).then((workflows) => {
-         if (!cancelled) hydrateWorkflows(workflows);
-      });
-      void loadWorkspaceWorkflowRuns(workspaceId).then((runs) => {
-         if (!cancelled) hydrateWorkspaceRuns(runs);
-      });
       void loadWorkspaceApprovals(workspaceId).then((approvals) => {
          if (!cancelled) hydrateApprovals(approvals);
       });
@@ -143,8 +131,6 @@ export function useHydrateWorkspaceData(): void {
       hydrateLabels,
       hydrateViews,
       hydrateGoals,
-      hydrateWorkflows,
-      hydrateWorkspaceRuns,
       hydrateApprovals,
    ]);
 }

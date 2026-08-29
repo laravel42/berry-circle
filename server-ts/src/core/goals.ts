@@ -9,7 +9,7 @@ import type { ActorRef } from './comments.ts';
 /**
  * Goals.
  *
- * A goal is the thing work is *for*: issues link to it, automations run
+ * A goal is the thing work is *for*: issues link to it, plans propose
  * against it, approvals decide about it. Almost everything here is either the
  * lifecycle — which statuses may follow which — or a count over what points at
  * the goal, and neither belongs to any one of those domains.
@@ -66,7 +66,6 @@ export interface Progress {
    issuesTotal: number;
    issuesDone: number;
    issuesCancelled: number;
-   workflowsActive: number;
    approvalsPending: number;
 }
 
@@ -393,8 +392,6 @@ export class GoalRepository {
             (SELECT count(*) FROM goal_issues AS link
                JOIN issues AS issue ON issue.id = link.issue_id AND issue.deleted_at IS NULL
               WHERE link.goal_id = ${goalId} AND issue.status = 'cancelled') AS issues_cancelled,
-            (SELECT count(*) FROM automations AS automation
-              WHERE automation.goal_id = ${goalId} AND automation.status = 'active') AS workflows_active,
             (SELECT count(*) FROM approvals AS approval
               WHERE approval.status = 'pending'
                 AND (approval.goal_id = ${goalId}
@@ -403,43 +400,22 @@ export class GoalRepository {
          issuesTotal: Number(row!.issues_total),
          issuesDone: Number(row!.issues_done),
          issuesCancelled: Number(row!.issues_cancelled),
-         workflowsActive: Number(row!.workflows_active),
          approvalsPending: Number(row!.approvals_pending),
       };
    }
 
    /**
-    * The goal's automations, approvals and plans.
+    * The goal's approvals and plans.
     *
-    * Three reads of tables no mount here owns — automations and approvals
-    * belong to AUTOMATE, plans to the planner. That is fine because these
-    * depend on the tables and not on that code: a goal has to be able to say
-    * what points at it without owning any of it.
+    * Two reads of tables no mount here owns. That is fine because they depend
+    * on the tables and not on that code: a goal has to be able to say what
+    * points at it without owning any of it.
     */
-   async listWorkflows(goalId: string, workspaceId: string, limit = 100) {
-      const rows = await this.sql`
-         SELECT id, name, status::text AS status, trigger_type::text AS trigger_type,
-                risk::text AS risk, version, updated_at
-           FROM automations
-          WHERE goal_id = ${goalId} AND workspace_id = ${workspaceId} AND archived_at IS NULL
-          ORDER BY updated_at DESC, id DESC
-          LIMIT ${limit}`;
-      return rows.map((row) => ({
-         id: row.id as string,
-         name: row.name as string,
-         status: row.status as string,
-         triggerType: row.trigger_type as string,
-         risk: row.risk as string,
-         version: Number(row.version),
-         updatedAt: toRFC3339(row.updated_at as string) ?? '',
-      }));
-   }
-
    async listApprovals(goalId: string, workspaceId: string, limit = 100) {
       const rows = await this.sql`
          SELECT approval.id, approval.kind::text AS kind, approval.risk::text AS risk,
                 approval.title, approval.status::text AS status,
-                approval.issue_id, approval.automation_id, approval.requested_at
+                approval.issue_id, approval.requested_at
            FROM approvals AS approval
           WHERE approval.workspace_id = ${workspaceId}
             AND (approval.goal_id = ${goalId}
@@ -453,7 +429,6 @@ export class GoalRepository {
          title: row.title as string,
          status: row.status as string,
          issueId: (row.issue_id as string | null) ?? null,
-         workflowId: (row.automation_id as string | null) ?? null,
          requestedAt: toRFC3339(row.requested_at as string) ?? '',
       }));
    }

@@ -90,11 +90,6 @@ export interface IssueDependencyRef {
 
 export interface IssueRelations {
    goal: { id: string; title: string } | null;
-   origin: {
-      workflowId: string;
-      workflowRunId: string;
-      workflowStepRunId: string | null;
-   } | null;
    dependsOn: IssueDependencyRef[];
    blocks: IssueDependencyRef[];
 }
@@ -598,7 +593,7 @@ export class IssueRepository {
    }
 
    /**
-    * Goal, workflow origin, and both directions of the dependency graph.
+    * Goal, and both directions of the dependency graph.
     *
     * Each edge is described from both ends in one row, because a page that
     * contains both issues of an edge needs the blocker on the dependent's
@@ -607,7 +602,7 @@ export class IssueRepository {
     */
    async loadRelations(issueIds: string[]): Promise<Map<string, IssueRelations>> {
       const result = new Map<string, IssueRelations>(
-         issueIds.map((id) => [id, { goal: null, origin: null, dependsOn: [], blocks: [] }])
+         issueIds.map((id) => [id, { goal: null, dependsOn: [], blocks: [] }])
       );
       if (issueIds.length === 0) return result;
 
@@ -619,21 +614,6 @@ export class IssueRepository {
       for (const row of goals) {
          const relations = result.get(row.issue_id as string);
          if (relations) relations.goal = { id: row.id as string, title: row.title as string };
-      }
-
-      const origins = await this.sql`
-         SELECT issue_id, automation_id, automation_run_id, automation_step_run_id
-           FROM automation_issue_origins
-          WHERE issue_id = ANY(${issueIds}::uuid[])`;
-      for (const row of origins) {
-         const relations = result.get(row.issue_id as string);
-         if (relations) {
-            relations.origin = {
-               workflowId: row.automation_id as string,
-               workflowRunId: row.automation_run_id as string,
-               workflowStepRunId: (row.automation_step_run_id as string | null) ?? null,
-            };
-         }
       }
 
       const edges = await this.sql`

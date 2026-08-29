@@ -14,7 +14,7 @@ export default function Header() {
             <div className="min-w-0">
                <span className="font-medium">Goals</span>
                <p className="mt-1 max-w-2xl text-muted-foreground">
-                  The outcomes work serves. Each goal counts its tasks, the workflows that automate
+                  The outcomes work serves. Each goal counts its tasks and
                   it and the approvals it waits on.
                </p>
             </div>

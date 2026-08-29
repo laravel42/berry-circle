@@ -5,9 +5,6 @@ import { Button } from '@/components/ui/button';
 import { uiPriorityFromApi } from '@/lib/catalog';
 import {
    describeApprover,
-   describePlanStep,
-   describePlanTrigger,
-   orderPlanSteps,
    type Plan,
    type PlanAssumption,
    type RequiredConnection,
@@ -144,7 +141,7 @@ export function PlanConnections({
          </ul>
          {missing && (
             <p className="mt-2 text-muted-foreground">
-               The plan can start without them; workflows that need them stay drafts until they are
+               The plan can start without them; a task that needs one waits until it is
                connected.
             </p>
          )}
@@ -221,94 +218,16 @@ export function PlanIssues({ plan }: { plan: Plan }) {
    );
 }
 
-/** The repeatable processes: trigger then steps, one card per workflow. */
-export function PlanWorkflows({ plan }: { plan: Plan }) {
-   const agents = useAgentsStore((state) => state.agents);
-   if (plan.workflows.length === 0) return null;
-   return (
-      <section className="mt-8">
-         <SectionHeading title="Automation" count={plan.workflows.length} />
-         <ul className="mt-2 space-y-3">
-            {plan.workflows.map((workflow) => {
-               const steps = orderPlanSteps(workflow);
-               return (
-                  <li
-                     key={workflow.tempId}
-                     className="rounded-md border border-border/60 bg-background"
-                  >
-                     <div className="border-b border-border/60 px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                           <Workflow className="size-4 shrink-0 text-muted-foreground" />
-                           <span className="font-medium">{workflow.name}</span>
-                           <Pill tone={workflow.activateOnApprove ? 'complete' : 'neutral'}>
-                              {workflow.activateOnApprove ? 'activates on start' : 'draft'}
-                           </Pill>
-                        </div>
-                        {workflow.description && (
-                           <p className="mt-1 text-muted-foreground">{workflow.description}</p>
-                        )}
-                        <p className="mt-1.5 flex items-center gap-1.5">
-                           <Zap className="size-3.5 shrink-0 text-muted-foreground" />
-                           {describePlanTrigger(workflow.trigger)}
-                        </p>
-                     </div>
-                     <ol className="px-4 py-2">
-                        {steps.map((step, index) => {
-                           const summary = describePlanStep(step);
-                           const agentName =
-                              step.type === 'agent' && step.agentId
-                                 ? agents.find((candidate) => candidate.id === step.agentId)?.name
-                                 : undefined;
-                           return (
-                              <li key={step.id} className="flex items-start gap-3 py-1.5">
-                                 <span className="w-4 shrink-0 text-right tabular-nums text-muted-foreground">
-                                    {index + 1}
-                                 </span>
-                                 <div className="min-w-0 flex-1">
-                                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                       <span className="font-medium">{summary.label}</span>
-                                       {agentName && <Pill>{agentName}</Pill>}
-                                       {summary.external && <Pill tone="attention">external</Pill>}
-                                       {summary.approval && <Pill tone="attention">approval</Pill>}
-                                       {step.dependsOn.length > 0 && (
-                                          <span className="text-muted-foreground">
-                                             after {step.dependsOn.join(', ')}
-                                          </span>
-                                       )}
-                                    </div>
-                                    {summary.text && (
-                                       <p className="mt-0.5 break-words text-muted-foreground">
-                                          {summary.text}
-                                       </p>
-                                    )}
-                                 </div>
-                              </li>
-                           );
-                        })}
-                        {steps.length === 0 && (
-                           <li className="py-1.5 text-muted-foreground">No steps.</li>
-                        )}
-                     </ol>
-                  </li>
-               );
-            })}
-         </ul>
-      </section>
-   );
-}
-
 /** The human decisions the plan asks for before something runs. */
 export function PlanApprovals({ plan }: { plan: Plan }) {
    const members = useMembersStore((state) => state.members);
    if (plan.approvals.length === 0) return null;
-   const targetName = (kind: string, tempId: string, stepId?: string | null) => {
-      if (kind === 'issue') {
-         const issue = plan.issues.find((candidate) => candidate.tempId === tempId);
-         return `task "${issue?.title ?? tempId}"`;
-      }
-      const workflow = plan.workflows.find((candidate) => candidate.tempId === tempId);
-      const name = workflow?.name ?? tempId;
-      return kind === 'step' ? `step ${stepId ?? '?'} of "${name}"` : `workflow "${name}"`;
+   // Every approval a plan proposes now targets a task; `kind` survives so a
+   // plan written against an older schema still reads as something.
+   const targetName = (kind: string, tempId: string) => {
+      const issue = plan.issues.find((candidate) => candidate.tempId === tempId);
+      if (issue) return `task "${issue.title}"`;
+      return kind === 'issue' ? `task ${tempId}` : tempId;
    };
    return (
       <section className="mt-8">
@@ -333,11 +252,7 @@ export function PlanApprovals({ plan }: { plan: Plan }) {
                         )}
                         <p className="mt-1 text-muted-foreground">
                            gates{' '}
-                           {targetName(
-                              approval.target.kind,
-                              approval.target.tempId,
-                              approval.target.stepId
-                           )}
+                           {targetName(approval.target.kind, approval.target.tempId)}
                            {' · '}
                            {approver}
                            {' · '}

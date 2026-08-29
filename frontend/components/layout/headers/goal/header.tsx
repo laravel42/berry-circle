@@ -32,7 +32,6 @@ import {
    type GoalStatus,
 } from '@/lib/goals';
 import { useCreatePlanStore } from '@/store/create-plan-store';
-import { useCreateWorkflowStore } from '@/store/create-workflow-store';
 import { useGoalsStore } from '@/store/goals-store';
 import { ChevronRight, MoreHorizontal, Sparkles } from 'lucide-react';
 import Link from 'next/link';
@@ -50,7 +49,6 @@ export default function Header({ goalId }: { goalId: string }) {
    const upsertGoal = useGoalsStore((state) => state.upsertGoal);
    const removeGoal = useGoalsStore((state) => state.removeGoal);
    const openCreatePlan = useCreatePlanStore((state) => state.openModal);
-   const openCreateWorkflow = useCreateWorkflowStore((state) => state.openModal);
    const [busy, setBusy] = useState(false);
    const [archiveOpen, setArchiveOpen] = useState(false);
 
@@ -127,10 +125,6 @@ export default function Header({ goalId }: { goalId: string }) {
                      </DropdownMenuItem>
                   ))}
                   {transitions.length > 0 && <DropdownMenuSeparator />}
-                  <DropdownMenuItem onClick={() => openCreateWorkflow({ goalId })}>
-                     New workflow for this goal
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                      className="text-status-danger focus:text-status-danger"
                      onClick={() => setArchiveOpen(true)}

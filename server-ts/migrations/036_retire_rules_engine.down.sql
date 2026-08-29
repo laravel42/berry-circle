@@ -1,0 +1,3 @@
+-- Irreversible by construction: the tables held the definitions and the
+-- history of a feature that no longer exists, and recreating empty ones would
+-- claim a rollback this cannot give. Restore from a backup taken before 036.

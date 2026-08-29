@@ -4,10 +4,10 @@ import { connectionSchema, newIdempotencyKey } from './api-schemas';
 import type { User } from '@/data/users';
 
 /**
- * Approvals: the human decisions that gate a plan, a task's start, a
- * workflow's activation or one of its steps. Who may decide is the server's
- * rule — the addressee, or anyone holding the addressed role or a stronger
- * one — so the client only words the refusal.
+ * Approvals: the human decisions that gate a plan, a task's start, or an
+ * action an agent wants to take outside Berry. Who may decide is the
+ * server's rule — the addressee, or anyone holding the addressed role or a
+ * stronger one — so the client only words the refusal.
  */
 
 export const approvalStatusSchema = z.enum(['pending', 'approved', 'rejected', 'expired']);
@@ -23,9 +23,6 @@ export const approvalSchema = z.object({
    goalId: z.string().nullish(),
    planId: z.string().nullish(),
    issueId: z.string().nullish(),
-   workflowId: z.string().nullish(),
-   workflowRunId: z.string().nullish(),
-   workflowStepRunId: z.string().nullish(),
    issue: z.object({ id: z.string(), identifier: z.string(), title: z.string() }).nullish(),
    requestedFrom: z
       .object({ userId: z.string().nullish(), role: z.string().nullish() })
@@ -58,7 +55,6 @@ export interface ApprovalsQuery {
    kind?: string;
    goalId?: string;
    issueId?: string;
-   workflowId?: string;
    /** Only the pending approvals the caller may resolve. */
    mine?: boolean;
    first?: number;
@@ -77,7 +73,6 @@ export async function listWorkspaceApprovals(
       if (query.kind) params.set('kind', query.kind);
       if (query.goalId) params.set('goalId', query.goalId);
       if (query.issueId) params.set('issueId', query.issueId);
-      if (query.workflowId) params.set('workflowId', query.workflowId);
       if (query.mine) params.set('mine', 'true');
       if (after) params.set('after', after);
       const json: unknown = await apiFetch(`/api/v1/approvals?${params.toString()}`);
@@ -188,10 +183,6 @@ export function describeApprovalKind(kind: string): string {
          return 'Start a plan';
       case 'issueStart':
          return 'Start a task';
-      case 'workflowActivation':
-         return 'Activate a workflow';
-      case 'workflowStep':
-         return 'Workflow step';
       case 'integrationAction':
          return 'External action';
       default:

@@ -32,7 +32,6 @@ import { cn } from '@/lib/utils';
 import { useApprovalsStore } from '@/store/approvals-store';
 import { useGoalsStore } from '@/store/goals-store';
 import { useMembersStore } from '@/store/members-store';
-import { useWorkflowsStore } from '@/store/workflows-store';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -68,11 +67,6 @@ export function ApprovalCard({ approval, compact = false, className }: ApprovalC
    const orgId = params?.orgId || WORKSPACE_SLUG;
    const members = useMembersStore((state) => state.members);
    const upsertApproval = useApprovalsStore((state) => state.upsertApproval);
-   const workflowName = useWorkflowsStore((state) =>
-      approval.workflowId
-         ? state.workflows.find((workflow) => workflow.id === approval.workflowId)?.name
-         : undefined
-   );
    const goalTitle = useGoalsStore((state) =>
       approval.goalId ? state.goals.find((goal) => goal.id === approval.goalId)?.title : undefined
    );
@@ -115,17 +109,6 @@ export function ApprovalCard({ approval, compact = false, className }: ApprovalC
       links.push({
          href: `/${orgId}/issue/${approval.issue.identifier}`,
          label: `${approval.issue.identifier} ${approval.issue.title}`,
-      });
-   }
-   if (approval.workflowId && approval.workflowRunId) {
-      links.push({
-         href: `/${orgId}/workflow/${approval.workflowId}/run/${approval.workflowRunId}`,
-         label: `run of ${workflowName ?? 'workflow'}`,
-      });
-   } else if (approval.workflowId) {
-      links.push({
-         href: `/${orgId}/workflow/${approval.workflowId}/overview`,
-         label: workflowName ?? 'workflow',
       });
    }
    if (approval.goalId) {

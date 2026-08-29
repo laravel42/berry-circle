@@ -158,7 +158,7 @@ Validation failures set `details.fields` to an array of field errors:
 | 503 | `DEPENDENCY_UNAVAILABLE` | Runtime dependency is unavailable or timed out |
 | 500 | `INTERNAL` | Unhandled server failure |
 
-Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_OPEN_EXISTS`, `PLAN_COMPILE_FAILED`, `PLANNER_UNAVAILABLE`, `BOARD_REQUIRED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`, `WORKFLOW_NOT_ACTIVE`, `WORKFLOW_ENGINE_DISABLED`, `WORKFLOWS_DISABLED`, `AGENT_UNAVAILABLE`, and `ANSWER_INVALID`.
+Domain-specific codes used by this contract are `INVALID_CURSOR`, `CURSOR_EXPIRED`, `INVALID_STATE_TRANSITION`, `ACTIVE_RUN_EXISTS`, `IDEMPOTENCY_CONFLICT`, `RUN_TERMINAL`, `APPROVAL_REQUIRED`, `APPROVAL_RESOLVED`, `DEPENDENCY_CYCLE`, `ISSUE_NOT_FOUND`, `GOAL_NOT_FOUND`, `GOAL_TRANSITION_INVALID`, `PLAN_FORBIDDEN`, `PLAN_INVALID`, `PLAN_NOT_OPEN`, `PLAN_BUSY`, `PLAN_OPEN_EXISTS`, `PLAN_COMPILE_FAILED`, `PLANNER_UNAVAILABLE`, `BOARD_REQUIRED`, `DEFINITION_INVALID`, `CONNECTIONS_MISSING`, `REVISION_CONFLICT`, `AGENT_UNAVAILABLE`, and `ANSWER_INVALID`.
 
 ## Resource schemas
 
@@ -256,7 +256,6 @@ An issue additionally carries its place in a plan:
 | Field | Type | Required | Constraints / meaning |
 |---|---|---:|---|
 | `goal` | `{ "id": Uuid, "title": string }` or null | yes | The goal the issue serves (`goal_issues`) |
-| `origin` | `{ "workflowId": Uuid, "workflowRunId": Uuid, "workflowStepRunId": Uuid or null }` or null | yes | The workflow run that created the issue |
 | `dependsOn` | `IssueDependencyRef[]` | yes | Issues that must finish before this one starts |
 | `blocks` | `IssueDependencyRef[]` | yes | Issues waiting on this one |
 
@@ -398,7 +397,7 @@ The gateway MUST NOT expose provider configuration, credentials, system prompts,
 | `createdBy` | `ActorRef` or null | yes | |
 | `createdAt`, `updatedAt` | `Timestamp` | yes | |
 | `startedAt`, `completedAt` | `Timestamp` or null | yes | |
-| `progress` | `{ "issuesTotal", "issuesDone", "issuesCancelled", "workflowsActive", "approvalsPending": integer }` | on reads of one goal | Issues linked to the goal, active workflows, pending approvals on the goal or its issues |
+| `progress` | `{ "issuesTotal", "issuesDone", "issuesCancelled", "approvalsPending": integer }` | on reads of one goal | Issues linked to the goal, and pending approvals on the goal or its issues |
 
 ### Plan
 
@@ -415,15 +414,15 @@ A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved;
 | `version` | integer | yes | Current IR version; every save appends one |
 | `plannerVersion`, `confidence` | string / number or null | yes | |
 | `generation` | `{ "status": idle \| running \| succeeded \| failed, "error": string or null, "stage": string or null }` | yes | `stage` is the pipeline stage in progress while `status` is `running` (`intent`, `context`, `generate`, `validate`, `repair`, `critic`, `finalize`) and null otherwise. `error` is `PLAN_INVALID` when the bounded repairs ran out (the last IR is kept for editing), `shutdown` when the server stopped mid-generation, or `<code> at <stage>` (`timeout`, `ROLE_RATE_LIMITED`, `PLANNER_UNAVAILABLE`, `REQUEST_TOO_LARGE`, `INTENT_INVALID`, `upstream error`) |
-| `validation` | `{ "status": unknown \| valid \| invalid \| blocked, "errors": FieldError[], "warnings": FieldError[], "requiredConnections": [{ "provider", "purpose", "connected" }], "ambiguities": [{ "id", "question", "blocking" }], "risk": low \| medium \| high, "needsAdminActivation": boolean }` | yes | Errors and warnings are recomputed on every read from the stored IR with the workspace's agents, issues and workflows; `path` values are JSON pointers into `plan`. `blocked` means the classifier found a blocking question: `plan` is a goal-only skeleton whose `assumptions` carry the questions (`blocking: true`) and `ambiguities` lists them; answering lands in a later phase |
+| `validation` | `{ "status": unknown \| valid \| invalid \| blocked, "errors": FieldError[], "warnings": FieldError[], "requiredConnections": [{ "provider", "purpose", "connected" }], "ambiguities": [{ "id", "question", "blocking" }], "risk": low \| medium \| high, "needsAdminActivation": boolean }` | yes | Errors and warnings are recomputed on every read from the stored IR with the workspace's agents and issues; `path` values are JSON pointers into `plan`. `blocked` means the classifier found a blocking question: `plan` is a goal-only skeleton whose `assumptions` carry the questions (`blocking: true`) and `ambiguities` lists them; answering lands in a later phase |
 | `critic` | object or null | yes | |
-| `compile` | `{ "status": running \| succeeded \| failed, "error": string or null, "compiledAt": Timestamp or null, "goalId", "issueIds": Uuid[], "workflowIds": Uuid[], "approvalIds": Uuid[] }` or null | yes | Null until a compile was attempted |
+| `compile` | `{ "status": running \| succeeded \| failed, "error": string or null, "compiledAt": Timestamp or null, "goalId", "issueIds": Uuid[], "approvalIds": Uuid[] }` or null | yes | Null until a compile was attempted |
 | `plan` | BerryPlan or null | yes | The current IR; after compile it carries `compiled` with the temporary-id map |
 | `createdAt`, `updatedAt` | `Timestamp` | yes | |
 
 ### Approval
 
-`ApprovalKind` is one of `plan`, `issueStart`, `workflowActivation`, `workflowStep`, `integrationAction`. `ApprovalStatus` is one of `pending`, `approved`, `rejected`, `expired`.
+`ApprovalKind` is one of `plan`, `issueStart`, `integrationAction`. `ApprovalStatus` is one of `pending`, `approved`, `rejected`, `expired`.
 
 | Field | Type | Required | Constraints / meaning |
 |---|---|---:|---|
@@ -431,7 +430,7 @@ A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved;
 | `kind` | `ApprovalKind` | yes | |
 | `risk` | `low \| medium \| high` | yes | High risk needs `settings.write` to resolve |
 | `title`, `description` | string, string or null | yes | |
-| `goalId`, `planId`, `issueId`, `workflowId`, `workflowRunId`, `workflowStepRunId` | `Uuid` or null | yes | What the approval gates |
+| `goalId`, `planId`, `issueId` | `Uuid` or null | yes | What the approval gates |
 | `issue` | `{ "id", "identifier", "title" }` or null | yes | The gated issue, when any |
 | `requestedFrom` | `{ "userId": Uuid or null, "role": owner \| admin \| member or null }` | yes | The addressee: one person, or anyone holding the role or a stronger one |
 | `requestedBy` | `{ "type": user \| system \| agent, "id": Uuid }` or null | yes | |
@@ -439,76 +438,6 @@ A generated plan (`source: "ai"`) stores a BerryPlan v1 IR until it is approved;
 | `decisionNote`, `resolvedBy` | string or null, `Uuid` or null | yes | |
 | `requestedAt` | `Timestamp` | yes | |
 | `expiresAt`, `resolvedAt` | `Timestamp` or null | yes | |
-
-### Workflow
-
-A workflow (SQL identifiers say `automation`) is a stored `WorkflowDefinition v1`: `{ "version": "1", "trigger": Trigger, "steps": Step[], "entry": [stepId] }`. Step `type` values stay snake_case: `action`, `condition`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`, `switch`, `foreach`, `transform` and `subworkflow` all execute natively (a deployment that narrows the set answers `NODE_TYPE_UNSUPPORTED`). `WorkflowStatus` is one of `draft`, `active`, `paused`, `archived`.
-
-Triggers, `{ "id", "type", ... }`:
-
-| `type` | Fields | Fires when |
-|---|---|---|
-| `berry_event` | `event` (a published topic or `<aggregate>.*`), `config.filter`? | The fact is published in the workspace and the filter, evaluated over `trigger`, passes |
-| `integration` | `provider`, `operation` (a registered trigger tool, e.g. `github` / `issues.opened`, `berry` / `issue_completed`), `config.filter`? | A verified provider delivery arrives on `POST /api/v1/hooks/{provider}` with that event (`trigger.payload` is the delivery), or, for `berry`, the matching Berry topic is published |
-| `schedule` | `config.cron` (five fields or `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`), `config.timezone` (IANA) | Each fire instant computed on the timezone's wall clock (DST-safe; a skipped wall-clock time never fires, a repeated one fires once). One run per instant, idempotent on `schedule:<workflowId>:<instant>`; instants missed for longer than one hour are skipped, never replayed. `trigger` is `{ "scheduledAt", "cron", "timezone" }` |
-| `manual` | — | `POST /workflows/{id}/runs`; `trigger.input` is the body's input |
-| `webhook` | — | `POST /api/v1/hooks/workflows/{id}/{token}` |
-
-The extended nodes, beside the MVP set:
-
-| `type` | Fields | Semantics |
-|---|---|---|
-| `switch` | `value` (reference or template), `cases: [{ "equals": value, "steps": [stepId] }]`, `defaultSteps`? | The first case whose resolved `equals` is structurally equal to the resolved value hands control to its steps, else `defaultSteps`; every other branch is recorded as skipped. Output `{ "value", "case": index or null, "next": [stepId] }` |
-| `foreach` | `items` (a reference resolving to an array), `steps: [stepId]` (the body), `maxItems`? (1–100, default 25) | Records `{ "count", "items" }`, then every body step B runs once per item as the step row `B[i]`, items in order and one item at a time; inside the body `item` is the current element and `steps.<body>.output` the same item's outputs; after the loop `steps.<loop>.output.results[i]` holds item i's body outputs keyed by step id. More items than `maxItems` fails the loop with `FOREACH_LIMIT_EXCEEDED`. A body step may be `action`, `agent`, `create_issue`, `update_issue`, `approval`, `wait`, `transform` or `subworkflow` (each may wait), belongs to one loop, is not an entry step, and is depended on only from inside its loop; `item` is valid only inside a body (and in an event wait's filter) |
-| `transform` | `output: { field: value }` | Resolves every field through references and templates into the step output; nothing else happens |
-| `subworkflow` | `workflowId` (Uuid of an active workflow in the workspace), `input`? | Starts a child run of the named workflow (`triggerType = manual`, `trigger.input` = the resolved input, `trigger.parent` = `{ workflowId, runId, stepRunId, stepId }`, `parentRunId`/`depth` on the run) and waits on `run:<childRunId>`; resumes with `{ "childRunId", "workflowId", "status", "steps": { stepId: output } }` or fails with `SUBWORKFLOW_FAILED (<child code>)` / `SUBWORKFLOW_CANCELLED`. Validation refuses a workflow calling itself or a chain that returns to it (`SUBWORKFLOW_CYCLE`), a chain deeper than 3 (`SUBWORKFLOW_DEPTH`), an unknown target (`SUBWORKFLOW_UNKNOWN`); an inactive target warns on a draft and blocks activation (`SUBWORKFLOW_NOT_ACTIVE`) |
-
-| Field | Type | Required | Constraints / meaning |
-|---|---|---:|---|
-| `id`, `workspaceId` | `Uuid` | yes | |
-| `projectId`, `goalId` | `Uuid` or null | yes | |
-| `name` | string | yes | 1–200 characters |
-| `description` | string or null | yes | |
-| `status` | `WorkflowStatus` | yes | |
-| `version` | integer | yes | Bumps on every definition change; each version is snapshotted |
-| `revision` | integer | yes | Bumps on every write; `PATCH` must send the revision it read |
-| `definition` | `WorkflowDefinition` | yes | Exactly as validated |
-| `layout` | object | yes | Canvas positions keyed by node id; never business state |
-| `trigger` | `{ "type": integration \| schedule \| manual \| berry_event \| webhook, "provider"?, "operation"?, "event"?, "cron"?, "timezone"? }` | yes | Indexed metadata derived from the definition |
-| `risk` | `low \| medium \| high` | yes | High when a step's tool is destructive or approval-gated |
-| `engine` | `native \| activepieces` | yes | |
-| `activepiecesFlowId` | string | when `engine` is `activepieces` | |
-| `requiredConnections` | `[{ "provider": string, "connected": boolean }]` | yes | Providers whose tools need a workspace connection; Berry's own tools need none |
-| `validation` | `{ "errors": FieldError[], "warnings": FieldError[] }` | yes | Recomputed on every read; paths start with `/definition` |
-| `createdBy` | `{ "type": "user", "id": Uuid }` or null | yes | |
-| `createdAt`, `updatedAt` | `Timestamp` | yes | |
-| `lastRun` | `{ "id", "status", "createdAt" }` or null | yes | |
-| `runCounts` | `{ "total", "succeeded", "failed": integer }` | yes | |
-
-### WorkflowRun
-
-`WorkflowRunStatus` is one of `pending`, `running`, `waiting`, `succeeded`, `failed`, `cancelled`.
-
-| Field | Type | Required | Constraints / meaning |
-|---|---|---:|---|
-| `id`, `workspaceId`, `workflowId` | `Uuid` | yes | |
-| `workflowVersion` | integer | yes | The definition version the run executes |
-| `goalId` | `Uuid` or null | yes | |
-| `status` | `WorkflowRunStatus` | yes | |
-| `triggerType` | string | yes | |
-| `triggerPayload` | object | yes | |
-| `currentStepId`, `waitingOn` | string or null | yes | `waitingOn` is `approval:<id>`, `run:<id>` (an agent run or a subworkflow's child run), `issue:<id>`, `timer` or `event:<topic>` |
-| `failure` | `{ "code", "message" }` or null | yes | |
-| `usage` | `{ "inputTokens", "outputTokens": integer, "costMicros": integer or null }` | yes | Summed inline model usage |
-| `parentRunId`, `parentStepRunId` | `Uuid` or null | yes | Set on a run a `subworkflow` step started |
-| `depth` | integer | yes | 0 for a run a trigger started; a child run is its parent's depth plus one, at most 3 |
-| `createdAt` | `Timestamp` | yes | |
-| `startedAt`, `completedAt` | `Timestamp` or null | yes | |
-| `steps` | `WorkflowStepRun[]` | on reads of one run | `{ "id", "stepId", "stepType", "attempt", "status", "input", "output", "failure", "runId", "issueId", "approvalId", "usage", "startedAt", "completedAt" }`; a foreach body row's `stepId` is `<stepId>[<index>]` |
-
-## Endpoints
-
-Unless noted otherwise, successful resource reads return the resource directly, not a `{ "data": ... }` wrapper.
 
 ### Boards
 
@@ -804,7 +733,7 @@ Archives the goal; its issues keep their links. `settings.write`.
 
 - `204`
 
-#### `GET /api/v1/goals/{goalId}/issues`, `/workflows`, `/approvals`, `/plans`
+#### `GET /api/v1/goals/{goalId}/issues`, `/approvals`, `/plans`
 
 - `200`: `{ "nodes": [...] }` summaries
 
@@ -820,7 +749,7 @@ Generated plans only. Mutating routes answer `403 PLAN_FORBIDDEN` for viewers.
 
 #### `POST /api/v1/plans/generate`
 
-Asks the planner for a plan. Request `{ "workspaceId", "prompt" (1–20000 characters), "goalId"?, "projectId"?, "boardId"?, "hint"?: "issue" | "workflow" | "auto" }`, `Idempotency-Key` required (`product.write`). The plan row exists when the response returns; generation runs in the background through the model roles (intent → context → generate → validate → up to `PLANNER_MAX_REPAIRS` repairs → up to `PLANNER_MAX_CRITIC_ROUNDS` critic rounds) bounded by `PLANNER_TIMEOUT`. Follow it with `GET /plans/{planId}` (`generation.stage`) and the workspace stream's `plan.updated` / `plan.generated` / `plan.blocked` facts. Without `goalId` a draft goal is created for the plan; without `boardId` the workspace's oldest board is used. Nothing is created on the board until `POST /approve`.
+Asks the planner for a plan. Request `{ "workspaceId", "prompt" (1–20000 characters), "goalId"?, "projectId"?, "boardId"?, "hint"?: "issue" | "auto" }`, `Idempotency-Key` required (`product.write`). The plan row exists when the response returns; generation runs in the background through the model roles (intent → context → generate → validate → up to `PLANNER_MAX_REPAIRS` repairs → up to `PLANNER_MAX_CRITIC_ROUNDS` critic rounds) bounded by `PLANNER_TIMEOUT`. Follow it with `GET /plans/{planId}` (`generation.stage`) and the workspace stream's `plan.updated` / `plan.generated` / `plan.blocked` facts. Without `goalId` a draft goal is created for the plan; without `boardId` the workspace's oldest board is used. Nothing is created on the board until `POST /approve`.
 
 - `202`: `Plan` with `generation.status = "running"`; `Location: /api/v1/plans/{id}`
 - `403`: `PLAN_FORBIDDEN`
@@ -855,7 +784,7 @@ Re-runs the deterministic checks on the stored IR and records the verdict.
 
 #### `POST /api/v1/plans/{planId}/approve`
 
-Start Plan. Request `{ "note"? }`, `Idempotency-Key` required. Compiles the plan in one transaction: the goal is promoted to `planned`, issues are created in dependency order (`todo`; `blocked` when they depend on another issue; `backlog` with an `issueStart` approval when they require approval or match the destructive-action policy), required capabilities become labels, `goal_issues`, dependency edges and workflow drafts are written, and every fact is published. A member approving a plan whose `validation.risk` is `high` does not compile: the plan enters `pendingApproval` with a `plan` approval addressed to admins. Approving a compiled plan again is a no-op.
+Start Plan. Request `{ "note"? }`, `Idempotency-Key` required. Compiles the plan in one transaction: the goal is promoted to `planned`, issues are created in dependency order (`todo`; `blocked` when they depend on another issue; `backlog` with an `issueStart` approval when they require approval or match the destructive-action policy), required capabilities become labels, `goal_issues`, and dependency edges are written, and every fact is published. A member approving a plan whose `validation.risk` is `high` does not compile: the plan enters `pendingApproval` with a `plan` approval addressed to admins. Approving a compiled plan again is a no-op.
 
 - `200`: `Plan` with `compile.status = "succeeded"`
 - `202`: `Plan` with `status = "pendingApproval"`
@@ -876,7 +805,7 @@ Request `{ "note"? }`. Closes an open plan; a draft AI goal the plan created wit
 
 #### `GET /api/v1/approvals`
 
-Query `workspaceId` (required), `status`, `kind`, `goalId`, `issueId`, `workflowId`, `mine` (true returns the pending approvals the caller may resolve), `first`, `after`. Ordered by `(requestedAt DESC, id DESC)`.
+Query `workspaceId` (required), `status`, `kind`, `goalId`, `issueId`, `mine` (true returns the pending approvals the caller may resolve), `first`, `after`. Ordered by `(requestedAt DESC, id DESC)`.
 
 - `200`: connection of `Approval`
 
@@ -899,139 +828,13 @@ Request `{ "note"? }`, `Idempotency-Key` required. The caller must be the addres
 - `403`: `FORBIDDEN` with `details.reason` `not_addressee` or `admin_required`
 - `409`: `APPROVAL_RESOLVED`, `APPROVAL_REQUIRED` (another gate still holds the issue)
 
-### Workflows
-
-`/api/v1/workflows` serves workflows; the product noun is Workflow, the storage noun automation.
-
-#### `GET /api/v1/workflows`
-
-Query `workspaceId` (required), `status`, `triggerType`, `goalId`, `projectId`, `query`, `first`, `after`. Archived workflows are excluded. Ordered by `(updatedAt DESC, id DESC)`.
-
-- `200`: connection of `Workflow`
-
-#### `POST /api/v1/workflows`
-
-Request `{ "workspaceId", "name", "description"?, "projectId"?, "goalId"?, "definition": WorkflowDefinition, "layout"? }`. The definition is parsed strictly and validated against the workspace's tool catalog; a missing connection is a warning on a draft.
-
-- `201`: `Workflow` (status `draft`); `Location: /api/v1/workflows/{id}`
-- `422`: `VALIDATION_FAILED`; `DEFINITION_INVALID` with `details.fields[]` of `{ "path": "/definition/…", "code", "message", "severity", "hint"? }`
-
-#### `GET /api/v1/workflows/{workflowId}`
-
-- `200`: `Workflow`
-
-#### `PATCH /api/v1/workflows/{workflowId}`
-
-Request any of `name`, `description`, `definition`, `layout`, `goalId`, `projectId`, plus the required `revision`. A definition change bumps `version` and is allowed only while `draft` or `paused`.
-
-- `200`: `Workflow`
-- `409`: `REVISION_CONFLICT`, `WORKFLOW_ACTIVE`
-- `422`: `VALIDATION_FAILED`, `DEFINITION_INVALID`
-
-#### `DELETE /api/v1/workflows/{workflowId}`
-
-Archives; runs and versions stay readable.
-
-- `204`
-
-#### `POST /api/v1/workflows/{workflowId}/activate`
-
-Validates with every required connection present and records the activation. A `risk = high` workflow needs `settings.write`. Triggers start with the status: the trigger dispatcher matches Berry events and provider deliveries only against active workflows, the hook and manual-run routes refuse inactive ones, and a `schedule` trigger is registered before the status changes — as a Temporal Schedule (`automation-schedule:<id>`, one `berry.AutomationScheduledRun` per fire) when `TEMPORAL_ENABLED`, else as a cached next fire time the in-process scheduler claims every dispatcher tick. Pausing pauses the schedule; archiving deletes it. Both paths create the same run rows.
-
-- `200`: `Workflow`
-- `403`: `FORBIDDEN` with `details.reason = "destructive_actions"`
-- `409`: `WORKFLOW_ENGINE_DISABLED` for `engine = activepieces` without a configured engine
-- `422`: `CONNECTIONS_MISSING` with `details.providers`; `DEFINITION_INVALID`
-
-#### `POST /api/v1/workflows/{workflowId}/pause`
-
-- `200`: `Workflow`
-- `409`: `WORKFLOW_NOT_ACTIVE`
-
-#### `POST /api/v1/workflows/{workflowId}/runs`
-
-Runs the workflow by hand (`runs.dispatch`; `Idempotency-Key` required). Request `{ "input"?: any }`; any trigger type may be run this way and the input becomes `trigger.input` in the run's scope (`null` when omitted). The run is created as `trigger_type = manual` and handed to the executor — Temporal when `TEMPORAL_ENABLED`, the in-process pool otherwise.
-
-- `202`: `WorkflowRun` (status `pending`, without `steps`); `Location: /api/v1/workflow-runs/{runId}`
-- `403`: `FORBIDDEN`
-- `409`: `WORKFLOW_NOT_ACTIVE` — drafts and paused workflows never run
-- `412`: `WORKFLOWS_DISABLED` — the deployment does not execute workflows (`AUTOMATION_ENABLED=false`)
-
-#### `GET /api/v1/workflows/{workflowId}/runs`
-
-Query `status`, `first`, `after`.
-
-- `200`: connection of `WorkflowRun` (without `steps`)
-
-#### `GET /api/v1/workflows/{workflowId}/versions`
-
-- `200`: `{ "nodes": [{ "id", "version", "definition", "createdBy", "createdAt" }] }`
-
-#### `POST /api/v1/workflows/{workflowId}/webhook`
-
-Rotates the hook token (`settings.write`). Only its digest is stored; deliveries arrive on the public hooks route below.
-
-- `200`: `{ "url": "/api/v1/hooks/workflows/{id}/{token}", "secret": string }` returned once
-
-### Hooks
-
-`/api/v1/hooks` is a separate mount without a session: the token in the URL is the credential. It is mounted only where the deployment executes workflows.
-
-#### `POST /api/v1/hooks/workflows/{workflowId}/{token}`
-
-Receives one delivery for an active workflow whose current hook token matches (compared by digest). The body, at most 1 MiB, is JSON or empty; it becomes `trigger.input` (`null` when empty) beside `trigger.query` (first value per query parameter), `trigger.contentType`, `trigger.deliveryId` and `trigger.receivedAt`. An `X-Berry-Delivery-Id` header (at most 120 characters) makes the delivery idempotent: a redelivery answers `200` with the run it already created. Each workflow accepts 60 deliveries per minute. Every way a delivery can fail to name an active workflow with this token — unknown id, wrong token, paused or archived workflow — is the same `404`.
-
-- `202`: `{ "runId": Uuid }`; `Location: /api/v1/workflow-runs/{runId}`; the run is `trigger_type = webhook`
-- `200`: `{ "runId": Uuid }` for a redelivery
-- `400`: `INVALID_BODY`, `INVALID_REQUEST`
-- `404`: `NOT_FOUND`
-- `413`: `PAYLOAD_TOO_LARGE`
-- `429`: `RATE_LIMITED` with `Retry-After`
-
-#### `POST /api/v1/hooks/{provider}`
-
-Provider webhook ingestors for `github`, `slack` and `linear`, mounted beside the workflow hook route when at least one provider secret is configured (`GITHUB_WEBHOOK_SECRET`, `SLACK_SIGNING_SECRET`, `LINEAR_WEBHOOK_SECRET`). The signature is verified over the raw body before anything is parsed: GitHub `X-Hub-Signature-256` (HMAC-SHA256, the SHA-1 header is not accepted), Slack `X-Slack-Signature` v0 with `X-Slack-Request-Timestamp` inside a five-minute window, Linear `Linear-Signature` (hex HMAC-SHA256). A verified delivery is deduplicated on the provider's delivery id (`X-GitHub-Delivery`; Slack `event_id`; `Linear-Delivery`, else `webhookId:webhookTimestamp`), recorded in `integration_webhook_deliveries`, and written once as the fact `integration.webhook.received { "provider", "event", "deliveryId", "payload" }` scoped to the workspace that owns the delivery; the trigger dispatcher then starts every active workflow whose `integration` trigger names `provider` and `event`, with the fact as `trigger` (`trigger.payload` is the provider's body). Nothing is retried: a redelivery is answered and dropped.
-
-The event is normalised as the `X-GitHub-Event` header joined with the payload `action` (`issues.opened`, `pull_request.closed`, `push`), the Slack `event.type` (`message`, `app_mention`), or the Linear `type.action` in lowercase (`issue.create`). The workspace is resolved from the delivery: Slack by `team_id` against the connection's account; GitHub by `repository.id` against a project's linked repository, then by the installation or owner id against the connection's account; Linear by `organizationId` against the connection's account. Because GitHub and Linear connections carry no account id at authorisation time, register those webhooks with `?workspaceId=<uuid>` on the URL: the delivery is then accepted only if that workspace holds a live connection to the provider. A Slack `url_verification` handshake answers `{ "challenge" }` after the signature check and is never ingested. Every way a delivery can fail to be trusted or routed — an unconfigured secret, a bad signature, an unknown provider, no workspace — is the same `404`, never a `500`. Each provider accepts 600 deliveries per minute per replica.
-
-- `202`: `{ "deliveryId", "eventId": Uuid, "event" }` — one `integration.webhook.received` fact was written
-- `200`: `{ "deliveryId", "status": "duplicate" }` for a redelivery, or `{ "challenge" }` for a Slack handshake
-- `400`: `INVALID_BODY` — not JSON, or the provider's required headers or fields are missing
-- `404`: `NOT_FOUND`
-- `413`: `PAYLOAD_TOO_LARGE` (256 KiB)
-- `429`: `RATE_LIMITED` with `Retry-After`
-- `503`: `DEPENDENCY_UNAVAILABLE` — the delivery could not be recorded; the provider should redeliver
-
-### Workflow runs
-
-#### `GET /api/v1/workflow-runs`
-
-Query `workspaceId` (required), `status`, `workflowId`, `first`, `after`. Ordered by `(createdAt DESC, id DESC)`.
-
-- `200`: connection of `WorkflowRun` (without `steps`)
-
-#### `GET /api/v1/workflow-runs/{runId}`
-
-- `200`: `WorkflowRun` with `steps`
-
-#### `POST /api/v1/workflow-runs/{runId}/cancel`
-
-`runs.dispatch`. Cancels the run row, then tells the executor to stop waiting: with `TEMPORAL_ENABLED` the orchestration is signalled; in-process, the runner refuses the next step of a cancelled run on its own. A step already executing finishes recording its own outcome; nothing after it starts.
-
-- `200`: `WorkflowRun`
-- `409`: `RUN_TERMINAL`
-
-## SSE contracts
-
 ### Stream endpoints
 
 #### `GET /api/v1/runs/{runId}/events`
 
 Replays and follows one run. The client may send `Last-Event-ID` or `after` (opaque event cursor); supplying both returns `400 INVALID_REQUEST`.
 
-#### `GET /api/v1/workflow-runs/{runId}/events`
 
-Replays and follows one workflow run through its own ledger. Same cursor rules as the run stream. Frames carry `{ "id", "type", "occurredAt", "workspaceId", "workflowId", "workflowRunId", "stepId"?, "sequence", "payload" }`; the stream terminates after `workflow.run.succeeded`, `workflow.run.failed` or `workflow.run.cancelled`. Sequences start at 0.
 
 #### `GET /api/v1/events`
 
@@ -1039,7 +842,7 @@ Follows product changes in one scope. Exactly one of `boardId` or `workspaceId` 
 
 With `boardId`, the stream emits every `issue.*` mutation on the board — whether a person, a batch edit, project planning or a run made it — plus `comment.created` and the run lifecycle events for issues on that board. Replay filters on the event's stored board scope, so a comment posted by a run and a comment posted by a person appear on the same stream.
 
-With `workspaceId` (`product.read`), the stream replays the facts that belong to no board beside the workspace-wide issue and agent moments: `goal.*`, `workflow.*` (definitions, runs and steps), `approval.*`, `plan.*`, `issue.created`, `issue.completed`, `issue.deleted`, `agent.*` and `artifact.created`. Frames use the same envelope with `boardId` and `issueId` null when the aggregate has none. A cursor from one scope is refused on the other.
+With `workspaceId` (`product.read`), the stream replays the facts that belong to no board beside the workspace-wide issue and agent moments: `goal.*`, `approval.*`, `plan.*`, `issue.created`, `issue.completed`, `issue.deleted`, `agent.*` and `artifact.created`. Frames use the same envelope with `boardId` and `issueId` null when the aggregate has none. A cursor from one scope is refused on the other.
 
 All three endpoints:
 
@@ -1101,9 +904,6 @@ Run sequences start at 0 and MUST be contiguous in the persisted stream. Deliver
 | `comment.created` | `{ "comment": Comment }` | `runId` is the authoring run when applicable |
 | `goal.created`, `goal.updated`, `goal.started`, `goal.completed`, `goal.cancelled`, `goal.archived` | `{ "goal": Goal, "changedFields": string[], "actor"? }` | Workspace stream; `goal.archived` is a topic no consumer dispatches or projects on |
 | `approval.requested`, `approval.approved`, `approval.rejected`, `approval.expired` | `{ "approval": Approval, "issueId"?, "actor"? }` | On the board stream too when the approval gates an issue |
-| `workflow.created`, `workflow.activated`, `workflow.paused`, `workflow.archived` | `{ "workflow": { "id", "workspaceId", "projectId", "goalId", "name", "status", "version", "revision", "triggerType", "risk", "engine", "updatedAt" }, "actor"? }` | Workspace stream |
-| `workflow.run.started`, `workflow.run.waiting`, `workflow.run.resumed`, `workflow.run.succeeded`, `workflow.run.failed`, `workflow.run.cancelled` | `{ "workflowId", "workflowRunId", "stepId"?, "waitingOn"?, "run": WorkflowRun summary, "actor"? }` | Also on the run's own ledger stream with `sequence` |
-| `workflow.step.started`, `workflow.step.succeeded`, `workflow.step.failed`, `workflow.step.skipped`, `workflow.step.waiting` | `{ "workflowId", "workflowRunId", "stepId", "waitingOn"?, "step": WorkflowStepRun summary }` | Input and output are omitted from the frame; a foreach body row's `stepId` carries its index (`note[2]`) |
 | `integration.webhook.received` | `{ "provider", "event", "deliveryId", "payload" }` | Written once per verified provider delivery by `POST /api/v1/hooks/{provider}`; consumed by the trigger dispatcher, subscribable as a `berry_event` |
 | `plan.approved`, `plan.compiled`, `plan.compile_failed` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, ... }` | `plan.compiled` carries `compiled` (the id map); `plan.compile_failed` carries `stage` and `message`. `plan.patched` arrives with conversational editing |
 | `plan.updated`, `plan.generated`, `plan.blocked` | `{ "plan": { "id", "workspaceId", "goalId", "status", "compileStatus", "validationStatus" }, "stage", "status", ... }` | Workspace stream. `plan.updated` is emitted when each pipeline stage starts (`status: "running"`) and once more when generation fails (`status: "failed"`, `error`, `outcome`, `errors` codes when `PLAN_INVALID`); `plan.generated` closes a valid generation with `version`, `confidence`, `repairs`, `warnings` codes and `risk`; `plan.blocked` carries `questions: [{ "id", "question" }]`. None carries prompt text |
@@ -1153,8 +953,8 @@ These do not weaken the wire contract above, but require a product decision befo
 
 ## Contract self-check
 
-- Resource shapes: `Board`, `Issue`, `Comment`, `Agent`, `Run`, `Goal`, `Plan`, `Approval`, `Workflow`, and `WorkflowRun` are defined with constraints; the first five with JSON examples.
+- Resource shapes: `Board`, `Issue`, `Comment`, `Agent`, `Run`, `Goal`, `Plan`, and `Approval` are defined with constraints; the first five with JSON examples.
 - Pagination: connection envelope, cursor rules, limits, stable ordering, invalid and expired cursor behavior are defined.
 - Errors: one stable envelope, validation details, HTTP mappings, and domain codes are defined.
-- SSE: endpoints (run, workflow run, board and workspace scopes), reconnection/replay behavior, envelope, ordering/deduplication, redaction rules, event types, payload shapes, and examples are defined.
+- SSE: endpoints (run, board and workspace scopes), reconnection/replay behavior, envelope, ordering/deduplication, redaction rules, event types, payload shapes, and examples are defined.
 - Versioning, authentication, authorization, idempotency, status codes, and implementation gaps are explicit.

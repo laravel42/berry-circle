@@ -5,15 +5,11 @@ import { loadWorkspaceApprovals } from '@/lib/approvals';
 import { publishWorkspaceEvent, streamWorkspaceEvents, type EventEnvelope } from '@/lib/events';
 import { loadWorkspaceGoals } from '@/lib/goals';
 import { loadInboxUnreadCount, loadWorkspaceInbox } from '@/lib/inbox';
-import { loadWorkspaceWorkflowRuns } from '@/lib/workflow-runs';
-import { loadWorkspaceWorkflows } from '@/lib/workflows';
 import { useApprovalsStore } from '@/store/approvals-store';
 import { useEventStreamStore } from '@/store/event-stream-store';
 import { useGoalsStore } from '@/store/goals-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useSessionStore } from '@/store/session-store';
-import { useWorkflowRunsStore } from '@/store/workflow-runs-store';
-import { useWorkflowsStore } from '@/store/workflows-store';
 import { useEffect } from 'react';
 
 /** How long to wait for a burst to settle before refetching. */
@@ -23,17 +19,12 @@ const REFRESH_DEBOUNCE_MS = 400;
 const RECONNECT_MIN_MS = 3000;
 const RECONNECT_MAX_MS = 30_000;
 
-type Family = 'goals' | 'workflows' | 'runs' | 'approvals' | 'inbox';
+type Family = 'goals' | 'approvals' | 'inbox';
 
 /** Which stores a frame makes stale. Events are invalidation signals only. */
 function familiesFor(event: EventEnvelope): Family[] {
    const type = event.type;
    if (type.startsWith('goal.')) return ['goals'];
-   if (type.startsWith('workflow.run.') || type.startsWith('workflow.step.')) {
-      // A run changes the workflow's last-run summary and counts too.
-      return ['runs', 'workflows'];
-   }
-   if (type.startsWith('workflow.')) return ['workflows'];
    if (type.startsWith('approval.')) return ['approvals', 'goals', 'inbox'];
    if (type.startsWith('plan.')) return ['inbox', 'goals'];
    if (type.startsWith('issue.')) return ['goals'];
@@ -41,7 +32,7 @@ function familiesFor(event: EventEnvelope): Family[] {
 }
 
 /**
- * Keeps goals, workflows, runs, approvals and the inbox live.
+ * Keeps goals, approvals and the inbox live.
  *
  * One connection per page over `GET /api/v1/events?workspaceId=`; every
  * frame is fanned out to in-page subscribers (a plan page refetches its
@@ -54,8 +45,6 @@ export function useWorkspaceEventStream(): void {
    const workspaceId = useSessionStore((state) => state.workspace?.id);
    const user = useSessionStore((state) => state.user);
    const hydrateGoals = useGoalsStore((state) => state.hydrateGoals);
-   const hydrateWorkflows = useWorkflowsStore((state) => state.hydrateWorkflows);
-   const hydrateWorkspaceRuns = useWorkflowRunsStore((state) => state.hydrateWorkspaceRuns);
    const hydrateApprovals = useApprovalsStore((state) => state.hydrateApprovals);
    const hydrateNotifications = useNotificationsStore((state) => state.hydrateNotifications);
    const setServerUnreadCount = useNotificationsStore((state) => state.setServerUnreadCount);
@@ -79,16 +68,6 @@ export function useWorkspaceEventStream(): void {
          if (families.includes('goals')) {
             void loadWorkspaceGoals(workspaceId).then((goals) => {
                if (!cancelled) hydrateGoals(goals);
-            });
-         }
-         if (families.includes('workflows')) {
-            void loadWorkspaceWorkflows(workspaceId).then((workflows) => {
-               if (!cancelled) hydrateWorkflows(workflows);
-            });
-         }
-         if (families.includes('runs')) {
-            void loadWorkspaceWorkflowRuns(workspaceId).then((runs) => {
-               if (!cancelled) hydrateWorkspaceRuns(runs);
             });
          }
          if (families.includes('approvals')) {
@@ -135,7 +114,7 @@ export function useWorkspaceEventStream(): void {
          if (cancelled) return;
          setConnected(false);
          // Whatever happened while the stream was down is not in the stores.
-         scheduleRefresh(['goals', 'workflows', 'runs', 'approvals', 'inbox']);
+         scheduleRefresh(['goals', 'approvals', 'inbox']);
          reconnectTimer = setTimeout(() => {
             if (!cancelled) void consume();
          }, reconnectDelay);
@@ -156,8 +135,6 @@ export function useWorkspaceEventStream(): void {
       workspaceId,
       user,
       hydrateGoals,
-      hydrateWorkflows,
-      hydrateWorkspaceRuns,
       hydrateApprovals,
       hydrateNotifications,
       setServerUnreadCount,

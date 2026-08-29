@@ -117,7 +117,7 @@ export function toUiUser(actor: {
 }
 
 // ---------------------------------------------------------------------------
-// Planning and automation statuses
+// Planning statuses
 
 import type { BerryMarkState, BerryMarkTone } from '@/components/brand/berry-mark';
 
@@ -136,27 +136,6 @@ export const GOAL_STATUS: Record<string, StatusLook> = {
    blocked: { label: 'Blocked', tone: 'attention', state: 'hollow' },
    completed: { label: 'Completed', tone: 'complete', state: 'solid' },
    cancelled: { label: 'Cancelled', tone: 'attention', state: 'crossed' },
-};
-
-export const WORKFLOW_STATUS: Record<string, StatusLook> = {
-   draft: { label: 'Draft', tone: 'neutral', state: 'hollow' },
-   active: { label: 'Active', tone: 'complete', state: 'solid' },
-   paused: { label: 'Paused', tone: 'neutral', state: 'solid' },
-   archived: { label: 'Archived', tone: 'attention', state: 'crossed' },
-};
-
-export const WORKFLOW_RUN_STATUS: Record<string, StatusLook> = {
-   pending: { label: 'Pending', tone: 'neutral', state: 'hollow' },
-   running: { label: 'Running', tone: 'working', state: 'solid', pulse: true },
-   waiting: { label: 'Waiting', tone: 'attention', state: 'hollow' },
-   succeeded: { label: 'Succeeded', tone: 'complete', state: 'solid' },
-   failed: { label: 'Failed', tone: 'danger', state: 'solid' },
-   cancelled: { label: 'Cancelled', tone: 'attention', state: 'crossed' },
-};
-
-export const STEP_RUN_STATUS: Record<string, StatusLook> = {
-   ...WORKFLOW_RUN_STATUS,
-   skipped: { label: 'Skipped', tone: 'neutral', state: 'crossed' },
 };
 
 export const APPROVAL_STATUS: Record<string, StatusLook> = {

@@ -10,7 +10,7 @@ import { ChevronRight, Sparkles } from 'lucide-react';
 /**
  * Plan page header: crumb (plans › mark + goal title), the plan's state, and
  * the way to ask for another plan. "Plans" is not a link yet — the goals
- * list that will house plans arrives with the workflow UI phase.
+ * list that will house plans is not built yet.
  */
 export default function Header({ planId }: { planId: string }) {
    const record = usePlanStore((state) => state.records[planId]);

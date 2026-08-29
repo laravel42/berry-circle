@@ -25,7 +25,7 @@ import {
 /**
  * `/api/v1/goals`.
  *
- * Three of its sub-lists read tables no mount here owns — automations and
+ * Two of its sub-lists read tables no mount here owns — approvals and
  * approvals belong to AUTOMATE, plans to the planner. They are served anyway
  * because they depend on those *tables* and not on that code: a goal has to
  * be able to say what points at it without owning any of it.
@@ -229,14 +229,6 @@ export function goalMounts(options: GoalOptions): Mount[] {
       const issue = await resolveIssue(issues, context.req.param('issueRef'), context.get('user').id, scope.workspaceId);
       await goals.unlinkIssue(goalId, issue.id).catch(rethrow('Issue'));
       return new Response(null, { status: 204 });
-   });
-
-   route.get('/:goalId/workflows', async (context) => {
-      const goalId = pathId(context.req.param('goalId'));
-      const scope = await goals
-         .authorize(context.get('user').id, goalId, 'product.read')
-         .catch(rethrow('Goal'));
-      return json({ nodes: await goals.listWorkflows(goalId, scope.workspaceId) });
    });
 
    route.get('/:goalId/approvals', async (context) => {

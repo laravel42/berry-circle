@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { SelectMenu, SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 import { ThemePreferences } from './theme-preferences';
 
-/** Personal "Preferences" settings (general, theme, automations). */
+/** Personal "Preferences" settings (general, theme, task defaults). */
 export default function Preferences() {
    const [customizeOpen, setCustomizeOpen] = useState(false);
    return (
@@ -82,7 +82,7 @@ export default function Preferences() {
             </SettingsCard>
          </SettingsSection>
 
-         <SettingsSection title="Automations and workflows">
+         <SettingsSection title="Task defaults">
             <SettingsCard>
                <SettingsRow
                   title="Auto-assign to self"

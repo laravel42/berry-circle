@@ -11,7 +11,7 @@ import {
    AlertDialogHeader,
    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { UrlBox } from '@/components/common/workflows/copy-button';
+import { UrlBox } from '@/components/common/copy-button';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { absoluteApiUrl } from '@/lib/api';
@@ -179,10 +179,9 @@ function InboundDeliveries({ provider, workspaceId }: { provider: Provider; work
          <p className="font-medium">Inbound deliveries</p>
          <p className="mt-0.5 text-muted-foreground">
             Register this URL as the {provider.name} webhook. A verified delivery becomes the
-            workspace fact <code className="font-mono">integration.webhook.received</code> and
-            starts every active workflow whose trigger names its event
+            workspace fact <code className="font-mono">integration.webhook.received</code>
             {events.length > 0 &&
-               ` (${events.length} event${events.length === 1 ? '' : 's'} to choose from)`}
+               ` (${events.length} event${events.length === 1 ? '' : 's'} this provider sends)`}
             .
          </p>
          <div className="mt-2">
@@ -272,7 +271,7 @@ function ProviderCard({
                )}
                {builtIn && (
                   <p className="mt-1 text-muted-foreground">
-                     Runs inside Berry; workflows use these tools with nothing to connect.
+                     Runs inside Berry; agents use these tools with nothing to connect.
                   </p>
                )}
                {scopes.length > 0 && (
@@ -444,7 +443,7 @@ function IntegrationsDirectory() {
    return (
       <SettingsShell
          title="Integrations"
-         description="Connect the tools workflows and agents may reach. Berry's own tools need no connection; a workflow that names another provider stays a draft until it is connected."
+         description="Connect the tools your agents may reach. Berry's own tools need no connection; an agent cannot reach another provider until it is connected."
       >
          <div className="relative">
             <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -502,9 +501,8 @@ function IntegrationsDirectory() {
                <AlertDialogHeader>
                   <AlertDialogTitle>Disconnect {disconnecting?.name}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                     Every grant on this connection goes with it. Active workflows that use{' '}
-                     {disconnecting?.name ?? 'it'} will fail at that step until it is connected
-                     again.
+                     Every grant on this connection goes with it. An agent that reaches for{' '}
+                     {disconnecting?.name ?? 'it'} will be refused until it is connected again.
                   </AlertDialogDescription>
                </AlertDialogHeader>
                <AlertDialogFooter>
@@ -530,7 +528,7 @@ function IntegrationsDirectory() {
  * Workspace integrations: every provider the deployment knows, whether it
  * is connected, what each one's tools may do, and Connect / Disconnect
  * through the OAuth flow the API runs. Reached from the Connect action on
- * a plan or a workflow with `?provider=` naming what to connect.
+ * a plan or an agent with `?provider=` naming what to connect.
  */
 export default function Integrations() {
    return (

@@ -4,14 +4,12 @@ import { BerryMark } from '@/components/brand/berry-mark';
 import { ApprovalCard } from '@/components/common/approvals/approval-card';
 import { IssueLine } from '@/components/common/issues/issue-line';
 import { Pill, SectionHeading } from '@/components/common/plans/plan-sections';
-import WorkflowLine from '@/components/common/workflows/workflow-line';
 import { Button } from '@/components/ui/button';
 import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
 import { useGoal } from '@/hooks/use-goal';
 import {
    APPROVAL_STATUS,
    GOAL_STATUS,
-   WORKFLOW_STATUS,
    statusLook,
    uiStatusFromApi,
 } from '@/lib/catalog';
@@ -21,22 +19,18 @@ import {
    listGoalApprovals,
    listGoalIssues,
    listGoalPlans,
-   listGoalWorkflows,
    type Goal,
    type GoalApprovalRef,
    type GoalIssueRef,
    type GoalPlanRef,
-   type GoalWorkflowRef,
 } from '@/lib/goals';
 import { cn } from '@/lib/utils';
 import { useApprovalsStore } from '@/store/approvals-store';
 import { useCreatePlanStore } from '@/store/create-plan-store';
-import { useCreateWorkflowStore } from '@/store/create-workflow-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useMembersStore } from '@/store/members-store';
 import { useProjectsStore } from '@/store/projects-store';
 import { useSessionStore } from '@/store/session-store';
-import { useWorkflowsStore } from '@/store/workflows-store';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
@@ -55,12 +49,11 @@ function whenText(iso: string | null | undefined): string {
 
 interface GoalLists {
    issues: GoalIssueRef[];
-   workflows: GoalWorkflowRef[];
    approvals: GoalApprovalRef[];
    plans: GoalPlanRef[];
 }
 
-const EMPTY_LISTS: GoalLists = { issues: [], workflows: [], approvals: [], plans: [] };
+const EMPTY_LISTS: GoalLists = { issues: [], approvals: [], plans: [] };
 
 /** Everything hanging off a goal, re-read when the stream says something moved. */
 function useGoalLists(goalId: string): { lists: GoalLists; loaded: boolean } {
@@ -75,12 +68,11 @@ function useGoalLists(goalId: string): { lists: GoalLists; loaded: boolean } {
       const read = () => {
          void Promise.all([
             listGoalIssues(goalId).catch(() => []),
-            listGoalWorkflows(goalId).catch(() => []),
             listGoalApprovals(goalId).catch(() => []),
             listGoalPlans(goalId).catch(() => []),
-         ]).then(([issues, workflows, approvals, plans]) => {
+         ]).then(([issues, approvals, plans]) => {
             if (cancelled) return;
-            setLists({ issues, workflows, approvals, plans });
+            setLists({ issues, approvals, plans });
             setLoaded(true);
          });
       };
@@ -90,7 +82,6 @@ function useGoalLists(goalId: string): { lists: GoalLists; loaded: boolean } {
          if (
             !type.startsWith('issue.') &&
             !type.startsWith('approval.') &&
-            !type.startsWith('workflow.') &&
             !type.startsWith('plan.') &&
             !type.startsWith('goal.')
          ) {
@@ -133,51 +124,6 @@ function WorkSection({ refs, orgId }: { refs: GoalIssueRef[]; orgId: string }) {
                            {ref.identifier}
                         </span>
                         <span className="truncate">{ref.title}</span>
-                     </Link>
-                  );
-               })}
-            </div>
-         )}
-      </section>
-   );
-}
-
-function AutomationSection({
-   refs,
-   orgId,
-   goalId,
-}: {
-   refs: GoalWorkflowRef[];
-   orgId: string;
-   goalId: string;
-}) {
-   const workflows = useWorkflowsStore((state) => state.workflows);
-   const openCreateWorkflow = useCreateWorkflowStore((state) => state.openModal);
-   return (
-      <section className="mt-8">
-         <div className="flex items-center justify-between gap-3">
-            <SectionHeading title="Automation" count={refs.length} />
-            <Button size="xs" variant="secondary" onClick={() => openCreateWorkflow({ goalId })}>
-               New workflow
-            </Button>
-         </div>
-         {refs.length === 0 ? (
-            <p className="mt-2 text-muted-foreground">No workflow serves this goal yet.</p>
-         ) : (
-            <div className="mt-2 overflow-hidden rounded-md border border-border/60 bg-background">
-               {refs.map((ref) => {
-                  const workflow = workflows.find((candidate) => candidate.id === ref.id);
-                  if (workflow) return <WorkflowLine key={ref.id} workflow={workflow} />;
-                  const look = statusLook(WORKFLOW_STATUS, ref.status);
-                  return (
-                     <Link
-                        key={ref.id}
-                        href={`/${orgId}/workflow/${ref.id}/overview`}
-                        className="flex items-center gap-2.5 border-b border-border/45 px-6 py-3 last:border-b-0 hover:bg-accent/45"
-                     >
-                        <BerryMark size="sm" tone={look.tone} state={look.state} />
-                        <span className="truncate font-medium">{ref.name}</span>
-                        <span className="text-muted-foreground">{look.label.toLowerCase()}</span>
                      </Link>
                   );
                })}
@@ -326,9 +272,9 @@ function Properties({ goal }: { goal: Goal }) {
 }
 
 /**
- * A goal and everything that serves it: the tasks, the workflows, the
- * approvals it waits on and the plans that proposed it, with the progress
- * the server counts rather than a client-side estimate.
+ * A goal and everything that serves it: the tasks, the approvals it waits
+ * on and the plans that proposed it, with the progress the server counts
+ * rather than a client-side estimate.
  */
 export default function GoalOverview({ goalId }: { goalId: string }) {
    const params = useParams<{ orgId?: string }>();
@@ -387,7 +333,6 @@ export default function GoalOverview({ goalId }: { goalId: string }) {
                   )}
 
                   <WorkSection refs={lists.issues} orgId={orgId} />
-                  <AutomationSection refs={lists.workflows} orgId={orgId} goalId={goal.id} />
                   <ApprovalsSection refs={lists.approvals} goalId={goal.id} orgId={orgId} />
                   <PlansSection refs={lists.plans} orgId={orgId} goal={goal} />
                </div>

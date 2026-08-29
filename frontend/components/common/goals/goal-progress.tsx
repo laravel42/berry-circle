@@ -11,7 +11,7 @@ interface GoalProgressProps {
    className?: string;
 }
 
-/** Tasks done over tasks total, with the workflows and approvals beside it. */
+/** Tasks done over tasks total, with the approvals beside it. */
 export function GoalProgress({ progress, compact = false, className }: GoalProgressProps) {
    const total = progress?.issuesTotal ?? 0;
    const done = progress?.issuesDone ?? 0;

@@ -12,7 +12,6 @@ export type SidebarItemKey =
    | 'my-issues'
    | 'goals'
    | 'autopilot'
-   | 'workflow-runs'
    | 'approvals'
    | 'analytics'
    | 'agent'
@@ -41,7 +40,6 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
    'my-issues': 'always',
    'goals': 'always',
    'autopilot': 'always',
-   'workflow-runs': 'always',
    'approvals': 'always',
    'analytics': 'always',
    'agent': 'always',

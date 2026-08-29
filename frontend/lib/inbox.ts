@@ -25,7 +25,6 @@ const inboxSchema = z.object({
    createdAt: z.string(),
    approvalId: z.string().nullish(),
    goalId: z.string().nullish(),
-   workflowRunId: z.string().nullish(),
    planId: z.string().nullish(),
 });
 
@@ -38,7 +37,6 @@ function notificationType(item: ApiInboxItem): NotificationType {
       return 'approval';
    }
    if (item.planId || item.eventType.startsWith('plan.')) return 'plan';
-   if (item.workflowRunId || item.eventType.startsWith('workflow.')) return 'workflow';
    if (item.goalId && !item.issueId) return 'goal';
    if (item.eventType.startsWith('goal.')) return 'goal';
    const haystack = `${item.eventType} ${item.category}`.toLowerCase();
@@ -111,7 +109,6 @@ export async function loadWorkspaceInbox(workspaceId: string, actor: User): Prom
             issue,
             approval: item.approvalId ? { id: item.approvalId } : undefined,
             goal: item.goalId ? { id: item.goalId } : undefined,
-            workflowRun: item.workflowRunId ? { id: item.workflowRunId } : undefined,
             plan: item.planId ? { id: item.planId } : undefined,
          };
       });

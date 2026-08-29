@@ -28,7 +28,7 @@ import { toast } from 'sonner';
 /**
  * The unified prompt: "What do you want to accomplish?"
  *
- * Berry decides server-side whether the answer is tasks, workflows, or both,
+ * Berry decides server-side what tasks the answer needs,
  * so the dialog asks one question and nothing else beyond an optional
  * project. Submitting opens the plan preview, where the person sees what
  * Berry proposes before anything exists.
@@ -108,7 +108,7 @@ export function CreatePlanDialog() {
             <DialogHeader className="px-6 pt-5 pb-0">
                <DialogTitle className="sr-only">New plan</DialogTitle>
                <DialogDescription className="sr-only">
-                  Describe what you want to accomplish. Berry proposes the tasks, workflows and
+                  Describe what you want to accomplish. Berry proposes the tasks and
                   approvals it would take, and nothing starts until you approve the plan.
                </DialogDescription>
                <div className="flex items-center justify-between gap-3">
@@ -156,7 +156,7 @@ export function CreatePlanDialog() {
                      />
                   </div>
                   <p className="text-muted-foreground">
-                     Berry turns this into tasks, workflows and approvals you review before anything
+                     Berry turns this into tasks and approvals you review before anything
                      starts.
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 pt-3">

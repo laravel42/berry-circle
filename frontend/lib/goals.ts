@@ -4,8 +4,8 @@ import { actorRefSchema, connectionSchema, newIdempotencyKey } from './api-schem
 
 /**
  * Goals: the outcome a plan serves. A goal lists the tasks linked to it, the
- * workflows that automate it, the approvals it is waiting on and the plans
- * that proposed it; `progress` is only on a single read.
+ * approvals it is waiting on and the plans that proposed it; `progress` is
+ * only on a single read.
  */
 
 export const goalStatusSchema = z.enum([
@@ -21,7 +21,6 @@ export const goalProgressSchema = z.object({
    issuesTotal: z.number(),
    issuesDone: z.number(),
    issuesCancelled: z.number().default(0),
-   workflowsActive: z.number(),
    approvalsPending: z.number(),
 });
 
@@ -52,16 +51,6 @@ export const goalIssueRefSchema = z.object({
    linkedAt: z.string().nullish(),
 });
 
-export const goalWorkflowRefSchema = z.object({
-   id: z.string(),
-   name: z.string(),
-   status: z.string(),
-   triggerType: z.string().nullish(),
-   risk: z.string().nullish(),
-   version: z.number().nullish(),
-   updatedAt: z.string().nullish(),
-});
-
 export const goalApprovalRefSchema = z.object({
    id: z.string(),
    kind: z.string(),
@@ -69,7 +58,6 @@ export const goalApprovalRefSchema = z.object({
    title: z.string(),
    status: z.string(),
    issueId: z.string().nullish(),
-   workflowId: z.string().nullish(),
    requestedAt: z.string().nullish(),
 });
 
@@ -88,7 +76,6 @@ export type GoalStatus = z.infer<typeof goalStatusSchema>;
 export type GoalProgress = z.infer<typeof goalProgressSchema>;
 export type Goal = z.infer<typeof goalSchema>;
 export type GoalIssueRef = z.infer<typeof goalIssueRefSchema>;
-export type GoalWorkflowRef = z.infer<typeof goalWorkflowRefSchema>;
 export type GoalApprovalRef = z.infer<typeof goalApprovalRefSchema>;
 export type GoalPlanRef = z.infer<typeof goalPlanRefSchema>;
 
@@ -202,10 +189,6 @@ export function listGoalIssues(goalId: string): Promise<GoalIssueRef[]> {
    return listNodes(`/api/v1/goals/${encodeURIComponent(goalId)}/issues`, goalIssueRefSchema);
 }
 
-export function listGoalWorkflows(goalId: string): Promise<GoalWorkflowRef[]> {
-   return listNodes(`/api/v1/goals/${encodeURIComponent(goalId)}/workflows`, goalWorkflowRefSchema);
-}
-
 export function listGoalApprovals(goalId: string): Promise<GoalApprovalRef[]> {
    return listNodes(`/api/v1/goals/${encodeURIComponent(goalId)}/approvals`, goalApprovalRefSchema);
 }
@@ -313,7 +296,7 @@ export function describeGoalFailure(error: unknown): string {
    return 'The goal request failed.';
 }
 
-/** "3 of 5 tasks done · 1 workflow active · 2 approvals pending". */
+/** "3 of 5 tasks done · 2 approvals pending". */
 export function describeGoalProgress(progress: GoalProgress | null | undefined): string {
    if (!progress) return 'No tasks yet';
    const parts: string[] = [];
@@ -322,11 +305,6 @@ export function describeGoalProgress(progress: GoalProgress | null | undefined):
          ? 'no tasks yet'
          : `${progress.issuesDone} of ${progress.issuesTotal} task${progress.issuesTotal === 1 ? '' : 's'} done`
    );
-   if (progress.workflowsActive > 0) {
-      parts.push(
-         `${progress.workflowsActive} workflow${progress.workflowsActive === 1 ? '' : 's'} active`
-      );
-   }
    if (progress.approvalsPending > 0) {
       parts.push(
          `${progress.approvalsPending} approval${progress.approvalsPending === 1 ? '' : 's'} pending`

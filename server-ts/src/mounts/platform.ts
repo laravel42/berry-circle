@@ -22,7 +22,6 @@ export interface Capabilities {
    storage: boolean;
    valkey: boolean;
    planner: boolean;
-   workflows: boolean;
 }
 
 export interface PlatformOptions {
@@ -105,8 +104,8 @@ function metricsRoute(): Hono {
 function configRoute(capabilities: Capabilities): Hono {
    const route = new Hono();
    route.get('/', () =>
-      // Declaration order, not sorted: Go marshals this as a struct, and
-      // planner and workflows are declared after valkey.
+      // Declaration order, not sorted: the Go server marshalled this as a
+      // struct and `planner` was declared after `valkey`.
       json({
          capabilities: {
             agentExecution: capabilities.agentExecution,
@@ -115,7 +114,6 @@ function configRoute(capabilities: Capabilities): Hono {
             storage: capabilities.storage,
             valkey: capabilities.valkey,
             planner: capabilities.planner,
-            workflows: capabilities.workflows,
          },
       })
    );
