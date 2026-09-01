@@ -24,6 +24,7 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 | [0006](0006-agent-run-artifacts.md) | Store agent run artifacts in object storage, indexed as attachments | Accepted | 2026-08-24 |
 | [0008](0008-adk-agent-runtime.md) | Run agents in-process with the Google Agent Development Kit | Accepted | 2026-08-27 |
 | [0009](0009-typescript-product-server.md) | Reimplement the product server in TypeScript | Accepted | 2026-08-27 |
+| [0010](0010-goals-as-derived-task-groups.md) | Goals are derived groups of a project's tasks | Proposed | 2026-09-01 |
 
 ### Withdrawn records
 
