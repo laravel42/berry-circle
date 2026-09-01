@@ -1,7 +1,7 @@
 {
    "name": "berry-circle",
-   "version": "0.1.0",
-   "private": true,
+   "version": "0.9.4",
+   "private": false,
    "license": "MIT",
    "description": "A self-hosted issue tracker whose assignees can be people or coding agents.",
    "repository": {
