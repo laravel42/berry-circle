@@ -1,21 +1,32 @@
 import { z } from 'zod';
 import { BerryApiError, apiFetch } from './api';
-import { actorRefSchema, connectionSchema, newIdempotencyKey } from './api-schemas';
+import { actorRefSchema, connectionSchema } from './api-schemas';
 
 /**
- * Goals: the outcome a plan serves. A goal lists the tasks linked to it, the
- * approvals it is waiting on and the plans that proposed it; `progress` is
- * only on a single read.
+ * Goals: the tasks one plan compile produced, inside one project. Nothing
+ * authors a goal — not its title, not its membership, not its status, which is
+ * a function of the tasks under it. See
+ * `docs/adr/0010-goals-as-derived-task-groups.md`.
  */
 
-export const goalStatusSchema = z.enum([
-   'draft',
-   'planned',
-   'active',
-   'blocked',
-   'completed',
-   'cancelled',
-]);
+export const goalStatusSchema = z.enum(['planned', 'active', 'blocked', 'completed']);
+
+/**
+ * `draft` and `cancelled` were reachable only while a goal could be written by
+ * hand. They are folded into the four rather than rejected, so the page keeps
+ * working against a database that migration 038 has not reached yet; this and
+ * `wireGoalStatusSchema` can go once it has.
+ */
+const RETIRED_STATUS: Record<string, GoalStatus> = {
+   draft: 'planned',
+   cancelled: 'completed',
+};
+
+const wireGoalStatusSchema = z.preprocess(
+   (value) =>
+      typeof value === 'string' && value in RETIRED_STATUS ? RETIRED_STATUS[value] : value,
+   goalStatusSchema
+);
 
 export const goalProgressSchema = z.object({
    issuesTotal: z.number(),
@@ -30,9 +41,7 @@ export const goalSchema = z.object({
    projectId: z.string().nullish(),
    title: z.string(),
    description: z.string().nullish(),
-   status: goalStatusSchema,
-   source: z.string(),
-   sourcePrompt: z.string().nullish(),
+   status: wireGoalStatusSchema,
    createdBy: actorRefSchema.nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
@@ -138,42 +147,13 @@ export async function getGoal(goalId: string, signal?: AbortSignal): Promise<Goa
    return parseGoal(json);
 }
 
-export interface CreateGoalInput {
-   workspaceId: string;
-   title: string;
-   description?: string;
-   projectId?: string;
-}
-
-export async function createGoal(input: CreateGoalInput): Promise<Goal> {
-   const body: Record<string, string> = { workspaceId: input.workspaceId, title: input.title };
-   if (input.description) body.description = input.description;
-   if (input.projectId) body.projectId = input.projectId;
-   const json: unknown = await apiFetch('/api/v1/goals', {
-      method: 'POST',
-      headers: { 'Idempotency-Key': newIdempotencyKey() },
-      body: JSON.stringify(body),
-   });
-   return parseGoal(json);
-}
-
-export interface GoalPatch {
-   title?: string;
-   description?: string | null;
-   status?: GoalStatus;
-   projectId?: string | null;
-}
-
-/** Throws so an optimistic edit can be put back; the store decides. */
-export async function patchGoal(goalId: string, patch: GoalPatch): Promise<Goal> {
-   const json: unknown = await apiFetch(`/api/v1/goals/${encodeURIComponent(goalId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-   });
-   return parseGoal(json);
-}
-
-/** Archives the goal; its tasks keep their links. Needs `settings.write`. */
+/**
+ * Archives the goal; its tasks keep their links. Needs `settings.write`.
+ *
+ * The only write left. A goal is not created, renamed or moved from here —
+ * compiling a plan makes one — but a grouping that has outlived its use should
+ * still be retirable.
+ */
 export async function archiveGoal(goalId: string): Promise<void> {
    await apiFetch(`/api/v1/goals/${encodeURIComponent(goalId)}`, { method: 'DELETE' });
 }
@@ -197,72 +177,41 @@ export function listGoalPlans(goalId: string): Promise<GoalPlanRef[]> {
    return listNodes(`/api/v1/goals/${encodeURIComponent(goalId)}/plans`, goalPlanRefSchema);
 }
 
-export async function linkGoalIssue(goalId: string, issueRef: string): Promise<void> {
-   await apiFetch(
-      `/api/v1/goals/${encodeURIComponent(goalId)}/issues/${encodeURIComponent(issueRef)}`,
-      { method: 'PUT' }
-   );
-}
-
-export async function unlinkGoalIssue(goalId: string, issueRef: string): Promise<void> {
-   await apiFetch(
-      `/api/v1/goals/${encodeURIComponent(goalId)}/issues/${encodeURIComponent(issueRef)}`,
-      { method: 'DELETE' }
-   );
-}
-
 // ---------------------------------------------------------------------------
 // Reading a goal
 
 export function describeGoalStatus(status: string): string {
    switch (status) {
-      case 'draft':
-         return 'Draft';
       case 'planned':
          return 'Planned';
       case 'active':
-         return 'Active';
+         return 'In Progress';
       case 'blocked':
          return 'Blocked';
       case 'completed':
-         return 'Completed';
-      case 'cancelled':
-         return 'Cancelled';
+         return 'Done';
       default:
          return status;
    }
 }
 
 /**
- * The statuses a person may move a goal to from where it is. `blocked` is
- * the dispatcher's alone, and a finished goal stays finished.
+ * Why the goal is in that state. Nobody set it, so the page has to say what
+ * the tasks are doing — otherwise "Blocked" looks like a decision someone made
+ * and the reader goes looking for who made it.
  */
-export function goalTransitions(status: GoalStatus): { status: GoalStatus; label: string }[] {
+export function describeGoalStatusReason(status: string): string {
    switch (status) {
-      case 'draft':
-         return [
-            { status: 'planned', label: 'Mark planned' },
-            { status: 'active', label: 'Start goal' },
-            { status: 'cancelled', label: 'Cancel goal' },
-         ];
       case 'planned':
-         return [
-            { status: 'active', label: 'Start goal' },
-            { status: 'cancelled', label: 'Cancel goal' },
-         ];
+         return 'Every task is still waiting to start.';
       case 'active':
-         return [
-            { status: 'completed', label: 'Complete goal' },
-            { status: 'cancelled', label: 'Cancel goal' },
-         ];
+         return 'Work has started and some tasks are still open.';
       case 'blocked':
-         return [
-            { status: 'active', label: 'Resume goal' },
-            { status: 'completed', label: 'Complete goal' },
-            { status: 'cancelled', label: 'Cancel goal' },
-         ];
+         return 'Every task still open is blocked, so nothing can move.';
+      case 'completed':
+         return 'Every task is done or cancelled.';
       default:
-         return [];
+         return '';
    }
 }
 
@@ -270,13 +219,6 @@ export function goalTransitions(status: GoalStatus): { status: GoalStatus; label
 export function describeGoalFailure(error: unknown): string {
    if (error instanceof BerryApiError) {
       switch (error.code) {
-         case 'GOAL_TRANSITION_INVALID': {
-            const details = error.details as { from?: string; to?: string } | null;
-            if (details?.from && details?.to) {
-               return `A goal cannot go from ${describeGoalStatus(details.from).toLowerCase()} to ${describeGoalStatus(details.to).toLowerCase()}.`;
-            }
-            return 'That status change is not allowed.';
-         }
          case 'PROJECT_NOT_FOUND':
             return 'That project does not exist in this workspace.';
          case 'GOAL_NOT_FOUND':

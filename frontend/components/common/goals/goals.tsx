@@ -2,29 +2,27 @@
 
 import { BerryMark } from '@/components/brand/berry-mark';
 import { Button } from '@/components/ui/button';
-import { useCreateGoalStore } from '@/store/create-goal-store';
-import { useCreatePlanStore } from '@/store/create-plan-store';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { useGoalsStore } from '@/store/goals-store';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import GoalLine from './goal-line';
 
 function EmptyGoals() {
-   const openCreatePlan = useCreatePlanStore((state) => state.openModal);
-   const openCreateGoal = useCreateGoalStore((state) => state.openModal);
+   const params = useParams<{ orgId?: string }>();
+   const orgId = params?.orgId || WORKSPACE_SLUG;
    return (
       <div className="flex min-h-64 w-full items-center justify-center px-6 py-12">
          <div className="flex max-w-sm flex-col items-center text-center">
             <BerryMark size="lg" tone="neutral" state="hollow" label="No goals" />
             <h2 className="mt-5 font-display tracking-[-0.025em]">No goals yet.</h2>
             <p className="mt-2 leading-relaxed text-muted-foreground">
-               A goal is the outcome the work serves. Describe one and Berry proposes the tasks,
-               approvals it would take — nothing starts until you say so.
+               A goal is the group of tasks one plan produced. Plan work in a project and the goal
+               arrives with the tasks.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-               <Button className="h-10 px-5" onClick={() => openCreatePlan()}>
-                  plan something
-               </Button>
-               <Button variant="secondary" className="h-10 px-5" onClick={() => openCreateGoal()}>
-                  new goal
+               <Button asChild className="h-10 px-5">
+                  <Link href={`/${orgId}/projects`}>go to projects</Link>
                </Button>
             </div>
          </div>
