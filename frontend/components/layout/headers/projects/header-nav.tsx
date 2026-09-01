@@ -1,5 +1,6 @@
 'use client';
 
+import { PlanSomethingButton } from '@/components/common/plans/plan-something-button';
 import { CreateProjectButton } from '@/components/common/projects/create-project-button';
 
 export default function HeaderNav() {
@@ -9,14 +10,16 @@ export default function HeaderNav() {
             <div className="min-w-0">
                <span className="font-medium">Projects</span>
                <p className="mt-1 max-w-2xl text-muted-foreground">
-                  Group related tasks into a shared plan with status, health, and a target
-                  date.{' '}
+                  Group related tasks into a shared plan with status, health, and a target date.{' '}
                   <a href="" className="text-foreground underline-offset-2 hover:underline">
                      Learn more
                   </a>
                </p>
             </div>
-            <CreateProjectButton />
+            <div className="flex shrink-0 items-center gap-2">
+               <PlanSomethingButton />
+               <CreateProjectButton />
+            </div>
          </div>
       </div>
    );

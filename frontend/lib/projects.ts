@@ -265,6 +265,11 @@ export type GeneratedIssue = z.infer<typeof generatedIssueSchema>;
 /**
  * Ask an agent to decompose a project into issues.
  *
+ * Unused, and nothing should call it yet: the server does not serve
+ * `generated-issues` — `server-ts/SCOPE.md` defers it until what it means under
+ * in-process agents is decided. Planning is the path that works today. Kept so
+ * the client comes back with the route rather than being rewritten.
+ *
  * Slow by nature — it is a model call the person is waiting on — and errors are
  * raised rather than swallowed, because the two failures worth telling apart
  * are "no agent could answer" and "the answer was unusable", and both are
