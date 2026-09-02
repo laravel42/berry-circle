@@ -2,6 +2,7 @@ import type { Sql } from '../db/pool.ts';
 import type { Dispatch, RunLedger } from '../runs/ledger.ts';
 import type { ExecutionSession } from '../execution/driver.ts';
 import type { ConnectionRepository } from '../integrations/connections.ts';
+import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubError, type GitHubClient, type PullRequest } from '../integrations/github.ts';
 import { branchName, checkout, parseRepository, type Checkout } from './checkout.ts';
 import { commitAndPush } from './delivery.ts';
@@ -38,6 +39,14 @@ export interface RepositoryRunDeps {
    ledger: RunLedger;
    /** Absent means a run never gets a repository, even when its project names one. */
    connections: ConnectionRepository | undefined;
+   /**
+    * Preferred over `connections` when the deployment has an App.
+    *
+    * An installation token is minted per run and cannot expire between one and
+    * the next, which is the difference that matters for work nobody is
+    * watching.
+    */
+   githubApp?: GitHubAppRepository | undefined;
    github: (token: string) => GitHubClient;
 }
 
@@ -63,7 +72,7 @@ export async function prepareRepository(
       session: (() => Promise<ExecutionSession>) | null;
    }
 ): Promise<PreparedRepository | null> {
-   if (!input.session || !deps.connections) return null;
+   if (!input.session || !(deps.githubApp ?? deps.connections)) return null;
 
    const repository = await repositoryForIssue(deps.sql, input.dispatch.issueId);
    if (!repository) return null;
@@ -73,7 +82,7 @@ export async function prepareRepository(
    input.permissions.require('read_repository');
    input.permissions.require('create_branches');
 
-   const token = await deps.connections.token(input.dispatch.workspaceId, 'github');
+   const token = await runToken(deps, input.dispatch.workspaceId);
    const client = deps.github(token);
    const { owner, name } = parseRepository(repository.fullName);
 
@@ -131,7 +140,7 @@ export async function deliverRepository(
    }
 ): Promise<void> {
    const { dispatch, prepared, summary } = input;
-   const token = await deps.connections!.token(dispatch.workspaceId, 'github');
+   const token = await runToken(deps, dispatch.workspaceId);
    const title = `${prepared.issue.reference}: ${prepared.issue.title}`;
 
    // Before the push, so the evidence describes the tree being delivered
@@ -246,4 +255,17 @@ export function pullRequestBody(
 
    sections.push(`---\nBerry run \`${runId}\` · task ${reference}`);
    return sections.join('\n\n');
+}
+
+/**
+ * The credential this run clones and pushes with, App first.
+ *
+ * The App is asked only when one exists, so a deployment that has not created
+ * one keeps working exactly as before.
+ */
+async function runToken(deps: RepositoryRunDeps, workspaceId: string): Promise<string> {
+   if (deps.githubApp && (await deps.githubApp.app())) {
+      return deps.githubApp.token(workspaceId);
+   }
+   return deps.connections!.token(workspaceId, 'github');
 }

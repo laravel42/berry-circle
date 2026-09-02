@@ -11,6 +11,7 @@ import {
    AlertDialogHeader,
    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { GitHubAppSetup } from '@/components/common/settings/github-app-setup';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -219,12 +220,26 @@ function ProviderCard({
                      {connection?.statusDetail && ` · ${connection.statusDetail}`}
                   </p>
                )}
+               {/* A connection that lapsed is not a connection that was never
+                   made, and the reason is the whole difference between "press
+                   Connect" and "this was never set up". */}
+               {/* GitHub's story is told by the App panel below; a leftover
+                   connection's detail would contradict it. */}
+               {provider.id !== 'github' && !provider.connected && connection?.statusDetail && (
+                  <p className="mt-1 text-muted-foreground">
+                     {connection.statusDetail}
+                     {connection.expiresAt && ` · expired ${whenText(connection.expiresAt)}`}
+                  </p>
+               )}
                {!builtIn && !provider.configured && (
                   <p className="mt-1 text-muted-foreground">
                      Not configured on this deployment: set the {provider.name} OAuth credentials to
                      enable Connect.
                   </p>
                )}
+               {/* GitHub is set up as an App rather than by pasting a
+                   credential, so its card carries the two steps that takes. */}
+               {provider.id === 'github' && <GitHubAppSetup />}
                {builtIn && (
                   <p className="mt-1 text-muted-foreground">
                      Runs inside Berry; agents use these tools with nothing to connect.
@@ -244,12 +259,12 @@ function ProviderCard({
                )}
             </div>
             <div className="flex shrink-0 items-center gap-2">
-               {!builtIn && provider.connected && (
+               {!builtIn && provider.id !== 'github' && provider.connected && (
                   <Button size="xs" variant="secondary" disabled={busy} onClick={onDisconnect}>
                      {busy ? 'Working…' : 'Disconnect'}
                   </Button>
                )}
-               {!builtIn && !provider.connected && (
+               {!builtIn && provider.id !== 'github' && !provider.connected && (
                   <Button
                      size="xs"
                      disabled={busy || !provider.configured}

@@ -17,6 +17,12 @@ import {
    type OAuthStateStore,
 } from '../integrations/oauth.ts';
 import { BUILT_IN_PROVIDER, PROVIDERS, findProvider, needsConnection } from '../integrations/providers.ts';
+import {
+   GitHubAppUnavailable,
+   buildManifest,
+   convertManifest,
+   type GitHubAppRepository,
+} from '../integrations/github-app.ts';
 
 /**
  * `/api/v1/integrations`.
@@ -47,6 +53,14 @@ export interface IntegrationsOptions {
    states: OAuthStateStore | null;
    /** OAuth credentials per provider. Absent means "Connect cannot work here". */
    github: GitHubOAuthOptions | null;
+   /**
+    * The App this deployment created for itself, when it has one.
+    *
+    * Preferred over `github` above: an App's credentials are stored rather than
+    * configured, and its installation tokens do not expire out from under an
+    * unattended run.
+    */
+   githubApp: GitHubAppRepository | null;
    /** This deployment's own origin, which the provider redirects back to. */
    publicUrl: string | null;
    /** Where to send the browser after the callback. Defaults to the API's own origin. */
@@ -61,6 +75,14 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
    // answered by the state row rather than by a cookie that a cross-site
    // redirect may not carry.
    route.get('/callback/:provider', (context) => handleCallback(context, options));
+
+   // Both App callbacks arrive from GitHub in a browser, so they sit beside the
+   // OAuth one, before the session middleware, and are authorised by their
+   // state row rather than by a cookie a cross-site redirect may not carry.
+   route.get('/github/app/callback', (context) => handleAppCallback(context, options));
+   route.get('/github/installation/callback', (context) =>
+      handleInstallationCallback(context, options)
+   );
 
    route.use('*', requireSession(options.sessions));
 
@@ -78,18 +100,38 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          : [];
       const byProvider = new Map(connections.map((connection) => [connection.provider, connection]));
 
+      // GitHub's state is the App's, and only the App's. A deployment that can
+      // hold an App has no other GitHub path, so a leftover user connection
+      // must not colour the card — reporting a credential as expired next to
+      // no way to renew it describes a product that does not exist.
+      const app = options.githubApp ? await options.githubApp.app() : null;
+      const installation = app ? await options.githubApp!.installation(workspaceId) : null;
+
       return json({
          providers: PROVIDERS.map((provider) => {
             const connection = byProvider.get(provider.id);
+            const viaApp = provider.id === 'github' && options.githubApp !== null;
             return {
                id: provider.id,
                name: provider.name,
                description: provider.description,
                // Berry's own is always available; the rest need both a
                // credential on the deployment and a key to seal it with.
-               configured: !needsConnection(provider.id) || configuredFor(provider.id, options),
-               connected: !needsConnection(provider.id) || connection?.status === 'connected',
-               status: connection?.status ?? null,
+               configured:
+                  viaApp || !needsConnection(provider.id) || configuredFor(provider.id, options),
+               connected: viaApp
+                  ? installation !== null
+                  : !needsConnection(provider.id) || connection?.status === 'connected',
+               // No App yet is not a broken connection, it is a setup nobody
+               // has done: null, so the card says "Not connected" and the
+               // panel below it says what to press.
+               status: viaApp
+                  ? app === null
+                     ? null
+                     : installation
+                       ? 'connected'
+                       : 'not_installed'
+                  : (connection?.status ?? null),
                accountName: connection?.externalAccountName ?? null,
                scopes: connection?.scopes ?? provider.scopes,
                tools: provider.tools.map((tool) => ({
@@ -102,6 +144,105 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
             };
          }),
       });
+   });
+
+   /**
+    * The App this deployment owns and where this workspace installed it.
+    *
+    * Three states the settings page has to tell apart: no App yet, an App that
+    * this workspace has not installed, and installed — each with a different
+    * next action.
+    */
+   route.get('/github/app', async (context) => {
+      const workspaceId = await requireWorkspace(context, options, 'product.read');
+      if (!options.githubApp) return json({ app: null, installation: null });
+      const app = await options.githubApp.app();
+      const installation = app ? await options.githubApp.installation(workspaceId) : null;
+      return json({
+         app: app && {
+            appId: app.appId,
+            slug: app.slug,
+            name: app.name,
+            htmlUrl: app.htmlUrl,
+            createdAt: app.createdAt,
+            installUrl: `https://github.com/apps/${app.slug}/installations/new`,
+         },
+         installation: installation && {
+            installationId: installation.installationId,
+            accountLogin: installation.accountLogin,
+            accountType: installation.accountType,
+         },
+      });
+   });
+
+   /**
+    * What the browser posts to GitHub to create the App.
+    *
+    * Returned rather than redirected to: GitHub's manifest endpoint takes a
+    * form POST, so the page has to submit it. The state is carried in the query
+    * of the POST target and comes back on the redirect.
+    */
+   route.post('/github/app/manifest', async (context) => {
+      const workspaceId = await requireWorkspace(context, options, 'settings.write');
+      if (!options.githubApp || !options.states) {
+         throw new ApiError(503, 'PROVIDER_NOT_CONFIGURED', 'This deployment cannot store an App.');
+      }
+      const url = new URL(context.req.url);
+      const apiOrigin = options.publicUrl || url.origin;
+      const appOrigin = options.appUrl || apiOrigin;
+      const pending = await options.states.start({
+         workspaceId,
+         userId: context.get('user').id,
+         provider: 'github_app',
+         redirectUri: new URL('/api/v1/integrations/github/app/callback', apiOrigin).toString(),
+         scopes: [],
+      });
+      const body = await context.req.json().catch(() => ({}) as Record<string, unknown>);
+      const requested = typeof body.name === 'string' ? body.name.trim() : '';
+      return json({
+         postUrl: `https://github.com/settings/apps/new?state=${encodeURIComponent(pending.state)}`,
+         organizationPostPath: '/organizations/{org}/settings/apps/new',
+         manifest: buildManifest({
+            name: requested || 'Berry',
+            appOrigin,
+            apiOrigin,
+         }),
+      });
+   });
+
+   /**
+    * Where to send someone to install the App on an account they own.
+    *
+    * A state is minted here rather than relying on GitHub's own redirect,
+    * because the installation has to be recorded against *this* workspace and
+    * the setup URL is the same for every one of them.
+    */
+   route.post('/github/app/install', async (context) => {
+      const workspaceId = await requireWorkspace(context, options, 'settings.write');
+      if (!options.githubApp || !options.states) {
+         throw new ApiError(503, 'PROVIDER_NOT_CONFIGURED', 'This deployment cannot store an App.');
+      }
+      const app = await options.githubApp.app();
+      if (!app) {
+         throw new ApiError(409, 'GITHUB_APP_MISSING', 'Create the GitHub App first.');
+      }
+      const pending = await options.states.start({
+         workspaceId,
+         userId: context.get('user').id,
+         provider: 'github_install',
+         redirectUri: `https://github.com/apps/${app.slug}/installations/new`,
+         scopes: [],
+      });
+      return json({
+         installUrl: `https://github.com/apps/${encodeURIComponent(app.slug)}/installations/new?state=${encodeURIComponent(pending.state)}`,
+      });
+   });
+
+   /** Forgets where this workspace installed the App; the App itself stays. */
+   route.delete('/github/app/install', async (context) => {
+      const workspaceId = await requireWorkspace(context, options, 'settings.write');
+      if (options.githubApp) await options.githubApp.removeInstallation(workspaceId);
+      return json({ ok: true });
    });
 
    route.get('/connections', async (context) => {
@@ -213,8 +354,17 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
 
       let token: string;
       try {
-         token = await options.connections.token(workspaceId, 'github');
+         token = await githubToken(workspaceId, options);
       } catch (error) {
+         if (error instanceof GitHubAppUnavailable) {
+            throw new ApiError(
+               409,
+               error.reason === 'not_installed' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
+               error.reason === 'not_installed'
+                  ? 'The GitHub App is not installed for this workspace.'
+                  : `The GitHub App needs attention: ${error.message}.`
+            );
+         }
          if (error instanceof ConnectionUnavailable) {
             throw new ApiError(
                409,
@@ -395,3 +545,138 @@ async function listGrants(
 }
 
 export { BUILT_IN_PROVIDER };
+
+/**
+ * GitHub returns here once someone presses Create on the manifest form.
+ *
+ * The code is single-use and short-lived, and the conversion is the only
+ * moment GitHub ever discloses the private key — so a failure means creating
+ * the App again rather than retrying this URL.
+ */
+async function handleAppCallback(
+   context: { req: { url: string } },
+   options: IntegrationsOptions
+): Promise<Response> {
+   const url = new URL(context.req.url);
+   const back = (status: string): Response =>
+      Response.redirect(
+         new URL(
+            `${SETTINGS_PATH}?integration=github&status=${encodeURIComponent(status)}`,
+            options.appUrl || options.publicUrl || url.origin
+         ).toString(),
+         302
+      );
+
+   const code = url.searchParams.get('code') ?? '';
+   const state = url.searchParams.get('state') ?? '';
+   if (code === '' || state === '') return back('invalid_response');
+   if (!options.githubApp || !options.states) return back('exchange_failed');
+
+   let pending: Awaited<ReturnType<OAuthStateStore['consume']>>;
+   try {
+      pending = await options.states.consume(state);
+   } catch (error) {
+      if (error instanceof AuthorizationNotPending) return back('invalid_state');
+      throw error;
+   }
+   if (pending.provider !== 'github_app') return back('invalid_state');
+
+   try {
+      const converted = await convertManifest(code);
+      await options.githubApp.saveApp(converted, pending.userId);
+      return back('app_created');
+   } catch (error) {
+      if (error instanceof GitHubAppUnavailable) return back('exchange_failed');
+      throw error;
+   }
+}
+
+/**
+ * GitHub returns here after the App is installed on an account.
+ *
+ * `setup_action=request` means the person could not install it themselves and
+ * asked an owner to — there is no installation yet, and saying so is more use
+ * than a generic failure.
+ */
+async function handleInstallationCallback(
+   context: { req: { url: string } },
+   options: IntegrationsOptions
+): Promise<Response> {
+   const url = new URL(context.req.url);
+   const back = (status: string): Response =>
+      Response.redirect(
+         new URL(
+            `${SETTINGS_PATH}?integration=github&status=${encodeURIComponent(status)}`,
+            options.appUrl || options.publicUrl || url.origin
+         ).toString(),
+         302
+      );
+
+   if (url.searchParams.get('setup_action') === 'request') return back('install_requested');
+
+   const installationId = Number(url.searchParams.get('installation_id') ?? '');
+   const state = url.searchParams.get('state') ?? '';
+   if (!Number.isFinite(installationId) || installationId <= 0) return back('invalid_response');
+   if (!options.githubApp || !options.states) return back('exchange_failed');
+   if (state === '') return back('invalid_state');
+
+   let pending: Awaited<ReturnType<OAuthStateStore['consume']>>;
+   try {
+      pending = await options.states.consume(state);
+   } catch (error) {
+      if (error instanceof AuthorizationNotPending) return back('invalid_state');
+      throw error;
+   }
+   if (pending.provider !== 'github_install') return back('invalid_state');
+
+   // The id came out of a query parameter the person could have edited, so it
+   // is checked against GitHub before it is believed, and refused if another
+   // workspace already mints tokens against it. Without both, a member of one
+   // workspace could aim it at another account's installation and get a token
+   // for repositories they were never given.
+   let account: { accountLogin: string | null; accountType: string | null };
+   try {
+      account = await options.githubApp.describeInstallation(installationId);
+   } catch (error) {
+      if (error instanceof GitHubAppUnavailable) return back('installation_not_found');
+      throw error;
+   }
+
+   const claimed = await options.githubApp.claimedBy(installationId);
+   if (claimed !== null && claimed !== pending.workspaceId) {
+      return back('installation_not_owned');
+   }
+
+   await options.githubApp.saveInstallation(
+      {
+         workspaceId: pending.workspaceId,
+         installationId,
+         accountLogin: account.accountLogin,
+         accountType: account.accountType,
+      },
+      pending.userId
+   );
+   return back('installed');
+}
+
+/**
+ * The credential GitHub work runs on, App first.
+ *
+ * An installation token is preferred because it is minted on demand and cannot
+ * lapse between one run and the next. The user connection remains the fallback
+ * for a deployment still on the older flow — and only when there is no App at
+ * all, so a half-finished App setup does not silently send work through
+ * somebody's personal token.
+ */
+export async function githubToken(
+   workspaceId: string,
+   options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>
+): Promise<string> {
+   if (options.githubApp && (await options.githubApp.app())) {
+      return options.githubApp.token(workspaceId);
+   }
+   if (!options.connections) {
+      throw new GitHubAppUnavailable('this deployment has no GitHub App', 'no_app');
+   }
+   return options.connections.token(workspaceId, 'github');
+}

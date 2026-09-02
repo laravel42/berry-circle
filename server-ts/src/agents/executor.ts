@@ -12,6 +12,7 @@ import { berryTools } from './tools.ts';
 import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
 import { permissionsOf, type PermissionSet } from './permissions.ts';
 import type { ConnectionRepository } from '../integrations/connections.ts';
+import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
 import {
    deliverRepository,
@@ -90,6 +91,8 @@ export interface ExecutorOptions {
     * a credential is a clone that fails, not a run that works.
     */
    connections?: ConnectionRepository;
+   /** Preferred over `connections` for repository work when a App exists. */
+   githubApp?: GitHubAppRepository;
    /** Injected in tests. Defaults to the real GitHub API. */
    github?: (token: string) => GitHubClient;
 }
@@ -131,6 +134,7 @@ export class AdkExecutor {
     */
    private readonly execution: ExecutionDriver | undefined;
    private readonly connections: ConnectionRepository | undefined;
+   private readonly githubApp: GitHubAppRepository | undefined;
    private readonly github: (token: string) => GitHubClient;
    private readonly ledger: RunLedger;
    private readonly apiKey: string;
@@ -151,6 +155,7 @@ export class AdkExecutor {
          });
       this.execution = options.execution;
       this.connections = options.connections;
+      this.githubApp = options.githubApp;
       this.github = options.github ?? ((token) => new GitHubClient({ token }));
       this.apiKey = options.apiKey;
       this.baseUrl = options.baseUrl;
@@ -428,6 +433,7 @@ export class AdkExecutor {
          sql: this.sql,
          ledger: this.ledger,
          connections: this.connections,
+         githubApp: this.githubApp,
          github: this.github,
       };
    }

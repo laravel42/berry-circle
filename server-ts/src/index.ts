@@ -69,6 +69,7 @@ import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
 import { createExecutionDriver } from './execution/factory.ts';
 import { ConnectionRepository } from './integrations/connections.ts';
+import { GitHubAppRepository } from './integrations/github-app.ts';
 import { sealerFromKey } from './integrations/sealing.ts';
 
 /**
@@ -149,6 +150,12 @@ const connections = config.integrationKey
    ? new ConnectionRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
 
+// The App's own credentials are sealed with the same key, for the same reason:
+// a deployment that cannot seal cannot hold a private key either.
+const githubApp = config.integrationKey
+   ? new GitHubAppRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
+   : null;
+
 const executor =
    config.agents && storage
       ? new AdkExecutor({
@@ -163,6 +170,7 @@ const executor =
            // told it has.
            ...(config.execution ? { execution } : {}),
            ...(connections ? { connections } : {}),
+           ...(githubApp ? { githubApp } : {}),
         })
       : null;
 
@@ -280,6 +288,7 @@ registry.registerAll(
       // handshake either, so the two travel together.
       states: connections ? new OAuthStateStore({ sql }) : null,
       github: config.integrations.github,
+      githubApp,
       publicUrl: config.integrations.publicUrl,
       appUrl: config.integrations.appUrl,
    })

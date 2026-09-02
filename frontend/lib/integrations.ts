@@ -168,6 +168,21 @@ export function describeProviderState(provider: Provider): {
    tone: 'complete' | 'attention' | 'neutral' | 'danger';
 } {
    if (provider.id === BUILT_IN_PROVIDER) return { label: 'Built in', tone: 'neutral' };
+   // A status that says what went wrong is read before the generic "not
+   // connected". An expired connection is not unconnected — it worked until it
+   // lapsed, and the two want different things from the reader.
+   switch (provider.status) {
+      case 'not_installed':
+         return { label: 'Not installed', tone: 'attention' };
+      case 'expired':
+         return { label: 'Expired', tone: 'attention' };
+      case 'revoked':
+         return { label: 'Revoked', tone: 'danger' };
+      case 'error':
+         return { label: 'Needs attention', tone: 'danger' };
+      default:
+         break;
+   }
    if (!provider.connected) return { label: 'Not connected', tone: 'attention' };
    switch (provider.status) {
       case 'connected':
@@ -175,12 +190,6 @@ export function describeProviderState(provider: Provider): {
       case null:
       case '':
          return { label: 'Connected', tone: 'complete' };
-      case 'expired':
-         return { label: 'Expired', tone: 'attention' };
-      case 'revoked':
-         return { label: 'Revoked', tone: 'danger' };
-      case 'error':
-         return { label: 'Needs attention', tone: 'danger' };
       default:
          return { label: provider.status, tone: 'attention' };
    }
@@ -234,4 +243,76 @@ export function describeIntegrationFailure(error: unknown): string {
       }
    }
    return 'The integration request failed.';
+}
+
+// ---------------------------------------------------------------------------
+// The GitHub App this deployment owns
+
+export const githubAppSchema = z.object({
+   appId: z.number(),
+   slug: z.string(),
+   name: z.string(),
+   htmlUrl: z.string().nullish(),
+   createdAt: z.string(),
+   installUrl: z.string(),
+});
+
+export const githubInstallationSchema = z.object({
+   installationId: z.number(),
+   accountLogin: z.string().nullish(),
+   accountType: z.string().nullish(),
+});
+
+export type GitHubApp = z.infer<typeof githubAppSchema>;
+export type GitHubInstallation = z.infer<typeof githubInstallationSchema>;
+
+export interface GitHubAppState {
+   app: GitHubApp | null;
+   installation: GitHubInstallation | null;
+}
+
+/** Three states worth telling apart: no App, App but not installed, installed. */
+export async function loadGitHubApp(): Promise<GitHubAppState> {
+   const json: unknown = await apiFetch('/api/v1/integrations/github/app');
+   const parsed = z
+      .object({
+         app: githubAppSchema.nullish(),
+         installation: githubInstallationSchema.nullish(),
+      })
+      .safeParse(json);
+   if (!parsed.success) return { app: null, installation: null };
+   return { app: parsed.data.app ?? null, installation: parsed.data.installation ?? null };
+}
+
+/**
+ * The manifest to post to GitHub, and where to post it.
+ *
+ * GitHub takes the manifest as a form POST rather than a query parameter, so
+ * the caller builds and submits a form; there is nothing to redirect to.
+ */
+export async function startGitHubAppCreation(
+   name?: string
+): Promise<{ postUrl: string; manifest: unknown }> {
+   const json: unknown = await apiFetch('/api/v1/integrations/github/app/manifest', {
+      method: 'POST',
+      body: JSON.stringify(name ? { name } : {}),
+   });
+   const parsed = z.object({ postUrl: z.string(), manifest: z.unknown() }).safeParse(json);
+   if (!parsed.success) throw new Error('Manifest response was not recognized');
+   return { postUrl: parsed.data.postUrl, manifest: parsed.data.manifest };
+}
+
+/** Where to send the person to install the App on an account they own. */
+export async function startGitHubInstall(): Promise<string> {
+   const json: unknown = await apiFetch('/api/v1/integrations/github/app/install', {
+      method: 'POST',
+      body: '{}',
+   });
+   const parsed = z.object({ installUrl: z.string() }).safeParse(json);
+   if (!parsed.success) throw new Error('Install response was not recognized');
+   return parsed.data.installUrl;
+}
+
+export async function forgetGitHubInstall(): Promise<void> {
+   await apiFetch('/api/v1/integrations/github/app/install', { method: 'DELETE' });
 }
