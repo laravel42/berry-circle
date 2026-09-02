@@ -58,7 +58,7 @@ ALTER TABLE agents ADD CONSTRAINT agents_manifest_limits_ck CHECK (manifest_limi
 -- never appears in the workspace agents table.
 CREATE TABLE IF NOT EXISTS model_role_agents (
     role text PRIMARY KEY,
-    openfang_agent_id text NOT NULL UNIQUE,
+    runtime_agent_id text NOT NULL UNIQUE,
     upstream_name text NOT NULL UNIQUE,
     model_provider text NOT NULL,
     model_name text NOT NULL,

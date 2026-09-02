@@ -8,7 +8,7 @@ merged and deployed, capturing **what shipped**, **whether it is tested**,
 
 The report is the artifact the RC owner and reviewers look at to decide whether
 the candidate is ready. Every claim in it must trace back to a commit, PR, CI or
-local check output, or a Multica issue — never an assertion on trust. If a field
+local check output, or a tracked issue — never an assertion on trust. If a field
 cannot be filled, write `Unknown` or `N/A` and say why; do not leave it blank.
 
 ## How to use this template
@@ -72,7 +72,6 @@ cannot be filled, write `Unknown` or `N/A` and say why; do not leave it blank.
 | Server typecheck | `pnpm typecheck:server` | Pass / Fail / N/A | `<log>` |
 | Server DB tests | `BERRY_TEST_DATABASE_URL=… pnpm test:server` | `<N ran / N skipped>` | `<log>` |
 | Compose invariants | `python3 scripts/check-compose-config.py` | Pass / Fail / N/A | `<log>` |
-| Deployment pins | `python3 scripts/check-deploy-pins.py` | Pass / Fail / N/A | `<log>` |
 | Frontend build | `cd frontend && pnpm build` | Pass / Fail / N/A | `<log>` |
 | Frontend lint | `cd frontend && pnpm lint` | Pass / Fail / N/A | `<log>` |
 

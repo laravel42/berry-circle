@@ -19,7 +19,7 @@
 
 An agent run produces files: a report, a diff, a chart, a transcript. Today
 those files land in the runtime's own filesystem at
-`/data/workspaces/<agent>` on the `openfang-data` volume, and nothing else
+`/data/workspaces/<agent>` on the runtime's data volume, and nothing else
 happens to them.
 
 That location fails the product in four ways:
@@ -64,7 +64,7 @@ beside an actor id. Attachments are the one place the pattern was not applied.
 - Attribution must survive: a reader has to see whether a person or an agent
   produced a file, and which one.
 - The runtime is a substrate, not a product store. Berry does not build
-  features on the durability of an OpenFang volume.
+  features on the durability of a runtime volume.
 - Deployment storage is S3-compatible; development must not require an AWS
   account.
 
@@ -158,7 +158,7 @@ storage and indexed by the `attachments` table.**
 ### Resolved: the promotion path
 
 The runtime exposes no API for reading a workspace, so promotion reads the
-volume directly. The worker mounts `openfang-data` read-only and, after a
+volume directly. The worker mounts the runtime data volume read-only and, after a
 successful run, copies that agent's `output/` directory into the store.
 
 Three consequences of that choice are worth stating, because none are obvious:

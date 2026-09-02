@@ -13,20 +13,39 @@ No version has been tagged yet — Berry is pre-release. The first tagged releas
 milestone **M6 (Release 1)**; until then all shipped work accumulates here.
 
 Entries below are a running record and are not rewritten. Several name components that no
-longer exist — the Bun/Hono gateway, the Go product server, the pinned OpenFang runtime
+longer exist — the Bun/Hono gateway, the Go product server, the pinned agent runtime
 and Temporal — all removed on 2026-08-28; see the `Removed` section.
 
 ### Added
+
+- GitHub App creation and installation, replacing configured OAuth credentials. Berry
+  posts a manifest to GitHub (`POST /api/v1/integrations/github/app/manifest`), and the
+  conversion callback stores the app id, both halves of the OAuth credential, the private
+  key and the webhook secret, sealed with `INTEGRATION_ENCRYPTION_KEY`. The manifest
+  declares its own `callback_urls` — both the API and app origins — so a `redirect_uri`
+  cannot be registered wrong. Tables `github_apps` (one row) and `github_installations`
+  (one per workspace) arrive in migration `040`.
+- Repository work runs on GitHub App installation tokens, minted per installation from
+  the private key, cached until shortly before expiry, and coalesced so concurrent runs
+  share one mint (`server-ts/src/integrations/github-app.ts`). Both the repository picker
+  and the agent run path prefer them, falling back to a user connection only when the
+  deployment has no App.
+- `projects` and `goals` appear in the workspace rail by default, `projects` first.
+  Sidebar preferences move to `sidebar-prefs-v6`, which does not carry the stored order
+  or visibility forward — a stored preference would otherwise outrank the new default
+  permanently.
+- A live indicator beside `runtimes` in the rail while any run has not reached a terminal
+  status, and the berry accent bar on the active rail item.
 
 - Schema migration and development seeding in TypeScript: `server-ts/src/migrate` applies
   `server-ts/migrations/*.up.sql` forward-only under the `pg_advisory_lock` Berry has
   always used, against the same `berry_schema_migrations` ledger and the same SHA-256 per
   file, so a database migrated before the port is already current. `server-ts/src/seed`
   writes the development dataset. Both are idempotent and both run before the server binds
-  a port (`pnpm migrate:server`, `pnpm seed:server`). Migration `032` drops
-  `issues.openfang_run_id`, `agents.openfang_agent_id` and
-  `model_role_agents.openfang_agent_id`; `agents.openfang_agent_id` was `NOT NULL`, so
-  creating an agent had required inventing an id for a process that would never exist.
+  a port (`pnpm migrate:server`, `pnpm seed:server`). Migration `032` drops the external
+  runtime's id columns from `issues`, `agents` and `model_role_agents`; the one on
+  `agents` was `NOT NULL`, so creating an agent had required inventing an id for a
+  process that would never exist.
 
 - Planning and workflows, phase 4.5 (server): the extended node set and triggers. `switch`
   (first matching case, else the default; the other branches are recorded as skipped),
@@ -122,12 +141,12 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   runner, hooks) follows in phase 1b.
 - Product brief — what Berry is, who it is for, the issue → agent → review product motion,
   Release 1 scope (web app only), and the licensing posture — BERR-9 ([cd882f4]).
-- OpenFang integration spec mapping Berry features to OpenFang endpoints
-  (`docs/integrations/berry-openfang.md`) — BERR-10 ([#5]).
+- Agent runtime integration spec mapping Berry features to runtime endpoints — BERR-10
+  ([#5]).
 - Gateway API contract v1 (`docs/api/gateway-v1.md`), the Linear-shaped surface the
   gateway will expose — BERR-11 ([#7]).
 - Architecture Decision Record log with the first decisions: ADR-0001 (Bun + Hono
-  gateway), ADR-0002 (Valkey for ephemeral state), and ADR-0003 (pin OpenFang by
+  gateway), ADR-0002 (Valkey for ephemeral state), and ADR-0003 (pin the runtime by
   commit) — BERR-12 ([#8]).
 - Coding playbook documenting repo conventions grounded in the codebase: the
   two-workspace toolchain split (Biome gateway vs Prettier/ESLint frontend), TypeScript
@@ -135,8 +154,8 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   conventions, and the branch/PR review-gate workflow — BERR-13 ([#9]).
 - Design-system baseline defining Berry's UX tokens for the frontend
   (`docs/design-system.md`) — BERR-14 ([#6]).
-- OpenFang gateway consumption contract enumerating the endpoints the gateway depends on
-  (`docs/api/openfang-gateway-consumption.md`) — BERR-17 ([#10]).
+- Gateway consumption contract enumerating the runtime endpoints the gateway depends on
+  — BERR-17 ([#10]).
 - Gateway service scaffold — Bun + Hono + TypeScript workspace under `apps/gateway` with a
   `/health` endpoint, a central Hono error envelope, graceful shutdown that drains
   in-flight requests, env-error redaction, and Biome + `bun:test` tooling plus a
@@ -151,15 +170,15 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   stripped of all demo/mock data (lists boot empty), wired to the gateway seam via env
   (`NEXT_PUBLIC_BERRY_API_URL`, `NEXT_PUBLIC_WORKSPACE_SLUG`, `NEXT_PUBLIC_ISSUE_PREFIX`),
   and rebranded to Berry while retaining the upstream MIT notice — BERR-28 ([#4]).
-- Local stack — `docker-compose.yml` standing up OpenFang, Postgres, and Valkey. OpenFang
-  is built from an immutable pinned commit (`deploy/openfang.pin.json`, `acf2587e`, per
+- Local stack — `docker-compose.yml` standing up the agent runtime, Postgres, and Valkey.
+  The runtime is built from an immutable pinned commit (`acf2587e`, per
   ADR-0003) via a BuildKit git context; includes a boot-from-clean guide in the
   README — BERR-15 ([#13]).
-- OpenFang integration smoke test exercising the live agent/workflow API end to end, with
+- Runtime integration smoke test exercising the live agent/workflow API end to end, with
   fault-isolated resource cleanup, abort-timeout hardening on body reads, and assertions
   on `usage.input_tokens` / `usage.output_tokens` (the Berry token-total dependency) —
   BERR-18 ([#12]).
-- Gateway OpenFang adapter — typed native-fetch client for the pinned upstream agent,
+- Gateway runtime adapter — typed native-fetch client for the pinned upstream agent,
   execution, memory, workflow, audit, session, and usage endpoints, with Zod boundary
   validation, normalized errors, idempotency-aware retries, timeouts, and typed SSE
   parsing that reports interrupted streams without redispatching — BERR-20 ([#21]).
@@ -188,10 +207,10 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   BERR-24 ([#18]).
 - Gateway observability — structured Pino request logging (one `request.completed` line per
   request with `requestId`, `traceId`, matched `route`, `status`, `durationMs`; secrets
-  redacted), W3C trace propagation to the OpenFang adapter via an `AsyncLocalStorage`
+  redacted), W3C trace propagation to the runtime adapter via an `AsyncLocalStorage`
   request context (`getTraceHeaders`/`tracedFetch`, `x-trace-id` response header), and a
   Prometheus `GET /metrics` endpoint backed by OpenTelemetry (`http_server_request_duration
-  _seconds`, `http_server_active_requests`, `openfang_client_request_duration_seconds`).
+  _seconds`, `http_server_active_requests`, and a runtime-client duration histogram).
   New config: `SERVICE_NAME`, `SERVICE_VERSION`, `METRICS_ENABLED`, `METRICS_PATH` —
   BERR-27 ([#22]).
 - Gateway cache-aside module — a Bun-native Valkey store with configurable TTLs,
@@ -201,7 +220,7 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   M2 report — BERR-25 ([#19]).
 - Gateway run-event SSE transport at `GET /api/v1/runs/{runId}/events`, with retained
   cursor replay, gap-free live fan-out, heartbeats, bounded subscriber buffers,
-  disconnect cleanup, and terminal-event stream closure. Connecting OpenFang producers
+  disconnect cleanup, and terminal-event stream closure. Connecting runtime producers
   to this in-memory event-store seam is deferred to the agent execution loop — BERR-26
   ([#20]).
 
@@ -217,11 +236,11 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   approval gate — [8477049], [08250c0], [05c926b].
 - Conversations, channel reachability, and the Infobip adapter, with an inbound channel
   webhook attributing replies to the originating conversation — [bc4312e], [4c62deb].
-- Chat with workspace agents, end to end from the UI to the OpenFang runtime —
+- Chat with workspace agents, end to end from the UI to the agent runtime —
   [c06fc9c].
 - Per-agent model selection: `GET /api/v1/agents/models` exposes the runtime catalog and
   `PUT /api/v1/agents/{id}/config` sets an agent's provider and model — [0200e4c].
-- Workspace agents seeded from the OpenFang runtime at startup, including description,
+- Workspace agents seeded from the agent runtime at startup, including description,
   capabilities, and system prompt — [8c59882], [6af31ce], [43bcb86].
 - Berry application shell from the design prototype: rail, tab navigator holding any
   route (not just nav destinations), and drawers capped at 1024px — [8ede6ed],
@@ -229,7 +248,7 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
 - Frontend wired to the Berry API with agent and run surfaces, replacing the empty
   `data/*` modules — [6e434ad].
 - Gateway boards route with actor/enum alignment and run-event updates — [28a4da6].
-- OpenFang and Temporal run as part of the default `docker compose` stack, with a
+- The agent runtime and Temporal run as part of the default `docker compose` stack, with a
   Temporal UI at `127.0.0.1:8233` — [cd83fc8].
 - Issue mutation events. `POST/PATCH/DELETE /api/v1/issues`, the `issue-query` batch
   routes and project planning now write `issue.created`, `issue.updated`,
@@ -243,15 +262,28 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
 
 ### Changed
 
+- Creating a project is how work is planned. Choosing **AI workflow** as the project lead
+  generates a plan against the new project and starts it once generation succeeds, which
+  is what produces the tasks; AutoGate appears only beside that lead. The plan is started
+  by the preview under the same `startPlanBlocker` guard the Start button uses, so a
+  blocked, invalid or still-generating plan is held back and a high-risk one still goes to
+  `pendingApproval`.
+- Goals are a read-only surface. The list, detail and rail no longer offer to create,
+  rename, re-status or re-plan one, and the detail page says which of its tasks put it in
+  its state. Four states are shown — Planned, In Progress, Blocked, Done.
+- GitHub's state on the integrations page is the App's, not a leftover user connection's:
+  Not connected, Not installed, then Connected. The OAuth Connect and Disconnect buttons
+  are hidden for GitHub, leaving one path.
+
 - `docker-compose.yml` runs the TypeScript server as `berry-api` on `127.0.0.1:4000`,
   built from `server-ts/Dockerfile`, with `postgres`, `minio` and the `minio-bucket` job.
   It migrates and seeds before starting. `scripts/check-compose-config.py` asserts the new
-  invariants; `scripts/check-deploy-pins.py` now validates only the Multica pin.
+  invariants.
 - `frontend/next.config.ts` proxies to one origin. `BERRY_TS_API_ORIGIN` and the
   `TYPESCRIPT_ROUTES` split are gone, as is the `/uploads/*` rewrite — the server has no
   such route.
 - `.env.example` covers only what the stack reads. Variables for the removed components
-  (OpenFang, Temporal, intake, the planner, Activepieces, Infobip, the integration OAuth
+  (the agent runtime, Temporal, intake, the planner, Activepieces, Infobip, the integration OAuth
   clients, Valkey, `STORAGE_BACKEND`, `TRUSTED_ORIGINS`, `METRICS_ENABLED`) are gone.
 
 - Durable events carry an explicit board scope. `outbox_events` gains `board_id`
@@ -292,9 +324,8 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   `GET /api/v1/config` reports the reduced capability set. **There is no run
   orchestration:** `POST /internal/runs` is the only way to start an agent and nothing in
   the product calls it.
-- The pinned OpenFang runtime, its compose service, `deploy/openfang.pin.json`,
-  `deploy/openfang/config.toml`, and the `openfang-data` volume. Berry runs agents
-  in-process (ADR-0008).
+- The pinned external agent runtime, its compose service, its pin and config files, and
+  its data volume. Berry runs agents in-process (ADR-0008).
 - The `temporal` and `temporal-ui` services (their only client was the Go worker), the
   `valkey` service (the realtime hub is built with a null relay, so events replay from
   PostgreSQL on the next poll), and the `berry-uploads` volume (artifacts are S3-only).
@@ -302,11 +333,10 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   Go code generation.
 - The frontend model playground (`components/common/settings/model-playground.tsx`) and
   `lib/runtime.ts`. Both existed to probe `/api/v1/runtime/*`, which no longer exists.
-- ADRs 0001 (Bun/Hono gateway), 0003 (pin OpenFang by commit), 0004 (Go product server),
-  0005 (Temporal run orchestration) and 0007 (workflows, planning and the Activepieces
-  adapter) were withdrawn with the subjects they decided, along with
-  `docs/integrations/berry-openfang.md`, `docs/api/openfang-gateway-consumption.md`,
-  `docs/integrations/native-providers.md`, `docs/integrations/openfang-smoke-report.md`,
+- ADRs 0001 (Bun/Hono gateway), 0003 (pin the runtime by commit), 0004 (Go product
+  server), 0005 (Temporal run orchestration) and 0007 (workflows, planning and the
+  Activepieces adapter) were withdrawn with the subjects they decided, along with the
+  runtime integration and consumption docs, `docs/integrations/native-providers.md`,
   `docs/milestones/m2-gateway.md` and `docs/plans/temporal-run-orchestration.md`. The
   numbers are not reused; `docs/adr/README.md` records the gap.
 
@@ -355,9 +385,17 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
 
 ### Security
 
+- The GitHub App installation callback verifies the `installation_id` it is handed instead
+  of storing it. The id arrives in a query parameter on a redirect the person controls, and
+  an App JWT authenticates the App rather than the person — so an unchecked id let a member
+  of one workspace point it at another account's installation and mint tokens for
+  repositories they were never given. The callback now resolves the installation through
+  `GET /app/installations/{id}`, records the real account instead of nulls, and refuses one
+  another workspace already holds.
+
 - Docker Compose binds the published Postgres (`5432`) and Valkey (`6379`) ports to
   `127.0.0.1`, so the weak-/no-auth local-dev services are reachable from the host (and the
-  host-run gateway) but never from the LAN. The README documents that `OPENFANG_API_KEY`
+  host-run gateway) but never from the LAN. The README documents that the runtime API key
   must be set before exposing the host on an untrusted network — BERR-15 ([#13]).
 
 - Chat reads and writes require thread participation. `Append` performed no workspace or

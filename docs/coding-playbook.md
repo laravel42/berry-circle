@@ -47,9 +47,9 @@ stated per workspace.
   change durable product facts.
 - Migrations are forward-only and immutable. Never edit an applied migration;
   add a new one.
-- Reused Multica material must cite the pinned source path and satisfy
-  [the provenance audit](provenance/multica-server-reuse.md). Do not port daemon,
-  launcher, provider, sandbox, or filesystem-execution code.
+- Berry does not port daemon, launcher, provider, sandbox, or
+  filesystem-execution code from elsewhere. Execution is Berry's own, in
+  process, on the Google Agent Development Kit.
 
 ## TypeScript style
 
@@ -279,7 +279,7 @@ Before requesting review, confirm the workspace's gates are green:
 
 - **Server:** `pnpm typecheck:server` **and** `pnpm test:server` pass. If the
   change touches Compose or a deployment pin, `python3
-  scripts/check-compose-config.py` and `python3 scripts/check-deploy-pins.py`
+  scripts/check-compose-config.py`
   pass too.
 - **Frontend:** `pnpm lint` **and** `pnpm build` succeed; the changed view
   was exercised manually.

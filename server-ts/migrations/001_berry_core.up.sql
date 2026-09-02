@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS issues (
     due_date timestamptz,
     assignee_type assignee_type,
     assignee_id uuid,
-    openfang_run_id text,
+    runtime_run_id text,
     created_by uuid REFERENCES users(id) ON DELETE SET NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
     updated_at timestamptz NOT NULL DEFAULT now()

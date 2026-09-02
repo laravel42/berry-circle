@@ -5,13 +5,13 @@
 -- execute in-process (ADR-0008) and the server that projected those identities
 -- is gone (ADR-0009), so the ids name nothing.
 --
--- agents.openfang_agent_id is the one that mattered: it was NOT NULL, so every
+-- agents.runtime_agent_id is the one that mattered: it was NOT NULL, so every
 -- caller creating an agent had to invent an id for a process that would never
 -- exist. Dropping the column removes the reason to make one up, rather than
 -- leaving a required field satisfied by a lie.
 --
--- Dropping a column drops the indexes over it, so agents_openfang_agent_id_key
--- and model_role_agents_openfang_agent_id_key go with them.
+-- Dropping a column drops the indexes over it, so agents_runtime_agent_id_key
+-- and model_role_agents_runtime_agent_id_key go with them.
 
 -- The orchestrator trigger function inserts into `agents`, so it has to lose
 -- the column in the same migration. PL/pgSQL bodies are not parsed until they
@@ -53,6 +53,6 @@ BEGIN
 END
 $$;
 
-ALTER TABLE issues DROP COLUMN IF EXISTS openfang_run_id;
-ALTER TABLE agents DROP COLUMN IF EXISTS openfang_agent_id;
-ALTER TABLE model_role_agents DROP COLUMN IF EXISTS openfang_agent_id;
+ALTER TABLE issues DROP COLUMN IF EXISTS runtime_run_id;
+ALTER TABLE agents DROP COLUMN IF EXISTS runtime_agent_id;
+ALTER TABLE model_role_agents DROP COLUMN IF EXISTS runtime_agent_id;

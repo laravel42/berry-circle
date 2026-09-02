@@ -11,7 +11,6 @@ in-process on the Google Agent Development Kit rather than on a separate substra
 | `frontend` | Next.js App Router UI, vendored from the MIT Circle template |
 | `docs` | Product brief, ADRs, API contract |
 | `docker-compose.yml` | Server + PostgreSQL + MinIO local stack |
-| `deploy/multica.pin.json` | Reuse provenance pin (engineering metadata only) |
 
 Each workspace keeps its own validation commands; both are pnpm packages under
 `pnpm-workspace.yaml`.

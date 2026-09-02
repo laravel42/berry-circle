@@ -14,7 +14,6 @@ Guidance for AI agents working in this repository.
 | Touching the public HTTP/SSE contract | [`docs/api/gateway-v1.md`](docs/api/gateway-v1.md) |
 | Working on the server at all | [`server-ts/SCOPE.md`](server-ts/SCOPE.md), [`server-ts/ROUTING.md`](server-ts/ROUTING.md) |
 | Changing the stack or the schema | [`docs/adr/`](docs/adr/) |
-| Adapting Multica material | [`docs/provenance/multica-server-reuse.md`](docs/provenance/multica-server-reuse.md), [`docs/parity/multica-web.md`](docs/parity/multica-web.md) |
 | Changing UI tokens or visual language | [`docs/design-system.md`](docs/design-system.md) |
 | Shipping a notable change | [`docs/changelog-process.md`](docs/changelog-process.md) |
 
@@ -46,7 +45,7 @@ write code. Never run one workspace's tools over another.
 | Validation | Zod v4 | Zod v4 |
 
 Also in the repo: `docs/`, `docker-compose.yml` (server + Postgres + MinIO),
-`deploy/multica.pin.json`, and `scripts/` (Python repository checks).
+and `scripts/` (Python repository checks).
 
 The server runs its `.ts` sources directly under `--experimental-strip-types`.
 There is no build step, so nothing that emits code — enums, namespaces,
@@ -83,8 +82,7 @@ parameter properties — is allowed; `erasableSyntaxOnly` enforces it.
   permissive). Retain Circle MIT notices. Do not copy another product's schema,
   brand, or marks. Do not use "Linear" as Berry product branding or in new code
   identifiers. Existing Circle comments that say "Linear-style" are legacy — do
-  not spread that into new APIs. Multica-derived work additionally follows
-  [`docs/provenance/multica-server-reuse.md`](docs/provenance/multica-server-reuse.md).
+  not spread that into new APIs.
 - **TypeScript `strict` stays on. No `any`.** Narrow instead of `!`. The only
   `any` exemption is vendored `frontend/components/data-table-filter/**`.
 
@@ -138,9 +136,8 @@ Schema notes that can bite you:
 - Same-issue comment threading is not DB-enforced; validate on the write path.
 - Storage names are not API field names (`camelCase` over the wire).
 
-The expanded target and every source feature classification live in
-[`docs/parity/multica-web.md`](docs/parity/multica-web.md). Do not port a
-legacy feature that is classified as replaced or excluded.
+Do not port a legacy feature that Berry has replaced or excluded; the product
+brief records the approved web direction.
 
 ## Commands
 

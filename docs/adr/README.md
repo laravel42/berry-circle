@@ -30,7 +30,7 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 ### Withdrawn records
 
 0001, 0003, 0004, 0005 and 0007 were removed on 2026-08-28 together with the
-subjects they decided — the Bun/Hono gateway, the pinned OpenFang runtime, the
+subjects they decided — the Bun/Hono gateway, the external agent runtime, the
 Go product server, Temporal orchestration, and the Activepieces adapter. The
 numbers are not reused. What replaced them is recorded in
 [0008](0008-adk-agent-runtime.md) and [0009](0009-typescript-product-server.md);

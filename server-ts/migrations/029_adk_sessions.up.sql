@@ -6,7 +6,7 @@
 -- owner of this schema alongside these forward-only migrations. Berry supplies
 -- the storage instead, so there stays exactly one migrator.
 --
--- This is what replaces OpenFang's per-agent directory. A session is a row, not
+-- This is what replaces the runtime's per-agent directory. A session is a row, not
 -- a process with a lifecycle, so nothing here can be marked crashed for being
 -- idle and nothing has to be reconciled against an upstream list.
 
