@@ -25,6 +25,7 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 | [0008](0008-adk-agent-runtime.md) | Run agents in-process with the Google Agent Development Kit | Accepted | 2026-08-27 |
 | [0009](0009-typescript-product-server.md) | Reimplement the product server in TypeScript | Accepted | 2026-08-27 |
 | [0010](0010-goals-as-derived-task-groups.md) | Goals are derived groups of a project's tasks | Proposed | 2026-09-01 |
+| [0011](0011-refresh-provider-credentials.md) | Refresh provider credentials before they expire | Proposed | 2026-09-01 |
 
 ### Withdrawn records
 

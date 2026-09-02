@@ -60,7 +60,6 @@ cp .env.example .env
 # reports agentExecution false and refuses run requests rather than accepting
 # ones it cannot serve.
 
-python3 scripts/check-deploy-pins.py
 python3 scripts/check-compose-config.py
 docker compose up -d --build
 
@@ -156,6 +155,26 @@ Agents call OpenRouter. `BERRY_OPENROUTER_API_KEY` is the credential and
 `BERRY_`-prefixed name is read first on purpose: a stale `OPENROUTER_API_KEY` exported in
 the launching shell outranks `.env` for Compose substitution, and has twice revived a
 spent key.
+
+### GitHub
+
+Berry creates its own GitHub App rather than reading one from the environment.
+In **Settings → Integrations**, *Create GitHub App* posts a manifest to GitHub;
+GitHub shows what the App will be allowed to do, and the conversion hands back
+the app id, both halves of the OAuth credential, the private key and the webhook
+secret. Berry seals all of it with `INTEGRATION_ENCRYPTION_KEY` — the one
+credential that has to stay in the environment, because it is what everything
+else is encrypted with and so cannot live in the database it protects. Without
+it the deployment holds no provider credential at all, rather than holding one
+in the clear.
+
+The manifest declares its own callback URLs, so there is nothing to register by
+hand. Installing the App on an account is a second step, and it is where the
+repositories are chosen. Repository work then runs on installation tokens minted
+per run, so nothing expires between one unattended run and the next.
+
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` still work, as the older
+user-token path, and are ignored once an App exists.
 
 ## Operating the stack
 

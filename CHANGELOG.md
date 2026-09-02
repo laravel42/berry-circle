@@ -277,6 +277,13 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
 
 ### Removed
 
+- The New goal dialog, its store and provider, and the goal create, patch, link and
+  unlink clients. Archive is the only goal write left.
+- The "Plan something" buttons from the goals and projects surfaces, and the project
+  header's "Generate tasks" button — the latter called
+  `POST /api/v1/projects/:id/generated-issues`, which the server does not register, so
+  every press answered 404.
+
 - The Go product server (`server/`), its Temporal worker, and the Bun/Hono gateway
   (`apps/gateway/`). With them go the prefixes only they served: `/api/v1/runs`,
   `/workflows`, `/workflow-runs`, `/hooks`, `/approvals`, `/plans`, `/conversations`,
@@ -311,6 +318,18 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   orchestrator's job — [035c8f8].
 
 ### Fixed
+
+- An integration connection whose credential has expired no longer reports itself
+  connected. `ConnectionRepository` derives the status from `expires_at` on the same clock
+  and margin `token()` already refuses on, so `/integrations/providers` and
+  `/integrations/connections` cannot disagree — a GitHub connection showed green for eight
+  days while every call answered `409 CONNECTION_UNUSABLE`.
+- A plan carrying any validation warning failed to parse in the browser and took the whole
+  plan page down with it. `fieldErrorSchema.severity` is optional: the server does not send
+  it, because the array a problem arrives in — `errors` or `warnings` — is its severity.
+- Migration `039` reverts `038`, which was applied by a routine API restart before
+  [ADR-0010](docs/adr/0010-goals-as-derived-task-groups.md) was accepted. `038` dropped
+  `goals.source`, which the goals mount still selects, so `/api/v1/goals` answered 500.
 
 - Migration upgrade-path test suite (`apps/gateway/src/db/migrate.upgrade.test.ts`) now
   loads and skips cleanly on a fresh checkout without `DATABASE_URL`. The admin connection

@@ -58,6 +58,12 @@ parameter properties — is allowed; `erasableSyntaxOnly` enforces it.
   log it, persist it in product rows, or call a model provider from the
   frontend. `NEXT_PUBLIC_*` is the browser bundle: nothing secret may use that
   prefix.
+- **Provider secrets are sealed, in one place.** Connection tokens and the
+  GitHub App's private key are encrypted with `INTEGRATION_ENCRYPTION_KEY` and
+  opened only in `src/integrations/`. That key is the one credential that must
+  stay in the environment — it is what everything else is encrypted with, so
+  it cannot live in the database it protects. A deployment without it holds no
+  provider credential at all rather than holding one in the clear.
 - **Berry owns product state.** Postgres is authoritative for users, sessions,
   boards, issues, assignments, comments, review decisions, and the run ledger.
   Valkey (ADR-0002) is cache and ephemeral coordination only, and the current
@@ -95,6 +101,15 @@ by accident.
 queued run; `runs/dispatcher.ts` claims it with `SKIP LOCKED`, holds a lease it
 renews, executes it, and sweeps runs whose lease expired. There is no external
 worker and no `/internal/` surface.
+
+**GitHub is an App Berry creates, not a credential it is given.** The manifest
+flow posts what the App may do, and the conversion returns the id, both halves
+of the OAuth credential, the private key and the webhook secret at once — which
+is also what registers the callback URLs, so a `redirect_uri` mismatch is not a
+failure mode. Repository work runs on installation tokens minted per run
+(`src/integrations/github-app.ts`); the older user-token connection remains only
+as a fallback for a deployment with no App, and is never preferred when one
+exists.
 
 **`GET /api/v1/config` is how the browser learns what works.** It reports only
 capabilities this process actually has. A capability reported true that the
@@ -134,7 +149,6 @@ legacy feature that is classified as replaced or excluded.
 cp .env.example .env && docker compose up -d --build
 
 # Repository checks
-python3 scripts/check-deploy-pins.py
 python3 scripts/check-compose-config.py
 
 # Server
@@ -175,7 +189,8 @@ manual check of the changed view. No secrets or `.env` files.
 
 - Assignees are polymorphic: `user | agent`.
 - Issue statuses: `backlog → todo → in_progress → in_review → done`
-  (`cancelled` exists). The release gate is always human.
+  (`blocked` and `cancelled` also exist; `blocked` was added in migration 008).
+  The release gate is always human.
 - Public API: `/api/v1`, cursor pagination, `Idempotency-Key` on creating
   POSTs, stable `SCREAMING_SNAKE_CASE` error codes.
 - Env booleans: do not use `z.coerce.boolean()` (`"false"` becomes `true`).
