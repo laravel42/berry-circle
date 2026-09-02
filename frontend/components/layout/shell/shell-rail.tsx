@@ -16,6 +16,8 @@ import {
    type SidebarItemKey,
    type SidebarSection,
 } from '@/store/sidebar-prefs-store';
+import { isTerminalRunStatus } from '@/lib/runs';
+import { useRunsStore } from '@/store/runs-store';
 import { SHELL_SECTIONS, type ShellRouteDef, type ShellRoute } from './shell-routes';
 import { ShellIcon, BerryMark, shellIconButton } from './shell-icon';
 import { WorkspaceMenuItems } from './workspace-menu';
@@ -43,6 +45,11 @@ interface ShellRailProps {
 export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailProps) {
    const { visibility, order } = useSidebarPrefsStore();
    const [customizeOpen, setCustomizeOpen] = useState(false);
+   // A run that has not reached a terminal status is still going, which is what
+   // the dot beside runtimes reports.
+   const runsLive = useRunsStore((state) =>
+      state.runs.some((run) => !isTerminalRunStatus(run.status))
+   );
 
    // The preference store is persisted, so its first client value differs from
    // what the server rendered. Rendering the unfiltered list until mount keeps
@@ -154,13 +161,22 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                               const className = [
                                  'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',
                                  on
-                                    ? 'bg-[var(--shell-surface)] text-[var(--shell-text)]'
+                                    ? // Inset rather than a real border: a 2px edge on a rounded
+                                      // pill would shift the label by two pixels on selection.
+                                      'bg-[var(--shell-surface)] text-[var(--shell-text)] shadow-[inset_2px_0_0_var(--shell-accent)]'
                                     : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
                               ].join(' ');
                               const inner = (
                                  <>
                                     <ShellIcon path={route.icon} />
                                     {route.label}
+                                    {route.live === 'runs' && runsLive ? (
+                                       <span
+                                          aria-label="Runs in progress"
+                                          title="Runs in progress"
+                                          className="ml-auto size-[5px] rounded-full bg-[var(--brand-azure)] [animation:berrypulse_2s_ease-in-out_infinite] motion-reduce:animate-none"
+                                       />
+                                    ) : null}
                                  </>
                               );
                               return (

@@ -32,6 +32,11 @@ interface SidebarPrefsState {
    moveItem: (section: SidebarSection, from: number, to: number) => void;
 }
 
+/**
+ * Everything shows. Nothing is hidden by default — a person who wants a
+ * shorter rail can hide an item in "Customize sidebar", but the product does
+ * not decide that for them, and an item nobody can find is not a feature.
+ */
 const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
    'inbox': 'always',
    'reviews': 'always',
@@ -43,9 +48,9 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
    'approvals': 'always',
    'analytics': 'always',
    'agent': 'always',
-   'initiatives': 'never',
-   'projects': 'never',
-   'views': 'never',
+   'initiatives': 'always',
+   'projects': 'always',
+   'views': 'always',
    'agents': 'always',
 };
 
@@ -56,13 +61,15 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
  */
 const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
    personal: [],
-   workspace: ['my-issues', 'reviews', 'goals', 'projects'],
+   // Goals sits under projects because that is where a goal comes from: it
+   // groups the tasks one plan compiled inside a project.
+   workspace: ['projects', 'goals', 'my-issues', 'reviews'],
    automate: [],
    configure: ['agent', 'agents', 'analytics'],
 };
 
-/** The key the previous shape was persisted under; read once, when v4 has nothing. */
-const PREVIOUS_STORAGE_KEY = 'sidebar-prefs-v3';
+/** The key the previous shape was persisted under; read once, when v6 has nothing. */
+const PREVIOUS_STORAGE_KEY = 'sidebar-prefs-v5';
 
 /**
  * Stored order, resilient to new items: unknown keys are dropped, missing
@@ -95,13 +102,27 @@ export function resolveOrder(
  * workspace list through `resolveOrder`, which only keeps a section's own
  * keys.
  */
-function previousPrefs(): Partial<SidebarPrefsState> | undefined {
+type StoredPrefs = Omit<Partial<SidebarPrefsState>, 'visibility'> & {
+   visibility?: Partial<Record<SidebarItemKey, SidebarVisibility>>;
+};
+
+function previousPrefs(): StoredPrefs | undefined {
    if (typeof window === 'undefined') return undefined;
    try {
       const raw = window.localStorage.getItem(PREVIOUS_STORAGE_KEY);
       if (!raw) return undefined;
       const parsed = JSON.parse(raw) as { state?: Partial<SidebarPrefsState> };
-      return parsed.state;
+      const state = parsed.state;
+      if (!state) return undefined;
+      // Shape is not carried over. A stored preference beats a new default
+      // forever, and every v5 browser stored the old order and the two hidden
+      // items — so v6 would never show what it now says it shows. Only choices
+      // that are not about which items appear survive the upgrade; what the
+      // person does after this persists normally.
+      const carried: StoredPrefs = { ...state };
+      delete carried.visibility;
+      delete carried.order;
+      return carried;
    } catch {
       return undefined;
    }
@@ -126,9 +147,9 @@ export const useSidebarPrefsStore = create<SidebarPrefsState>()(
             }),
       }),
       {
-         name: 'sidebar-prefs-v4',
+         name: 'sidebar-prefs-v6',
          merge: (persisted, current) => {
-            const stored = (persisted as Partial<SidebarPrefsState> | undefined) ?? previousPrefs();
+            const stored = (persisted as StoredPrefs | undefined) ?? previousPrefs();
             const mergedOrder = { ...current.order, ...stored?.order };
             return {
                ...current,

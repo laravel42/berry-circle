@@ -41,6 +41,12 @@ export interface ShellRouteDef {
     * item. Every rail destination is pinnable.
     */
    prefsKey?: SidebarItemKey;
+   /**
+    * Show a live dot on this item while something is running, the way the rail
+    * marks runtimes. Declared here rather than matched on `id` in the rail so
+    * the route table stays the one description of what a route is.
+    */
+   live?: 'runs';
 }
 
 const WORK: ShellRouteDef[] = [
@@ -82,6 +88,7 @@ const MANAGE: ShellRouteDef[] = [
       label: 'runtimes',
       href: '/runs',
       prefsKey: 'agent',
+      live: 'runs',
       icon: '<path d="M3 12h3l2-6 3 12 3-8 2 2h5" />',
    },
    {
