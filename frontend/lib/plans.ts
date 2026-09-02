@@ -38,7 +38,13 @@ export const fieldErrorSchema = z.object({
    path: z.string(),
    code: z.string(),
    message: z.string(),
-   severity: z.enum(['error', 'warning']),
+   /**
+    * Optional because the server does not send it: a problem's severity is the
+    * array it arrives in, `errors` or `warnings`. Requiring it here meant every
+    * plan carrying a warning — a project with no repository linked, say —
+    * failed to parse and took the whole plan page down with it.
+    */
+   severity: z.enum(['error', 'warning']).optional(),
    hint: z.string().nullish(),
 });
 
@@ -385,10 +391,7 @@ export function planCounts(plan: Plan | null | undefined): PlanCounts {
 
 export function describePlanCounts(counts: PlanCounts): string {
    const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
-   return [
-      plural(counts.tasks, 'task'),
-      plural(counts.approvals, 'approval'),
-   ].join(' · ');
+   return [plural(counts.tasks, 'task'), plural(counts.approvals, 'approval')].join(' · ');
 }
 
 /** Progress copy for the stage in flight, lowercase like the rest of the shell. */
