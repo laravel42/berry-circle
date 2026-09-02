@@ -1,6 +1,5 @@
 'use client';
 
-import { PlanSomethingButton } from '@/components/common/plans/plan-something-button';
 import { useProject } from '@/hooks/use-project';
 import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
@@ -32,9 +31,6 @@ export default function Header({ projectId }: { projectId: string }) {
                <project.icon className="size-3.5" />
             </span>
             <span className="truncate font-medium">{project.name}</span>
-         </div>
-         <div className="flex items-center gap-1">
-            <PlanSomethingButton projectId={project.id} variant="ghost" size="sm" />
          </div>
       </div>
    );

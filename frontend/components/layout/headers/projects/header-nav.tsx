@@ -1,6 +1,5 @@
 'use client';
 
-import { PlanSomethingButton } from '@/components/common/plans/plan-something-button';
 import { CreateProjectButton } from '@/components/common/projects/create-project-button';
 
 export default function HeaderNav() {
@@ -16,10 +15,7 @@ export default function HeaderNav() {
                   </a>
                </p>
             </div>
-            <div className="flex shrink-0 items-center gap-2">
-               <PlanSomethingButton />
-               <CreateProjectButton />
-            </div>
+            <CreateProjectButton />
          </div>
       </div>
    );

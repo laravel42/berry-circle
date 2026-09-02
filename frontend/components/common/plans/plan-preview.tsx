@@ -32,16 +32,10 @@ import { useProjectsStore } from '@/store/projects-store';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { PlanStatusBadge } from './plan-status-badge';
-import {
-   PlanApprovals,
-   PlanAssumptions,
-   PlanConnections,
-   PlanIssues,
-   Pill,
-} from './plan-sections';
+import { PlanApprovals, PlanAssumptions, PlanConnections, PlanIssues, Pill } from './plan-sections';
 import {
    PlanBlockedQuestions,
    PlanFindings,
@@ -80,10 +74,44 @@ function promptTitle(prompt: string | null | undefined): string {
  * what the validator found — because nothing here exists yet, and the person
  * pressing Start is agreeing to all of it at once.
  */
+/**
+ * Start a plan whose project is led by the AI workflow, without asking again.
+ *
+ * Gated on `startPlanBlocker` — the same check the Start button uses — so this
+ * can never start something a person would have been stopped from starting:
+ * still generating, blocked on questions, or invalid all hold it back until
+ * they clear. A high-risk plan still lands in `pendingApproval`, because that
+ * is the server's judgement and not this one's.
+ *
+ * The flag is taken rather than read, so a plan starts at most once however
+ * many times a poll re-renders this.
+ */
+function useAutoStartPlan(record: PlanRecord | undefined) {
+   const takeAutoStart = usePlanStore((state) => state.takeAutoStart);
+   const startPlan = usePlanStore((state) => state.startPlan);
+
+   useEffect(() => {
+      if (!record || startPlanBlocker(record) !== null) return;
+      if (!takeAutoStart(record.id)) return;
+      void startPlan(record.id)
+         .then((next) => {
+            if (next.status === 'pendingApproval') {
+               toast.info('Sent to an admin for approval');
+            } else if (next.compile?.status === 'failed') {
+               toast.error('The plan was approved but its tasks could not be created');
+            } else {
+               toast.success('Tasks generated');
+            }
+         })
+         .catch((error: unknown) => toast.error(describePlanFailure(error)));
+   }, [record, takeAutoStart, startPlan]);
+}
+
 export default function PlanPreview({ planId }: PlanPreviewProps) {
    const { orgId } = useParams<{ orgId: string }>();
    const inDrawer = useInDetailDrawer();
    const { record, error, busy } = usePlan(planId);
+   useAutoStartPlan(record);
 
    if (!record) {
       return (

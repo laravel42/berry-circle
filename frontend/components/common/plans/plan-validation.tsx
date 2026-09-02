@@ -12,6 +12,7 @@ import {
 } from '@/lib/plans';
 import { cn } from '@/lib/utils';
 import { useCreatePlanStore } from '@/store/create-plan-store';
+import { usePlanStore } from '@/store/plan-store';
 
 /**
  * Where generation is, as a stage trail. Repair is skipped when the first
@@ -19,6 +20,9 @@ import { useCreatePlanStore } from '@/store/create-plan-store';
  * sits before the one in flight; nothing is invented for stages it skipped.
  */
 export function PlanGenerationProgress({ record }: { record: PlanRecord }) {
+   // Still set while generation runs — the plan is only taken once it can
+   // actually start — so it says truthfully what happens when this finishes.
+   const willAutoStart = usePlanStore((state) => Boolean(state.autoStart[record.id]));
    if (record.generation.status !== 'running') return null;
    const current = record.generation.stage ?? 'intent';
    const currentIndex = PLAN_STAGES.indexOf(current as (typeof PLAN_STAGES)[number]);
@@ -58,7 +62,10 @@ export function PlanGenerationProgress({ record }: { record: PlanRecord }) {
             })}
          </ol>
          <p className="mt-2 text-muted-foreground">
-            Usually a minute or two. Nothing is created until you press Start Plan.
+            Usually a minute or two.{' '}
+            {willAutoStart
+               ? 'This project is led by the AI workflow, so its tasks are created as soon as the plan is ready.'
+               : 'Nothing is created until you press Start Plan.'}
          </p>
       </div>
    );
