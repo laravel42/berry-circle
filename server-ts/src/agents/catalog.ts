@@ -1,16 +1,17 @@
+import { BedrockClient, ListInferenceProfilesCommand } from '@aws-sdk/client-bedrock';
+import type { AwsCredentials } from './bedrock-chat.ts';
 /**
  * The models an agent can be switched to.
  *
  * Minus the half that used to make this complicated. The runtime reported a
- * catalogue with its OpenRouter entries compiled in, so they went stale and a
- * working pairing read as unavailable, and Berry spliced OpenRouter's live
- * list over them while keeping the runtime's other providers.
+ * catalogue with a provider's entries compiled in, so they went stale and a
+ * working pairing read as unavailable. The list is read live instead.
  *
- * There are no other providers now. Berry talks to OpenRouter, so the live
- * list is the whole catalogue and there is nothing to merge.
+ * Bedrock is asked for inference profiles rather than foundation models: a
+ * profile is what an account can actually invoke, and offering a bare model id
+ * would list models that fail at the first call.
  */
 
-const DEFAULT_BASE_URL = 'https://openrouter.ai/api/v1';
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
 /** One selectable model as the product sees it. */
@@ -27,33 +28,40 @@ export interface CatalogModel {
 }
 
 export interface CatalogOptions {
-   baseUrl?: string;
+   /** The AWS region Bedrock is called in. */
+   region: string;
+   /** Injected by tests; production builds one from the region. */
+   bedrock?: BedrockClient;
+   /** Omitted means the AWS default chain. */
+   credentials?: AwsCredentials | null;
    /**
-    * Bounds how stale the list may be. It changes on OpenRouter's release
+    * Bounds how stale the list may be. It changes on the provider's release
     * schedule rather than Berry's, so a short cache costs nothing and spares
     * every picker render a 400-model fetch.
     */
    ttlMs?: number;
-   fetch?: typeof globalThis.fetch;
    clock?: () => number;
 }
 
 /** The provider every model here is served by. */
-export const PROVIDER = 'openrouter';
+export const PROVIDER = 'bedrock';
 
 export class ModelCatalog {
-   private readonly baseUrl: string;
    private readonly ttlMs: number;
-   private readonly fetch: typeof globalThis.fetch;
+   private readonly bedrock: BedrockClient;
    private readonly clock: () => number;
    private cached: CatalogModel[] | null = null;
    private cachedAt = 0;
    private inFlight: Promise<CatalogModel[]> | null = null;
 
-   constructor(options: CatalogOptions = {}) {
-      this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, '');
+   constructor(options: CatalogOptions) {
       this.ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
-      this.fetch = options.fetch ?? globalThis.fetch;
+      this.bedrock =
+         options.bedrock ??
+         new BedrockClient({
+            region: options.region,
+            ...(options.credentials ? { credentials: options.credentials } : {}),
+         });
       this.clock = options.clock ?? Date.now;
    }
 
@@ -82,15 +90,27 @@ export class ModelCatalog {
    }
 
    private async refresh(): Promise<CatalogModel[]> {
-      const response = await this.fetch(`${this.baseUrl}/models`, {
-         headers: { accept: 'application/json' },
-      });
-      if (!response.ok) {
-         throw new CatalogUnavailable(`OpenRouter model catalogue returned ${response.status}`);
-      }
-      const payload = (await response.json()) as { data?: WireModel[] };
-      const models = (payload.data ?? []).filter((entry) => entry.id).map(toCatalogModel);
-      if (models.length === 0) throw new CatalogUnavailable('OpenRouter listed no models');
+      const response = await this.bedrock
+         .send(
+            new ListInferenceProfilesCommand({
+               // Only the profiles this account can actually invoke. Listing
+               // foundation models instead would offer models that fail at the
+               // first call, because Anthropic models on Bedrock are reachable
+               // through a cross-region profile rather than by bare id.
+               maxResults: 100,
+               typeEquals: 'SYSTEM_DEFINED',
+            })
+         )
+         .catch((cause: unknown) => {
+            throw new CatalogUnavailable(
+               `Bedrock could not list inference profiles: ${cause instanceof Error ? cause.message : String(cause)}`
+            );
+         });
+
+      const models = (response.inferenceProfileSummaries ?? [])
+         .filter((entry) => entry.inferenceProfileId)
+         .map(toCatalogModel);
+      if (models.length === 0) throw new CatalogUnavailable('Bedrock listed no inference profiles');
 
       this.cached = models;
       this.cachedAt = this.clock();
@@ -105,41 +125,35 @@ export class CatalogUnavailable extends Error {
    }
 }
 
-interface WireModel {
-   id?: string;
-   name?: string;
-   context_length?: number;
-   architecture?: { input_modalities?: string[] };
-   pricing?: { prompt?: string; completion?: string };
-   supported_parameters?: string[];
-}
-
-function toCatalogModel(entry: WireModel): CatalogModel {
+/**
+ * One Bedrock inference profile as a row in the picker.
+ *
+ * Bedrock publishes neither pricing nor context window on this API, so those
+ * are zero rather than invented. Empty is a fact the UI can render as unknown;
+ * a plausible guess would be shown in a column people read as true — which is
+ * why the previous catalogue left `tier` empty for the same reason.
+ */
+function toCatalogModel(entry: {
+   inferenceProfileId?: string | undefined;
+   inferenceProfileName?: string | undefined;
+}): CatalogModel {
+   const id = entry.inferenceProfileId!;
    return {
-      id: entry.id!,
-      displayName: entry.name || entry.id!,
+      id,
+      displayName: entry.inferenceProfileName || id,
       provider: PROVIDER,
-      // OpenRouter publishes no tier. Empty rather than invented: the field
-      // exists because the catalogue Berry used to read had one, and a guess would
-      // be shown in a column people read as fact.
       tier: '',
-      contextWindow: entry.context_length ?? 0,
-      inputCostPerM: perMillion(entry.pricing?.prompt),
-      outputCostPerM: perMillion(entry.pricing?.completion),
-      supportsTools: (entry.supported_parameters ?? []).includes('tools'),
-      supportsVision: (entry.architecture?.input_modalities ?? []).includes('image'),
+      contextWindow: 0,
+      inputCostPerM: 0,
+      outputCostPerM: 0,
+      // Every model Berry runs an agent on has to take tools, and Converse
+      // supports them across the families Bedrock exposes this way.
+      supportsTools: true,
+      supportsVision: false,
    };
 }
 
-/**
- * A per-token price string as the per-million figure the product displays.
- *
- * OpenRouter quotes prices as strings ("0.000001") because they are exact
- * decimals, and an unparsable one becomes 0 rather than failing the whole
- * catalogue: a missing price costs one column, a rejected catalogue costs the
- * picker.
- */
-export function perMillion(price: string | undefined): number {
+function perMillion(price: string | undefined): number {
    const value = Number.parseFloat(price ?? '');
    return Number.isFinite(value) ? value * 1_000_000 : 0;
 }

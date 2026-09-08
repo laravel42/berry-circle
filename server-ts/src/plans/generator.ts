@@ -1,4 +1,5 @@
 import type { Sql } from '../db/pool.ts';
+import { BedrockChat } from '../agents/bedrock-chat.ts';
 import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationReport } from './schema.ts';
 
 /**
@@ -33,7 +34,8 @@ Answer with JSON only — no prose, no code fence. The shape is:
 {
   "goal": { "tempId": "goal-1", "title": "...", "description": "..." },
   "assumptions": [
-    { "id": "a1", "description": "...", "confidence": "low|medium|high", "blocking": false }
+    { "id": "a1", "description": "...", "confidence": "low|medium|high", "blocking": false,
+      "options": [ { "id": "a1-o1", "label": "...", "detail": "..." } ] }
   ],
   "issues": [
     { "tempId": "t1", "title": "...", "description": "...",
@@ -57,6 +59,16 @@ Rules:
 - If the request is too vague to plan, say so with a blocking assumption
   (\`"blocking": true\`) whose description is the question you need answered,
   and propose no tasks.
+- Every blocking assumption MUST carry 2-4 \`options\`: the concrete answers you
+  would accept, mutually exclusive, in the vocabulary of the request rather
+  than of software. "Nightly batch" and "Real-time (under 500ms)" are options;
+  "Yes" and "No" to a question that is not yes-or-no are not. Add \`detail\`
+  only where the label alone would not tell someone what they are choosing.
+  Someone is going to pick one of these without being able to ask you what you
+  meant, so do not offer an option you could not plan from.
+- Offer options on a non-blocking assumption too when there is a real choice
+  behind it. You are guessing either way; the options are how someone corrects
+  the guess without having to know they needed to.
 - Berry has no rules engine. A condition that must be respected goes in the
   task's description, where the agent doing the work will read it.`;
 
@@ -131,10 +143,11 @@ export class PlannerUnavailable extends Error {
 
 export interface PlanGeneratorOptions {
    sql: Sql;
-   apiKey: string;
-   baseUrl: string;
+   /** The AWS region Bedrock is called in. */
+   region: string;
    defaultModel: string;
-   fetch?: typeof globalThis.fetch;
+   /** Injected by tests; production builds one from the region. */
+   chat?: BedrockChat;
    timeoutMs?: number;
    /** How many times a document may be sent back to be fixed. */
    maxRepairs?: number;
@@ -146,20 +159,21 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class PlanGenerator {
    readonly #sql: Sql;
-   readonly #apiKey: string;
-   readonly #baseUrl: string;
+   readonly #chat: BedrockChat;
    readonly #defaultModel: string;
-   readonly #fetch: typeof globalThis.fetch;
    readonly #timeoutMs: number;
    readonly #maxRepairs: number;
    readonly #maxCriticRounds: number;
 
    constructor(options: PlanGeneratorOptions) {
       this.#sql = options.sql;
-      this.#apiKey = options.apiKey;
-      this.#baseUrl = options.baseUrl.replace(/\/$/, '');
+      this.#chat =
+         options.chat ??
+         new BedrockChat({
+            region: options.region,
+            ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
+         });
       this.#defaultModel = options.defaultModel;
-      this.#fetch = options.fetch ?? globalThis.fetch;
       this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       this.#maxRepairs = options.maxRepairs ?? 2;
       this.#maxCriticRounds = options.maxCriticRounds ?? 1;
@@ -179,7 +193,7 @@ export class PlanGenerator {
           ORDER BY updated_at DESC LIMIT 1`;
       return row
          ? { provider: row.model_provider as string, model: row.model_name as string }
-         : { provider: 'openrouter', model: this.#defaultModel };
+         : { provider: 'bedrock', model: this.#defaultModel };
    }
 
    /**
@@ -191,6 +205,14 @@ export class PlanGenerator {
     */
    async generate(input: {
       prompt: string;
+      /**
+       * What the asker has already answered, when this is a second attempt.
+       *
+       * Appended to the request rather than merged into it: the original
+       * prompt is what someone typed, and rewriting it to contain answers
+       * would leave no record of what was asked versus what was learned.
+       */
+      answers?: AnsweredQuestion[];
       signal?: AbortSignal;
       onStage?: (stage: Stage) => void;
    }): Promise<Generated> {
@@ -204,7 +226,7 @@ export class PlanGenerator {
          stage: 'generate',
          model: planner,
          system: GENERATE_SYSTEM,
-         user: input.prompt,
+         user: withAnswers(input.prompt, input.answers ?? []),
          signal: input.signal,
       });
       account(usage, first);
@@ -360,54 +382,33 @@ export class PlanGenerator {
       user: string;
       signal: AbortSignal | undefined;
    }) {
-      const started = Date.now();
-      const response = await this.#fetch(`${this.#baseUrl}/chat/completions`, {
-         method: 'POST',
-         signal: input.signal ?? AbortSignal.timeout(this.#timeoutMs),
-         headers: {
-            authorization: `Bearer ${this.#apiKey}`,
-            'content-type': 'application/json',
-            'x-title': 'Berry',
-         },
-         body: JSON.stringify({
+      const result = await this.#chat
+         .chat({
             model: input.model.model,
-            messages: [
-               { role: 'system', content: input.system },
-               { role: 'user', content: input.user },
-            ],
-            // Asked for, not relied on: some models ignore it, which is why
-            // the answer is still parsed defensively below.
-            response_format: { type: 'json_object' },
-         }),
-      }).catch((cause: unknown) => {
-         throw new PlannerUnavailable(
-            `the ${input.role} could not be reached: ${String(cause)}`,
-            input.stage
-         );
-      });
+            system: input.system,
+            user: input.user,
+            // Asked for, not relied on: Bedrock has no cross-family
+            // `response_format`, so this is an instruction and the answer is
+            // still parsed defensively below.
+            json: true,
+            ...(input.signal ? { signal: input.signal } : {}),
+         })
+         .catch((cause: unknown) => {
+            throw new PlannerUnavailable(
+               `the ${input.role} could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`,
+               input.stage
+            );
+         });
 
-      if (!response.ok) {
-         const detail = await response.text().catch(() => '');
-         throw new PlannerUnavailable(
-            `the ${input.role} refused the request: ${response.status} ${detail.slice(0, 200)}`,
-            input.stage
-         );
-      }
-
-      const body = (await response.json().catch(() => null)) as {
-         choices?: Array<{ message?: { content?: unknown } }>;
-         usage?: { prompt_tokens?: number; completion_tokens?: number };
-      } | null;
-      const content = body?.choices?.[0]?.message?.content;
-      if (typeof content !== 'string' || content.trim() === '') {
+      if (result.text.trim() === '') {
          throw new PlannerUnavailable(`the ${input.role} returned nothing`, input.stage);
       }
 
       return {
-         json: parseJson(content),
-         inputTokens: Number(body?.usage?.prompt_tokens ?? 0),
-         outputTokens: Number(body?.usage?.completion_tokens ?? 0),
-         durationMs: Date.now() - started,
+         json: parseJson(result.text),
+         inputTokens: result.inputTokens,
+         outputTokens: result.outputTokens,
+         durationMs: result.durationMs,
       };
    }
 }
@@ -422,6 +423,37 @@ function account(
    // and reporting only the last would make the pipeline look free.
    usage.inputTokens += result.inputTokens;
    usage.outputTokens += result.outputTokens;
+}
+
+/** A question the planner asked and the answer it was given. */
+export interface AnsweredQuestion {
+   question: string;
+   answer: string;
+}
+
+/**
+ * The request, with what has since been answered.
+ *
+ * The answers are named as answers rather than folded into the prose so the
+ * planner cannot mistake them for more of the original request — and so it is
+ * told, in as many words, not to ask them again. A planner that re-asks an
+ * answered question blocks the plan a second time on the thing the person
+ * just resolved, which reads as the feature not working at all.
+ */
+export function withAnswers(prompt: string, answers: AnsweredQuestion[]): string {
+   if (answers.length === 0) return prompt;
+   const answered = answers
+      .map((entry, index) => `${index + 1}. ${entry.question}\n   ${entry.answer}`)
+      .join('\n');
+   return `${prompt}
+
+---
+
+You asked these questions and they have been answered. Treat each answer as
+settled fact and plan accordingly. Do not raise them again as assumptions, and
+do not block on them:
+
+${answered}`;
 }
 
 function stageOf(

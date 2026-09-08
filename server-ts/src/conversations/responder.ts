@@ -1,6 +1,5 @@
-import { InMemorySessionService, LlmAgent, Runner, isFinalResponse } from '@google/adk';
 import type { Sql } from '../db/pool.ts';
-import { OpenRouterLlm } from '../agents/openrouter-llm.ts';
+import { BedrockChat } from '../agents/bedrock-chat.ts';
 import { toAgentName } from '../agents/executor.ts';
 import type { ConversationMessage } from './repository.ts';
 
@@ -41,21 +40,21 @@ export class ResponderUnavailable extends Error {
 
 export interface ResponderOptions {
    sql: Sql;
-   apiKey: string;
-   baseUrl?: string | undefined;
+   /** The AWS region Bedrock is called in. */
+   region: string;
+   /** Injected by tests; production builds one from the region. */
+   chat?: BedrockChat;
    defaultModel: string;
 }
 
 export class ConversationResponder {
    readonly #sql: Sql;
-   readonly #apiKey: string;
-   readonly #baseUrl: string | undefined;
+   readonly #chat: BedrockChat;
    readonly #defaultModel: string;
 
    constructor(options: ResponderOptions) {
       this.#sql = options.sql;
-      this.#apiKey = options.apiKey;
-      this.#baseUrl = options.baseUrl;
+      this.#chat = options.chat ?? new BedrockChat({ region: options.region });
       this.#defaultModel = options.defaultModel;
    }
 
@@ -69,59 +68,35 @@ export class ConversationResponder {
           WHERE id = ${input.agentId} AND archived_at IS NULL`;
       if (!agent) throw new ResponderUnavailable('that agent no longer exists');
 
-      const sessions = new InMemorySessionService();
-      const runner = new Runner({
-         appName: 'berry',
-         agent: new LlmAgent({
-            name: toAgentName(agent.name as string),
-            model: new OpenRouterLlm({
-               model: (agent.model_name as string | null) || this.#defaultModel,
-               apiKey: this.#apiKey,
-               ...(this.#baseUrl ? { baseUrl: this.#baseUrl } : {}),
-               title: 'Berry',
-            }),
+      // A single completion with no tools, so this goes straight to Bedrock
+      // rather than through an agent framework: a tool loop with no tools is
+      // machinery with nothing to do.
+      const result = await this.#chat
+         .chat({
+            model: (agent.model_name as string | null) || this.#defaultModel,
             // Its own instructions, plus what this conversation is not. An
             // agent that offers to "go ahead and fix it" here would be
             // promising something a chat turn cannot do.
-            instruction: `${(agent.instructions as string | null) ?? ''}
+            system: `${(agent.instructions as string | null) ?? ''}
 
 You are answering a question in Berry's chat, not working a task. You have no
 tools and no workspace here: you cannot read the repository, run commands or
 change anything. Answer from what you are told and from what you know. If
 doing the thing would need a task, say so and say what the task would be.`,
-            tools: [],
-         }),
-         sessionService: sessions,
-      });
+            user: transcript(input.history),
+            ...(input.signal ? { signal: input.signal } : {}),
+         })
+         .catch((cause: unknown) => {
+            throw new ResponderUnavailable(
+               cause instanceof Error ? cause.message : String(cause)
+            );
+         });
 
-      const session = await sessions.createSession({
-         appName: 'berry',
-         userId: 'berry',
-      });
-
-      let text = '';
-      const usage: Usage = { inputTokens: 0, outputTokens: 0 };
-      for await (const event of runner.runAsync({
-         userId: session.userId,
-         sessionId: session.id,
-         newMessage: { role: 'user', parts: [{ text: transcript(input.history) }] },
-         ...(input.signal ? { abortSignal: input.signal } : {}),
-      })) {
-         const metadata = event.usageMetadata;
-         if (metadata) {
-            usage.inputTokens += metadata.promptTokenCount ?? 0;
-            // Reasoning tokens are inside completion_tokens, which is what
-            // `candidatesTokenCount` carries — the same reading the run
-            // ledger takes.
-            usage.outputTokens += metadata.candidatesTokenCount ?? 0;
-         }
-         // Partial frames are the same text arriving twice; only the final one
-         // is the reply.
-         if (!isFinalResponse(event)) continue;
-         for (const part of event.content?.parts ?? []) {
-            if (typeof part.text === 'string') text += part.text;
-         }
-      }
+      const text = result.text;
+      const usage: Usage = {
+         inputTokens: result.inputTokens,
+         outputTokens: result.outputTokens,
+      };
 
       const trimmed = text.trim();
       if (trimmed === '') {

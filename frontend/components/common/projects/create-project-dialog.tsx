@@ -1,7 +1,7 @@
 'use client';
 
 import { BerryMark } from '@/components/brand/berry-mark';
-import { DescriptionTextarea } from '@/components/common/editor/description-textarea';
+import { TiptapAiEditor } from '@/components/common/editor/tiptap-ai-editor';
 import { ProjectDateSelector } from '@/components/common/projects/create-project/date-selector';
 import { RepositoryPicker } from '@/components/common/projects/repository-selector';
 import { AutoGateToggle } from '@/components/common/plans/auto-gate-toggle';
@@ -295,7 +295,7 @@ export function CreateProjectDialog() {
                      Description
                   </label>
                   <div className="mt-5 min-h-40 flex-1">
-                     <DescriptionTextarea
+                     <TiptapAiEditor
                         data-heading="h3"
                         value={form.description}
                         onChange={(description) => setForm({ ...form, description })}

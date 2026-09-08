@@ -1,4 +1,4 @@
-import { FunctionTool } from '@google/adk';
+import { tool, type Tool } from '@strands-agents/sdk';
 import { z } from 'zod';
 import type { ExecutionSession } from '../execution/driver.ts';
 import { ExecutionUnavailable } from '../execution/driver.ts';
@@ -85,23 +85,23 @@ const MAX_MODEL_BYTES = 4 * 1024;
 const FLUSH_BYTES = 2 * 1024;
 const FLUSH_MS = 300;
 
-export function runCommandTool(scope: CommandToolScope): FunctionTool {
+export function runCommandTool(scope: CommandToolScope): Tool {
    const clock = scope.clock ?? (() => new Date());
 
-   return new FunctionTool({
+   return tool({
       name: 'run_command',
       description:
          'Run a shell command in this task\'s isolated workspace and return its output and exit code. ' +
          'The workspace is yours alone and is destroyed when the run ends. ' +
          'A non-zero exit code is a result you should read and act on, not an error.',
-      parameters: z.object({
+      inputSchema: z.object({
          command: z.string().describe('A shell command, e.g. "pnpm install" or "pnpm test"'),
          cwd: z
             .string()
             .optional()
             .describe('Directory to run in, relative to the workspace root. Defaults to the root.'),
       }),
-      execute: async ({ command, cwd }) => {
+      callback: async ({ command, cwd }) => {
          const trimmed = command.trim();
          if (trimmed === '') {
             return { error: 'command was empty', exitCode: null };

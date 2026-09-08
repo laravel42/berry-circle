@@ -4,15 +4,14 @@ import {
    CatalogUnavailable,
    ModelCatalog,
    normalizeModelId,
-   perMillion,
    resolveModel,
    type CatalogModel,
 } from './catalog.ts';
 
 /**
- * The model catalogue. Driven against a fake fetch rather than OpenRouter,
- * because what is worth testing here is the caching and the failure
- * behaviour — a live catalogue would test OpenRouter's uptime instead.
+ * The model catalogue. Driven against a fake Bedrock client rather than the
+ * real one, because what is worth testing here is the caching and the failure
+ * behaviour — a live catalogue would test AWS's uptime instead.
  */
 
 function wire(id: string, prompt = '0.000003', completion = '0.000015') {
@@ -40,19 +39,10 @@ function fakeFetch(pages: Array<{ ok?: boolean; status?: number; data?: unknown[
    return { fetcher, calls: () => call };
 }
 
-test('a per-token price becomes the per-million figure the product shows', () => {
-   assert.equal(perMillion('0.000003'), 3);
-   assert.equal(perMillion('0.00000000021'), 0.00021);
-   assert.equal(perMillion('0'), 0);
-   // An unparsable price costs one column; a rejected catalogue costs the
-   // picker, so this is 0 rather than a throw.
-   assert.equal(perMillion(undefined), 0);
-   assert.equal(perMillion('free'), 0);
-});
-
 test('a repeated provider prefix is stripped, and a real one is not', () => {
-   // The quirk is inherited from the previous catalogue, and stored pairings
-   // still carry it: dropping this would make every one of them unavailable.
+   // The quirk is inherited from the catalogue before Bedrock, and rows written
+   // then still carry it until migration 047 rewrites them: dropping this would
+   // make every one of those pairings unavailable in the meantime.
    assert.equal(normalizeModelId('openrouter', 'openrouter/anthropic/claude-sonnet-4'), 'anthropic/claude-sonnet-4');
    assert.equal(normalizeModelId('openrouter', 'anthropic/claude-sonnet-4'), 'anthropic/claude-sonnet-4');
    assert.equal(normalizeModelId('anthropic', 'claude-sonnet-4-6'), 'claude-sonnet-4-6');
@@ -81,74 +71,110 @@ test('a pairing resolves through the prefix quirk from either side', () => {
    assert.equal(resolveModel(models, 'openrouter', 'openai/gpt-5'), undefined);
 });
 
-test('the catalogue is fetched once and served from cache until it goes stale', async () => {
-   let now = 1_000;
-   const { fetcher, calls } = fakeFetch([{ data: [wire('a/one')] }]);
-   const catalog = new ModelCatalog({ fetch: fetcher, clock: () => now, ttlMs: 100 });
+/** A Bedrock client that lists the given profiles, counting how often it is asked. */
+function listing(profiles: Array<{ inferenceProfileId?: string; inferenceProfileName?: string }>) {
+   let calls = 0;
+   const client = {
+      async send() {
+         calls += 1;
+         return { inferenceProfileSummaries: profiles };
+      },
+   };
+   return { client: client as never, calls: () => calls };
+}
 
-   assert.equal((await catalog.list()).length, 1);
-   await catalog.list();
-   assert.equal(calls(), 1, 'a warm cache does not refetch');
+/** A Bedrock client that always refuses. */
+function refusing() {
+   return {
+      async send() {
+         throw new Error('AccessDeniedException');
+      },
+   } as never;
+}
 
-   now += 101;
-   await catalog.list();
-   assert.equal(calls(), 2, 'a stale cache refetches');
+function catalog(bedrock: never, ttlMs = 60_000, clock?: () => number) {
+   return new ModelCatalog({
+      region: 'us-east-1',
+      bedrock,
+      ttlMs,
+      ...(clock ? { clock } : {}),
+   });
+}
+
+test('the catalogue is listed once and served from cache until it goes stale', async () => {
+   const source = listing([{ inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' }]);
+   let now = 0;
+   const models = catalog(source.client, 1000, () => now);
+
+   await models.list();
+   await models.list();
+   assert.equal(source.calls(), 1, 'a warm cache should not ask again');
+
+   now = 2000;
+   await models.list();
+   assert.equal(source.calls(), 2, 'a stale cache should');
 });
 
 test('concurrent readers on a cold cache cost one round trip', async () => {
-   const { fetcher, calls } = fakeFetch([{ data: [wire('a/one')] }]);
-   const catalog = new ModelCatalog({ fetch: fetcher });
-   // A picker opened by ten people should not cost ten fetches of a
-   // 400-model list.
-   await Promise.all(Array.from({ length: 10 }, () => catalog.list()));
-   assert.equal(calls(), 1);
+   // A picker opened by ten people should cost one call, not ten.
+   const source = listing([{ inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' }]);
+   const models = catalog(source.client);
+   await Promise.all([models.list(), models.list(), models.list()]);
+   assert.equal(source.calls(), 1);
 });
 
 test('a failed refresh serves the last good list rather than emptying the picker', async () => {
-   let now = 1_000;
-   const { fetcher } = fakeFetch([{ data: [wire('a/one')] }, { ok: false, status: 503 }]);
-   const catalog = new ModelCatalog({ fetch: fetcher, clock: () => now, ttlMs: 10 });
+   let fail = false;
+   let now = 0;
+   const client = {
+      async send() {
+         if (fail) throw new Error('ThrottlingException');
+         return { inferenceProfileSummaries: [{ inferenceProfileId: 'us.anthropic.x' }] };
+      },
+   } as never;
+   const models = catalog(client, 1000, () => now);
 
-   assert.equal((await catalog.list()).length, 1);
-   now += 11;
-   const served = await catalog.list();
-   assert.equal(served.length, 1, 'a transient failure must not empty a picker that just worked');
+   assert.equal((await models.list()).length, 1);
+   fail = true;
+   now = 2000;
+   assert.equal((await models.list()).length, 1, 'the stale list beats an empty picker');
 });
 
-test('a first fetch that fails throws rather than reporting no models', async () => {
-   // "No models exist" and "this server cannot ask" are different answers, and
-   // only one of them would be true.
-   const { fetcher } = fakeFetch([{ ok: false, status: 500 }]);
-   await assert.rejects(() => new ModelCatalog({ fetch: fetcher }).list(), CatalogUnavailable);
-
-   const empty = fakeFetch([{ data: [] }]);
-   await assert.rejects(() => new ModelCatalog({ fetch: empty.fetcher }).list(), CatalogUnavailable);
+test('a first listing that fails throws rather than reporting no models', async () => {
+   // "Bedrock cannot be reached" and "there are no models" are different
+   // answers, and only one of them is true.
+   const models = catalog(refusing());
+   await assert.rejects(models.list(), CatalogUnavailable);
 });
 
-test('a model carries what the picker shows about it', async () => {
-   const { fetcher } = fakeFetch([{ data: [wire('anthropic/claude-sonnet-4.5')] }]);
-   const [model] = await new ModelCatalog({ fetch: fetcher }).list();
-
-   assert.deepEqual(model, {
-      id: 'anthropic/claude-sonnet-4.5',
-      displayName: 'ANTHROPIC/CLAUDE-SONNET-4.5',
-      provider: 'openrouter',
-      // OpenRouter publishes no tier, and inventing one would put a guess in a
-      // column people read as fact.
-      tier: '',
-      contextWindow: 200_000,
-      inputCostPerM: 3,
-      outputCostPerM: 15,
-      supportsTools: true,
-      supportsVision: true,
-   });
+test('an account with no profiles is reported as unavailable, not as empty', async () => {
+   const models = catalog(listing([]).client);
+   await assert.rejects(models.list(), CatalogUnavailable);
 });
 
-test('a model with no id is dropped rather than listed as blank', async () => {
-   const { fetcher } = fakeFetch([{ data: [{ name: 'nameless' }, wire('a/one')] }]);
-   const models = await new ModelCatalog({ fetch: fetcher }).list();
-   assert.deepEqual(
-      models.map((model) => model.id),
-      ['a/one']
+test('a profile carries what the picker shows about it', async () => {
+   const models = catalog(
+      listing([
+         {
+            inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0',
+            inferenceProfileName: 'Claude Sonnet 4',
+         },
+      ]).client
    );
+   const [model] = await models.list();
+
+   assert.equal(model!.id, 'us.anthropic.claude-sonnet-4-20250514-v1:0');
+   assert.equal(model!.displayName, 'Claude Sonnet 4');
+   assert.equal(model!.provider, 'bedrock');
+   // Bedrock publishes neither on this API. Zero is a fact the UI can render as
+   // unknown; a plausible guess would be shown as though it were true.
+   assert.equal(model!.contextWindow, 0);
+   assert.equal(model!.inputCostPerM, 0);
+});
+
+test('a profile with no id is dropped rather than listed as blank', async () => {
+   const models = catalog(
+      listing([{ inferenceProfileName: 'nameless' }, { inferenceProfileId: 'us.anthropic.x' }]).client
+   );
+   assert.deepEqual((await models.list()).map((m) => m.id), ['us.anthropic.x']);
 });

@@ -144,6 +144,7 @@ test('a blocking question outranks everything else', () => {
                confidence: 'low',
                userEditable: true,
                blocking: true,
+               options: [],
             },
          ],
       })
@@ -228,4 +229,108 @@ test('a dependency on a task outside the plan does not lose the task', () => {
       ordered.map((entry) => entry.tempId),
       ['a']
    );
+});
+
+/**
+ * Options on an assumption.
+ *
+ * The planner offers them because it is the only party that knows the
+ * vocabulary of its own question. Everything here is about reading them
+ * without letting a badly-shaped answer cost a plan that is otherwise fine.
+ */
+
+function assumptionFrom(entry: unknown) {
+   const { plan } = readPlan({
+      goal: { tempId: 'goal-1', title: 'Ship the thing' },
+      assumptions: [entry],
+      issues: [],
+   });
+   return plan.assumptions[0]!;
+}
+
+test('a question carries the options the planner offered', () => {
+   const assumption = assumptionFrom({
+      id: 'a1',
+      description: 'What email volume?',
+      blocking: true,
+      options: [
+         { id: 'o1', label: 'Real-time', detail: 'Classify on arrival' },
+         { id: 'o2', label: 'Nightly batch' },
+      ],
+   });
+   assert.deepEqual(assumption.options, [
+      { id: 'o1', label: 'Real-time', detail: 'Classify on arrival' },
+      { id: 'o2', label: 'Nightly batch' },
+   ]);
+});
+
+test('a bare string is read as a label', () => {
+   const assumption = assumptionFrom({
+      id: 'a1',
+      description: 'Which?',
+      options: ['Real-time', 'Nightly batch'],
+   });
+   assert.deepEqual(
+      assumption.options.map((option) => option.label),
+      ['Real-time', 'Nightly batch']
+   );
+});
+
+test('options the planner left out are simply absent', () => {
+   // Every plan generated before options existed reads this way, and those
+   // have to stay answerable rather than become unrenderable.
+   assert.deepEqual(assumptionFrom({ id: 'a1', description: 'Which?' }).options, []);
+});
+
+test('a lone option is not a choice', () => {
+   // Offering one asks a person to confirm the planner's guess, which is what
+   // the blocking question already declined to do.
+   assert.deepEqual(assumptionFrom({ id: 'a1', options: [{ label: 'The only way' }] }).options, []);
+});
+
+test('unlabelled options are dropped without failing the plan', () => {
+   const assumption = assumptionFrom({
+      id: 'a1',
+      options: [{ label: '' }, { label: 'Real-time' }, { detail: 'no label' }, { label: 'Batch' }],
+   });
+   assert.deepEqual(
+      assumption.options.map((option) => option.label),
+      ['Real-time', 'Batch']
+   );
+});
+
+test('two options cannot share an id', () => {
+   // Which one was picked is the single fact the answer record must be sure of.
+   const assumption = assumptionFrom({
+      id: 'a1',
+      options: [
+         { id: 'o1', label: 'Real-time' },
+         { id: 'o1', label: 'Batch' },
+         { id: 'o2', label: 'Hourly' },
+      ],
+   });
+   assert.deepEqual(
+      assumption.options.map((option) => option.id),
+      ['o1', 'o2']
+   );
+});
+
+test('options are given ids when the planner omits them', () => {
+   const assumption = assumptionFrom({ id: 'a1', options: ['Real-time', 'Batch'] });
+   assert.deepEqual(
+      assumption.options.map((option) => option.id),
+      ['a1-o1', 'a1-o2']
+   );
+});
+
+test('a flood of options is capped rather than passed through', () => {
+   const assumption = assumptionFrom({
+      id: 'a1',
+      options: Array.from({ length: 40 }, (_, index) => `Option ${index}`),
+   });
+   assert.equal(assumption.options.length, 6);
+});
+
+test('an option that is not a list is no options at all', () => {
+   assert.deepEqual(assumptionFrom({ id: 'a1', options: 'real-time' }).options, []);
 });

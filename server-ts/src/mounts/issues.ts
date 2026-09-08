@@ -1,3 +1,4 @@
+import type { ScmSync } from '../scm/sync.ts';
 import { Hono } from 'hono';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
@@ -78,6 +79,8 @@ export interface IssueOptions {
    issues: IssueRepository;
    boards: BoardRepository;
    idempotency: IdempotencyStore;
+   /** Mirrors a task as an issue on the git host. Absent when none is configured. */
+   scm?: ScmSync | null;
    /** Absent in a deployment with no relay; mutations then reach only this node. */
    broadcaster?: Broadcaster | undefined;
    /** Sub-routes owned by other domains, such as comments. */
@@ -188,6 +191,10 @@ export function issueMounts(options: IssueOptions): Mount[] {
          await applyGoal(options, scope.workspaceId, created.issue.id, input.goal, user.id);
       }
 
+      // After the goal is applied, not before: the issue on the host is filed
+      // under the goal's milestone, and that link has to exist to be read.
+      options.scm?.guard('issue.created', options.scm.issueCreated(created.issue.id));
+
       const relations = await issues.loadRelations([created.issue.id]);
       const response = json(serializeIssue(created.issue, relations.get(created.issue.id)), 201);
       response.headers.set('Location', `/api/v1/issues/${created.issue.id}`);
@@ -215,6 +222,10 @@ export function issueMounts(options: IssueOptions): Mount[] {
          await publish(options, result.events);
       }
       if (goalSet) await applyGoal(options, scope.workspaceId, found.id, goal, user.id);
+
+      // Title, body, state and milestone are Berry's to own, so an edit here
+      // is pushed outward. The reverse direction arrives by webhook.
+      options.scm?.guard('issue.updated', options.scm.issueUpdated(found.id));
 
       const relations = await issues.loadRelations([found.id]);
       return json(serializeIssue(updated, relations.get(found.id)));

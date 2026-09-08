@@ -20,6 +20,10 @@ import type {
    ProjectResource,
    ResourcePatch,
 } from '../core/projects.ts';
+import type { ScmProvisioning } from '../scm/provisioning.ts';
+import type { ScmLink } from '../scm/links.ts';
+import type { ScmWorkspaces } from '../scm/workspaces.ts';
+import type { Logger } from '../observability/log.ts';
 import type { Mount } from '../http/registry.ts';
 
 /**
@@ -55,6 +59,14 @@ export interface ProjectOptions {
    sessions: SessionService;
    projects: ProjectRepository;
    idempotency: IdempotencyStore;
+   /**
+    * Berry's own git host. Absent when the deployment runs none, and then a
+    * project simply has no repository of its own.
+    */
+   scm: ScmProvisioning | null;
+   /** Resolves the organization a workspace's repositories belong under. */
+   scmWorkspaces: ScmWorkspaces | null;
+   logger: Logger;
 }
 
 export function projectMounts(options: ProjectOptions): Mount[] {
@@ -84,7 +96,7 @@ export function projectMounts(options: ProjectOptions): Mount[] {
       const nodes = hasNextPage ? rows.slice(0, page.first) : rows;
       const last = nodes.at(-1);
       return json({
-         nodes: nodes.map(serializeProject),
+         nodes: nodes.map((node) => serializeProject(node)),
          pageInfo: {
             hasNextPage,
             endCursor: last ? encodeCursor(scope, { updatedAt: last.updatedAt, id: last.id }) : null,
@@ -116,14 +128,24 @@ export function projectMounts(options: ProjectOptions): Mount[] {
          })
          .catch(rethrow);
 
-      const response = json(serializeProject(created), 201);
+      // No repository is created. A GitHub repository belongs to the
+      // workspace's organization, and making one because somebody made a Berry
+      // project would be a surprising thing for a task tracker to do. A project
+      // is linked to a repository that already exists, through `githubRepo`.
+      const project = created;
+
+      const response = json(
+         serializeProject(project, await options.scm?.linkFor('project', created.id)),
+         201
+      );
       response.headers.set('Location', `/api/v1/projects/${created.id}`);
       return response;
    });
 
    route.get('/:projectId', async (context) => {
       const { workspaceId, projectId } = await scopeOf(context, projects, 'product.read');
-      return json(serializeProject(await projects.get(workspaceId, projectId).catch(rethrow)));
+      const found = await projects.get(workspaceId, projectId).catch(rethrow);
+      return json(serializeProject(found, await options.scm?.linkFor('project', found.id)));
    });
 
    route.patch('/:projectId', async (context) => {
@@ -751,8 +773,25 @@ async function readBody(
    return body;
 }
 
-function serializeProject(project: Project): Record<string, unknown> {
+/**
+ * A project as the API renders it, with how its repository provisioning went.
+ *
+ * `scm` is present so a page never has to infer failure from `gitRepo` being
+ * null: "no repository was asked for" and "the repository could not be
+ * created" look identical from the column alone, and only one of them is
+ * something a person should be told about.
+ */
+function serializeProject(project: Project, link?: ScmLink | null): Record<string, unknown> {
    return {
+      scm: link
+         ? {
+              provider: link.provider,
+              status: link.status,
+              url: link.externalUrl,
+              error: link.error,
+              lastSyncedAt: link.lastSyncedAt,
+           }
+         : null,
       id: project.id,
       workspaceId: project.workspaceId,
       name: project.name,
@@ -762,6 +801,7 @@ function serializeProject(project: Project): Record<string, unknown> {
       startDate: project.startDate,
       targetDate: project.targetDate,
       githubRepo: project.githubRepo,
+      gitRepo: project.gitRepo,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
    };

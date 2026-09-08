@@ -71,10 +71,17 @@ function tool(session: ExecutionSession, ledger: RunLedger, clock = tickingClock
    });
 }
 
+/**
+ * Invokes a tool the way the agent loop does.
+ *
+ * `invoke` rather than reaching for the callback: it is the entry point the
+ * SDK actually uses, so a schema that stopped matching the arguments would
+ * fail here too rather than only in production.
+ */
 async function call(t: ReturnType<typeof tool>, args: object): Promise<Record<string, unknown>> {
-   const execute = (t as unknown as { execute: (a: object) => Promise<Record<string, unknown>> })
-      .execute;
-   return execute(args);
+   return (await (t as unknown as { invoke: (a: object) => Promise<unknown> }).invoke(
+      args
+   )) as Record<string, unknown>;
 }
 
 test('a failing command is a result the model can read, not an exception', async () => {

@@ -1,19 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import { LlmAgent, Runner, StreamingMode, isFinalResponse } from '@google/adk';
-import type { Event } from '@google/adk';
 import type { Sql } from '../db/pool.ts';
 import type { Storage } from '../storage/storage.ts';
 import { RunLedger, RunTerminal, type Dispatch, type Usage } from '../runs/ledger.ts';
 import { postRunResult, truncateUtf8 } from '../runs/result-comment.ts';
 import { BerryArtifactService } from './artifact-service.ts';
-import { BerrySessionService } from './session-service.ts';
-import { OpenRouterLlm } from './openrouter-llm.ts';
 import { berryTools } from './tools.ts';
 import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
 import { permissionsOf, type PermissionSet } from './permissions.ts';
 import type { ConnectionRepository } from '../integrations/connections.ts';
 import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
+import { runAgent, type AgentEvent } from './strands-runtime.ts';
 import {
    deliverRepository,
    prepareRepository,
@@ -58,7 +55,7 @@ const SUBSTANTIVE_RESULT_BYTES = 400;
  * How much streamed text is gathered before it becomes one ledger event.
  *
  * The previous runtime emitted whole sentences and Berry wrote one event per
- * chunk; OpenRouter emits tokens, and one transaction per token would mean thousands
+ * chunk; the model emits tokens, and one transaction per token would mean thousands
  * of row-locked writes for one answer and a `run_events` table that is mostly
  * single words. Gathering to roughly a sentence keeps the stream live without
  * making the ledger a token log.
@@ -73,8 +70,8 @@ export interface ExecutorOptions {
    sql: Sql;
    storage: Storage;
    ledger?: RunLedger;
-   apiKey: string;
-   baseUrl?: string | undefined;
+   /** The AWS region Bedrock is called in. */
+   region: string;
    /** Used when the agent row names no model of its own. */
    defaultModel?: string;
    clock?: () => Date;
@@ -95,6 +92,8 @@ export interface ExecutorOptions {
    githubApp?: GitHubAppRepository;
    /** Injected in tests. Defaults to the real GitHub API. */
    github?: (token: string) => GitHubClient;
+   /** The credential a run clones and pushes with, from AgentCore Identity. */
+   gitCredential?: ((workspaceId: string) => Promise<{ username: string; password: string }>) | undefined;
 }
 
 export interface RunOutcome {
@@ -135,10 +134,13 @@ export class AdkExecutor {
    private readonly execution: ExecutionDriver | undefined;
    private readonly connections: ConnectionRepository | undefined;
    private readonly githubApp: GitHubAppRepository | undefined;
+   /** The AWS region Bedrock is called in. */
+   private readonly region: string;
    private readonly github: (token: string) => GitHubClient;
+   private readonly gitCredential:
+      | ((workspaceId: string) => Promise<{ username: string; password: string }>)
+      | undefined;
    private readonly ledger: RunLedger;
-   private readonly apiKey: string;
-   private readonly baseUrl: string | undefined;
    private readonly defaultModel: string;
    private readonly clock: () => Date;
    private readonly newId: () => string;
@@ -156,9 +158,9 @@ export class AdkExecutor {
       this.execution = options.execution;
       this.connections = options.connections;
       this.githubApp = options.githubApp;
+      this.region = options.region;
       this.github = options.github ?? ((token) => new GitHubClient({ token }));
-      this.apiKey = options.apiKey;
-      this.baseUrl = options.baseUrl;
+      this.gitCredential = options.gitCredential;
       this.defaultModel = options.defaultModel ?? 'anthropic/claude-sonnet-4.5';
       this.clock = options.clock ?? (() => new Date());
       this.newId = options.newId ?? randomUUID;
@@ -219,56 +221,36 @@ export class AdkExecutor {
       // than at the workspace root.
       let workdir: string | undefined;
 
-      const sessions = new BerrySessionService({
+      // No session service. ADK kept a transcript in Postgres because its
+      // Runner needed one to resume a turn; Strands holds the conversation in
+      // the agent for the life of the call, and Berry's durable record of what
+      // happened has always been the run ledger rather than a second copy.
+      const agentTools = berryTools({
          sql: this.sql,
+         artifacts,
          workspaceId: dispatch.workspaceId,
-         runId: dispatch.runId,
-         clock: this.clock,
-         newId: this.newId,
-      });
-
-      const runner = new Runner({
-         appName: 'berry',
-         agent: new LlmAgent({
-            name: toAgentName(agent.name),
-            model: new OpenRouterLlm({
-               model: agent.model,
-               apiKey: this.apiKey,
-               ...(this.baseUrl ? { baseUrl: this.baseUrl } : {}),
-               title: 'Berry',
-            }),
-            instruction: agent.instructions ?? '',
-            tools: berryTools({
-               sql: this.sql,
-               artifacts,
-               workspaceId: dispatch.workspaceId,
-               issueId: dispatch.issueId,
-               ...(workspace
-                  ? {
-                       commands: {
-                          ledger: this.ledger,
-                          runId: dispatch.runId,
-                          session: workspace.open,
-                          newId: this.newId,
-                          clock: this.clock,
-                          // Read at call time, not at construction: the
-                          // checkout happens after the tools are built.
-                          workdirAt: () => workdir,
-                          // Checked inside the call, so a revoked permission
-                          // refuses rather than merely hiding the affordance.
-                          permissions: agent.permissions,
-                          // Cancellation has to reach the command, not just
-                          // the model call: the check below only runs between
-                          // events, and a tool waiting on `pnpm test` produces
-                          // none for minutes.
-                          ...(signal ? { signal } : {}),
-                       },
-                    }
-                  : {}),
-            }),
-         }),
-         sessionService: sessions,
-         artifactService: artifacts,
+         issueId: dispatch.issueId,
+         ...(workspace
+            ? {
+                 commands: {
+                    ledger: this.ledger,
+                    runId: dispatch.runId,
+                    session: workspace.open,
+                    newId: this.newId,
+                    clock: this.clock,
+                    // Read at call time, not at construction: the checkout
+                    // happens after the tools are built.
+                    workdirAt: () => workdir,
+                    // Checked inside the call, so a revoked permission refuses
+                    // rather than merely hiding the affordance.
+                    permissions: agent.permissions,
+                    // Cancellation has to reach the command, not just the model
+                    // call: the check below only runs between events, and a tool
+                    // waiting on `pnpm test` produces none for minutes.
+                    ...(signal ? { signal } : {}),
+                 },
+              }
+            : {}),
       });
 
       // Read before the run is marked running, so a reviewer's feedback is
@@ -295,14 +277,6 @@ export class AdkExecutor {
          return await this.fail(dispatch, error, usageZero(), 0);
       }
       if (prepared) workdir = prepared.checkout.directory;
-      const session = await sessions.createSession({
-         appName: 'berry',
-         userId: `run:${dispatch.runId}`,
-         // The run's own id, so the transcript is findable from the run and
-         // removed with it.
-         sessionId: dispatch.runId,
-      });
-
       const usage: Usage = {
          inputTokens: 0,
          outputTokens: 0,
@@ -326,38 +300,30 @@ export class AdkExecutor {
          let streamed = false;
 
          try {
-            for await (const event of runner.runAsync({
-               userId: session.userId,
-               sessionId: session.id,
-               newMessage: {
-                  role: 'user',
-                  parts: [{ text: buildMessage({ ...dispatch, reviewFeedback }) }],
+            for await (const event of runAgent(
+               {
+                  model: agent.model,
+                  region: this.region,
+                  systemPrompt: agent.instructions ?? '',
+                  tools: agentTools,
                },
-               // Token by token, as Berry's run stream has always shown it. A run
-               // that only appears when it is over is a run people assume hung.
-               runConfig: { streamingMode: StreamingMode.SSE },
-               ...(signal ? { abortSignal: signal } : {}),
-            })) {
+               buildMessage({ ...dispatch, reviewFeedback }),
+               signal
+            )) {
                if (signal?.aborted) throw new RunCancelled();
-               const skipText = streamed && event.partial !== true;
                toolCalls += await this.recordEvent(
                   dispatch.runId,
                   event,
                   result,
                   openTools,
                   output,
-                  skipText
+                  usage
                );
-               if (event.partial === true) streamed = true;
-               addUsage(usage, event);
-               // ADK marks the end of a turn; the result accumulator needs it to
-               // tell a report from the progress that preceded it.
-               if (isTurnComplete(event)) {
+               if (event.type === 'turn_complete') {
                   // Flushed at the boundary so the ledger never shows a turn
                   // ending before the text that ended it.
                   await output.flush();
                   result.endTurn();
-                  streamed = false;
                }
             }
 
@@ -435,6 +401,7 @@ export class AdkExecutor {
          connections: this.connections,
          githubApp: this.githubApp,
          github: this.github,
+         gitCredential: this.gitCredential,
       };
    }
 
@@ -448,44 +415,42 @@ export class AdkExecutor {
     */
    private async recordEvent(
       runId: string,
-      event: Event,
+      event: AgentEvent,
       result: ResultText,
       openTools: Map<string, string>,
       output: OutputBuffer,
-      skipText: boolean
+      usage: Usage
    ): Promise<number> {
-      let toolCalls = 0;
-
-      for (const part of event.content?.parts ?? []) {
-         if (part.functionCall) {
-            // Before the tool event, so the ledger reads in the order things
-            // happened: the agent said something, then called something.
-            await output.flush();
-            const callId = part.functionCall.id ?? `tool_${openTools.size + 1}`;
-            openTools.set(callId, part.functionCall.name ?? '');
-            toolCalls += 1;
-            await this.ledger.appendToolStarted(runId, callId, part.functionCall.name ?? '');
-            continue;
-         }
-         if (part.functionResponse) {
-            const callId = part.functionResponse.id ?? '';
-            openTools.delete(callId);
-            await this.ledger.appendToolCompleted(
-               runId,
-               callId,
-               !isToolError(part.functionResponse.response)
-            );
-            continue;
-         }
-         // A thought is the model reasoning, not the agent's answer. Recording
-         // it as output would put it in the comment the task receives.
-         if (!skipText && typeof part.text === 'string' && part.text !== '' && !part.thought) {
-            // The result keeps every character; the ledger gets them gathered.
-            result.append(part.text);
-            await output.add(part.text);
-         }
+      if (event.type === 'tool_started') {
+         // Before the tool event, so the ledger reads in the order things
+         // happened: the agent said something, then called something.
+         await output.flush();
+         openTools.set(event.callId, event.name);
+         await this.ledger.appendToolStarted(runId, event.callId, event.name);
+         return 1;
       }
-      return toolCalls;
+
+      if (event.type === 'tool_completed') {
+         openTools.delete(event.callId);
+         await this.ledger.appendToolCompleted(runId, event.callId, event.ok);
+         return 0;
+      }
+
+      if (event.type === 'text' && event.text !== '') {
+         // The result keeps every character; the ledger gets them gathered.
+         result.append(event.text);
+         await output.add(event.text);
+         return 0;
+      }
+
+      if (event.type === 'usage') {
+         // Summed across turns: an agent that called three tools made four
+         // model calls, and the run cost all of them.
+         usage.inputTokens += event.inputTokens;
+         usage.outputTokens += event.outputTokens;
+         usage.totalTokens = usage.inputTokens + usage.outputTokens;
+      }
+      return 0;
    }
 
    private async closeOpenTools(runId: string, openTools: Map<string, string>): Promise<void> {
@@ -686,8 +651,10 @@ export class ResultText {
    }
 
    /**
-    * The result and whether it was cut: the last substantive turn, or the last
-    * turn that said anything when nothing was substantive.
+    * What the run reports.
+    *
+    * A substantive turn wins over a later thin one: an agent that finishes with
+    * "Done." after a long explanation should report the explanation.
     */
    final(): [string, boolean] {
       if (this.substantive !== '') return [this.substantive, this.subCut];
@@ -696,43 +663,7 @@ export class ResultText {
 }
 
 /**
- * Whether this event closes a turn.
- *
- * ADK marks it two ways depending on whether the model streamed, so both are
- * checked: missing a turn boundary would merge a tool-call turn into the
- * answer that followed and make every run's result look substantive.
- */
-function isTurnComplete(event: Event): boolean {
-   if (event.turnComplete === true) return true;
-   if (event.partial === true) return false;
-   return isFinalResponse(event);
-}
-
-/**
- * A tool response that reports an error.
- *
- * ADK puts a thrown tool error in the response body rather than failing the
- * run, so the ledger only learns the tool failed by looking.
- */
-function isToolError(response: unknown): boolean {
-   if (!response || typeof response !== 'object') return false;
-   return 'error' in (response as Record<string, unknown>);
-}
-
-function addUsage(usage: Usage, event: Event): void {
-   const metadata = event.usageMetadata;
-   if (!metadata) return;
-   // Summed across turns: an agent that called three tools made four model
-   // calls, and the run cost all of them.
-   usage.inputTokens += metadata.promptTokenCount ?? 0;
-   // Reasoning tokens are not added separately: OpenRouter reports them inside
-   // completion_tokens, which is what candidatesTokenCount carries.
-   usage.outputTokens += metadata.candidatesTokenCount ?? 0;
-   usage.totalTokens = usage.inputTokens + usage.outputTokens;
-}
-
-/**
- * ADK requires an identifier-shaped agent name.
+ * A model-safe agent name.
  *
  * Berry's names are free text — "Prototype Writer" — so they are normalised
  * rather than rejected: the name is a label the model sees, and refusing to

@@ -103,13 +103,30 @@ const planGoalSchema = z.object({
    projectId: z.string().nullish(),
 });
 
+/**
+ * One answer a person can pick for a planner question.
+ *
+ * The planner offers these because it is the only party that knows the
+ * vocabulary of its own question.
+ */
+export const planAssumptionOptionSchema = z.object({
+   id: z.string(),
+   label: z.string(),
+   detail: z.string().nullish(),
+});
+
 export const planAssumptionSchema = z.object({
    id: z.string(),
    description: z.string(),
    confidence: z.enum(['low', 'medium', 'high']),
    userEditable: z.boolean().default(false),
    blocking: z.boolean().default(false),
+   // Empty for every plan generated before options existed. Those stay
+   // answerable as free text rather than becoming unrenderable.
+   options: z.array(planAssumptionOptionSchema).default([]),
 });
+
+export type PlanAssumptionOption = z.infer<typeof planAssumptionOptionSchema>;
 
 export const planIssueSchema = z.object({
    tempId: z.string(),
@@ -315,6 +332,33 @@ export async function compilePlan(planId: string): Promise<PlanRecord> {
       method: 'POST',
       headers: { 'Idempotency-Key': newIdempotencyKey() },
       body: '{}',
+   });
+   return parseRecord(json);
+}
+
+/** One answer as the wizard submits it: which question, and which option or what text. */
+export interface PlanAnswerInput {
+   assumptionId: string;
+   optionId?: string | null;
+   text?: string | null;
+}
+
+/**
+ * Answer the questions a blocked plan is waiting on.
+ *
+ * Answers 202 with the plan already back in generation. What follows —
+ * regenerating, compiling, routing the tasks — runs on the server, so the
+ * answer survives this tab being closed. The caller watches the plan the same
+ * way it watches a first generation.
+ */
+export async function answerPlan(
+   planId: string,
+   answers: PlanAnswerInput[]
+): Promise<PlanRecord> {
+   const json: unknown = await apiFetch(`/api/v1/plans/${encodeURIComponent(planId)}/answers`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': newIdempotencyKey() },
+      body: JSON.stringify({ answers }),
    });
    return parseRecord(json);
 }

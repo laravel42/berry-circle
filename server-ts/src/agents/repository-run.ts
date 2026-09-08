@@ -48,6 +48,15 @@ export interface RepositoryRunDeps {
     */
    githubApp?: GitHubAppRepository | undefined;
    github: (token: string) => GitHubClient;
+   /**
+    * The credential a run clones and pushes with.
+    *
+    * Supplied by AgentCore Identity when the gateway is live, and by the
+    * GitHub App otherwise. Git is a wire protocol: no tool call can hand a
+    * repository to `git clone`, so this is the one GitHub credential Berry
+    * still holds — for the length of a call, and never written down.
+    */
+   gitCredential?: ((workspaceId: string) => Promise<{ username: string; password: string }>) | undefined;
 }
 
 /**
@@ -83,13 +92,11 @@ export async function prepareRepository(
    input.permissions.require('create_branches');
 
    const token = await runToken(deps, input.dispatch.workspaceId);
-   const client = deps.github(token);
    const { owner, name } = parseRepository(repository.fullName);
 
    // Asked before the work rather than after: an agent that spends ten minutes
-   // building something and then cannot push has wasted the tokens and the
-   // wait.
-   const remote = await client.repository(owner, name);
+   // building something and then cannot push has wasted the tokens and the wait.
+   const remote = await deps.github(token).repository(owner, name);
    if (!remote.canPush) {
       throw new GitHubError(
          `the GitHub connection cannot push to ${repository.fullName}`,
@@ -97,6 +104,7 @@ export async function prepareRepository(
          'grant-access'
       );
    }
+   const defaultBranch = remote.defaultBranch;
 
    const issue = await loadIssue(deps.sql, input.dispatch.issueId);
    const result = await checkout({
@@ -104,7 +112,7 @@ export async function prepareRepository(
       repository: repository.fullName,
       branch: branchName(input.agentName, issue.reference, issue.title),
       token,
-      baseBranch: remote.defaultBranch,
+      baseBranch: defaultBranch,
    });
 
    await deps.ledger.appendRepositoryReady(input.dispatch.runId, {
@@ -116,7 +124,7 @@ export async function prepareRepository(
    return {
       repository,
       checkout: result,
-      defaultBranch: remote.defaultBranch,
+      defaultBranch,
       issue,
       permissions: input.permissions,
    };
@@ -182,19 +190,32 @@ export async function deliverRepository(
       // but opening a pull request is a separate act with its own permission.
       prepared.permissions.require('open_pull_requests');
       const { owner, name } = parseRepository(prepared.repository.fullName);
+      // The run is named so a reviewer can get from the pull request back to
+      // the log of how it was produced.
+      const body = pullRequestBody(summary, report, dispatch.runId, prepared.issue.reference, {
+         mergeRequiresApproval: !prepared.permissions.has('merge_without_approval'),
+      });
+
       pullRequest = await deps.github(token).openPullRequest({
          owner,
          name,
          head: prepared.checkout.branch,
          base: prepared.defaultBranch,
          title,
-         // The run is named so a reviewer can get from the pull request back to
-         // the log of how it was produced.
-         body: pullRequestBody(summary, report, dispatch.runId, prepared.issue.reference, {
-            mergeRequiresApproval: !prepared.permissions.has('merge_without_approval'),
-         }),
+         body,
       });
    }
+
+   // Written to the run row as well as the ledger. The ledger is a stream to
+   // read; a reviewer asking "what branch is this on" should not have to scan
+   // an event log to find out.
+   await deps.sql`
+      UPDATE runs
+         SET branch = ${prepared.checkout.branch},
+             head_commit = ${delivery.commit},
+             pull_request_number = ${pullRequest ? pullRequest.number : null},
+             updated_at = now()
+       WHERE id = ${dispatch.runId}`.catch(() => undefined);
 
    await deps.ledger.appendDelivered(dispatch.runId, {
       committed: delivery.committed,
@@ -264,8 +285,15 @@ export function pullRequestBody(
  * one keeps working exactly as before.
  */
 async function runToken(deps: RepositoryRunDeps, workspaceId: string): Promise<string> {
+   // Identity first when it is configured: it is the credential the rest of
+   // the integration already uses, and asking the App as well would keep a
+   // second lifecycle alive for no reason.
+   if (deps.gitCredential) {
+      return (await deps.gitCredential(workspaceId)).password;
+   }
    if (deps.githubApp && (await deps.githubApp.app())) {
       return deps.githubApp.token(workspaceId);
    }
    return deps.connections!.token(workspaceId, 'github');
 }
+

@@ -47,12 +47,47 @@ services:
       # land in. Without both, this server reports agentExecution false and
       # refuses run requests rather than accepting ones it cannot serve.
       #
-      # BERRY_-prefixed first: a stale OPENROUTER_API_KEY exported in the
-      # launching shell outranks .env for Compose substitution, and has twice
-      # revived a spent key. Nothing exports the namespaced name.
-      # Server-side only: never mirror this into a NEXT_PUBLIC_* variable.
-      BERRY_OPENROUTER_API_KEY: "${BERRY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}"
-      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-anthropic/claude-sonnet-4.5}"
+      # Bedrock is reached with SigV4, so there is no model API key here. On
+      # EC2, ECS or Lambda the instance role supplies the credential and the
+      # deployment holds no long-lived model secret at all.
+      BERRY_BEDROCK_REGION: "${BERRY_BEDROCK_REGION:-${AWS_REGION:-us-east-1}}"
+      # Deliberately not AWS_ACCESS_KEY_ID: that name already carries MinIO's
+      # `minioadmin` for object storage below, and sharing it would send
+      # MinIO's credentials to AWS. Leave empty to use the instance role.
+      BERRY_BEDROCK_ACCESS_KEY_ID: "${BERRY_BEDROCK_ACCESS_KEY_ID:-}"
+      BERRY_BEDROCK_SECRET_ACCESS_KEY: "${BERRY_BEDROCK_SECRET_ACCESS_KEY:-}"
+      BERRY_BEDROCK_SESSION_TOKEN: "${BERRY_BEDROCK_SESSION_TOKEN:-}"
+      # An inference profile, not a bare model id: Anthropic models on Bedrock
+      # are only invocable through a cross-region profile in most regions.
+      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-us.anthropic.claude-sonnet-4-20250514-v1:0}"
+      # Signs and verifies inbound GitHub webhooks. Empty disables the route
+      # outright rather than leaving it unauthenticated: anyone who could reach
+      # it would otherwise be able to close every task in the deployment.
+      #
+      # Webhooks stay direct from GitHub: the gateway carries outbound calls,
+      # and AgentCore offers no inbound event stream to replace this.
+      BERRY_GITHUB_WEBHOOK_SECRET: "${BERRY_GITHUB_WEBHOOK_SECRET:-}"
+      # GitHub through AgentCore Gateway. `legacy` falls back to Berry's own
+      # client and GitHub App, so a rollback is one variable rather than a
+      # revert.
+      GITHUB_PROVIDER: "${GITHUB_PROVIDER:-agentcore}"
+      AWS_AGENTCORE_REGION: "${AWS_AGENTCORE_REGION:-${AWS_REGION:-us-east-1}}"
+      # The gateway's MCP endpoint. Empty leaves the gateway unconfigured and
+      # Berry falls back rather than failing.
+      AWS_AGENTCORE_GATEWAY_URL: "${AWS_AGENTCORE_GATEWAY_URL:-}"
+      # The OAuth2 credential provider AgentCore Identity holds GitHub in.
+      # This is what replaces Berry's own OAuth and App private key.
+      AWS_AGENTCORE_GITHUB_PROVIDER: "${AWS_AGENTCORE_GITHUB_PROVIDER:-}"
+      AWS_AGENTCORE_WORKLOAD_NAME: "${AWS_AGENTCORE_WORKLOAD_NAME:-berry}"
+      # Only for a gateway whose tool names defeat discovery. Normally empty:
+      # names come from tools/list, never from here.
+      BERRY_AGENTCORE_TOOL_MAP: "${BERRY_AGENTCORE_TOOL_MAP:-}"
+      # AgentCore, when an agent's commands should run there rather than in the
+      # Docker sandbox. Set BERRY_RUNTIME_DRIVER=agentcore to switch.
+      BERRY_AGENTCORE_REGION: "${BERRY_AGENTCORE_REGION:-}"
+      BERRY_AGENTCORE_CODE_INTERPRETER_ID: "${BERRY_AGENTCORE_CODE_INTERPRETER_ID:-aws.codeinterpreter.v1}"
+      BERRY_AGENTCORE_RUNTIME_ARN: "${BERRY_AGENTCORE_RUNTIME_ARN:-}"
+      BERRY_AGENTCORE_MEMORY_ID: "${BERRY_AGENTCORE_MEMORY_ID:-}"
       STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
       S3_BUCKET: "${S3_BUCKET:-berry-artifacts}"
       S3_REGION: "${S3_REGION:-us-east-1}"

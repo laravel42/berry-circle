@@ -9,14 +9,18 @@
       "dev": "node --watch --experimental-strip-types src/index.ts",
       "start": "node --experimental-strip-types src/index.ts",
       "migrate": "node --experimental-strip-types src/migrate/index.ts",
-      "seed": "node --experimental-strip-types src/seed/index.ts"
+      "seed": "node --experimental-strip-types src/seed/index.ts",
+      "reset": "node --experimental-strip-types src/reset/index.ts"
    },
    "dependencies": {
+      "@aws-sdk/client-bedrock": "^3.1127.0",
+      "@aws-sdk/client-bedrock-agentcore": "^3.1127.0",
+      "@aws-sdk/client-bedrock-agentcore-control": "^3.1127.0",
+      "@aws-sdk/client-bedrock-runtime": "^3.1127.0",
       "@aws-sdk/client-s3": "^3.1119.0",
       "@aws-sdk/s3-request-presigner": "^3.1119.0",
-      "@google/adk": "^2.0.0",
-      "@google/genai": "^2.19.0",
       "@hono/node-server": "^2.1.1",
+      "@strands-agents/sdk": "^1.16.0",
       "hono": "^4.13.5",
       "ioredis": "^6.0.0",
       "postgres": "^3.4.9",
@@ -24,6 +28,7 @@
    },
    "devDependencies": {
       "@types/node": "^26.4.0",
+      "fast-check": "^4.9.0",
       "typescript": "^7.0.2"
    },
    "license": "MIT"

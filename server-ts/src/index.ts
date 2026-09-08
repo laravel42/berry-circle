@@ -28,12 +28,25 @@ import { attachmentMounts } from './mounts/attachments.ts';
 import { projectMounts } from './mounts/projects.ts';
 import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
 import { integrationMounts } from './mounts/integrations.ts';
+import { PlanTriage } from './plans/triage.ts';
+import { GitHubProvider } from './scm/github-provider.ts';
+import { startGateway } from './agentcore/bootstrap.ts';
+import { ScmLinkRepository } from './scm/links.ts';
+import { ScmProvisioning } from './scm/provisioning.ts';
+import { ScmWorkspaces } from './scm/workspaces.ts';
+import { ScmSync } from './scm/sync.ts';
+import { ScmInbound } from './scm/inbound.ts';
+import { WebhookDeliveries } from './scm/webhook.ts';
+import { webhookMounts } from './mounts/webhooks.ts';
 import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
 import { workspaceReadMounts } from './mounts/workspace-reads.ts';
 import { accountRoutes } from './mounts/account.ts';
 import { conversationMounts } from './mounts/conversations.ts';
+import { editorMounts } from './mounts/editor.ts';
+import { EditorAssist } from './editor/assist.ts';
 import { planMounts } from './mounts/plans.ts';
+import { PlanAnswerRepository } from './plans/answers.ts';
 import { PlanRepository } from './plans/repository.ts';
 import { PlanGenerator } from './plans/generator.ts';
 import { ConversationRepository } from './conversations/repository.ts';
@@ -137,7 +150,7 @@ const storage = config.storage
  * refuses every call with a message naming what is missing, which is a better
  * failure than a null that reaches a call site expecting a driver.
  */
-const execution = createExecutionDriver(config.execution);
+const execution = createExecutionDriver(config.execution, config.agentCore);
 
 /**
  * Provider connections, when a key exists to open them with.
@@ -146,6 +159,47 @@ const execution = createExecutionDriver(config.execution);
  * gets a repository, which is a working deployment, instead of one that fails
  * at the clone with a decryption error.
  */
+const scmLinks = new ScmLinkRepository(sql);
+let scm: ScmProvisioning | null = null;
+let scmWorkspaces: ScmWorkspaces | null = null;
+let scmSync: ScmSync | null = null;
+
+/**
+ * The issue mount's view of goals.
+ *
+ * `GoalLinker` was declared with a shape no repository implemented, so
+ * `goalId` on an issue has been accepted and silently discarded. This adapts
+ * the repository that does exist rather than changing its signature, which
+ * several other callers depend on.
+ */
+const goalLinker = {
+   async clearIssueGoal(issueId: string): Promise<void> {
+      await sql`DELETE FROM goal_issues WHERE issue_id = ${issueId}`;
+   },
+   async linkIssue(
+      workspaceId: string,
+      goalId: string,
+      issueId: string,
+      actorId: string
+   ): Promise<boolean> {
+      // Scoped here rather than trusted: a goal from another workspace must
+      // read as missing, not be linked across the boundary.
+      const [goal] = await sql`
+         SELECT id FROM goals
+          WHERE id = ${goalId} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+      if (!goal) return false;
+      await goals.linkIssue({
+         workspaceId,
+         goalId,
+         issueId,
+         actorId,
+         now: new Date().toISOString(),
+      });
+      return true;
+   },
+};
+const scmInbound = new ScmInbound({ sql, links: scmLinks, logger });
+
 const connections = config.integrationKey
    ? new ConnectionRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
@@ -156,13 +210,64 @@ const githubApp = config.integrationKey
    ? new GitHubAppRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
 
+/**
+ * The git host, which is GitHub.
+ *
+ * Constructed here rather than above because the credential is a GitHub App
+ * installation token, and the App repository is what mints one — per
+ * workspace, which is why the provider is a factory rather than an instance.
+ */
+/**
+ * The source-control provider.
+ *
+ * `agentcore` reaches GitHub through the gateway's tools; `legacy` uses
+ * Berry's own client and GitHub App. Both satisfy `ScmProvider`, so nothing in
+ * the domain can tell — which is what makes the switch a rollback rather than
+ * a revert.
+ *
+ * Discovery runs at boot, so a gateway missing a required tool is found while
+ * somebody is watching rather than an hour later when a plan compiles.
+ */
+let gitCredential: (workspaceId: string) => Promise<{ username: string; password: string }> = async () => {
+   throw new Error('no GitHub credential is configured');
+};
+
+if (config.githubProvider === 'agentcore' && config.agentCoreGateway) {
+   const started = await startGateway(config.agentCoreGateway, logger);
+   if (started.provider) {
+      const provider = started.provider;
+      scm = new ScmProvisioning({
+         provider: () => provider,
+         providerId: 'github',
+         links: scmLinks,
+         logger,
+      });
+      scmWorkspaces = new ScmWorkspaces(sql, scm);
+      scmSync = new ScmSync(sql, scm, logger);
+      gitCredential = () => started.identity.gitCredential();
+   }
+} else if (githubApp) {
+   const app = githubApp;
+   scm = new ScmProvisioning({
+      provider: (workspaceId: string) =>
+         new GitHubProvider({ token: () => app.token(workspaceId) }),
+      providerId: 'github',
+      links: scmLinks,
+      logger,
+   });
+   scmWorkspaces = new ScmWorkspaces(sql, scm);
+   scmSync = new ScmSync(sql, scm, logger);
+   gitCredential = (workspaceId: string) =>
+      app.token(workspaceId).then((password) => ({ username: 'x-access-token', password }));
+}
+
 const executor =
    config.agents && storage
       ? new AdkExecutor({
            sql,
            storage,
-           apiKey: config.agents.apiKey,
-           baseUrl: config.agents.baseUrl,
+           region: config.agents.region,
+           ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
            defaultModel: config.agents.defaultModel,
            // Only when one is actually configured. Handing over the
            // unconfigured driver would give agents a `run_command` that
@@ -171,6 +276,7 @@ const executor =
            ...(config.execution ? { execution } : {}),
            ...(connections ? { connections } : {}),
            ...(githubApp ? { githubApp } : {}),
+           gitCredential,
         })
       : null;
 
@@ -178,7 +284,10 @@ const executor =
 // empty list: "no models exist" and "this server cannot ask" are different
 // answers, and only one of them is true.
 const modelCatalog = config.agents
-   ? new ModelCatalog({ baseUrl: config.agents.baseUrl })
+   ? new ModelCatalog({
+        region: config.agents.region,
+        ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+     })
    : null;
 
 // Reading the ledger, and admitting a run. The executor builds its own ledger
@@ -203,6 +312,10 @@ registry.registerAll(
 const commentOptions = { sessions, comments, issues, idempotency, broadcaster };
 registry.registerAll(
    issueMounts({
+      scm: scmSync,
+      // Without this, `goalId` on a create or patch is accepted and silently
+      // does nothing — and a task then reaches the git host with no milestone.
+      goals: goalLinker,
       sessions,
       issues,
       boards,
@@ -222,9 +335,19 @@ registry.registerAll(
    })
 );
 registry.registerAll(commentMounts(commentOptions));
-registry.registerAll(goalMounts({ sessions, goals, issues, idempotency, broadcaster }));
+registry.registerAll(
+   webhookMounts({
+      inbound: scmInbound,
+      deliveries: new WebhookDeliveries(sql),
+      secret: config.git?.webhookSecret ?? null,
+      logger,
+   })
+);
+registry.registerAll(
+   goalMounts({ sessions, goals, issues, idempotency, broadcaster, scm: scmSync })
+);
 registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
-registry.registerAll(projectMounts({ sessions, projects, idempotency }));
+registry.registerAll(projectMounts({ sessions, projects, idempotency, scm, scmWorkspaces, logger }));
 registry.registerAll(runMounts(runOptions));
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
 registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
@@ -232,19 +355,33 @@ registry.registerAll(
    planMounts({
       sessions,
       plans: new PlanRepository(sql),
+      answers: new PlanAnswerRepository(sql),
       // Reading a plan works without a model credential; only generating one
       // needs it, and a null generator answers PLANNER_UNAVAILABLE rather
       // than opening a plan nothing will ever fill in.
       generator: config.agents
          ? new PlanGenerator({
               sql,
-              apiKey: config.agents.apiKey,
-              baseUrl: config.agents.baseUrl,
+              region: config.agents.region,
+              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
               defaultModel: config.agents.defaultModel,
               maxRepairs: config.agents.maxRepairs,
               maxCriticRounds: config.agents.maxCriticRounds,
            })
          : null,
+      // Routing needs the same credential planning does: it is the
+      // orchestrator reading the roster and deciding, not a lookup table.
+      triage: config.agents
+         ? new PlanTriage({
+              sql,
+              region: config.agents.region,
+              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+              defaultModel: config.agents.defaultModel,
+           })
+         : null,
+      // Its own repository rather than the request path's: a routed task is
+      // admitted outside any request, after the response has gone.
+      runs: new RunRepository(sql),
       boards,
       idempotency,
       sql,
@@ -262,8 +399,20 @@ registry.registerAll(
       responder: config.agents
          ? new ConversationResponder({
               sql,
-              apiKey: config.agents.apiKey,
-              baseUrl: config.agents.baseUrl,
+              region: config.agents.region,
+              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+              defaultModel: config.agents.defaultModel,
+           })
+         : null,
+   })
+);
+registry.registerAll(
+   editorMounts({
+      sessions,
+      assist: config.agents
+         ? new EditorAssist({
+              region: config.agents.region,
+              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
               defaultModel: config.agents.defaultModel,
            })
          : null,
@@ -300,6 +449,8 @@ registry.registerAll(
 registry.registerAll(
    authMounts({
       sessions,
+      identity,
+      sql,
       login: {
          allowKnownEmail: config.allowPasswordlessLogin,
          environment: config.appEnv,

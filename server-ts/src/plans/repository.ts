@@ -203,6 +203,30 @@ export class PlanRepository {
           WHERE id = ${planId} AND generation_status = 'running'`;
    }
 
+   /**
+    * Puts an already-generated plan back into generation.
+    *
+    * Answering a blocked plan's questions regenerates it in place: same row,
+    * same id, same URL, and `recordGeneration` lands the result as the next
+    * version with the old one kept in `plan_versions`. Nothing is deleted —
+    * what the plan looked like before the answers stays readable.
+    *
+    * Guarded on the plan being open and not already running, and it returns
+    * whether it won: two wizards submitted at once must produce one
+    * regeneration, not two racing to write the same version.
+    */
+   async reopenForGeneration(planId: string): Promise<boolean> {
+      const rows = await this.#sql`
+         UPDATE plans
+            SET generation_status = 'running', generation_stage = 'generate',
+                generation_error = NULL, updated_at = ${this.#clock().toISOString()}
+          WHERE id = ${planId}
+            AND generation_status <> 'running'
+            AND status IN ('draft', 'pending_approval')
+          RETURNING id`;
+      return rows.length > 0;
+   }
+
    /** Records a finished generation: the document, its verdict, and every stage that ran. */
    async recordGeneration(input: {
       planId: string;

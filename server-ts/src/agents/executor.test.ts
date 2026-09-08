@@ -7,7 +7,7 @@ import { buildMessage } from './prompt.ts';
 /**
  * The parts of the executor that do not need a model or a database. What it
  * does with a real agent, real tools and a real ledger was driven end to end
- * against OpenRouter, PostgreSQL and MinIO together.
+ * against Bedrock, PostgreSQL and MinIO together.
  */
 
 const dispatch = {

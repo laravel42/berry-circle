@@ -23,6 +23,10 @@ export interface Config {
     * call rather than a null every caller has to remember to check.
     */
    execution: ExecutionConfig | null;
+   agentCore: AgentCoreConfig | null;
+   agentCoreGateway: AgentCoreGatewayConfig | null;
+   /** Which GitHub path is live. `agentcore` routes API calls through the gateway. */
+   githubProvider: 'agentcore' | 'legacy';
    /**
     * Seals provider credentials at rest. Null leaves integrations off — a
     * deployment without a key stores nothing rather than storing it in clear.
@@ -37,6 +41,25 @@ export interface Config {
     * button that leads to a redirect loop.
     */
    integrations: IntegrationsConfig;
+   /**
+    * Berry's own git server, when the deployment runs one.
+    *
+    * All three or none: a repositories directory with no key is a repository
+    * nothing can reach, and reporting the server as present would promise a
+    * checkout that cannot happen.
+    */
+   git: GitConfig | null;
+}
+
+export interface GitConfig {
+   /**
+    * Shared secret GitHub signs its webhooks with.
+    *
+    * Null disables the inbound route entirely. An unsigned webhook endpoint is
+    * an open door onto every task in the deployment, so "no secret" means "no
+    * endpoint" rather than "no checking".
+    */
+   webhookSecret: string | null;
 }
 
 /**
@@ -53,9 +76,54 @@ export interface ExecutionConfig {
     * workspace. They speak the same protocol; the name selects a label, not a
     * different client.
     */
-   driver: 'docker' | 'cloudflare';
+   driver: 'docker' | 'cloudflare' | 'agentcore';
    baseUrl: string;
    token: string;
+}
+
+/**
+ * Amazon Bedrock AgentCore, when the deployment uses it.
+ *
+ * Separate from `AgentConfig` because these are different decisions: Bedrock
+ * is where a model is called, AgentCore is where an agent's *work* happens.
+ * A deployment can want the first without the second, and most will.
+ */
+/**
+ * AgentCore Gateway and Identity, when GitHub is reached through them.
+ *
+ * Separate from `AgentCoreConfig` because they answer different questions:
+ * that one is where an agent's *work* runs, this is where Berry's external
+ * *tool access and credentials* come from. A deployment can want either alone.
+ */
+export interface AgentCoreGatewayConfig {
+   region: string;
+   /** The gateway's MCP endpoint. */
+   gatewayUrl: string;
+   /** The OAuth2 credential provider AgentCore holds GitHub's credential in. */
+   githubProviderName: string;
+   /** Berry's own registered workload identity. */
+   workloadName: string;
+   /**
+    * Explicit capability-to-tool names, when a gateway's naming defeats
+    * matching. Empty is the normal case: names come from discovery.
+    */
+   toolOverrides: Record<string, string>;
+}
+
+export interface AgentCoreConfig {
+   region: string;
+   /**
+    * The Code Interpreter to run an agent's commands in.
+    *
+    * `aws.codeinterpreter.v1` is the managed one every account has. A custom
+    * identifier is a sandbox an operator built with their own network rules —
+    * which is what a run needs to clone from GitHub.
+    */
+   codeInterpreterId: string;
+   /** An AgentCore Runtime to invoke instead of executing in this process. */
+   runtimeArn: string | null;
+   /** An AgentCore Memory store, used in place of Berry's own session table. */
+   memoryId: string | null;
 }
 
 /** Object storage for run artifacts. Null when it is not configured. */
@@ -86,8 +154,25 @@ export interface IntegrationsConfig {
 
 /** What agents run on. Null when no model credential is configured. */
 export interface AgentConfig {
-   apiKey: string;
-   baseUrl: string;
+   /**
+    * The AWS region Bedrock is called in.
+    *
+    * There is no API key beside it. Bedrock authenticates with SigV4 through
+    * the AWS credential chain — environment, profile, or the instance's own
+    * role — so a deployment on EC2, ECS or Lambda holds no long-lived secret
+    * at all, which is the security difference from an API-key provider.
+    */
+   region: string;
+   /**
+    * Explicit Bedrock credentials, when the deployment supplies them.
+    *
+    * Null means the AWS default chain — a role on EC2, ECS or Lambda, or a
+    * profile locally. They are *not* read from `AWS_ACCESS_KEY_ID`, because
+    * that variable already belongs to Berry's object storage: MinIO is
+    * S3-compatible and its `minioadmin` credentials live there. Sharing the
+    * name would send MinIO's credentials to AWS and AWS's to MinIO.
+    */
+   credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string } | null;
    /** Used when an agent row names no model of its own. */
    defaultModel: string;
    /**
@@ -154,10 +239,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // an operator who meant to set it, and treating that as "configured"
       // would accept a token nothing can present.
       execution: executionConfig,
+      agentCore: agentCore(env),
+      agentCoreGateway: agentCoreGateway(env),
+      githubProvider: (env.GITHUB_PROVIDER ?? 'agentcore').trim() === 'legacy' ? 'legacy' : 'agentcore',
       // No generated fallback: a key that appeared on its own would differ
       // between restarts and strand every credential already stored.
       integrationKey: (env.INTEGRATION_ENCRYPTION_KEY ?? '').trim() || null,
       integrations: integrations(env),
+      git: git(env),
    };
 }
 
@@ -176,12 +265,18 @@ function execution(env: NodeJS.ProcessEnv, problems: string[]): ExecutionConfig 
 
    if (!driver && !baseUrl && !token) return null;
 
-   if (driver !== 'docker' && driver !== 'cloudflare') {
+   if (driver !== 'docker' && driver !== 'cloudflare' && driver !== 'agentcore') {
       problems.push(
-         `BERRY_RUNTIME_DRIVER must be 'docker' or 'cloudflare' when execution is configured, got '${driver}'`
+         `BERRY_RUNTIME_DRIVER must be 'docker', 'cloudflare' or 'agentcore' when execution is configured, got '${driver}'`
       );
       return null;
    }
+
+   // AgentCore is reached with SigV4 and addressed by an interpreter id, so it
+   // has neither a URL nor a token of its own. Demanding them would make the
+   // one substrate that needs no secret the only one that cannot start.
+   if (driver === 'agentcore') return { driver, baseUrl: '', token: '' };
+
    if (!baseUrl) problems.push('BERRY_RUNTIME_URL is required when BERRY_RUNTIME_DRIVER is set');
    if (!token) problems.push('BERRY_RUNTIME_TOKEN is required when BERRY_RUNTIME_DRIVER is set');
    if (!baseUrl || !token) return null;
@@ -213,22 +308,101 @@ function storage(env: NodeJS.ProcessEnv): StorageConfig | null {
 }
 
 /**
- * The model credential.
+ * Where models are called.
  *
- * BERRY_-prefixed first, for the reason the compose file gives: a stale
- * OPENROUTER_API_KEY exported in a shell would otherwise silently outrank the
- * one the deployment configured.
+ * A region rather than a credential: Bedrock is reached with SigV4 through the
+ * AWS credential chain, so what a deployment configures is *where*, not *who*.
+ * A region with no usable credentials fails at the first call with an AWS
+ * error that names the problem, which is a better failure than this file
+ * inventing its own check for a chain it does not own.
  */
 function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
-   const apiKey = (env.BERRY_OPENROUTER_API_KEY ?? env.OPENROUTER_API_KEY ?? '').trim();
-   if (!apiKey) return null;
+   const region = (env.BERRY_BEDROCK_REGION ?? env.AWS_REGION ?? env.AWS_DEFAULT_REGION ?? '').trim();
+   if (!region) return null;
+   const accessKeyId = (env.BERRY_BEDROCK_ACCESS_KEY_ID ?? '').trim();
+   const secretAccessKey = (env.BERRY_BEDROCK_SECRET_ACCESS_KEY ?? '').trim();
+   const sessionToken = (env.BERRY_BEDROCK_SESSION_TOKEN ?? '').trim();
    return {
-      apiKey,
-      baseUrl: (env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1').trim(),
-      defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? 'anthropic/claude-sonnet-4.5').trim(),
+      region,
+      credentials:
+         accessKeyId && secretAccessKey
+            ? { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) }
+            : null,
+      // An inference profile id, not a bare model id. Anthropic models on
+      // Bedrock are only invocable through a cross-region profile in most
+      // regions, and the `us.` prefix is what makes the difference between a
+      // call that works and a ValidationException that reads like a typo.
+      defaultModel: (
+         env.BERRY_AGENT_DEFAULT_MODEL ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+      ).trim(),
       concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
       maxRepairs: positive(env.PLANNER_MAX_REPAIRS, 2),
       maxCriticRounds: positive(env.PLANNER_MAX_CRITIC_ROUNDS, 1),
+   };
+}
+
+/**
+ * AgentCore's own settings.
+ *
+ * Null unless a region and an interpreter are both named: an AgentCore driver
+ * with half its settings is a substrate that fails at the first command, and
+ * the factory says so by name rather than discovering it at run time.
+ */
+function agentCore(env: NodeJS.ProcessEnv): AgentCoreConfig | null {
+   const region = (
+      env.BERRY_AGENTCORE_REGION ??
+      env.BERRY_BEDROCK_REGION ??
+      env.AWS_REGION ??
+      ''
+   ).trim();
+   const codeInterpreterId = (
+      env.BERRY_AGENTCORE_CODE_INTERPRETER_ID ?? 'aws.codeinterpreter.v1'
+   ).trim();
+   if (!region || !codeInterpreterId) return null;
+   return {
+      region,
+      codeInterpreterId,
+      runtimeArn: (env.BERRY_AGENTCORE_RUNTIME_ARN ?? '').trim() || null,
+      memoryId: (env.BERRY_AGENTCORE_MEMORY_ID ?? '').trim() || null,
+   };
+}
+
+/**
+ * The gateway, when one is configured.
+ *
+ * A URL and a credential provider are both required: a gateway with no
+ * identity behind it cannot authorise a call, and reporting it as configured
+ * would promise something that fails at the first tool.
+ */
+function agentCoreGateway(env: NodeJS.ProcessEnv): AgentCoreGatewayConfig | null {
+   const gatewayUrl = (env.AWS_AGENTCORE_GATEWAY_URL ?? '').trim();
+   const githubProviderName = (env.AWS_AGENTCORE_GITHUB_PROVIDER ?? '').trim();
+   if (!gatewayUrl || !githubProviderName) return null;
+
+   let toolOverrides: Record<string, string> = {};
+   const raw = (env.BERRY_AGENTCORE_TOOL_MAP ?? '').trim();
+   if (raw) {
+      try {
+         const parsed: unknown = JSON.parse(raw);
+         if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            toolOverrides = Object.fromEntries(
+               Object.entries(parsed as Record<string, unknown>)
+                  .filter(([, value]) => typeof value === 'string')
+                  .map(([key, value]) => [key, value as string])
+            );
+         }
+      } catch {
+         // Left empty rather than fatal: a malformed override should cost the
+         // override, not the deployment. Discovery still resolves the rest.
+      }
+   }
+
+   return {
+      region: (env.AWS_AGENTCORE_REGION ?? env.AWS_REGION ?? 'us-east-1').trim(),
+      gatewayUrl,
+      githubProviderName,
+      workloadName: (env.AWS_AGENTCORE_WORKLOAD_NAME ?? 'berry').trim(),
+      toolOverrides,
    };
 }
 
@@ -294,3 +468,17 @@ function positiveInt(value: string | undefined, fallback: number): number {
    const parsed = Number(trimmed);
    return parsed > 0 ? parsed : fallback;
 }
+
+/**
+ * How GitHub reaches Berry.
+ *
+ * There is no host or credential here any more: repositories are GitHub's, and
+ * the credential is a GitHub App installation token minted per run by
+ * `GitHubAppRepository`. What remains is the one secret that is Berry's own —
+ * the webhook signing key.
+ */
+function git(env: NodeJS.ProcessEnv): GitConfig | null {
+   const webhookSecret = (env.BERRY_GITHUB_WEBHOOK_SECRET ?? '').trim();
+   return webhookSecret ? { webhookSecret } : null;
+}
+

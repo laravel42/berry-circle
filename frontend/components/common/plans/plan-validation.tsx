@@ -109,8 +109,20 @@ export function PlanGenerationFailure({ record }: { record: PlanRecord }) {
    );
 }
 
-/** The classifier stopped on a question; answering arrives with conversational editing. */
-export function PlanBlockedQuestions({ record }: { record: PlanRecord }) {
+/**
+ * The questions the planner stopped on, and the way to answer them.
+ *
+ * The list stays even though the wizard opens itself: it is what the page
+ * says when someone comes back to a plan they dismissed the wizard on, and
+ * "Berry needs answers" with no visible questions is not a state worth having.
+ */
+export function PlanBlockedQuestions({
+   record,
+   onAnswer,
+}: {
+   record: PlanRecord;
+   onAnswer?: () => void;
+}) {
    if (record.validation.status !== 'blocked') return null;
    const questions = record.validation.ambiguities.filter((ambiguity) => ambiguity.blocking);
    return (
@@ -125,10 +137,13 @@ export function PlanBlockedQuestions({ record }: { record: PlanRecord }) {
             ))}
             {questions.length === 0 && <li>The request is ambiguous.</li>}
          </ol>
-         <p className="mt-2 text-muted-foreground">
-            Answering questions here arrives with conversational editing. For now, reject this plan
-            and ask again with the details filled in.
-         </p>
+         {onAnswer && (
+            <div className="mt-3">
+               <Button size="xs" onClick={onAnswer}>
+                  Answer questions
+               </Button>
+            </div>
+         )}
       </div>
    );
 }

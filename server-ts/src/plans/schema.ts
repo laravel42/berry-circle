@@ -20,12 +20,34 @@ export interface PlanGoal {
    projectId?: string | null;
 }
 
+/**
+ * One answer a person can pick for an assumption.
+ *
+ * The planner offers these because it is the only party that knows why it is
+ * asking: a question about email volume wants "real-time" and "nightly batch",
+ * not a text box the asker has to guess the vocabulary of.
+ */
+export interface PlanAssumptionOption {
+   id: string;
+   label: string;
+   /** One line on what picking this means, when the label is not self-evident. */
+   detail?: string | null;
+}
+
 export interface PlanAssumption {
    id: string;
    description: string;
    confidence: 'low' | 'medium' | 'high';
    userEditable: boolean;
    blocking: boolean;
+   /**
+    * What a person may pick, or empty for a question only prose can answer.
+    *
+    * Empty is a legitimate answer to "what are the options", not a defect: it
+    * is also what every plan generated before options existed reports, and
+    * those must stay answerable rather than become unrenderable.
+    */
+   options: PlanAssumptionOption[];
 }
 
 export interface PlanIssue {
@@ -88,6 +110,9 @@ export interface ValidationReport {
 
 const MAX_ISSUES = 50;
 const MAX_TITLE = 200;
+const MAX_OPTIONS = 6;
+const MAX_OPTION_LABEL = 120;
+const MAX_OPTION_DETAIL = 300;
 
 /**
  * Reads whatever the model produced into a plan, or says why it cannot.
@@ -187,6 +212,7 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
             confidence === 'low' || confidence === 'high' ? confidence : ('medium' as const),
          userEditable: item.userEditable === true,
          blocking: item.blocking === true,
+         options: readOptions(item.options, index),
       };
    });
 
@@ -393,6 +419,41 @@ export function inDependencyOrder(issues: PlanIssue[]): PlanIssue[] {
    for (const issue of issues) visit(issue.tempId);
    for (const issue of issues) if (!done.has(issue.tempId)) ordered.push(issue);
    return ordered;
+}
+
+/**
+ * The options offered for one assumption, read leniently.
+ *
+ * Lenient like the rest of `readPlan`: a model that omits options, or emits
+ * them as strings, or labels one with an empty string, has asked a question
+ * that prose can still answer — so the bad entries are dropped rather than
+ * failing the whole document. A plan is not invalid for being asked badly.
+ *
+ * Capped because the count is a UI promise as much as a limit: a picker is a
+ * picker at four options and a form at forty.
+ */
+function readOptions(value: unknown, assumptionIndex: number): PlanAssumptionOption[] {
+   if (!Array.isArray(value)) return [];
+   const options: PlanAssumptionOption[] = [];
+   const seen = new Set<string>();
+   for (const [index, entry] of value.entries()) {
+      if (options.length >= MAX_OPTIONS) break;
+      // A bare string is a label, which is how a model shortens the shape when
+      // it has nothing to add beyond the name.
+      const item = typeof entry === 'string' ? { label: entry } : isRecord(entry) ? entry : {};
+      const label = text(item.label).slice(0, MAX_OPTION_LABEL);
+      if (label === '') continue;
+      const id = text(item.id) || `a${assumptionIndex + 1}-o${index + 1}`;
+      // Two options sharing an id would make the answer ambiguous about which
+      // was picked, which is the one thing this record has to be sure of.
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const detail = text(item.detail).slice(0, MAX_OPTION_DETAIL);
+      options.push({ id, label, ...(detail ? { detail } : {}) });
+   }
+   // One option is not a choice. Offering it would ask a person to confirm the
+   // planner's guess, which is what the blocking question already refuses to do.
+   return options.length > 1 ? options : [];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

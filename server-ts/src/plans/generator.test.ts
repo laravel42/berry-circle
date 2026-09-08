@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PlanGenerator, PlannerUnavailable } from './generator.ts';
 import type { Sql } from '../db/pool.ts';
+import { BedrockUnavailable, type BedrockChat } from '../agents/bedrock-chat.ts';
 
 /**
  * The pipeline: generate, validate, repair, critic.
@@ -18,25 +19,22 @@ import type { Sql } from '../db/pool.ts';
 /** Every role resolves to one model; the table is not what is under test. */
 const NO_ROLES = (() => Promise.resolve([])) as unknown as Sql;
 
-/** Answers each chat completion in order, and records what it was asked. */
+/** Answers each model call in order, and records what it was asked. */
 function scripted(answers: unknown[]) {
    const prompts: Array<{ system: string; user: string }> = [];
    let index = 0;
-   const fetch = (async (_url: unknown, init: { body: string }) => {
-      const sent = JSON.parse(init.body) as {
-         messages: Array<{ role: string; content: string }>;
-      };
-      prompts.push({
-         system: sent.messages[0]!.content,
-         user: sent.messages[1]!.content,
-      });
-      const answer = answers[index++] ?? {};
-      return Response.json({
-         choices: [{ message: { content: JSON.stringify(answer) } }],
-         usage: { prompt_tokens: 10, completion_tokens: 20 },
-      });
-   }) as unknown as typeof globalThis.fetch;
-   return { fetch, prompts, calls: () => index };
+   const chat = {
+      async chat(input: { system: string; user: string }) {
+         prompts.push({ system: input.system, user: input.user });
+         return {
+            text: JSON.stringify(answers[index++] ?? {}),
+            inputTokens: 10,
+            outputTokens: 20,
+            durationMs: 1,
+         };
+      },
+   } as unknown as BedrockChat;
+   return { chat, prompts, calls: () => index };
 }
 
 function generator(answers: unknown[], options: Record<string, unknown> = {}) {
@@ -45,10 +43,9 @@ function generator(answers: unknown[], options: Record<string, unknown> = {}) {
       script,
       planner: new PlanGenerator({
          sql: NO_ROLES,
-         apiKey: 'key',
-         baseUrl: 'https://models.example/v1',
+         region: 'us-east-1',
          defaultModel: 'test/model',
-         fetch: script.fetch,
+         chat: script.chat,
          ...options,
       }),
    };
@@ -221,13 +218,16 @@ test('the caller is told which stage is running, as it starts', async () => {
 test('a refusal names the stage it happened at', async () => {
    // "The critic timed out" and "the planner was never reachable" are
    // different things to tell someone.
-   const fetch = (async () => new Response('rate limited', { status: 429 })) as unknown as typeof globalThis.fetch;
+   const chat = {
+      async chat() {
+         throw new BedrockUnavailable('bedrock test/model failed: ThrottlingException 429', true);
+      },
+   } as unknown as BedrockChat;
    const planner = new PlanGenerator({
       sql: NO_ROLES,
-      apiKey: 'key',
-      baseUrl: 'https://models.example/v1',
+      region: 'us-east-1',
       defaultModel: 'test/model',
-      fetch,
+      chat,
    });
    await assert.rejects(
       () => planner.generate({ prompt: 'ship it' }),
@@ -241,23 +241,21 @@ test('a refusal names the stage it happened at', async () => {
 });
 
 test('fenced JSON is recovered, because models fence it anyway', async () => {
-   const fetch = (async () =>
-      Response.json({
-         choices: [
-            {
-               message: {
-                  content: 'Here you go:\n```json\n{"goal":{"title":"Ship it"},"issues":[]}\n```',
-               },
-            },
-         ],
-         usage: {},
-      })) as unknown as typeof globalThis.fetch;
+   const chat = {
+      async chat() {
+         return {
+            text: 'Here you go:\n```json\n{"goal":{"title":"Ship it"},"issues":[]}\n```',
+            inputTokens: 0,
+            outputTokens: 0,
+            durationMs: 1,
+         };
+      },
+   } as unknown as BedrockChat;
    const planner = new PlanGenerator({
       sql: NO_ROLES,
-      apiKey: 'key',
-      baseUrl: 'https://models.example/v1',
+      region: 'us-east-1',
       defaultModel: 'test/model',
-      fetch,
+      chat,
    });
    const result = await planner.generate({ prompt: 'ship it' });
    assert.equal(result.plan.goal.title, 'Ship it');

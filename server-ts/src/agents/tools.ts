@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { FunctionTool } from '@google/adk';
+import { tool, type Tool } from '@strands-agents/sdk';
 import { z } from 'zod';
 import type { Sql } from '../db/pool.ts';
 import type { BerryArtifactService } from './artifact-service.ts';
@@ -40,7 +40,7 @@ export interface ToolScope {
 
 const DEFAULT_MAX_BYTES = 64 * 1024;
 
-export function berryTools(scope: ToolScope): FunctionTool[] {
+export function berryTools(scope: ToolScope): Tool[] {
    const tools = [
       listFiles(scope),
       readFile(scope),
@@ -55,13 +55,13 @@ export function berryTools(scope: ToolScope): FunctionTool[] {
 }
 
 /** What this run has produced so far, including by other agents. */
-function listFiles(scope: ToolScope): FunctionTool {
-   return new FunctionTool({
+function listFiles(scope: ToolScope): Tool {
+   return tool({
       name: 'list_files',
       description:
          'List the files produced for this task. Includes work saved by other agents on the same task.',
-      parameters: z.object({}),
-      execute: async () => ({ files: await scope.artifacts.listArtifactKeys(artifactKey()) }),
+      inputSchema: z.object({}),
+      callback: async () => ({ files: await scope.artifacts.listArtifactKeys(artifactKey()) }),
    });
 }
 
@@ -73,16 +73,16 @@ function listFiles(scope: ToolScope): FunctionTool {
  * about something it has not seen — which is exactly how the reviewer came to
  * reject good work when it was quietly given 8 files out of 22.
  */
-function readFile(scope: ToolScope): FunctionTool {
+function readFile(scope: ToolScope): Tool {
    const maxBytes = scope.maxBytes ?? DEFAULT_MAX_BYTES;
-   return new FunctionTool({
+   return tool({
       name: 'read_file',
       description: 'Read a file produced for this task, by path.',
-      parameters: z.object({
+      inputSchema: z.object({
          path: z.string().describe('The file path, as returned by list_files'),
          version: z.number().int().min(0).optional().describe('Defaults to the newest'),
       }),
-      execute: async ({ path, version }) => {
+      callback: async ({ path, version }) => {
          const part = await scope.artifacts.loadArtifact({
             ...artifactKey(),
             filename: path,
@@ -108,16 +108,16 @@ function readFile(scope: ToolScope): FunctionTool {
 }
 
 /** Saves work where the next agent can find it. */
-function writeFile(scope: ToolScope): FunctionTool {
-   return new FunctionTool({
+function writeFile(scope: ToolScope): Tool {
+   return tool({
       name: 'write_file',
       description:
          'Save a file for this task. Other agents working on the same task can read it.',
-      parameters: z.object({
+      inputSchema: z.object({
          path: z.string().describe('A relative path, e.g. src/index.ts or notes/findings.md'),
          content: z.string(),
       }),
-      execute: async ({ path, content }) => {
+      callback: async ({ path, content }) => {
          const version = await scope.artifacts.saveArtifact({
             ...artifactKey(),
             filename: path,
@@ -134,12 +134,12 @@ function writeFile(scope: ToolScope): FunctionTool {
  * Scoped by construction: the issue id is captured, so this cannot be pointed
  * at another task even by an agent that tries.
  */
-function readIssue(scope: ToolScope): FunctionTool {
-   return new FunctionTool({
+function readIssue(scope: ToolScope): Tool {
+   return tool({
       name: 'read_task',
       description: 'Read the task this run is working on: its title, description and status.',
-      parameters: z.object({}),
-      execute: async () => {
+      inputSchema: z.object({}),
+      callback: async () => {
          const [row] = await scope.sql`
             SELECT i.title, i.description, i.status::text AS status, i.priority::text AS priority,
                    berry_issue_identifier(b.workspace_id, i.number) AS identifier
@@ -165,12 +165,12 @@ function readIssue(scope: ToolScope): FunctionTool {
  * An agent that knows a blocker is unfinished can say so instead of inventing
  * the part it cannot see.
  */
-function listDependencies(scope: ToolScope): FunctionTool {
-   return new FunctionTool({
+function listDependencies(scope: ToolScope): Tool {
+   return tool({
       name: 'list_dependencies',
       description: 'List the tasks this task depends on and the tasks that depend on it.',
-      parameters: z.object({}),
-      execute: async () => {
+      inputSchema: z.object({}),
+      callback: async () => {
          const rows = await scope.sql`
             SELECT CASE WHEN edge.issue_id = ${scope.issueId} THEN 'depends_on' ELSE 'blocks' END AS direction,
                    other.title, other.status::text AS status,

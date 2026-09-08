@@ -1,14 +1,49 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type {
-   ArtifactVersion,
-   BaseArtifactService,
-   DeleteArtifactRequest,
-   ListArtifactKeysRequest,
-   LoadArtifactRequest,
-   ListVersionsRequest,
-   SaveArtifactRequest,
-} from '@google/adk';
-import type { Part } from '@google/genai';
+
+/**
+ * The artifact vocabulary, Berry's own.
+ *
+ * These mirrored an agent framework's interface while ADK ran the agents, and
+ * were the last thing in the server that made Berry's storage answerable to
+ * someone else's type names. Strands has no artifact service, so the shapes
+ * are declared here — where the store they describe actually lives.
+ */
+
+/** A file's payload: bytes with a type, or text. */
+export interface Part {
+   inlineData?: { data: string; mimeType?: string | undefined } | undefined;
+   text?: string | undefined;
+}
+
+export interface ArtifactVersion {
+   version: number;
+   mimeType?: string | undefined;
+   /**
+    * Berry's own address for the object, not a signed URL: this is metadata an
+    * agent reads, and a URL that expires would be worse than no URL.
+    */
+   canonicalUri?: string | undefined;
+   customMetadata?: Record<string, unknown> | undefined;
+}
+
+export interface SaveArtifactRequest {
+   filename: string;
+   artifact: Part;
+}
+export interface LoadArtifactRequest {
+   filename: string;
+   version?: number | undefined;
+}
+export interface ListArtifactKeysRequest {
+   [key: string]: unknown;
+}
+export interface DeleteArtifactRequest {
+   filename: string;
+}
+export interface ListVersionsRequest {
+   filename: string;
+   version?: number | undefined;
+}
 import type { Sql } from '../db/pool.ts';
 import { ObjectNotFound, sniffContentType, type Storage } from '../storage/storage.ts';
 
@@ -41,7 +76,7 @@ export interface BerryArtifactOptions {
    newId?: () => string;
 }
 
-export class BerryArtifactService implements BaseArtifactService {
+export class BerryArtifactService {
    private readonly sql: Sql;
    private readonly storage: Storage;
    private readonly workspaceId: string;

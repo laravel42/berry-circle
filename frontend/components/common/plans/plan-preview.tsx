@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
+import { PlanQuestionsWizard } from './plan-questions-wizard';
 import { usePlan } from '@/hooks/use-plan';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import {
@@ -32,7 +33,7 @@ import { useProjectsStore } from '@/store/projects-store';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { PlanStatusBadge } from './plan-status-badge';
 import { PlanApprovals, PlanAssumptions, PlanConnections, PlanIssues, Pill } from './plan-sections';
@@ -107,11 +108,47 @@ function useAutoStartPlan(record: PlanRecord | undefined) {
    }, [record, takeAutoStart, startPlan]);
 }
 
+/**
+ * Whether the wizard should show itself, and remembering a dismissal.
+ *
+ * It opens on its own because a blocked plan is waiting on the person looking
+ * at it, and making them find a button first is the gap this feature exists to
+ * close. Dismissing it sticks until the plan changes: someone who closed the
+ * questions to read the goal first should not have to close them again on
+ * every re-render, but a new version is a new set of questions.
+ */
+function useQuestionsWizard(record: PlanRecord | undefined) {
+   const blocked = record?.validation.status === 'blocked';
+   const asks = (record?.plan?.assumptions.length ?? 0) > 0;
+   const version = record?.version ?? 0;
+   const [open, setOpen] = useState(false);
+   const [dismissed, setDismissed] = useState<number | null>(null);
+
+   useEffect(() => {
+      if (!blocked || !asks) {
+         setOpen(false);
+         return;
+      }
+      if (dismissed === version) return;
+      setOpen(true);
+   }, [blocked, asks, version, dismissed]);
+
+   return {
+      open: open && blocked && asks,
+      canAnswer: Boolean(blocked && asks),
+      setOpen: (next: boolean) => {
+         setOpen(next);
+         if (!next) setDismissed(version);
+      },
+   };
+}
+
 export default function PlanPreview({ planId }: PlanPreviewProps) {
    const { orgId } = useParams<{ orgId: string }>();
    const inDrawer = useInDetailDrawer();
    const { record, error, busy } = usePlan(planId);
    useAutoStartPlan(record);
+   const wizard = useQuestionsWizard(record);
 
    if (!record) {
       return (
@@ -158,7 +195,10 @@ export default function PlanPreview({ planId }: PlanPreviewProps) {
 
                   <PlanGenerationProgress record={record} />
                   <PlanGenerationFailure record={record} />
-                  <PlanBlockedQuestions record={record} />
+                  <PlanBlockedQuestions
+                     record={record}
+                     onAnswer={wizard.canAnswer ? () => wizard.setOpen(true) : undefined}
+                  />
                   <PlanOutcome record={record} orgId={orgId ?? WORKSPACE_SLUG} />
                   <PlanFindings record={record} />
 
@@ -210,6 +250,7 @@ export default function PlanPreview({ planId }: PlanPreviewProps) {
             </div>
 
             {isPlanOpen(record) && <PlanActions record={record} />}
+            <PlanQuestionsWizard record={record} open={wizard.open} onOpenChange={wizard.setOpen} />
          </div>
 
          <aside className="hidden h-full w-[221px] min-w-0 shrink-0 flex-col overflow-y-auto border-l bg-muted/15 px-5 pt-6 pb-3.5 lg:flex">

@@ -1,15 +1,17 @@
 import {
+   answerPlan as answerPlanRequest,
    approvePlan,
    describePlanFailure,
    getPlan,
    rejectPlan as rejectPlanRequest,
    compilePlan as compilePlanRequest,
+   type PlanAnswerInput,
    type PlanRecord,
 } from '@/lib/plans';
 import { create } from 'zustand';
 
 /** What the store is doing to a plan right now, for buttons to reflect. */
-export type PlanBusyStage = 'loading' | 'starting' | 'rejecting' | 'compiling';
+export type PlanBusyStage = 'loading' | 'starting' | 'rejecting' | 'compiling' | 'answering';
 
 interface PlanState {
    /** Records by plan id, so a drawer and a page over the same plan share one. */
@@ -39,6 +41,14 @@ interface PlanState {
    /** Reads the flag and clears it, so a plan is started at most once. */
    takeAutoStart: (planId: string) => boolean;
    startPlan: (planId: string) => Promise<PlanRecord>;
+   /**
+    * Answers a blocked plan's questions.
+    *
+    * Everything after this runs on the server — regenerate, compile, route —
+    * so the returned record is the plan back in generation, not the finished
+    * one. The page follows the rest through the workspace stream.
+    */
+   answerPlan: (planId: string, answers: PlanAnswerInput[]) => Promise<PlanRecord>;
    rejectPlan: (planId: string) => Promise<PlanRecord>;
    compilePlan: (planId: string) => Promise<PlanRecord>;
 }
@@ -150,6 +160,17 @@ export const usePlanStore = create<PlanState>((set, get) => ({
       set((state) => ({ busy: { ...state.busy, [planId]: 'starting' } }));
       try {
          const record = await approvePlan(planId);
+         get().upsertRecord(record);
+         return record;
+      } finally {
+         set((state) => ({ busy: { ...state.busy, [planId]: null } }));
+      }
+   },
+
+   answerPlan: async (planId, answers) => {
+      set((state) => ({ busy: { ...state.busy, [planId]: 'answering' } }));
+      try {
+         const record = await answerPlanRequest(planId, answers);
          get().upsertRecord(record);
          return record;
       } finally {

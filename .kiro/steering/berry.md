@@ -1,0 +1,46 @@
+---
+inclusion: always
+---
+
+# Berry
+
+Self-hosted workspace where humans and agents share one board. Berry runs agents
+itself, in-process on the Google Agent Development Kit (ADR-0008).
+
+Read `AGENTS.md` first. Then the matching doc under `docs/` (product brief,
+coding playbook, gateway-v1, ADRs, design system), plus `server-ts/SCOPE.md` and
+`server-ts/ROUTING.md` before touching the server.
+
+## Two workspaces
+
+`server-ts` (Node 22, no build step, `--experimental-strip-types`, Zod 4) and
+`frontend` (Next.js, Prettier **3-space** + ESLint, `@/`, Zod 4) do not share a
+toolchain. Never format one with the other.
+
+## Boundaries
+
+- Browsers call Berry only. Never leak a provider credential; nothing secret
+  may use a `NEXT_PUBLIC_*` name.
+- Postgres is source of record for product data and the run ledger. Valkey is
+  cache and ephemeral coordination only, and the compose stack does not run it.
+- Migrations in `server-ts/migrations` are forward-only, checksummed and
+  immutable. Never edit an applied one; add a new one.
+- The wire shape is a contract: cursors, idempotency fingerprints and the error
+  envelope must keep decoding for clients that already hold them.
+- MIT / Apache-2.0 dependencies only. No Linear product branding or copied
+  schema. No new `Linear*` identifiers.
+- `strict` on, no `any` except vendored `frontend/components/data-table-filter/**`.
+
+## Missing on purpose
+
+`/api/v1/runs`, `/workflows`, `/workflow-runs`, `/hooks`, `/approvals`,
+`/plans`, `/conversations`, `/integrations`, `/inbox`, `/search`, `/views`,
+`/catalogs`, `/runtime`, the multipart attachment upload and `/metrics` are not
+served and answer 404. There is no run orchestration: `POST /internal/runs` is
+the only way to start an agent and nothing calls it. Empty `frontend/data/*` is
+intentional — do not restore demo data.
+
+## Process
+
+Commits: `type(scope): summary (BERR-NN)`. One issue per PR. Reviewers:
+Sentinel (frontend), Backend PR Adversary (server).

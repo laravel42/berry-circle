@@ -105,7 +105,7 @@ export default function IssueDetails() {
                               <Paperclip className="size-4" />
                            </Button>
                         </div>
-                        <ActivityFeedList items={activityFeed.items} />
+                        <ActivityFeedList items={activityFeed.items} error={activityFeed.error} />
                      </div>
                   </>
                </div>

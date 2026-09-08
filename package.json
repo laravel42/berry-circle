@@ -12,9 +12,12 @@
    "pnpm": {
       "onlyBuiltDependencies": [
          "@biomejs/biome",
+         "@google/genai",
          "esbuild",
+         "protobufjs",
          "sharp",
-         "unrs-resolver"
+         "unrs-resolver",
+         "workerd"
       ]
    },
    "scripts": {
@@ -26,6 +29,7 @@
       "test:server": "pnpm --filter @berry/server test",
       "migrate:server": "pnpm --filter @berry/server migrate",
       "seed:server": "pnpm --filter @berry/server seed",
+      "reset:server": "docker compose exec -T berry-api node --experimental-strip-types src/reset/index.ts",
       "typecheck:worker": "pnpm --filter @berry/runtime-worker typecheck",
       "test:worker": "pnpm --filter @berry/runtime-worker test",
       "deploy:worker": "pnpm --filter @berry/runtime-worker deploy",

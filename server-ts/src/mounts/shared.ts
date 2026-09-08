@@ -1,8 +1,98 @@
+import type { Hono } from 'hono';
 import { ApiError } from '../http/errors.ts';
 import { assertValid, fieldError } from '../http/body.ts';
+import { requireSession, type AuthVariables } from '../auth/middleware.ts';
+import type { SessionService } from '../auth/sessions.ts';
+import type { Sql } from '../db/pool.ts';
+import { toApiError } from '../identity/errors.ts';
+import type { Permission } from '../identity/roles.ts';
 import type { Membership } from '../identity/workspaces.ts';
+import {
+   resolveWorkspaceContext,
+   scopedDb,
+   type ScopedDb,
+} from '../identity/workspace-context.ts';
 
 /** Helpers shared by the identity mounts, ported from validation.go. */
+
+/**
+ * The request-scoped values a workspace-scoped mount carries.
+ *
+ * Extends {@link AuthVariables} with the one thing {@link mountWorkspaceScope}
+ * adds: a {@link ScopedDb} bound to the caller's confirmed workspace. A handler
+ * reads it with `context.get('scoped')`, and — because the only constructor of
+ * a `ScopedDb` is a membership-confirmed {@link WorkspaceContext} — a handler
+ * that has one has already passed the isolation gate.
+ */
+export interface ScopedVariables extends AuthVariables {
+   scoped: ScopedDb;
+}
+
+/**
+ * Wires the workspace-scope gate onto a `/:workspaceId/...` mount.
+ *
+ * This is mechanism **B constructing mechanism C** from the design: two
+ * middlewares on the `/:workspaceId/*` prefix. The first is
+ * {@link requireSession}, which resolves the caller. The second reads the
+ * `:workspaceId` path segment as a *lookup key only*, hands it to
+ * {@link resolveWorkspaceContext} (which confirms membership before the id is
+ * trusted), and attaches the resulting {@link ScopedDb} as `scoped`. A handler
+ * therefore cannot reach a workspace-scoped query surface without a
+ * membership-confirmed scope — isolation is a structural fact of the wiring,
+ * not something each handler must remember.
+ *
+ * The gate permission is `product.read`: mounting requires only membership, so
+ * a read route under the prefix works with membership alone and a write route
+ * additionally gates on its own permission through {@link ScopedDb.mutate}.
+ * `resolveWorkspaceContext` failures are translated by {@link toApiError}: a
+ * non-member or absent workspace is `NotFound` → 404 (indistinguishable), and
+ * a member whose role lacks the required permission is `Forbidden` → 403.
+ */
+export function mountWorkspaceScope(
+   route: Hono<{ Variables: ScopedVariables }>,
+   options: { sessions: SessionService; sql: Sql }
+): void {
+   route.use('/:workspaceId/*', requireSession(options.sessions));
+   route.use('/:workspaceId/*', async (context, next) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      try {
+         const ctx = await resolveWorkspaceContext(
+            options.sql,
+            context.get('user').id,
+            workspaceId,
+            'product.read'
+         );
+         context.set('scoped', scopedDb(options.sql, ctx));
+      } catch (error) {
+         throw toApiError(error, 'Workspace');
+      }
+      await next();
+   });
+}
+
+/**
+ * Confirms membership for a *lookup* `workspaceId` and returns a `ScopedDb`.
+ *
+ * The escape hatch for a mount that takes its `workspaceId` from a query
+ * parameter rather than a path segment (so it cannot use the `/:workspaceId/*`
+ * prefix of {@link mountWorkspaceScope}). Same gate, same translation: a
+ * `product.read` `required` needs only membership; a write `required` a
+ * member's role lacks raises `Forbidden` → 403; a non-member or absent
+ * workspace is `NotFound` → 404, indistinguishable.
+ */
+export async function resolveScoped(
+   sql: Sql,
+   userId: string,
+   workspaceId: string,
+   required: Permission = 'product.read'
+): Promise<ScopedDb> {
+   try {
+      const ctx = await resolveWorkspaceContext(sql, userId, workspaceId, required);
+      return scopedDb(sql, ctx);
+   } catch (error) {
+      throw toApiError(error, 'Workspace');
+   }
+}
 
 /**
  * A malformed id is 404, not 400.

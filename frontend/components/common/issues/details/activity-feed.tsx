@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ActivityItem } from '@/data/issue-details';
 import type { User } from '@/data/users';
+import { BerryApiError } from '@/lib/api';
 import { commentToActivityItem, createIssueComment, loadIssueComments } from '@/lib/comments';
 import { listIssueRuns, runToActivityItems, runTimestamp } from '@/lib/runs';
 import { loadWorkspaceAgents } from '@/lib/agents';
@@ -111,6 +112,7 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
 
 export function useIssueActivity(issueRef: string, issueId?: string) {
    const [items, setItems] = useState<ActivityItem[]>([]);
+   const [error, setError] = useState<string | null>(null);
    const [draft, setDraft] = useState('');
    const [submitting, setSubmitting] = useState(false);
    const sessionUser = useSessionStore((state) => state.user);
@@ -152,6 +154,7 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
    useEffect(() => {
       if (!issueRef) {
          setItems([]);
+         setError(null);
          return;
       }
       let cancelled = false;
@@ -159,7 +162,21 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
       // and what agents did. Fetched together and merged by time, so an agent's
       // work appears in the thread rather than nowhere.
       void Promise.all([
-         loadIssueComments(issueRef),
+         // Caught, like its sibling below. Deleting an issue while its detail is
+         // open re-reads this thread against an issue the server no longer
+         // resolves, and an uncaught rejection there is a console error rather
+         // than anything a reader can act on.
+         //
+         // Not swallowed to an empty list, though: a thread that failed to load
+         // and a thread with no comments look identical, and the two want
+         // opposite things from the reader. A gone issue is the one exception —
+         // it has no activity, which is a fact rather than a failure.
+         loadIssueComments(issueRef).catch((cause: unknown) => {
+            if (cancelled) return [];
+            const gone = cause instanceof BerryApiError && cause.status === 404;
+            setError(gone ? null : 'Activity could not be loaded.');
+            return [];
+         }),
          listIssueRuns(issueId ?? issueRef).catch(() => []),
       ]).then(([comments, runs]) => {
          if (cancelled) return;
@@ -178,6 +195,7 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
          );
          setItems(merged.map((entry) => entry.item));
       });
+      setError(null);
       return () => {
          cancelled = true;
       };
@@ -221,7 +239,7 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
          .finally(() => setSubmitting(false));
    }, [draft, issueRef, sessionUser, submitting]);
 
-   return { items, draft, setDraft, submitComment, submitting };
+   return { items, error, draft, setDraft, submitComment, submitting };
 }
 
 /** @deprecated Prefer `useIssueActivity` with an issue identifier. */
@@ -262,12 +280,24 @@ export function useActivityFeed(activity: ActivityItem[]) {
    return { items, draft, setDraft, submitComment };
 }
 
-export function ActivityFeedList({ items }: { items: ActivityItem[] }) {
+export function ActivityFeedList({
+   items,
+   error,
+}: {
+   items: ActivityItem[];
+   error?: string | null;
+}) {
    return (
       <div className="border-t border-border/60 pt-4">
          <div className="mb-1 pb-[7px] font-medium uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
             activity
          </div>
+
+         {error && (
+            <p className="mb-2 text-muted-foreground" role="alert">
+               {error}
+            </p>
+         )}
 
          <div className="flex flex-col gap-1.5">
             {items.map((item) =>
