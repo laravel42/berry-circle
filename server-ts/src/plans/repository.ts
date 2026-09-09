@@ -130,6 +130,8 @@ export class PlanRepository {
       boardId: string;
       prompt: string;
       createdBy: string;
+      /** Let this plan's tasks close on a peer agent's review. Off unless asked. */
+      autoGate?: boolean;
    }): Promise<PlanRecord> {
       const id = this.#newId();
       return this.#sql.begin(async (transaction) => {
@@ -185,10 +187,10 @@ export class PlanRepository {
 
          await tx`
             INSERT INTO plans (id, workspace_id, goal_id, project_id, board_id, status, source,
-                               source_prompt, generation_status, created_by)
+                               source_prompt, generation_status, created_by, auto_gate)
             VALUES (${id}, ${input.workspaceId}, ${goalId}, NULL,
                     ${input.boardId}, 'draft', 'ai', ${input.prompt}, 'running',
-                    ${input.createdBy})`;
+                    ${input.createdBy}, ${input.autoGate ?? false})`;
          // `proposed_by` is deliberately left null: it references `agents`,
          // and the thing that asked for this plan was a person.
          const [row] = await tx`SELECT ${tx.unsafe(COLUMNS)} FROM plans WHERE id = ${id}`;

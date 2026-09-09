@@ -110,6 +110,7 @@ export function planMounts(options: PlanOptions): Mount[] {
          projectId?: string;
          boardId?: string;
          hint?: string;
+         autoGate?: boolean;
       }>(context, {
          workspaceId: 'string',
          prompt: 'string',
@@ -117,6 +118,9 @@ export function planMounts(options: PlanOptions): Mount[] {
          projectId: 'string',
          boardId: 'string',
          hint: 'string',
+         // Sent by the create-project dialog. Refusing it as an unknown field
+         // was how "create a project" failed at the planning step.
+         autoGate: 'boolean',
       });
 
       const problems = [];
@@ -158,6 +162,7 @@ export function planMounts(options: PlanOptions): Mount[] {
             boardId,
             prompt,
             createdBy: context.get('user').id,
+            ...(body.autoGate === undefined ? {} : { autoGate: body.autoGate }),
          });
       } catch (error) {
          if (error instanceof OpenPlanExists) {
