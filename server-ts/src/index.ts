@@ -75,6 +75,8 @@ import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { Storage } from './storage/storage.ts';
 import { RunExecutor } from './agents/executor.ts';
+import { ReviewGate } from './agents/review-gate.ts';
+import { GitHubClient } from './integrations/github.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
@@ -230,6 +232,28 @@ const completion = config.agents
 // the first run is traced.
 await setupTelemetry(logger);
 
+/**
+ * AutoGate: a peer agent reviews what a run delivered, for tasks whose plan
+ * opted in — and on request for any task with a pull request. Needs the same
+ * credential runs do (to read the diff) and the same completion the planner
+ * uses (to decide).
+ */
+const reviewGate =
+   config.agents && completion
+      ? new ReviewGate({
+           sql,
+           issues,
+           runs: new RunRepository(sql),
+           completion,
+           defaultModel: config.agents.defaultModel,
+           maxAttempts: config.agents.autoGateMaxAttempts,
+           github: async (workspaceId) =>
+              new GitHubClient({ token: (await scm.gitCredential(workspaceId)).password }),
+           onError: (message, error) =>
+              logger.error(message, { error: error instanceof Error ? error.message : String(error) }),
+        })
+      : null;
+
 const executor =
    config.agents && storage
       ? new RunExecutor({
@@ -248,6 +272,11 @@ const executor =
            ...(githubApp ? { githubApp } : {}),
            ...(runMemory ? { memory: runMemory } : {}),
            gitCredential: scm.gitCredential,
+           ...(reviewGate ? { reviewGate } : {}),
+           onGateError: (error) =>
+              logger.error('peer review failed', {
+                 error: error instanceof Error ? error.message : String(error),
+              }),
         })
       : null;
 
@@ -293,7 +322,7 @@ registry.registerAll(
       idempotency,
       broadcaster,
       nested: issueCommentRoutes(commentOptions),
-      relations: issueRelationRoutes({ issues, dependencies, reviews }),
+      relations: issueRelationRoutes({ issues, dependencies, reviews, gate: reviewGate }),
       runs: issueRunRoutes(runOptions),
       attachments: issueAttachmentRoutes({
          attachments,

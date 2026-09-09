@@ -95,6 +95,13 @@ export interface ExecutorOptions {
    memory?: RunMemory;
    /** Builds the model for a run. Tests pass a scripted one. */
    modelFactory?: ModelFactory;
+   /**
+    * The peer review gate, when the deployment has one. Asked after a run
+    * succeeds; it decides for itself whether the task opted in.
+    */
+   reviewGate?: { review(runId: string): Promise<unknown> };
+   /** Where a gate failure is reported. It never fails the run. */
+   onGateError?: (error: unknown) => void;
    /** A ceiling on one model reply. Omitted means the factory's default. */
    maxTokens?: number;
    temperature?: number;
@@ -152,6 +159,8 @@ export class RunExecutor {
    /** Never null, so the recall path has no branch in it. */
    private readonly memory: RunMemory;
    private readonly modelFactory: ModelFactory;
+   private readonly reviewGate: { review(runId: string): Promise<unknown> } | undefined;
+   private readonly onGateError: (error: unknown) => void;
    private readonly maxTokens: number | undefined;
    private readonly temperature: number | undefined;
 
@@ -183,6 +192,8 @@ export class RunExecutor {
       this.newId = options.newId ?? randomUUID;
       this.memory = options.memory ?? nullRunMemory();
       this.modelFactory = options.modelFactory ?? bedrockModel;
+      this.reviewGate = options.reviewGate;
+      this.onGateError = options.onGateError ?? (() => {});
       this.maxTokens = options.maxTokens;
       this.temperature = options.temperature;
    }
@@ -455,6 +466,11 @@ export class RunExecutor {
             occurredAt: this.clock().toISOString(),
             newId: this.newId,
          }).catch(() => null);
+      }
+      // After the run is recorded: the gate reads the ledger, and a review
+      // that fails is a fact about the review, never about the run.
+      if (this.reviewGate) {
+         await this.reviewGate.review(dispatch.runId).catch((error: unknown) => this.onGateError(error));
       }
       return {
          runId: dispatch.runId,

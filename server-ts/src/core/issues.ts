@@ -423,6 +423,12 @@ export class IssueRepository {
       issueId: string;
       patch: IssuePatch;
       actorId: string;
+      /**
+       * Who the change is recorded as. A person by default; an agent when the
+       * review gate moves a task on a peer's verdict, so the timeline says an
+       * agent did it rather than attributing it to a user id that is not one.
+       */
+      actorType?: 'user' | 'agent';
    }): Promise<{ issue: Issue; events: IssueMutationEvent[] }> {
       const { patch } = params;
       const now = this.clock().toISOString();
@@ -471,7 +477,7 @@ export class IssueRepository {
             kind: 'updated',
             changedFields: changed,
             previousStatus,
-            actor: { type: 'user', id: params.actorId },
+            actor: { type: params.actorType ?? 'user', id: params.actorId },
             occurredAt: now,
          });
          return { issue, events };

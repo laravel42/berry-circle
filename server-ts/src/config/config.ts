@@ -217,6 +217,8 @@ export interface AgentConfig {
     * default (32000). Lowered for a model that accepts less.
     */
    maxTokens: number | null;
+   /** How many times AutoGate sends a task back before leaving it to a person. */
+   autoGateMaxAttempts: number;
 }
 
 export class ConfigError extends Error {
@@ -371,6 +373,7 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       maxRepairs: positive(env.PLANNER_MAX_REPAIRS, 2),
       maxCriticRounds: positive(env.PLANNER_MAX_CRITIC_ROUNDS, 1),
       maxTokens: env.BERRY_AGENT_MAX_TOKENS ? positive(env.BERRY_AGENT_MAX_TOKENS, 32_000) : null,
+      autoGateMaxAttempts: positive(env.BERRY_AUTOGATE_MAX_ATTEMPTS, 2),
    };
 }
 

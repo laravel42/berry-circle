@@ -199,6 +199,33 @@ export class GitHubClient {
       return collected;
    }
 
+   /**
+    * The unified diff of a pull request, as GitHub renders it.
+    *
+    * Bounded by the caller: a diff is the reviewer's evidence, and a reviewer
+    * handed three megabytes of generated code is not reviewing anything.
+    */
+   async pullRequestDiff(owner: string, name: string, number: number): Promise<string> {
+      const path = `/repos/${encode(owner)}/${encode(name)}/pulls/${number}`;
+      let response: Response;
+      try {
+         response = await this.#fetch(`${this.#baseUrl}${path}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(this.#timeoutMs),
+            headers: {
+               authorization: `Bearer ${this.#token}`,
+               accept: 'application/vnd.github.diff',
+               'x-github-api-version': '2022-11-28',
+               'user-agent': 'berry',
+            },
+         });
+      } catch {
+         throw new GitHubError(`GitHub is unreachable: GET ${path}`, 0, 'none');
+      }
+      if (!response.ok) throw await this.#failure(response, 'GET', path);
+      return response.text();
+   }
+
    async openPullRequest(input: {
       owner: string;
       name: string;

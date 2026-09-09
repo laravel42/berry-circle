@@ -7,6 +7,7 @@ import { Forbidden, NotFound } from '../identity/errors.ts';
 import type { IssueRepository } from '../core/issues.ts';
 import { DependencyCycle, type DependencyRepository } from '../core/dependencies.ts';
 import type { ReviewRepository } from '../core/reviews.ts';
+import type { GateOutcome } from '../agents/review-gate.ts';
 
 /**
  * `/api/v1/issues/:issueRef/dependencies` and `/reviews`.
@@ -19,6 +20,8 @@ export interface IssueRelationOptions {
    issues: IssueRepository;
    dependencies: DependencyRepository;
    reviews: ReviewRepository;
+   /** Null when the deployment has no model credential to review with. */
+   gate?: { reviewLatest(issueId: string, options?: { force?: boolean }): Promise<GateOutcome> } | null;
    clock?: () => Date;
 }
 
@@ -99,7 +102,39 @@ export function issueRelationRoutes(options: IssueRelationOptions) {
       return json({ reviews: found });
    });
 
+   /**
+    * Asks a peer agent to review the task's latest delivered run now, whether
+    * or not its plan opted into AutoGate. The verdict lands where `GET` reads
+    * it, and the task moves as the verdict says.
+    */
+   route.post('/:issueRef/reviews', async (context) => {
+      const issue = await resolve(issues, context.req.param('issueRef'), context.get('user').id, 'product.write');
+      if (!options.gate) {
+         throw new ApiError(412, 'REVIEWER_UNAVAILABLE', 'This deployment has no model credential, so no agent can review.');
+      }
+      const outcome = await options.gate.reviewLatest(issue.id, { force: true });
+      if (outcome.kind === 'skipped') {
+         throw new ApiError(409, 'REVIEW_SKIPPED', describeSkip(outcome.because), { because: outcome.because });
+      }
+      return json({ outcome, reviews: await reviews.list(issue.id).catch(() => []) }, 201);
+   });
+
    return route;
+}
+
+function describeSkip(because: string): string {
+   switch (because) {
+      case 'no_pull_request':
+         return 'This task has no delivered pull request to review.';
+      case 'no_reviewer':
+         return 'No peer agent could review this task.';
+      case 'not_in_review':
+         return 'Only a task in review can be reviewed.';
+      case 'attempts_exhausted':
+         return 'This task has been sent back as many times as the gate allows; a person decides now.';
+      default:
+         return 'The task was not reviewed.';
+   }
 }
 
 /** Resolves the issue in the path and checks the caller may act on it. */

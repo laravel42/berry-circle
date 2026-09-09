@@ -433,7 +433,7 @@ export class PlanRepository {
                 WHERE id = ${boardId} RETURNING issue_counter`;
             await tx`
                INSERT INTO issues (id, board_id, number, title, description, status, priority,
-                                   created_by, assignee_type, assignee_id)
+                                   created_by, assignee_type, assignee_id, auto_gate)
                VALUES (${issueId}, ${boardId}, ${Number(counter!.issue_counter)}, ${issue.title},
                        ${issue.description ?? null}, ${status}::issue_status,
                        ${issue.priority ?? 'medium'}, ${input.userId},
@@ -441,7 +441,11 @@ export class PlanRepository {
                        -- absence of an assignee, which is what the column
                        -- being nullable already says.
                        ${issue.suggestedAgentId ? 'agent' : null},
-                       ${issue.suggestedAgentId ?? null})`;
+                       ${issue.suggestedAgentId ?? null},
+                       -- Carried from the plan at compile, as migration 026
+                       -- says: the issue is the thing being gated, and a plan
+                       -- edited later must not change how work in flight ends.
+                       ${record.autoGate})`;
             issueIds.set(issue.tempId, issueId);
 
             await tx`
