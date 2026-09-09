@@ -33,7 +33,8 @@
       "Sid": "BerryInvokeAnyModel",
       "Effect": "Allow",
       "Action": [
-        "bedrock:InvokeModel"
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
       ],
       "Resource": [
         "arn:aws:bedrock:*:<ACCOUNT_ID>:inference-profile/*",

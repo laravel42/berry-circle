@@ -23,6 +23,12 @@ test('the spec reaches the model: id, tokens, temperature', () => {
    assert.equal(config.temperature, 0.2);
 });
 
+test('a completion can ask for the non-streaming API', () => {
+   const config = bedrockModel({ model: 'm', region: 'us-east-1', stream: false }).getConfig();
+   assert.equal(config.stream, false);
+   assert.equal(bedrockModel({ model: 'm', region: 'us-east-1' }).getConfig().stream, undefined);
+});
+
 test('omitted inference options fall back to the documented ceiling', () => {
    const config = bedrockModel({ model: 'm', region: 'us-east-1' }).getConfig();
    assert.equal(config.maxTokens, DEFAULT_MAX_TOKENS);

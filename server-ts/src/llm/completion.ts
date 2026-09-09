@@ -132,6 +132,10 @@ export class Completion {
             model: call.model,
             region: this.#region,
             credentials: this.#credentials,
+            // The non-streaming API: nothing reads a completion while it
+            // waits, and the policy that used to serve these callers grants
+            // `bedrock:InvokeModel` alone.
+            stream: false,
          }),
          systemPrompt: call.system,
          retryStrategy: new BerryRetryStrategy(),

@@ -11,8 +11,8 @@ evidence in one browser experience. An assignee can be a person or an agent,
 and the same assignment, status, comment, and review primitives drive both.
 
 Berry runs agents itself. Since [ADR-0008](adr/0008-adk-agent-runtime.md) an
-agent is a row and a run is executed in-process on the Google Agent Development
-Kit, with one model client pointed at OpenRouter. Berry does not reimplement
+agent is a row and a run is executed in-process on the Strands Agents SDK,
+with one model factory pointed at Amazon Bedrock. Berry does not reimplement
 sandboxing or provider plumbing beyond that seam.
 
 Berry owns the product motion and its durable facts: users and workspaces,

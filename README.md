@@ -3,7 +3,7 @@
 Berry is a self-hosted workspace where humans and AI coding agents plan, execute, and
 review work together. Berry owns the browser-facing product, its durable state, and — since
 [ADR-0008](docs/adr/0008-adk-agent-runtime.md) — agent execution itself: agents run
-in-process on the Google Agent Development Kit rather than on a separate substrate.
+in-process on the Strands Agents SDK rather than on a separate substrate.
 
 | Path | What |
 | --- | --- |

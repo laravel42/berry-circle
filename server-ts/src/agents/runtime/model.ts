@@ -31,6 +31,13 @@ export interface ModelSpec {
    credentials?: AwsCredentials | null | undefined;
    maxTokens?: number | undefined;
    temperature?: number | undefined;
+   /**
+    * Whether the reply streams. Streaming is what makes a run readable while
+    * it runs, and it needs `bedrock:InvokeModelWithResponseStream`. A single
+    * completion has nothing to show while it waits, and asking for the
+    * streaming API would only widen the permission it needs.
+    */
+   stream?: boolean | undefined;
 }
 
 /** What builds a model. Production passes `bedrockModel`; tests pass a script. */
@@ -51,5 +58,6 @@ export function bedrockModel(spec: ModelSpec): BedrockModel {
       modelId: spec.model,
       maxTokens: spec.maxTokens ?? DEFAULT_MAX_TOKENS,
       ...(spec.temperature === undefined ? {} : { temperature: spec.temperature }),
+      ...(spec.stream === undefined ? {} : { stream: spec.stream }),
    });
 }

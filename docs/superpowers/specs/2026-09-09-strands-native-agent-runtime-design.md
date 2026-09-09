@@ -594,3 +594,29 @@ on; overriding any of them changes one phase, not the design.
   preserved. Mitigation: the `LedgerPlugin` test asserts order against a
   scripted two-tool run, and the live run at the Phase 2 checkpoint is
   watched in the UI.
+
+## 11. Outcome (2026-09-09)
+
+Implemented on branch `refactor/strands-native-runtime` in fourteen commits;
+`pnpm typecheck` clean and 534 tests passing (baseline 502). Phase 0's spike
+confirmed every hook assumption; two findings changed the code from what §5
+described:
+
+- `ModelStreamUpdateEvent` is hookable, so the plugins see text deltas and
+  usage themselves and the executor forwards nothing — it calls `invoke()`
+  once.
+- Usage is not on `AfterModelCallEvent`; it comes from the stream's
+  `ModelMetadataEvent`, and `AgentResult.metrics` agrees with the sum.
+
+Live checkpoint: `Completion.structured()` and `Completion.text()` verified
+against Bedrock on the deployment's credentials. The first attempt failed with
+`AccessDeniedException` on `bedrock:InvokeModelWithResponseStream`: the SDK
+streams by default, the old raw client used non-streaming `Converse`, and the
+documented policy (`docs/aws/berry-agent-bedrock-policy.json`) grants
+`bedrock:InvokeModel` alone. Completions now ask for the non-streaming API
+(`stream: false`) and keep the old permission footprint; runs stream by
+design and the policy document now lists both actions — **a deployment on the
+old policy cannot run agents until it is updated**, and that predates this
+refactor (the run path was already on the SDK). A full repository run under
+the live driver was not exercised in this session; §10's ledger-order risk is
+covered by the offline loop tests and remains to be watched once in the UI.
