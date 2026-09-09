@@ -1,5 +1,5 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat, readJson } from '../agents/bedrock-chat.ts';
+import { BedrockChat, readJson } from '../llm/bedrock-chat.ts';
 
 /**
  * Who does the work a plan just created, and starting it.

@@ -1,5 +1,5 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat } from '../agents/bedrock-chat.ts';
+import { BedrockChat } from '../llm/bedrock-chat.ts';
 import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationReport } from './schema.ts';
 
 /**

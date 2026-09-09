@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PlanGenerator, PlannerUnavailable } from './generator.ts';
 import type { Sql } from '../db/pool.ts';
-import { BedrockUnavailable, type BedrockChat } from '../agents/bedrock-chat.ts';
+import { BedrockUnavailable, type BedrockChat } from '../llm/bedrock-chat.ts';
 
 /**
  * The pipeline: generate, validate, repair, critic.

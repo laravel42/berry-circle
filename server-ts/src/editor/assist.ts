@@ -1,4 +1,4 @@
-import { BedrockChat } from '../agents/bedrock-chat.ts';
+import { BedrockChat } from '../llm/bedrock-chat.ts';
 const SYSTEM = `You rewrite Markdown for a product editor.
 
 The input may already be Markdown. Return only Markdown — keep headings, lists,

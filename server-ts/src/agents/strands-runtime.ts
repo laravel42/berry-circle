@@ -1,5 +1,5 @@
 import { Agent, BedrockModel, type Tool } from '@strands-agents/sdk';
-import type { AwsCredentials } from './bedrock-chat.ts';
+import type { AwsCredentials } from '../llm/bedrock-chat.ts';
 
 /**
  * Strands, behind a seam.
