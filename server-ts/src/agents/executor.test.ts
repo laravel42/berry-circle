@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ResultText, splitUtf8, toAgentName } from './executor.ts';
+import { toAgentName } from './executor.ts';
+import { ResultText } from './runtime/result-text.ts';
+import { splitUtf8 } from './runtime/output-buffer.ts';
 import { commentBody, truncateUtf8 } from '../runs/result-comment.ts';
 import { buildMessage } from './prompt.ts';
 import { recallPrompt } from '../agentcore/memory.ts';

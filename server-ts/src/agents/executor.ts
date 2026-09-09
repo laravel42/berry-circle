@@ -20,6 +20,8 @@ import {
    type RepositoryRunDeps,
 } from './repository-run.ts';
 import { buildMessage, lastRejection } from './prompt.ts';
+import { MAX_SUMMARY_BYTES, ResultText } from './runtime/result-text.ts';
+import { OutputBuffer } from './runtime/output-buffer.ts';
 
 /**
  * Runs one Berry run through ADK, writing the ledger Berry already keeps.
@@ -41,32 +43,6 @@ import { buildMessage, lastRejection } from './prompt.ts';
  * is recorded as succeeded only when the iterator actually completes, and the
  * result is the last substantive turn rather than the last thing said.
  */
-
-const MAX_SUMMARY_BYTES = 5_000;
-
-/**
- * Separates an answer from a remark.
- *
- * A report is hundreds of bytes at the least; a sign-off ("I'll write that to
- * a file") is not. Recording the closing line as the result lost the answer it
- * followed, often enough that the distinction is worth this constant.
- */
-const SUBSTANTIVE_RESULT_BYTES = 400;
-
-/**
- * How much streamed text is gathered before it becomes one ledger event.
- *
- * The previous runtime emitted whole sentences and Berry wrote one event per
- * chunk; the model emits tokens, and one transaction per token would mean thousands
- * of row-locked writes for one answer and a `run_events` table that is mostly
- * single words. Gathering to roughly a sentence keeps the stream live without
- * making the ledger a token log.
- *
- * The cap is the long-standing ceiling on a single published delta.
- */
-const OUTPUT_FLUSH_BYTES = 240;
-const OUTPUT_FLUSH_MS = 250;
-const MAX_DELTA_BYTES = 16 * 1024;
 
 export interface ExecutorOptions {
    sql: Sql;
@@ -613,117 +589,6 @@ class RunCancelled extends Error {
    constructor() {
       super('run cancelled');
       this.name = 'RunCancelled';
-   }
-}
-
-/**
- * Gathers streamed text into ledger-sized deltas.
- *
- * Time as well as size, because size alone stalls: an agent that stops
- * mid-sentence to think would leave its last words unwritten until it resumed,
- * and a reader watching the run would see it freeze. Whichever comes first
- * wins.
- */
-class OutputBuffer {
-   private readonly write: (text: string) => Promise<void>;
-   private pending = '';
-   private since = 0;
-
-   constructor(write: (text: string) => Promise<void>) {
-      this.write = write;
-   }
-
-   async add(text: string): Promise<void> {
-      if (this.pending === '') this.since = Date.now();
-      this.pending += text;
-      const size = Buffer.byteLength(this.pending, 'utf8');
-      if (size >= OUTPUT_FLUSH_BYTES || Date.now() - this.since >= OUTPUT_FLUSH_MS) {
-         await this.flush();
-      }
-   }
-
-   async flush(): Promise<void> {
-      if (this.pending === '') return;
-      const text = this.pending;
-      this.pending = '';
-      // Split rather than truncated: a delta over the cap is still the
-      // agent's words, and dropping the tail would lose them from the stream
-      // while the summary still had them.
-      for (const piece of splitUtf8(text, MAX_DELTA_BYTES)) await this.write(piece);
-   }
-}
-
-/**
- * Cuts text into pieces of at most `maxBytes`, never mid-character.
- *
- * Ported from runadmission's splitUTF8, and for the same reason: a delta cut
- * mid-sequence reaches the browser as a replacement character in the middle of
- * a word.
- */
-export function splitUtf8(value: string, maxBytes: number): string[] {
-   if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value === '' ? [] : [value];
-
-   const pieces: string[] = [];
-   let piece = '';
-   let size = 0;
-   for (const character of value) {
-      const width = Buffer.byteLength(character, 'utf8');
-      if (size + width > maxBytes) {
-         pieces.push(piece);
-         piece = '';
-         size = 0;
-      }
-      piece += character;
-      size += width;
-   }
-   if (piece !== '') pieces.push(piece);
-   return pieces;
-}
-
-/**
- * The agent's final message, tracked across turns.
- *
- * Each turn's text is kept apart because the final message is what the agent
- * reports with: earlier turns ("I'll look into this") are progress. A turn
- * that says nothing, such as a bare tool call, leaves the result as it was.
- *
- * Ported from runadmission's resultText, including the distinction between the
- * last turn that said anything and the last that said enough to be a report.
- */
-export class ResultText {
-   private turn = '';
-   private last = '';
-   private substantive = '';
-   private lastCut = false;
-   private subCut = false;
-
-   append(value: string): void {
-      this.turn += value;
-   }
-
-   endTurn(): void {
-      const text = this.turn.trim();
-      if (text !== '') {
-         const cut = Buffer.byteLength(text, 'utf8') > MAX_SUMMARY_BYTES;
-         this.last = text;
-         this.lastCut = cut;
-         if (Buffer.byteLength(text, 'utf8') >= SUBSTANTIVE_RESULT_BYTES) {
-            this.substantive = text;
-            this.subCut = cut;
-         }
-      }
-      this.turn = '';
-   }
-
-   /**
-    * What the run reports.
-    *
-    * A substantive turn wins over a later thin one: an agent that finishes with
-    * "Done." after a long explanation should report the explanation.
-    */
-   final(): [string, boolean] {
-      if (this.substantive !== '') return [this.substantive, this.subCut];
-      return [this.last, this.lastCut];
    }
 }
 
