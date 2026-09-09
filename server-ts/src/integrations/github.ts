@@ -104,6 +104,32 @@ export class GitHubClient {
    }
 
    /**
+    * The stored identity of one repository: its numeric id and canonical name.
+    *
+    * Berry stores the id beside the name so a rename does not orphan a link,
+    * and the id is GitHub's to assign — never the caller's to supply. This is
+    * the resolve step a project's repository link runs through before the
+    * write. A 404 (missing, or unseen by this credential) surfaces as a
+    * `GitHubError` with remedy `grant-access`, which the caller maps to a 422.
+    */
+   async resolveRepository(owner: string, name: string): Promise<RepositoryChoice> {
+      const body = await this.#json<RepositoryRow>(
+         'GET',
+         `/repos/${encode(owner)}/${encode(name)}`
+      );
+      return {
+         id: Number(body.id),
+         fullName: String(body.full_name),
+         name: String(body.name),
+         private: Boolean(body.private),
+         defaultBranch: String(body.default_branch ?? 'main'),
+         ...(typeof body.description === 'string' && body.description !== ''
+            ? { description: body.description }
+            : {}),
+      };
+   }
+
+   /**
     * Opens the pull request, or returns the one that is already there.
     *
     * A retried run pushes to the same branch, and GitHub answers 422 for a

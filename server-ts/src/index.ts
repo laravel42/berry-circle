@@ -272,7 +272,16 @@ registry.registerAll(
 );
 registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
 registry.registerAll(
-   projectMounts({ sessions, projects, idempotency, scm: scm.provisioning, scmWorkspaces, logger })
+   projectMounts({
+      sessions,
+      projects,
+      idempotency,
+      scm: scm.provisioning,
+      scmWorkspaces,
+      connections,
+      githubApp,
+      logger,
+   })
 );
 registry.registerAll(runMounts(runOptions));
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));

@@ -23,6 +23,10 @@ import type {
 import type { ScmProvisioning } from '../scm/provisioning.ts';
 import type { ScmLink } from '../scm/links.ts';
 import type { ScmWorkspaces } from '../scm/workspaces.ts';
+import { GitHubAppUnavailable, type GitHubAppRepository } from '../integrations/github-app.ts';
+import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
+import { GitHubClient, GitHubError } from '../integrations/github.ts';
+import { githubToken } from './integrations.ts';
 import type { Logger } from '../observability/log.ts';
 import type { Mount } from '../http/registry.ts';
 
@@ -66,6 +70,16 @@ export interface ProjectOptions {
    scm: ScmProvisioning | null;
    /** Resolves the organization a workspace's repositories belong under. */
    scmWorkspaces: ScmWorkspaces | null;
+   /**
+    * The workspace's GitHub credential, shared with the integrations mount.
+    *
+    * Linking a repository resolves its id through the same credential the
+    * picker lists repositories with — App installation token when one exists,
+    * otherwise the OAuth connection — so what a person can pick is exactly what
+    * they can link. Null without an encryption key: nothing can be sealed.
+    */
+   connections: ConnectionRepository | null;
+   githubApp: GitHubAppRepository | null;
    logger: Logger;
 }
 
@@ -110,6 +124,14 @@ export function projectMounts(options: ProjectOptions): Mount[] {
       const userId = context.get('user').id;
       await projects.authorize(userId, input.workspaceId, 'product.write').catch(rethrow);
 
+      // Berry stores the repository id alongside the name, so a linked project
+      // resolves the pair through the provider before the row is written; a
+      // project with no repository stores neither.
+      const repository =
+         input.githubRepo !== null
+            ? await resolveRepository(options, input.workspaceId, input.githubRepo)
+            : null;
+
       const created = await projects
          .create({
             workspaceId: input.workspaceId,
@@ -119,11 +141,8 @@ export function projectMounts(options: ProjectOptions): Mount[] {
             priority: input.priority,
             startDate: input.startDate,
             targetDate: input.targetDate,
-            // Berry stores the repository id alongside the name, and the id
-            // only exists once GitHub has resolved it. Without that resolver
-            // here, only the name is recorded.
-            githubRepoId: null,
-            githubRepoFullName: input.githubRepo,
+            githubRepoId: repository?.githubRepoId ?? null,
+            githubRepoFullName: repository?.githubRepoFullName ?? null,
             createdBy: userId,
          })
          .catch(rethrow);
@@ -151,6 +170,14 @@ export function projectMounts(options: ProjectOptions): Mount[] {
    route.patch('/:projectId', async (context) => {
       const { workspaceId, projectId } = await scopeOf(context, projects, 'product.write');
       const patch = parsePatch(await readBody(context.req.raw, PROJECT_BODY_FIELDS));
+      // Linking a repository resolves its id through the provider before the
+      // write, so the stored id/name pair always agrees. Clearing it (set with
+      // no name) needs no resolution.
+      if (patch.githubRepoSet && patch.githubRepoFullName) {
+         const resolved = await resolveRepository(options, workspaceId, patch.githubRepoFullName);
+         patch.githubRepoId = resolved.githubRepoId;
+         patch.githubRepoFullName = resolved.githubRepoFullName;
+      }
       return json(
          serializeProject(await projects.update(workspaceId, projectId, patch).catch(rethrow))
       );
@@ -294,7 +321,6 @@ function parseCreate(body: Record<string, unknown>): CreateInput {
    }
 
    assertValid(fields);
-   if (githubRepo !== null) requireRepositoryResolver();
    return { workspaceId, name, description, status, priority, startDate, targetDate, githubRepo };
 }
 
@@ -359,12 +385,13 @@ function parsePatch(body: Record<string, unknown>): ProjectPatch {
          if (!GITHUB_REPO.test(trimmed)) {
             fields.push(field('/githubRepo', 'invalid_string', 'Repository must be owner/name.'));
          } else {
-            assertValid(fields);
-            requireRepositoryResolver();
+            // Only the name is carried out of parsing. Resolving it to the
+            // stored id is an async provider call and happens in the handler,
+            // which has the workspace and the SCM provider; a pure parser has
+            // neither. Clearing (null) needs no resolution and skips it.
             patch.githubRepoFullName = trimmed;
          }
       }
-      // Clearing is always allowed: unlinking needs no resolver.
    }
    if (provided === 0) {
       fields.push(field('/', 'too_small', 'At least one field must be provided.'));
@@ -681,25 +708,96 @@ function assertValid(fields: FieldError[]): void {
 }
 
 /**
- * Refuses to link a repository, because this server cannot resolve one.
+ * Resolves an `owner/name` to the stored repository pair, through the provider.
  *
  * Berry stores the repository id beside its name, and the id is resolved
  * through GitHub rather than accepted from the caller — a caller-supplied id
  * could name a repository the connection cannot see, and the stored pair would
  * then disagree about where the project delivers. A database constraint keeps
- * the two columns together, so writing a name without an id is not merely
- * incomplete, it is rejected.
+ * the two columns together, so a name is never written without its id.
  *
- * This is the answer for a deployment without the resolver. A deployment that
- * has one answers 422 REPOSITORY_UNAVAILABLE instead, which is the case this
- * server does not yet cover. Recorded in ROUTING.md.
+ * Three outcomes, three status codes:
+ *   - No provider configured at all → 412 INTEGRATIONS_NOT_CONFIGURED. Nothing
+ *     can resolve a repository here; the fix is deployment configuration.
+ *   - Provider configured but the repository cannot be resolved (missing, or
+ *     the credential cannot see it) → 422 REPOSITORY_UNAVAILABLE. The fix is
+ *     the caller's — a different repository, or a broader connection.
+ *   - A transient provider failure → 502 PROVIDER_ERROR, worth retrying.
  */
-function requireRepositoryResolver(): never {
-   throw new ApiError(
-      412,
-      'INTEGRATIONS_NOT_CONFIGURED',
-      'This deployment cannot resolve GitHub repositories.'
-   );
+async function resolveRepository(
+   options: ProjectOptions,
+   workspaceId: string,
+   fullName: string
+): Promise<{ githubRepoId: string; githubRepoFullName: string }> {
+   // No encryption key means no credential can be sealed, so none can be held.
+   if (!options.connections) {
+      throw new ApiError(
+         412,
+         'INTEGRATIONS_NOT_CONFIGURED',
+         'This deployment cannot resolve GitHub repositories.'
+      );
+   }
+
+   // The same credential the picker lists with: App token first, else the
+   // OAuth connection. Resolving through it means what a person can link is
+   // exactly what they were shown.
+   let token: string;
+   try {
+      token = await githubToken(workspaceId, options);
+   } catch (error) {
+      if (error instanceof GitHubAppUnavailable) {
+         throw new ApiError(
+            409,
+            error.reason === 'not_installed' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
+            error.reason === 'not_installed'
+               ? 'The GitHub App is not installed for this workspace.'
+               : `The GitHub App needs attention: ${error.message}.`
+         );
+      }
+      if (error instanceof ConnectionUnavailable) {
+         throw new ApiError(
+            409,
+            error.reason === 'missing' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
+            error.reason === 'missing'
+               ? 'GitHub is not connected to this workspace.'
+               : `The GitHub connection needs attention: ${error.message}.`
+         );
+      }
+      throw error;
+   }
+
+   const slash = fullName.indexOf('/');
+   const owner = fullName.slice(0, slash);
+   const name = fullName.slice(slash + 1);
+
+   let repository;
+   try {
+      repository = await new GitHubClient({ token }).resolveRepository(owner, name);
+   } catch (error) {
+      if (error instanceof GitHubError) {
+         // A repository the credential cannot see returns 404 too, on purpose:
+         // telling "missing" from "unseen" would say whether a private
+         // repository exists. Both are the caller's to fix, so both are 422.
+         if (error.status === 404 || error.remedy === 'grant-access') {
+            throw new ApiError(
+               422,
+               'REPOSITORY_UNAVAILABLE',
+               `That repository could not be resolved: ${error.message}`
+            );
+         }
+         if (error.remedy === 'reconnect') {
+            throw new ApiError(
+               409,
+               'CONNECTION_UNUSABLE',
+               `The GitHub connection needs attention: ${error.message}.`
+            );
+         }
+         throw new ApiError(502, 'PROVIDER_ERROR', `GitHub refused the request: ${error.message}`);
+      }
+      throw error;
+   }
+   // The id is GitHub's own numeric id, stored as text beside the name.
+   return { githubRepoId: String(repository.id), githubRepoFullName: repository.fullName };
 }
 
 function invalidQuery(path: string, message: string): ApiError {
