@@ -1,6 +1,8 @@
 # ADR-0008: Run agents in-process with the Google Agent Development Kit
 
-- **Status:** Accepted — implemented. The runtime this record replaces was
+- **Status:** Accepted — implemented; the implementation is superseded by
+  [ADR-0013](0013-strands-native-agent-runtime.md) (Strands, natively), and
+  the decision stands. The runtime this record replaces was
   removed from the repository on 2026-08-28, along with the server that adapted
   it; the detail below is retained because it is the evidence for the
   decision, not a description of anything that still runs.
