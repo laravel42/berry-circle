@@ -79,7 +79,9 @@ export async function apply(
  * Reel — that renders it; the rendering models are not chat models and cannot
  * drive the loop. So the choice here is which model writes best for the
  * medium. Narration is prose that has to sound right read aloud, and Claude
- * Sonnet 4.5 writes it markedly better than Haiku. A video prompt is a dense
+ * Sonnet writes it markedly better than Haiku — 4.6 rather than 4.5, because
+ * 4.5 sits behind a Marketplace subscription this account does not hold and
+ * fails with INVALID_PAYMENT_INSTRUMENT, while 4.6 invokes directly. A video prompt is a dense
  * visual description in the vocabulary Nova Reel was trained beside, and Nova
  * Pro is the family's own chat model, which Amazon recommends for writing
  * Reel prompts. Both are upserted with fixed ids, so a re-seed updates the
@@ -90,7 +92,7 @@ const MEDIA_AGENTS = [
       id: TextToSpeechAgentID,
       name: 'text-to-speech',
       description: 'Turns text into narrated audio: writes the script for the ear, then renders it with Amazon Polly.',
-      model: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      model: 'us.anthropic.claude-sonnet-4-6',
       capabilities: ['text_to_speech', 'file_list', 'file_read', 'file_write'],
       instructions: `You produce spoken audio from text.
 
@@ -144,6 +146,8 @@ async function upsertMediaAgents(tx: Sql, now: string): Promise<void> {
             description = EXCLUDED.description,
             capabilities = EXCLUDED.capabilities,
             instructions = EXCLUDED.instructions,
+            model_provider = EXCLUDED.model_provider,
+            model_name = EXCLUDED.model_name,
             archived_at = NULL,
             updated_at = EXCLUDED.updated_at
       `;
