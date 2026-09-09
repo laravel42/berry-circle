@@ -101,10 +101,26 @@ function refusing() {
    } as never;
 }
 
-function catalog(bedrock: never, ttlMs = 60_000, clock?: () => number) {
+/**
+ * A `fetch` that answers the Portkey pricing feed with the given document. The
+ * default is an empty object, so a catalogue built without a specific price
+ * body reads every model as unpriced — and no test ever reaches the network.
+ */
+function pricingFetch(body: Record<string, unknown> = {}): typeof globalThis.fetch {
+   return (async () =>
+      ({ ok: true, json: async () => body }) as Response) as typeof globalThis.fetch;
+}
+
+function catalog(
+   bedrock: never,
+   ttlMs = 60_000,
+   clock?: () => number,
+   fetchImpl: typeof globalThis.fetch = pricingFetch()
+) {
    return new ModelCatalog({
       region: 'us-east-1',
       bedrock,
+      fetch: fetchImpl,
       ttlMs,
       ...(clock ? { clock } : {}),
    });
@@ -282,4 +298,117 @@ test('an unavailable foundation-model list leaves the profiles unfiltered', asyn
    const models = catalog(client);
    // Even an embedding profile survives when there is nothing to filter with.
    assert.deepEqual((await models.list()).map((m) => m.id), ['us.amazon.titan-embed-text-v2:0']);
+});
+
+test('a global. profile resolves its capability, like a us. one', async () => {
+   // The `global.` routing prefix must be stripped for the capability lookup to
+   // hit; a naive two-or-three-letter strip left these profiles unmatched.
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0' }],
+         [
+            {
+               modelId: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+               outputModalities: ['TEXT'],
+               inputModalities: ['TEXT', 'IMAGE'],
+            },
+         ]
+      )
+   );
+   const [model] = await models.list();
+   assert.equal(model!.supportsVision, true);
+});
+
+/** A Portkey pricing entry: cents-per-token for input and output. */
+function portkeyEntry(inputCents: number, outputCents: number) {
+   return {
+      pricing_config: {
+         pay_as_you_go: {
+            request_token: { price: inputCents },
+            response_token: { price: outputCents },
+         },
+      },
+   };
+}
+
+test('prices come from the Portkey feed, converted from cents/token to per million', async () => {
+   // Anthropic is keyed by a bare, version-stripped name in Portkey; the join
+   // must find it from the full profile id `us.anthropic.claude-…-v1:0`.
+   const fetchImpl = pricingFetch({
+      'claude-sonnet-4-20250514': portkeyEntry(0.0003, 0.0015),
+   });
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' }],
+         [{ modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', outputModalities: ['TEXT'] }]
+      ),
+      60_000,
+      undefined,
+      fetchImpl
+   );
+
+   const [model] = await models.list();
+   // 0.0003 cents/token × 10,000 = $3/M; 0.0015 × 10,000 = $15/M. Compared with
+   // a tolerance because the ×10,000 scaling is not exact in binary floating
+   // point (3 comes back as 2.9999999999999996).
+   assert.ok(Math.abs(model!.inputCostPerM - 3) < 1e-6, `input ~$3/M, got ${model!.inputCostPerM}`);
+   assert.ok(
+      Math.abs(model!.outputCostPerM - 15) < 1e-6,
+      `output ~$15/M, got ${model!.outputCostPerM}`
+   );
+});
+
+test('a model Portkey keys by its full id (Meta, DeepSeek) is priced too', async () => {
+   const fetchImpl = pricingFetch({
+      'meta.llama3-3-70b-instruct-v1:0': portkeyEntry(0.0000072, 0.0000072),
+   });
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'us.meta.llama3-3-70b-instruct-v1:0' }],
+         [{ modelId: 'meta.llama3-3-70b-instruct-v1:0', outputModalities: ['TEXT'] }]
+      ),
+      60_000,
+      undefined,
+      fetchImpl
+   );
+
+   const [model] = await models.list();
+   assert.ok(model!.inputCostPerM > 0, 'the full-id keyed model is priced');
+   assert.ok(
+      Math.abs(model!.outputCostPerM - 0.072) < 1e-6,
+      `output ~$0.072/M, got ${model!.outputCostPerM}`
+   );
+});
+
+test('a model absent from the Portkey feed reads as unknown, not free', async () => {
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'us.amazon.nova-premier-v1:0' }],
+         [{ modelId: 'amazon.nova-premier-v1:0', outputModalities: ['TEXT'] }]
+      ),
+      60_000,
+      undefined,
+      pricingFetch({ 'claude-sonnet-4-20250514': portkeyEntry(0.0003, 0.0015) })
+   );
+   const [model] = await models.list();
+   assert.equal(model!.inputCostPerM, 0);
+   assert.equal(model!.outputCostPerM, 0);
+});
+
+test('a pricing feed failure leaves prices unknown without emptying the catalogue', async () => {
+   const failing = (async () => {
+      throw new Error('network down');
+   }) as typeof globalThis.fetch;
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' }],
+         [{ modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', outputModalities: ['TEXT'] }]
+      ),
+      60_000,
+      undefined,
+      failing
+   );
+   const listed = await models.list();
+   assert.equal(listed.length, 1, 'the model is still listed');
+   assert.equal(listed[0]!.inputCostPerM, 0, 'its price is just unknown');
 });
