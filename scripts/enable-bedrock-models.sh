@@ -98,21 +98,22 @@ command -v jq >/dev/null 2>&1 && have_jq=true
 
 list_models_for_provider() {
   local provider="$1"
+  # Match on the model-id prefix, which is always the lowercase provider key
+  # (mistral., qwen., anthropic.), not on providerName. Bedrock's reported
+  # provider name is free text with spaces ("Mistral AI", "Amazon"), so an
+  # exact providerName compare drops whole families; the id prefix is stable.
+  local prefix
+  prefix="$(printf '%s' "$provider" | tr '[:upper:]' '[:lower:]')."
   if $have_jq; then
     aws bedrock list-foundation-models --region "$REGION" --output json 2>/dev/null \
-      | jq -r --arg p "$provider" '
+      | jq -r --arg p "$prefix" '
           .modelSummaries[]
-          | select((.providerName // "" | ascii_downcase) == ($p | ascii_downcase))
+          | select(.modelId | ascii_downcase | startswith($p))
           | select((.modelLifecycle.status // "ACTIVE") == "ACTIVE")
           | select((.outputModalities // ["TEXT"]) | index("TEXT"))
           | .modelId'
   else
-    # No jq: match on the model id prefix, which is always the lowercase
-    # provider key (openai.gpt-…, anthropic.claude-…), so this is casing-proof
-    # where a provider-name filter would not be. Lowercase the requested
-    # provider to build the prefix.
-    local prefix
-    prefix="$(printf '%s' "$provider" | tr '[:upper:]' '[:lower:]')."
+    # No jq: same id-prefix match via --query + grep, so both paths agree.
     aws bedrock list-foundation-models \
       --region "$REGION" \
       --query "modelSummaries[?modelLifecycle.status=='ACTIVE'].modelId" \
