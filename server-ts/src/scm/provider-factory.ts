@@ -1,0 +1,99 @@
+import type { Sql } from '../db/pool.ts';
+import type { Logger } from '../observability/log.ts';
+import type { Config } from '../config/config.ts';
+import type { GitHubAppRepository } from '../integrations/github-app.ts';
+import { startGateway } from '../agentcore/bootstrap.ts';
+import { GitHubProvider } from './github-provider.ts';
+import { ScmLinkRepository } from './links.ts';
+import { ScmProvisioning } from './provisioning.ts';
+import { ScmWorkspaces } from './workspaces.ts';
+import { ScmSync } from './sync.ts';
+
+/** A git credential minted per workspace, for cloning and pushing. */
+export type GitCredential = (
+   workspaceId: string
+) => Promise<{ username: string; password: string }>;
+
+/**
+ * The source-control pieces the composition root wires into the mounts. All
+ * are null when no provider is configured — a working deployment that simply
+ * cannot reach a git host, rather than one that fails at the first clone.
+ */
+export interface Scm {
+   links: ScmLinkRepository;
+   provisioning: ScmProvisioning | null;
+   workspaces: ScmWorkspaces | null;
+   sync: ScmSync | null;
+   /** Refuses by default; replaced when a provider is configured. */
+   gitCredential: GitCredential;
+}
+
+/**
+ * Selects the source-control provider and assembles the SCM services.
+ *
+ * There are two providers and they are interchangeable to the domain because
+ * both satisfy `ScmProvider`: `agentcore` reaches GitHub through the gateway's
+ * tools, while the App path uses Berry's own client and a GitHub App
+ * installation token minted per workspace. Discovery for the gateway runs at
+ * boot, so a gateway missing a required tool is found while someone is
+ * watching. Extracted from the composition root because choosing a provider is
+ * logic, not wiring.
+ */
+export async function createScm(options: {
+   sql: Sql;
+   config: Config;
+   logger: Logger;
+   githubApp: GitHubAppRepository | null;
+}): Promise<Scm> {
+   const { sql, config, logger, githubApp } = options;
+   const links = new ScmLinkRepository(sql);
+
+   // Refuses until a provider replaces it: a call site that reaches for a
+   // credential in an unconfigured deployment gets a clear error, not a null.
+   let gitCredential: GitCredential = async () => {
+      throw new Error('no GitHub credential is configured');
+   };
+
+   if (config.githubProvider === 'agentcore' && config.agentCoreGateway) {
+      const started = await startGateway(config.agentCoreGateway, logger);
+      if (started.provider) {
+         const provider = started.provider;
+         const provisioning = new ScmProvisioning({
+            provider: () => provider,
+            providerId: 'github',
+            links,
+            logger,
+         });
+         gitCredential = () => started.identity.gitCredential();
+         return {
+            links,
+            provisioning,
+            workspaces: new ScmWorkspaces(sql, provisioning),
+            sync: new ScmSync(sql, provisioning, logger),
+            gitCredential,
+         };
+      }
+   } else if (githubApp) {
+      const app = githubApp;
+      const provisioning = new ScmProvisioning({
+         provider: (workspaceId: string) =>
+            new GitHubProvider({ token: () => app.token(workspaceId) }),
+         providerId: 'github',
+         links,
+         logger,
+      });
+      gitCredential = (workspaceId: string) =>
+         app.token(workspaceId).then((password) => ({ username: 'x-access-token', password }));
+      return {
+         links,
+         provisioning,
+         workspaces: new ScmWorkspaces(sql, provisioning),
+         sync: new ScmSync(sql, provisioning, logger),
+         gitCredential,
+      };
+    }
+
+   // No provider configured: the links repository still exists (webhooks and
+   // stored links are read regardless), but nothing can provision or sync.
+   return { links, provisioning: null, workspaces: null, sync: null, gitCredential };
+}

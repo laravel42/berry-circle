@@ -29,12 +29,7 @@ import { projectMounts } from './mounts/projects.ts';
 import { boardRunRoutes, issueRunRoutes, runMounts } from './mounts/runs.ts';
 import { integrationMounts } from './mounts/integrations.ts';
 import { PlanTriage } from './plans/triage.ts';
-import { GitHubProvider } from './scm/github-provider.ts';
-import { startGateway } from './agentcore/bootstrap.ts';
-import { ScmLinkRepository } from './scm/links.ts';
-import { ScmProvisioning } from './scm/provisioning.ts';
-import { ScmWorkspaces } from './scm/workspaces.ts';
-import { ScmSync } from './scm/sync.ts';
+import { createScm } from './scm/provider-factory.ts';
 import { ScmInbound } from './scm/inbound.ts';
 import { WebhookDeliveries } from './scm/webhook.ts';
 import { webhookMounts } from './mounts/webhooks.ts';
@@ -68,6 +63,7 @@ import { CommentRepository } from './core/comments.ts';
 import { DependencyRepository } from './core/dependencies.ts';
 import { ReviewRepository } from './core/reviews.ts';
 import { GoalRepository } from './core/goals.ts';
+import { createGoalLinker } from './core/goal-linker.ts';
 import { AttachmentRepository } from './core/attachments.ts';
 import { ProjectRepository } from './core/projects.ts';
 import { Hub } from './realtime/hub.ts';
@@ -159,46 +155,10 @@ const execution = createExecutionDriver(config.execution, config.agentCore);
  * gets a repository, which is a working deployment, instead of one that fails
  * at the clone with a decryption error.
  */
-const scmLinks = new ScmLinkRepository(sql);
-let scm: ScmProvisioning | null = null;
-let scmWorkspaces: ScmWorkspaces | null = null;
-let scmSync: ScmSync | null = null;
-
-/**
- * The issue mount's view of goals.
- *
- * `GoalLinker` was declared with a shape no repository implemented, so
- * `goalId` on an issue has been accepted and silently discarded. This adapts
- * the repository that does exist rather than changing its signature, which
- * several other callers depend on.
- */
-const goalLinker = {
-   async clearIssueGoal(issueId: string): Promise<void> {
-      await sql`DELETE FROM goal_issues WHERE issue_id = ${issueId}`;
-   },
-   async linkIssue(
-      workspaceId: string,
-      goalId: string,
-      issueId: string,
-      actorId: string
-   ): Promise<boolean> {
-      // Scoped here rather than trusted: a goal from another workspace must
-      // read as missing, not be linked across the boundary.
-      const [goal] = await sql`
-         SELECT id FROM goals
-          WHERE id = ${goalId} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
-      if (!goal) return false;
-      await goals.linkIssue({
-         workspaceId,
-         goalId,
-         issueId,
-         actorId,
-         now: new Date().toISOString(),
-      });
-      return true;
-   },
-};
-const scmInbound = new ScmInbound({ sql, links: scmLinks, logger });
+// The issue mount's narrow view of goals: clear an issue's goal, or link it to
+// one that belongs to the same workspace. Adapted here (see core/goal-linker)
+// so `goalId` on an issue is honoured rather than silently discarded.
+const goalLinker = createGoalLinker(sql, goals);
 
 const connections = config.integrationKey
    ? new ConnectionRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
@@ -213,53 +173,17 @@ const githubApp = config.integrationKey
 /**
  * The git host, which is GitHub.
  *
- * Constructed here rather than above because the credential is a GitHub App
- * installation token, and the App repository is what mints one — per
- * workspace, which is why the provider is a factory rather than an instance.
+ * The provider is chosen and the SCM services assembled by `createScm` (see
+ * scm/provider-factory): `agentcore` reaches GitHub through the gateway's
+ * tools, the App path uses Berry's own client and a per-workspace installation
+ * token, and both satisfy `ScmProvider` so nothing in the domain can tell. All
+ * pieces are null when nothing is configured — a working deployment that just
+ * cannot reach a git host. Awaited because gateway tool discovery runs at boot.
  */
-/**
- * The source-control provider.
- *
- * `agentcore` reaches GitHub through the gateway's tools; `legacy` uses
- * Berry's own client and GitHub App. Both satisfy `ScmProvider`, so nothing in
- * the domain can tell — which is what makes the switch a rollback rather than
- * a revert.
- *
- * Discovery runs at boot, so a gateway missing a required tool is found while
- * somebody is watching rather than an hour later when a plan compiles.
- */
-let gitCredential: (workspaceId: string) => Promise<{ username: string; password: string }> = async () => {
-   throw new Error('no GitHub credential is configured');
-};
-
-if (config.githubProvider === 'agentcore' && config.agentCoreGateway) {
-   const started = await startGateway(config.agentCoreGateway, logger);
-   if (started.provider) {
-      const provider = started.provider;
-      scm = new ScmProvisioning({
-         provider: () => provider,
-         providerId: 'github',
-         links: scmLinks,
-         logger,
-      });
-      scmWorkspaces = new ScmWorkspaces(sql, scm);
-      scmSync = new ScmSync(sql, scm, logger);
-      gitCredential = () => started.identity.gitCredential();
-   }
-} else if (githubApp) {
-   const app = githubApp;
-   scm = new ScmProvisioning({
-      provider: (workspaceId: string) =>
-         new GitHubProvider({ token: () => app.token(workspaceId) }),
-      providerId: 'github',
-      links: scmLinks,
-      logger,
-   });
-   scmWorkspaces = new ScmWorkspaces(sql, scm);
-   scmSync = new ScmSync(sql, scm, logger);
-   gitCredential = (workspaceId: string) =>
-      app.token(workspaceId).then((password) => ({ username: 'x-access-token', password }));
-}
+const scm = await createScm({ sql, config, logger, githubApp });
+const scmWorkspaces = scm.workspaces;
+const scmSync = scm.sync;
+const scmInbound = new ScmInbound({ sql, links: scm.links, logger });
 
 const executor =
    config.agents && storage
@@ -276,7 +200,7 @@ const executor =
            ...(config.execution ? { execution } : {}),
            ...(connections ? { connections } : {}),
            ...(githubApp ? { githubApp } : {}),
-           gitCredential,
+           gitCredential: scm.gitCredential,
         })
       : null;
 
@@ -347,7 +271,9 @@ registry.registerAll(
    goalMounts({ sessions, goals, issues, idempotency, broadcaster, scm: scmSync })
 );
 registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
-registry.registerAll(projectMounts({ sessions, projects, idempotency, scm, scmWorkspaces, logger }));
+registry.registerAll(
+   projectMounts({ sessions, projects, idempotency, scm: scm.provisioning, scmWorkspaces, logger })
+);
 registry.registerAll(runMounts(runOptions));
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
 registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
