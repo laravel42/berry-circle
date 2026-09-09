@@ -3,11 +3,13 @@ import type { User } from '@/data/users';
 import { BerryApiError } from '@/lib/api';
 import {
    fetchBootstrap,
+   loginWithEmail,
    logoutSession,
    signInWithPassword,
    signUpWithPassword,
    type BootstrapWorkspace,
 } from '@/lib/auth';
+import { AUTO_LOGIN_EMAIL } from '@/lib/config';
 import { listBoards, selectBoardId } from '@/lib/boards';
 import { toUiUser } from '@/lib/catalog';
 import { clearSessionToken, restoreSessionToken } from '@/lib/session';
@@ -110,9 +112,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
    error: null,
 
    hydrateFromStorage: async () => {
-      // A tab-stored token is the only way in: there is no auto-login. An
-      // anonymous visitor stays anonymous until they sign in explicitly, and
-      // the protected-route guard presents `/sign-in` for that state.
+      // A tab-stored token is the normal way in. When none exists and a
+      // development AUTO_LOGIN_EMAIL is configured, sign in as that account
+      // through the passwordless route before falling back to anonymous. The
+      // route is server-gated to development/test and 404s in production, so a
+      // stray value cannot establish a session against a production API — a
+      // failed auto-login simply lands on the sign-in screen.
       if (restoreSessionToken()) {
          try {
             const ready = await loadReadyState();
@@ -125,6 +130,22 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             });
          }
          return;
+      }
+
+      if (AUTO_LOGIN_EMAIL) {
+         try {
+            await loginWithEmail(AUTO_LOGIN_EMAIL);
+            const ready = await loadReadyState();
+            set({ status: 'ready', error: null, ...ready });
+            return;
+         } catch {
+            // Auto-login is a convenience, not a guarantee: on any failure
+            // (route disabled, unknown account, network) clear any partial
+            // token and present the sign-in screen rather than an error.
+            clearSessionToken();
+            set({ ...ANONYMOUS });
+            return;
+         }
       }
 
       set({ ...ANONYMOUS });

@@ -58,3 +58,14 @@ export const BOARD_ID = (process.env.NEXT_PUBLIC_BOARD_ID || '').trim();
 
 /** True when an env board override is present. */
 export const isBoardConfigured = BOARD_ID.length > 0;
+
+/**
+ * Development-only auto-login email.
+ *
+ * When set, the session store signs in as this account through the passwordless
+ * `POST /api/v1/auth/login` route if no tab-stored token exists, skipping the
+ * sign-in screen. That route is itself gated to `development`/`test` on the
+ * server and refused in production, so a stray value here cannot establish a
+ * session against a production API. Leave empty to require an explicit sign-in.
+ */
+export const AUTO_LOGIN_EMAIL = (process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL || '').trim();
