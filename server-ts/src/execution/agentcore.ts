@@ -193,8 +193,12 @@ class AgentCoreSession implements ExecutionSession {
       // to be absent from the content; a naive `EOF` breaks on any file that
       // contains one, which shell scripts routinely do.
       const marker = `BERRY_EOF_${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+      // The terminator has to start its own line, but content that already ends
+      // in a newline needs no second one — adding it unconditionally appended a
+      // blank line to every file written.
+      const body = content.endsWith('\n') ? content : `${content}\n`;
       const result = await this.exec(
-         `mkdir -p "$(dirname ${shellQuote(path)})" && cat > ${shellQuote(path)} <<'${marker}'\n${content}\n${marker}`
+         `mkdir -p "$(dirname ${shellQuote(path)})" && cat > ${shellQuote(path)} <<'${marker}'\n${body}${marker}`
       );
       if (result.exitCode !== 0) {
          throw new ExecutionUnavailable(`could not write ${path}: ${result.stderr.slice(0, 200)}`);

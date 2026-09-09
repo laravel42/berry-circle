@@ -106,6 +106,38 @@ test('an explicit qualifier overrides the DEFAULT alias', async () => {
    assert.equal(invoke.input.qualifier, 'prod');
 });
 
+test('the command is wrapped for a shell, because AgentCore execs argv instead', async () => {
+   // Verified against the live service: a raw string is tokenized and exec'd,
+   // so `echo a && echo b` printed a literal `&&` and `for` was looked up as a
+   // binary. The wrapper is what makes an agent's shell actually be a shell.
+   const f = fake();
+   const session = await driver(f).createSession({ runId: 'r' });
+   await session.exec('echo ONE && echo TWO');
+
+   const invoke = f.sent.find((s) => s.name === 'InvokeAgentRuntimeCommandCommand')!;
+   const body = invoke.input.body as { command: string };
+   assert.match(body.command, /^\/bin\/bash -c "echo [A-Za-z0-9+/=]+ \| base64 -d \| \/bin\/bash"$/);
+
+   // The payload decodes to exactly the caller's script, and carries no
+   // quoting for the tokenizer to mangle.
+   const encoded = /echo ([A-Za-z0-9+/=]+) \| base64 -d/.exec(body.command)![1]!;
+   assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), 'echo ONE && echo TWO');
+});
+
+test('writeFile does not append a blank line to content already ending in a newline', async () => {
+   const f = fake();
+   const session = await driver(f).createSession({ runId: 'r' });
+   await session.writeFile('/tmp/f.txt', 'one line\n');
+
+   const invoke = f.sent.find((s) => s.name === 'InvokeAgentRuntimeCommandCommand')!;
+   const body = invoke.input.body as { command: string };
+   const encoded = /echo ([A-Za-z0-9+/=]+) \| base64 -d/.exec(body.command)![1]!;
+   const script = Buffer.from(encoded, 'base64').toString('utf8');
+   // The heredoc body is the content followed straight by the terminator, with
+   // no blank line between them.
+   assert.match(script, /one line\nBERRY_EOF_[A-Z0-9]+$/);
+});
+
 test('a command produces start, output and exit', async () => {
    const f = fake({
       chunks: [
@@ -204,10 +236,13 @@ test('the recorded command is the caller’s, not the one with the environment i
       !JSON.stringify(start).includes('super-secret'),
       'the recorded command must not carry the credential'
    );
-   // The credential is exported in the composed command that reached the SDK.
+   // The credential still reaches the sandbox — it is exported inside the
+   // base64-wrapped script, which is what the SDK carries. Decoded here so the
+   // assertion survives the wrapper rather than depending on its shape.
    const invoke = f.sent.find((s) => s.name === 'InvokeAgentRuntimeCommandCommand')!;
    const body = invoke.input.body as { command: string };
-   assert.match(body.command, /super-secret/);
+   const encoded = /echo ([A-Za-z0-9+/=]+) \| base64 -d/.exec(body.command)?.[1] ?? '';
+   assert.match(Buffer.from(encoded, 'base64').toString('utf8'), /super-secret/);
 });
 
 test('destroy stops the runtime session and is idempotent', async () => {

@@ -91,7 +91,7 @@ export function agentCoreRuntimeDriver(options: AgentCoreRuntimeDriverOptions): 
                   runtimeSessionId: sessionId,
                   contentType: CONTENT_TYPE,
                   accept: ACCEPT_EVENT_STREAM,
-                  body: { command: 'true' },
+                  body: { command: shellScript('true') },
                })
             );
             // Drain the stream so the invoke completes rather than leaving a
@@ -187,7 +187,7 @@ class AgentCoreRuntimeSession implements ExecutionSession {
                contentType: CONTENT_TYPE,
                accept: ACCEPT_EVENT_STREAM,
                body: {
-                  command: full,
+                  command: shellScript(full),
                   // AgentCore's timeout is seconds; Berry's is millis.
                   timeout: Math.max(1, Math.round(timeout / 1000)),
                },
@@ -259,8 +259,12 @@ class AgentCoreRuntimeSession implements ExecutionSession {
       // to be absent from the content; a naive `EOF` breaks on any file that
       // contains one, which shell scripts routinely do.
       const marker = `BERRY_EOF_${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+      // The terminator has to start its own line, but content that already ends
+      // in a newline needs no second one — adding it unconditionally appended a
+      // blank line to every file written, which a byte-comparison test caught.
+      const body = content.endsWith('\n') ? content : `${content}\n`;
       const result = await this.exec(
-         `mkdir -p "$(dirname ${shellQuote(path)})" && cat > ${shellQuote(path)} <<'${marker}'\n${content}\n${marker}`
+         `mkdir -p "$(dirname ${shellQuote(path)})" && cat > ${shellQuote(path)} <<'${marker}'\n${body}${marker}`
       );
       if (result.exitCode !== 0) {
          throw new ExecutionUnavailable(`could not write ${path}: ${result.stderr.slice(0, 200)}`);
@@ -341,6 +345,28 @@ function runtimeSessionId(runId: string): string {
 
 function message(cause: unknown): string {
    return cause instanceof Error ? cause.message : String(cause);
+}
+
+/**
+ * Wraps a script so AgentCore runs it as a shell script rather than as argv.
+ *
+ * `body.command` is **not** run through a shell. AgentCore tokenizes the string
+ * and execs it, so `echo a && echo b` prints a literal `&&`, `for` is looked up
+ * as a binary, and a pipeline sends every word to the first command as
+ * arguments. All three were observed against the live service before this
+ * wrapper existed.
+ *
+ * Quoting alone would work — the tokenizer does respect quotes — but Berry
+ * sends whatever an agent wrote, and that routinely contains single quotes,
+ * double quotes and newlines (the heredoc `writeFile` builds has all three).
+ * Base64 sidesteps the tokenizer completely: the payload is only
+ * `[A-Za-z0-9+/=]`, so there is nothing left for it to split on or unquote.
+ * The script's own exit code survives because it is the last stage of the
+ * pipeline, which is what the pipeline reports.
+ */
+function shellScript(script: string): string {
+   const encoded = Buffer.from(script, 'utf8').toString('base64');
+   return `/bin/bash -c "echo ${encoded} | base64 -d | /bin/bash"`;
 }
 
 /** Single-quoted for POSIX sh, with embedded quotes closed and reopened. */
