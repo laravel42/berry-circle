@@ -12,6 +12,7 @@ import type { ConnectionRepository } from '../integrations/connections.ts';
 import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
 import { runAgent, type AgentEvent } from './strands-runtime.ts';
+import type { AwsCredentials } from '../llm/bedrock-chat.ts';
 import {
    deliverRepository,
    prepareRepository,
@@ -73,6 +74,13 @@ export interface ExecutorOptions {
    ledger?: RunLedger;
    /** The AWS region Bedrock is called in. */
    region: string;
+   /**
+    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
+    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
+    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
+    * security token.
+    */
+   credentials?: AwsCredentials | null;
    /** Used when the agent row names no model of its own. */
    defaultModel?: string;
    clock?: () => Date;
@@ -142,6 +150,7 @@ export class AdkExecutor {
    private readonly githubApp: GitHubAppRepository | undefined;
    /** The AWS region Bedrock is called in. */
    private readonly region: string;
+   private readonly credentials: AwsCredentials | null;
    private readonly github: (token: string) => GitHubClient;
    private readonly gitCredential:
       | ((workspaceId: string) => Promise<{ username: string; password: string }>)
@@ -167,6 +176,7 @@ export class AdkExecutor {
       this.connections = options.connections;
       this.githubApp = options.githubApp;
       this.region = options.region;
+      this.credentials = options.credentials ?? null;
       this.github = options.github ?? ((token) => new GitHubClient({ token }));
       this.gitCredential = options.gitCredential;
       // A Bedrock inference profile id. The previous default here was
@@ -325,6 +335,11 @@ export class AdkExecutor {
                {
                   model: agent.model,
                   region: this.region,
+                  // Without this the model client falls back to the AWS default
+                  // chain, which in the Compose stack finds MinIO's key and is
+                  // refused as an invalid security token — so every run failed
+                  // before it made a single model call.
+                  ...(this.credentials ? { credentials: this.credentials } : {}),
                   systemPrompt: agent.instructions ?? '',
                   tools: agentTools,
                },

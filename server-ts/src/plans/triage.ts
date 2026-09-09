@@ -1,5 +1,5 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat, readJson } from '../llm/bedrock-chat.ts';
+import { BedrockChat, readJson, type AwsCredentials } from '../llm/bedrock-chat.ts';
 
 /**
  * Who does the work a plan just created, and starting it.
@@ -72,6 +72,13 @@ export interface PlanTriageOptions {
    sql: Sql;
    /** The AWS region Bedrock is called in. */
    region: string;
+   /**
+    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
+    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
+    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
+    * security token.
+    */
+   credentials?: AwsCredentials | null;
    defaultModel: string;
    /** Injected by tests; production builds one from the region. */
    chat?: BedrockChat;
@@ -90,6 +97,7 @@ export class PlanTriage {
          options.chat ??
          new BedrockChat({
             region: options.region,
+            ...(options.credentials ? { credentials: options.credentials } : {}),
             ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
          });
       this.#defaultModel = options.defaultModel;

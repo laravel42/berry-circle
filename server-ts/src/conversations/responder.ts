@@ -1,5 +1,5 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat } from '../llm/bedrock-chat.ts';
+import { BedrockChat, type AwsCredentials } from '../llm/bedrock-chat.ts';
 import { toAgentName } from '../agents/executor.ts';
 import type { ConversationMessage } from './repository.ts';
 
@@ -42,6 +42,13 @@ export interface ResponderOptions {
    sql: Sql;
    /** The AWS region Bedrock is called in. */
    region: string;
+   /**
+    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
+    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
+    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
+    * security token.
+    */
+   credentials?: AwsCredentials | null;
    /** Injected by tests; production builds one from the region. */
    chat?: BedrockChat;
    defaultModel: string;
@@ -54,7 +61,10 @@ export class ConversationResponder {
 
    constructor(options: ResponderOptions) {
       this.#sql = options.sql;
-      this.#chat = options.chat ?? new BedrockChat({ region: options.region });
+      this.#chat = options.chat ?? new BedrockChat({
+            region: options.region,
+            ...(options.credentials ? { credentials: options.credentials } : {}),
+         });
       this.#defaultModel = options.defaultModel;
    }
 
