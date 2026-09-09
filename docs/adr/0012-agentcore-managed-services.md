@@ -1,10 +1,11 @@
 # ADR-0012: Operate agents on AgentCore Runtime, Gateway, Memory, and Policy
 
-- **Status:** Proposed — not started. Only the Runtime *driver* exists
-  (`agentcore-runtime.ts`, client-side, unit-tested against a mock, never run
-  against a real runtime). No AWS resources are provisioned: no runtime ARN, no
-  Gateway, no Memory store, no Policy. Phases 1–4 are deferred pending a
-  decision to create billable AgentCore resources.
+- **Status:** Partially accepted. **Phase 1 (Runtime) is delivered and live** —
+  a runtime is provisioned in us-east-1 from Berry's own image and is the
+  active execution substrate (`BERRY_RUNTIME_DRIVER=agentcore-runtime`),
+  verified end to end against the live service. Phase 2 (Gateway), Phase 3
+  (Memory) and Phase 4 (Policy) are not started: no Gateway, no Memory store,
+  no Policy resources exist.
 - **Date:** 2026-09-09
 - **Deciders:** Berry platform
 - **Related:** [ADR-0008](0008-adk-agent-runtime.md) (in-process Strands agent
@@ -29,15 +30,14 @@ credentials via ADR-0011.)
 
 Current state, per pillar, from the code as it stands:
 
-- **Runtime** — only the *client* exists:
-  `server-ts/src/execution/agentcore-runtime.ts` invokes a deployed runtime
-  with `InvokeAgentRuntimeCommand` and satisfies the `ExecutionSession` seam. It
-  is unit-tested against a mocked client and **never run against a real
-  runtime** — there is no deployed runtime and no container image to deploy.
-  Creating one is a build project (author a container that speaks the shell-
-  execution contract with github.com egress → push to ECR → create an IAM
-  execution role → `CreateAgentRuntime` → wire `BERRY_AGENTCORE_RUNTIME_ARN` →
-  verify live), not a config change.
+- **Runtime** — **delivered.** `server-ts/src/execution/agentcore-runtime.ts`
+  invokes a deployed runtime with `InvokeAgentRuntimeCommand` and satisfies the
+  `ExecutionSession` seam. The runtime image is Berry's own
+  (`server-ts/sandbox/agentcore/`): ARM64 `node:22-slim` carrying git, pnpm,
+  node, python3 and a C toolchain, serving the required `/ping` and
+  `/invocations` on `0.0.0.0:8080`. It is provisioned in us-east-1 and is the
+  active substrate. Two defects that only live testing could surface were fixed
+  in the process — see Validation.
 - **Gateway** — implemented and dormant: `agentcore-github-provider.ts`,
   `agentcore/bootstrap.ts`, and the `createScm` branch in `provider-factory.ts`
   select it when `config.agentCoreGateway` is set (both
@@ -180,15 +180,57 @@ begins.
 
 ## Validation
 
-Per phase, as above: offline typecheck plus mocked-client unit tests for every
-phase; live verification against the named AWS resource before a phase is
-considered delivered. `pnpm typecheck:server` and `pnpm test:server` stay green
-throughout; the wire contract and the execution/SCM seams are preserved.
+Per phase: offline typecheck plus mocked-client unit tests for every phase; live
+verification against the named AWS resource before a phase is considered
+delivered. `pnpm typecheck:server` and `pnpm test:server` stay green throughout;
+the wire contract and the execution/SCM seams are preserved.
+
+### Phase 1 evidence
+
+The managed Code Interpreter was tested first and **rejected on evidence**: it
+ships no `git`, no `pnpm`, and has no route to github.com (`curl` returned 000).
+A run clones and pushes through its session, so none of those is optional. That
+is what made owning the image necessary.
+
+Against the provisioned runtime, using the server's own credential rather than
+an administrator's: `health()` reachable; `git 2.39.5`, `pnpm 10.12.1`, node,
+python3, gcc, make all present; **egress to github.com returns 200**; a real
+shallow `git clone` of a public repository succeeds; a non-zero exit is
+propagated as a result (`exit 42`), not raised; `writeFile`/`readFile` round-trip
+byte-exact across plain text, embedded single and double quotes, multi-line
+content, shell metacharacters and nested heredoc markers; nested directories are
+created. The server boots reporting `executionDriver: agentcore-runtime`.
+
+Two defects were found only by running against the live service, and both are
+now fixed and pinned by tests:
+
+1. **`body.command` is not run through a shell.** AgentCore tokenizes the string
+   and execs it, so `echo a && echo b` printed a literal `&&`, `for` was looked
+   up as a binary, and a pipeline passed every word to the first command. The
+   driver now wraps the script as `/bin/bash -c "echo <base64> | base64 -d |
+   /bin/bash"`. Base64 rather than quoting because Berry sends whatever an agent
+   wrote, which routinely contains quotes and newlines; the encoded payload
+   leaves the tokenizer nothing to split on.
+2. **`writeFile` appended a blank line** to any content already ending in a
+   newline, because the heredoc terminator was always preceded by an added `\n`.
+   Fixed in both AgentCore drivers.
 
 ## Follow-up
 
-- Confirm which AWS AgentCore resources exist (Runtime ARN, Gateway URL +
-  Identity provider, Memory id) — this gates which phase can be verified first.
+- **A runtime image per toolchain.** The image a run needs is decided by the
+  repository it works in: this one carries Node and pnpm because that is Berry's
+  own stack, and a PHP, Python or Go repository wants its own. Keep
+  `server.mjs` shared and vary only the toolchain layer. This makes a single
+  `BERRY_AGENTCORE_RUNTIME_ARN` insufficient — the deployment will need a
+  toolchain-to-ARN mapping, chosen per project, and that is a config-shape
+  decision this ADR does not settle.
+- **Persistent filesystem.** `CreateAgentRuntime` accepts
+  `filesystemConfigurations`, and the image already works in `/mnt/workspace`.
+  Mounting one there would let a checkout, its installed packages and its build
+  artifacts survive a session stop instead of being cloned again.
+- **`docker` remains the self-hosted path.** A deployment with no AWS still runs
+  the local runtime service; this ADR adds a substrate, it does not remove one.
+- Phase 2 (Gateway) gates Phase 4 (Policy); neither is started.
 - Deferred pillars: Identity (broaden beyond GitHub), Tools (route through
   Gateway/registry), Observability (OTEL → CloudWatch/AgentCore Observability).
   A separate ADR when those are scoped.

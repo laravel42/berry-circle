@@ -49,8 +49,14 @@ run image before it starts.
 `BERRY_RUNTIME_DRIVER` selects where an agent's commands run:
 
 - `docker` — this service, a disposable container per run on the host daemon.
-- `agentcore` — AWS Bedrock AgentCore Code Interpreter session.
-- `agentcore-runtime` — a deployed AWS Bedrock AgentCore Runtime, invoked by ARN.
+  The self-hosted path: no AWS account required.
+- `agentcore-runtime` — a deployed AWS Bedrock AgentCore Runtime, invoked by
+  ARN, running Berry's own image from `server-ts/sandbox/agentcore/`. Carries
+  git, node and pnpm, with public egress, so a run can clone and push.
+- `agentcore` — an AgentCore Code Interpreter session. **Not usable for a run
+  that touches a repository:** the managed interpreter ships no `git` and has no
+  route to github.com (both verified against the live service). It needs a
+  custom Code Interpreter with those allowed before it is a real option.
 
 ## What bounds a run (docker driver)
 
