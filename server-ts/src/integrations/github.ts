@@ -147,16 +147,39 @@ export class GitHubClient {
     * repositories does not scroll to find one; they type. The cap keeps a
     * settings page from making nine API calls before it can draw.
     */
-   async listRepositories(options: { maxPages?: number } = {}): Promise<RepositoryChoice[]> {
+   async listRepositories(
+      options: { maxPages?: number; credential?: 'user' | 'installation' } = {}
+   ): Promise<RepositoryChoice[]> {
       const maxPages = options.maxPages ?? 3;
+      // Which endpoint depends on what the token *is*, not on preference. A
+      // GitHub App installation token cannot read `/user/repos` — there is no
+      // user behind it — and answers 403 "Resource not accessible by
+      // integration". Its equivalent is `/installation/repositories`, which
+      // returns the repositories the installation was granted.
+      const installation = options.credential === 'installation';
       const collected: RepositoryChoice[] = [];
       for (let page = 1; page <= maxPages; page += 1) {
-         const rows = await this.#json<RepositoryRow[]>(
+         const path = installation
+            ? `/installation/repositories?per_page=100&page=${page}`
+            : `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`;
+         const payload = await this.#json<RepositoryRow[] | { repositories?: RepositoryRow[] }>(
             'GET',
-            `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`
+            path
          );
+         // `/installation/repositories` wraps its page in an object; the user
+         // endpoint returns a bare array.
+         const rows = Array.isArray(payload) ? payload : (payload.repositories ?? []);
          for (const row of rows) {
-            if (row.permissions?.push !== true) continue;
+            // Only what the agent could actually work in: a repository it can
+            // read but not push to would be offered, chosen, and then fail at
+            // the push — after a run had done the work. An installation listing
+            // may omit `permissions` entirely, and there the grant is the
+            // installation itself, so absent is treated as allowed rather than
+            // silently emptying the picker.
+            const pushable = installation
+               ? row.permissions === undefined || row.permissions.push === true
+               : row.permissions?.push === true;
+            if (!pushable) continue;
             collected.push({
                id: Number(row.id),
                fullName: String(row.full_name),

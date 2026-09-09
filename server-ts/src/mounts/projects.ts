@@ -26,7 +26,7 @@ import type { ScmWorkspaces } from '../scm/workspaces.ts';
 import { GitHubAppUnavailable, type GitHubAppRepository } from '../integrations/github-app.ts';
 import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubClient, GitHubError } from '../integrations/github.ts';
-import { githubToken } from './integrations.ts';
+import { githubCredential } from './integrations.ts';
 import type { Logger } from '../observability/log.ts';
 import type { Mount } from '../http/registry.ts';
 
@@ -743,7 +743,7 @@ async function resolveRepository(
    // exactly what they were shown.
    let token: string;
    try {
-      token = await githubToken(workspaceId, options);
+      token = (await githubCredential(workspaceId, options)).token;
    } catch (error) {
       if (error instanceof GitHubAppUnavailable) {
          throw new ApiError(

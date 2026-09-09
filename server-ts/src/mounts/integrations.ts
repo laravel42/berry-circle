@@ -352,9 +352,9 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          );
       }
 
-      let token: string;
+      let credential: { token: string; kind: 'installation' | 'user' };
       try {
-         token = await githubToken(workspaceId, options);
+         credential = await githubCredential(workspaceId, options);
       } catch (error) {
          if (error instanceof GitHubAppUnavailable) {
             throw new ApiError(
@@ -377,23 +377,34 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          throw error;
       }
 
-      const client = new GitHubClient({ token });
-      const repositories = await client.listRepositories().catch((error: unknown) => {
-         if (error instanceof GitHubError) {
-            throw new ApiError(502, 'PROVIDER_ERROR', `GitHub refused the request: ${error.message}`);
-         }
-         throw error;
-      });
+      const client = new GitHubClient({ token: credential.token });
+      const repositories = await client
+         .listRepositories({ credential: credential.kind })
+         .catch((error: unknown) => {
+            if (error instanceof GitHubError) {
+               throw new ApiError(
+                  502,
+                  'PROVIDER_ERROR',
+                  `GitHub refused the request: ${error.message}`
+               );
+            }
+            throw error;
+         });
 
       const accounts = [...new Set(repositories.map((repository) => repository.fullName.split('/')[0]!))];
+      const viaApp = credential.kind === 'installation';
       return json({
          repositories,
          access: {
-            // A classic OAuth token sees everything the person can; only a
-            // GitHub App installation is narrowed to selected repositories.
-            selectedOnly: false,
-            installed: true,
-            manageUrl: 'https://github.com/settings/applications',
+            // An installation sees only what it was granted; a classic OAuth
+            // token sees everything the person can. Saying which is what lets
+            // an empty picker be read as "grant more repositories" rather than
+            // as a broken list.
+            selectedOnly: viaApp,
+            installed: viaApp,
+            manageUrl: viaApp
+               ? 'https://github.com/settings/installations'
+               : 'https://github.com/settings/applications',
             accounts,
          },
       });
@@ -668,6 +679,19 @@ async function handleInstallationCallback(
  * all, so a half-finished App setup does not silently send work through
  * somebody's personal token.
  */
+export async function githubCredential(
+   workspaceId: string,
+   options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>
+): Promise<{ token: string; kind: 'installation' | 'user' }> {
+   if (options.githubApp && (await options.githubApp.app())) {
+      return { token: await options.githubApp.token(workspaceId), kind: 'installation' };
+   }
+   if (!options.connections) {
+      throw new GitHubAppUnavailable('this deployment has no GitHub App', 'no_app');
+   }
+   return { token: await options.connections.token(workspaceId, 'github'), kind: 'user' };
+}
+
 export async function githubToken(
    workspaceId: string,
    options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>
