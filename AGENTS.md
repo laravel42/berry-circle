@@ -21,9 +21,10 @@ Guidance for AI agents working in this repository.
 
 Berry is a self-hosted, multi-workspace web product where humans and AI coding
 agents plan, execute, and review work together. Berry owns the product, its
-durable state, and agent execution: agents run in-process on the Google Agent
-Development Kit ([ADR-0008](docs/adr/0008-adk-agent-runtime.md)), not on a
-separate substrate.
+durable state, and agent execution: agents run in-process on the Strands
+Agents SDK ([ADR-0008](docs/adr/0008-adk-agent-runtime.md) for the decision,
+[ADR-0013](docs/adr/0013-strands-native-agent-runtime.md) for the runtime),
+not on a separate substrate.
 
 Core loop: issue → assign to a human or agent → work on the issue → human
 review gate → done. The approved direction is phased full web parity; desktop

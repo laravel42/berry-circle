@@ -61,7 +61,7 @@ function listFiles(scope: ToolScope): Tool {
       description:
          'List the files produced for this task. Includes work saved by other agents on the same task.',
       inputSchema: z.object({}),
-      callback: async () => ({ files: await scope.artifacts.listArtifactKeys(artifactKey()) }),
+      callback: async () => ({ files: await scope.artifacts.listArtifactKeys() }),
    });
 }
 
@@ -84,7 +84,6 @@ function readFile(scope: ToolScope): Tool {
       }),
       callback: async ({ path, version }) => {
          const part = await scope.artifacts.loadArtifact({
-            ...artifactKey(),
             filename: path,
             ...(version === undefined ? {} : { version }),
          });
@@ -119,7 +118,6 @@ function writeFile(scope: ToolScope): Tool {
       }),
       callback: async ({ path, content }) => {
          const version = await scope.artifacts.saveArtifact({
-            ...artifactKey(),
             filename: path,
             artifact: { text: content },
          });
@@ -194,14 +192,4 @@ function listDependencies(scope: ToolScope): Tool {
 
 function toRef(row: Record<string, unknown>) {
    return { identifier: row.identifier, title: row.title, status: row.status };
-}
-
-/**
- * ADK addresses artifacts by session, but Berry scopes them to the run.
- *
- * The service was constructed with that run, so these values only satisfy the
- * interface — changing them would not reach another run's files.
- */
-function artifactKey() {
-   return { appName: 'berry', userId: 'agent', sessionId: 'run' };
 }

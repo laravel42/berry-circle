@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AdkExecutor } from '../agents/executor.ts';
+import { RunExecutor } from '../agents/executor.ts';
 import { PlanGenerator } from '../plans/generator.ts';
 import { PlanTriage } from '../plans/triage.ts';
 import { ConversationResponder } from '../conversations/responder.ts';
@@ -67,7 +67,7 @@ test('the executor keeps the credentials it will hand to the agent runtime', () 
    // so credentials go into `runAgent` per run. The property under test is that
    // it kept them at all — dropping them here is what made every run fail
    // before its first model call.
-   const executor = new AdkExecutor({
+   const executor = new RunExecutor({
       sql,
       storage,
       region: 'us-east-1',
@@ -89,6 +89,6 @@ test('omitting credentials is still allowed, and means the default chain', () =>
    // invent a key pair to satisfy the option.
    assert.doesNotThrow(() => {
       new PlanGenerator({ sql, region: 'us-east-1', defaultModel: MODEL });
-      new AdkExecutor({ sql, storage, region: 'us-east-1' });
+      new RunExecutor({ sql, storage, region: 'us-east-1' });
    });
 });

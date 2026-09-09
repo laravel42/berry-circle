@@ -72,7 +72,7 @@ import { ReplayRepository } from './realtime/replay.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { Storage } from './storage/storage.ts';
-import { AdkExecutor } from './agents/executor.ts';
+import { RunExecutor } from './agents/executor.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
@@ -212,7 +212,7 @@ const scmInbound = new ScmInbound({ sql, links: scm.links, logger });
 
 const executor =
    config.agents && storage
-      ? new AdkExecutor({
+      ? new RunExecutor({
            sql,
            storage,
            region: config.agents.region,

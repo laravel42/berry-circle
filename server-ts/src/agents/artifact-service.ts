@@ -34,9 +34,6 @@ export interface LoadArtifactRequest {
    filename: string;
    version?: number | undefined;
 }
-export interface ListArtifactKeysRequest {
-   [key: string]: unknown;
-}
 export interface DeleteArtifactRequest {
    filename: string;
 }
@@ -191,7 +188,7 @@ export class BerryArtifactService {
     * A path with three versions is one artifact, so it is listed once — an
     * agent choosing what to read should see the files, not the history.
     */
-   async listArtifactKeys(_request: ListArtifactKeysRequest): Promise<string[]> {
+   async listArtifactKeys(): Promise<string[]> {
       const rows = await this.sql`
          SELECT DISTINCT path
            FROM run_artifacts

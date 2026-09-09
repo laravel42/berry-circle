@@ -8,7 +8,7 @@ import { Conflict, Forbidden, NotFound } from '../identity/errors.ts';
  * The port is mostly a subtraction. In Go an agent row is a projection of an
  * external process: `SyncWorkspace` ran before every listing, a detail call
  * runs before every read, and the model, capabilities and status are all
- * copied down from upstream. None of that survives here, because under ADK
+ * copied down from upstream. None of that survives here, because in-process
  * there is no upstream to copy from — an agent is a name, a system prompt and
  * a model, and Berry owns all three.
  *
@@ -25,7 +25,7 @@ export interface Agent {
    description: string | null;
    avatarUrl: string | null;
    status: string;
-   /** Runtime tool names. Under ADK these are the tools Berry gives an agent. */
+   /** Runtime tool names: the tools Berry gives an agent. */
    capabilities: string[];
    /** Berry-authored capability names the planner matches issues against. */
    skills: string[];

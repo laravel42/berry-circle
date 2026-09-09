@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { AdkExecutor } from './executor.ts';
+import { RunExecutor } from './executor.ts';
 import type { Sql } from '../db/pool.ts';
 import type { Storage } from '../storage/storage.ts';
 import { RunTerminal, type Dispatch, type RunLedger } from '../runs/ledger.ts';
@@ -83,7 +83,7 @@ function executor(
    ledger: RunLedger,
    options: { sql?: Sql; execution?: ExecutionDriver } = {}
 ) {
-   return new AdkExecutor({
+   return new RunExecutor({
       sql: options.sql ?? fakeSql({ agent: agentRow }),
       storage: {} as unknown as Storage,
       ledger,

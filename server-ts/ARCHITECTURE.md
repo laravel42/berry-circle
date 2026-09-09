@@ -65,7 +65,7 @@ what a folder is allowed to do.
 | `identity/` | Users, workspaces, memberships, invitations; the `roles` permission matrix; `ScopedDb`/`WorkspaceContext`; the shared `NotFound`/`Forbidden`/`Conflict` errors. | domain (authorization) |
 | `auth/` | Sessions, password hashing, personal-access tokens, and the `requireSession` middleware. | domain (security) |
 | `core/` | The tracker itself: the `boards`, `issues`, `comments`, `dependencies`, `reviews`, `goals`, `projects`, `attachments` repositories. | domain |
-| `agents/` | The agent registry and its model runtime: the `repository`, the model `catalog`, the Bedrock chat/executor, tool and checkout plumbing. | domain + integration |
+| `agents/` | The agent registry and its Strands-based runtime: the `repository`, the model `catalog`, `executor.ts` (orchestrates one run), `runtime/` (builds the agent and its plugins: ledger, permissions, accounting, tool outcomes, retry, the model factory), the tools, and the repository half (checkout, delivery, verification). | domain + integration |
 | `runs/` | The run ledger: `repository`, `ledger`, and the `dispatcher` that claims a queued run (`SKIP LOCKED`) and holds a lease. | domain |
 | `plans/` | The planner: `repository`, `generator`, `triage` (routing), `answers`. | domain + integration |
 | `conversations/` | Conversation threads and their model-backed `responder`. | domain + integration |

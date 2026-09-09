@@ -8,7 +8,7 @@ import { truncateUtf8 } from '../runs/result-comment.ts';
  * The task text is carried over unchanged. The contracts at the end are not:
  * they exist because an agent has no way to discover how its work is
  * collected, and the answer changed. Agents used to write into an `output/`
- * directory that Berry swept after the run; an ADK agent calls `write_file`,
+ * directory that Berry swept after the run; an agent now calls `write_file`,
  * and telling it about a directory that does not exist would produce nothing
  * at all.
  */

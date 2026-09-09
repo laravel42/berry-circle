@@ -126,7 +126,7 @@ interface AgentRow {
    permissions: PermissionSet;
 }
 
-export class AdkExecutor {
+export class RunExecutor {
    private readonly sql: Sql;
    private readonly storage: Storage;
    /**
