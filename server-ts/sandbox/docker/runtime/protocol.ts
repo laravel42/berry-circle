@@ -2,7 +2,7 @@
  * The wire contract between Berry and the runtime service.
  *
  * Mirrored by the execution driver's copy in `server-ts/src/execution/`: the
- * runtime image ships only `src/runtime/`, so it carries its own copy of these
+ * runtime image ships only `sandbox/docker/runtime/`, so it carries its own copy of these
  * shapes rather than importing across the tree. `server-ts` pins them in a test
  * so a change on one side fails the build rather than a run.
  *

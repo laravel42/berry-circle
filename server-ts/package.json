@@ -5,7 +5,7 @@
    "version": "0.1.0",
    "scripts": {
       "typecheck": "tsc --noEmit",
-      "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
+      "test": "node --test --experimental-strip-types 'src/**/*.test.ts' 'sandbox/docker/runtime/**/*.test.ts'",
       "dev": "node --watch --experimental-strip-types src/index.ts",
       "start": "node --experimental-strip-types src/index.ts",
       "migrate": "node --experimental-strip-types src/migrate/index.ts",

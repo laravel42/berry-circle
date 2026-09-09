@@ -73,7 +73,7 @@ export interface ExecutionConfig {
    /**
     * Where an agent's commands run.
     *
-    * `docker` is the runtime service (`server-ts/src/runtime/`), a disposable
+    * `docker` is the runtime service (`server-ts/sandbox/docker/`), a disposable
     * container per run on the operator's own Docker daemon — the self-hosted
     * default. `agentcore` is an AWS Bedrock AgentCore Code Interpreter session.
     * `agentcore-runtime` is a deployed AgentCore Runtime, invoked by ARN. Only

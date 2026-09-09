@@ -1,7 +1,7 @@
 # Berry's AgentCore Runtime sandbox — the base (Node/TypeScript) template.
 #
 # This is where an agent's commands run when BERRY_RUNTIME_DRIVER is
-# `agentcore-runtime`. It is the analogue of `server-ts/sandbox/Dockerfile`
+# `agentcore-runtime`. It is the analogue of `server-ts/sandbox/docker/Dockerfile`
 # (which serves the local `docker` driver), for a managed AgentCore Runtime.
 #
 # Why a container at all, rather than the managed Code Interpreter: the managed

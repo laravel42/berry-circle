@@ -11,7 +11,7 @@ import {
 } from './driver.ts';
 
 /**
- * The driver for the Docker runtime service (`server-ts/src/runtime/`).
+ * The driver for the Docker runtime service (`server-ts/sandbox/docker/runtime/`).
  *
  * It speaks the small HTTP contract that service answers: one disposable
  * container per run on the operator's own Docker daemon, reached over HTTP with

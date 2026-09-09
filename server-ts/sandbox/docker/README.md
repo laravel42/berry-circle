@@ -7,9 +7,11 @@ HTTP wire contract that the `docker` execution driver
 (`server-ts/src/execution/http.ts`) speaks, so a run's ledger is unaware of
 where work happened.
 
-This source lives under `server-ts/src/runtime/` so there is one package to
+This source lives under `server-ts/sandbox/docker/runtime/` — beside the image
+it drives, and beside `sandbox/agentcore/` for the managed substrate — in the
+server-ts package so there is one package to
 reason about, but it is still shipped as its own image
-(`server-ts/Dockerfile.runtime`) and run as its own Compose service — the
+(`server-ts/sandbox/docker/Dockerfile.runtime`) and run as its own Compose service — the
 Docker socket stays out of `berry-api`.
 
 ## Why it is a separate service
@@ -26,11 +28,12 @@ socket. That check fails if anything else picks it up.
 
 | File | What |
 |---|---|
-| `src/runtime/app.ts` | The routes, separated from the daemon so auth is testable |
-| `src/runtime/docker.ts` | The Engine API — seven calls, written directly |
-| `src/runtime/demux.ts` | Docker's multiplexed exec stream, which is how stdout and stderr stay apart |
-| `src/runtime/config.ts` | Every limit that bounds a container running code an agent wrote |
-| `sandbox/Dockerfile` | The image runs happen in: node 22, pnpm, git |
+| `runtime/app.ts` | The routes, separated from the daemon so auth is testable |
+| `runtime/docker.ts` | The Engine API — seven calls, written directly |
+| `runtime/demux.ts` | Docker's multiplexed exec stream, which is how stdout and stderr stay apart |
+| `runtime/config.ts` | Every limit that bounds a container running code an agent wrote |
+| `Dockerfile` | The image runs happen in: node 22, pnpm, git, ffmpeg |
+| `Dockerfile.runtime` | The image this service ships as |
 
 ## Running it
 

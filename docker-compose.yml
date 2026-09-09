@@ -172,7 +172,7 @@ services:
       # but it still ships as its own image and runs as its own service so the
       # Docker socket stays out of berry-api.
       context: ./server-ts
-      dockerfile: Dockerfile.runtime
+      dockerfile: sandbox/docker/Dockerfile.runtime
     image: berry-runtime:local
     depends_on:
       # The image runs happen in has to exist before the first run asks for
@@ -220,7 +220,7 @@ services:
     # a pull, because the image needs git and a package manager that the stock
     # node image does not carry.
     build:
-      context: ./server-ts/sandbox
+      context: ./server-ts/sandbox/docker
       dockerfile: Dockerfile
     image: "${BERRY_SANDBOX_IMAGE:-berry-sandbox:local}"
     command: ["true"]

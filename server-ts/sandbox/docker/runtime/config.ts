@@ -42,7 +42,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       token: (env.BERRY_RUNTIME_TOKEN ?? '').trim(),
       dockerSocket: (env.DOCKER_SOCKET ?? '/var/run/docker.sock').trim(),
       // node:22-alpine has no git, so it is enough to run commands and not
-      // enough to clone a repository. `sandbox/Dockerfile` builds the image
+      // enough to clone a repository. `sandbox/docker/Dockerfile` builds the image
       // that is, and the README says how.
       image: (env.BERRY_SANDBOX_IMAGE ?? 'node:22-alpine').trim(),
       workdir: (env.BERRY_SANDBOX_WORKDIR ?? '/workspace').trim(),
