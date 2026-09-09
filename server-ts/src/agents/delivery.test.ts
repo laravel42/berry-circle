@@ -124,7 +124,9 @@ test('a retried run updates its own branch but refuses to clobber someone else',
       message: 'work',
    });
    const push = calls.find((call) => call.command.includes('push'))!;
-   assert.match(push.command, /--force-with-lease/);
+   // The lease names the value it expects — the sha the fetch brought back —
+   // because the implicit lease is refused on a shallow clone.
+   assert.match(push.command, /--force-with-lease='b:abc'/);
    // The lease has to have something to compare with: a fresh clone knows
    // nothing about the branch the earlier attempt pushed, and was refused
    // with "stale info" until the branch was fetched first.
@@ -137,12 +139,17 @@ test('a retried run updates its own branch but refuses to clobber someone else',
 test('a branch that does not exist yet fails to fetch, and is pushed anyway', async () => {
    const { session, calls } = fakeSession({
       numstat: { stdout: CHANGES },
+      // Listed before `rev-parse`: the fake answers by the first key a command
+      // contains, and the remote-ref probe is a `rev-parse --verify`.
+      '--verify': { exitCode: 1, stdout: '' },
       'rev-parse': { stdout: 'abc\n' },
       fetch: { exitCode: 128, stderr: "fatal: couldn't find remote ref b\n" },
    });
    const delivery = await commitAndPush({ session, directory: 'frontend', branch: 'b', token: TOKEN, message: 'work' });
    assert.equal(delivery.committed, true);
-   assert.ok(calls.some((call) => call.command.includes('push')));
+   const push = calls.find((call) => call.command.includes('push'))!;
+   // An empty expectation: create the branch, and refuse if one appeared.
+   assert.match(push.command, /--force-with-lease='b:'/);
 });
 
 test('a commit message with a body survives the shell', async () => {
