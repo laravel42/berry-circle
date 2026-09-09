@@ -1,4 +1,5 @@
-import { BedrockChat, type AwsCredentials } from '../llm/bedrock-chat.ts';
+import { Completion } from '../llm/completion.ts';
+import type { AwsCredentials } from '../agents/runtime/model.ts';
 const SYSTEM = `You rewrite Markdown for a product editor.
 
 The input may already be Markdown. Return only Markdown — keep headings, lists,
@@ -21,19 +22,19 @@ export interface EditorAssistOptions {
    credentials?: AwsCredentials | null;
    defaultModel: string;
    /** Injected by tests; production builds one from the region. */
-   chat?: BedrockChat;
+   completion?: Pick<Completion, 'text'>;
    timeoutMs?: number;
 }
 
 export class EditorAssist {
-   readonly #chat: BedrockChat;
+   readonly #completion: Pick<Completion, 'text'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
 
    constructor(options: EditorAssistOptions) {
-      this.#chat =
-         options.chat ??
-         new BedrockChat({
+      this.#completion =
+         options.completion ??
+         new Completion({
             region: options.region,
             ...(options.credentials ? { credentials: options.credentials } : {}),
             ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
@@ -53,8 +54,8 @@ export class EditorAssist {
          throw new EditorAssistUnavailable('nothing to rewrite');
       }
 
-      const result = await this.#chat
-         .chat({
+      const result = await this.#completion
+         .text({
             model: this.#defaultModel,
             system: SYSTEM,
             user: `Instruction: ${instruction}\n\nText:\n${text}`,
@@ -66,7 +67,7 @@ export class EditorAssist {
             );
          });
 
-      const content = result.text;
+      const content = result.value;
       if (content.trim() === '') {
          throw new EditorAssistUnavailable('the editor assistant answered with nothing to read');
       }

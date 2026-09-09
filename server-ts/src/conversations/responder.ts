@@ -1,5 +1,7 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat, type AwsCredentials } from '../llm/bedrock-chat.ts';
+import { Message, TextBlock } from '@strands-agents/sdk';
+import { Completion } from '../llm/completion.ts';
+import type { AwsCredentials } from '../agents/runtime/model.ts';
 import { toAgentName } from '../agents/runtime/agent.ts';
 import type { ConversationMessage } from './repository.ts';
 
@@ -13,9 +15,9 @@ import type { ConversationMessage } from './repository.ts';
  * words.
  *
  * The model's session is in memory and thrown away. Berry's own
- * `conversation_messages` are the transcript, replayed as the prompt on every
- * turn — so a conversation survives a restart and nothing depends on a session
- * store outliving the request.
+ * `conversation_messages` are the transcript, replayed as the turns of the
+ * conversation on every reply — so a conversation survives a restart and
+ * nothing depends on a session store outliving the request.
  */
 
 /** A long answer is still an answer; a runaway one is a bill. */
@@ -50,18 +52,20 @@ export interface ResponderOptions {
     */
    credentials?: AwsCredentials | null;
    /** Injected by tests; production builds one from the region. */
-   chat?: BedrockChat;
+   completion?: Pick<Completion, 'converse'>;
    defaultModel: string;
 }
 
 export class ConversationResponder {
    readonly #sql: Sql;
-   readonly #chat: BedrockChat;
+   readonly #completion: Pick<Completion, 'converse'>;
    readonly #defaultModel: string;
 
    constructor(options: ResponderOptions) {
       this.#sql = options.sql;
-      this.#chat = options.chat ?? new BedrockChat({
+      this.#completion =
+         options.completion ??
+         new Completion({
             region: options.region,
             ...(options.credentials ? { credentials: options.credentials } : {}),
          });
@@ -81,8 +85,15 @@ export class ConversationResponder {
       // A single completion with no tools, so this goes straight to Bedrock
       // rather than through an agent framework: a tool loop with no tools is
       // machinery with nothing to do.
-      const result = await this.#chat
-         .chat({
+      const messages = toMessages(input.history);
+      if (messages.length === 0 || messages.at(-1)?.role !== 'user') {
+         // The reply is to a person; with nothing from one there is nothing
+         // to answer, and inventing a turn would put words in their mouth.
+         throw new ResponderUnavailable('nothing to answer');
+      }
+
+      const result = await this.#completion
+         .converse({
             model: (agent.model_name as string | null) || this.#defaultModel,
             // Its own instructions, plus what this conversation is not. An
             // agent that offers to "go ahead and fix it" here would be
@@ -93,7 +104,7 @@ You are answering a question in Berry's chat, not working a task. You have no
 tools and no workspace here: you cannot read the repository, run commands or
 change anything. Answer from what you are told and from what you know. If
 doing the thing would need a task, say so and say what the task would be.`,
-            user: transcript(input.history),
+            messages,
             ...(input.signal ? { signal: input.signal } : {}),
          })
          .catch((cause: unknown) => {
@@ -102,7 +113,7 @@ doing the thing would need a task, say so and say what the task would be.`,
             );
          });
 
-      const text = result.text;
+      const text = result.value;
       const usage: Usage = {
          inputTokens: result.inputTokens,
          outputTokens: result.outputTokens,
@@ -119,18 +130,38 @@ doing the thing would need a task, say so and say what the task would be.`,
 }
 
 /**
- * The conversation as one prompt.
+ * The conversation as turns.
  *
- * Flattened rather than replayed as a multi-turn session, because the session
- * is in memory and the rows are the truth — rebuilding a session from them on
- * every turn would be the same thing with more moving parts. The tail is kept:
- * a long conversation's beginning matters less than what was just said.
+ * Bedrock wants alternating user/assistant messages starting with the user,
+ * so consecutive rows from the same side are joined, a leading agent row is
+ * dropped, and a system row rides in the next user turn. Names are added only
+ * when more than one person is talking; otherwise the model starts answering
+ * "Andrea:" back. The tail is kept: a long conversation's beginning matters
+ * less than what was just said.
  */
-function transcript(history: ConversationMessage[]): string {
+export function toMessages(history: ConversationMessage[]): Message[] {
    const recent = history.slice(-MAX_HISTORY);
-   if (recent.length === 1) return recent[0]!.body;
-   const lines = recent.map(
-      (message) => `${message.authorType === 'user' ? message.authorName : 'You'}: ${message.body}`
+   const people = new Set(
+      recent.filter((message) => message.authorType === 'user').map((message) => message.authorName)
    );
-   return `${lines.join('\n\n')}\n\nReply to the last message.`;
+   const turns: Array<{ role: 'user' | 'assistant'; parts: string[] }> = [];
+   let pendingSystem: string[] = [];
+   for (const message of recent) {
+      if (message.authorType === 'system') {
+         pendingSystem.push(`[Berry] ${message.body}`);
+         continue;
+      }
+      const role = message.authorType === 'agent' ? 'assistant' : 'user';
+      if (turns.length === 0 && role === 'assistant') continue;
+      const text =
+         role === 'user' && people.size > 1 ? `${message.authorName}: ${message.body}` : message.body;
+      const parts = role === 'user' ? [...pendingSystem, text] : [text];
+      pendingSystem = [];
+      const last = turns.at(-1);
+      if (last && last.role === role) last.parts.push(...parts);
+      else turns.push({ role, parts });
+   }
+   return turns.map(
+      (turn) => new Message({ role: turn.role, content: [new TextBlock(turn.parts.join('\n\n'))] })
+   );
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { z } from 'zod';
 import { PlanTriage, TriageUnavailable } from './triage.ts';
 
 /**
@@ -30,15 +31,13 @@ function fake(options: {
       sql: (async () => []) as never,
       region: 'us-east-1',
       defaultModel: 'test/model',
-      chat: {
-         async chat(input: { model: string; system: string; user: string }) {
+      completion: {
+         async structured(input: { model: string; system: string; user: string; schema: z.ZodType }) {
             sent = { model: input.model, system: input.system, user: input.user };
-            return {
-               text: JSON.stringify(options.answer),
-               inputTokens: 0,
-               outputTokens: 0,
-               durationMs: 1,
-            };
+            // Parsed the way the real completion parses it, so an answer the
+            // schema refuses is refused here too.
+            const value = input.schema.parse(options.answer);
+            return { value, text: JSON.stringify(value), inputTokens: 0, outputTokens: 0, durationMs: 1 };
          },
       } as never,
    });

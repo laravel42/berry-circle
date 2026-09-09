@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PlanGenerator, PlannerUnavailable } from './generator.ts';
 import type { Sql } from '../db/pool.ts';
-import { BedrockUnavailable, type BedrockChat } from '../llm/bedrock-chat.ts';
+import { CompletionFailed, CompletionInvalid } from '../llm/completion.ts';
 
 /**
  * The pipeline: generate, validate, repair, critic.
@@ -23,18 +23,14 @@ const NO_ROLES = (() => Promise.resolve([])) as unknown as Sql;
 function scripted(answers: unknown[]) {
    const prompts: Array<{ system: string; user: string }> = [];
    let index = 0;
-   const chat = {
-      async chat(input: { system: string; user: string }) {
+   const completion = {
+      async json(input: { system: string; user: string }) {
          prompts.push({ system: input.system, user: input.user });
-         return {
-            text: JSON.stringify(answers[index++] ?? {}),
-            inputTokens: 10,
-            outputTokens: 20,
-            durationMs: 1,
-         };
+         const value = answers[index++] ?? {};
+         return { value, text: JSON.stringify(value), inputTokens: 10, outputTokens: 20, durationMs: 1 };
       },
-   } as unknown as BedrockChat;
-   return { chat, prompts, calls: () => index };
+   };
+   return { completion, prompts, calls: () => index };
 }
 
 function generator(answers: unknown[], options: Record<string, unknown> = {}) {
@@ -45,7 +41,7 @@ function generator(answers: unknown[], options: Record<string, unknown> = {}) {
          sql: NO_ROLES,
          region: 'us-east-1',
          defaultModel: 'test/model',
-         chat: script.chat,
+         completion: script.completion,
          ...options,
       }),
    };
@@ -218,16 +214,20 @@ test('the caller is told which stage is running, as it starts', async () => {
 test('a refusal names the stage it happened at', async () => {
    // "The critic timed out" and "the planner was never reachable" are
    // different things to tell someone.
-   const chat = {
-      async chat() {
-         throw new BedrockUnavailable('bedrock test/model failed: ThrottlingException 429', true);
+   const throttle = Object.assign(new Error('bedrock test/model failed: ThrottlingException 429'), {
+      name: 'ThrottlingException',
+      $metadata: { httpStatusCode: 429 },
+   });
+   const completion = {
+      async json() {
+         throw new CompletionFailed(throttle);
       },
-   } as unknown as BedrockChat;
+   };
    const planner = new PlanGenerator({
       sql: NO_ROLES,
       region: 'us-east-1',
       defaultModel: 'test/model',
-      chat,
+      completion,
    });
    await assert.rejects(
       () => planner.generate({ prompt: 'ship it' }),
@@ -240,23 +240,26 @@ test('a refusal names the stage it happened at', async () => {
    );
 });
 
-test('fenced JSON is recovered, because models fence it anyway', async () => {
-   const chat = {
-      async chat() {
-         return {
-            text: 'Here you go:\n```json\n{"goal":{"title":"Ship it"},"issues":[]}\n```',
-            inputTokens: 0,
-            outputTokens: 0,
-            durationMs: 1,
-         };
+test('a model that will not answer in the schema names the stage', async () => {
+   // The structured answer is enforced by the model now, so a refusal is a
+   // typed failure rather than a fence to dig through — and it is reported
+   // as the planner's, at the stage it happened.
+   const completion = {
+      async json() {
+         throw new CompletionInvalid('no shape', 'I would rather write prose.');
       },
-   } as unknown as BedrockChat;
+   };
    const planner = new PlanGenerator({
       sql: NO_ROLES,
       region: 'us-east-1',
       defaultModel: 'test/model',
-      chat,
+      completion,
    });
-   const result = await planner.generate({ prompt: 'ship it' });
-   assert.equal(result.plan.goal.title, 'Ship it');
+   await assert.rejects(
+      () => planner.generate({ prompt: 'ship it' }),
+      (error: unknown) =>
+         error instanceof PlannerUnavailable &&
+         error.stage === 'generate' &&
+         /did not answer with a plan/.test(error.message)
+   );
 });

@@ -1,5 +1,6 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat, type AwsCredentials } from '../llm/bedrock-chat.ts';
+import { Completion, CompletionInvalid } from '../llm/completion.ts';
+import type { AwsCredentials } from '../agents/runtime/model.ts';
 import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationReport } from './schema.ts';
 
 /**
@@ -29,7 +30,7 @@ import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationRe
 const GENERATE_SYSTEM = `You turn a request into a Berry plan: the tasks a team
 would create to do it, and the order they depend on each other in.
 
-Answer with JSON only — no prose, no code fence. The shape is:
+The shape of the answer is:
 
 {
   "goal": { "tempId": "goal-1", "title": "...", "description": "..." },
@@ -87,7 +88,7 @@ const CRITIC_SYSTEM = `You are reviewing a Berry plan before a person is asked
 to start it. The plan is already known to be structurally valid; your job is
 whether it is any good.
 
-Answer with JSON only:
+The shape of the answer is:
 
 { "verdict": "accept" | "revise",
   "problems": [ { "code": "...", "path": "/issues/0", "message": "...",
@@ -154,7 +155,7 @@ export interface PlanGeneratorOptions {
    credentials?: AwsCredentials | null;
    defaultModel: string;
    /** Injected by tests; production builds one from the region. */
-   chat?: BedrockChat;
+   completion?: Pick<Completion, 'json'>;
    timeoutMs?: number;
    /** How many times a document may be sent back to be fixed. */
    maxRepairs?: number;
@@ -166,7 +167,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class PlanGenerator {
    readonly #sql: Sql;
-   readonly #chat: BedrockChat;
+   readonly #completion: Pick<Completion, 'json'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
    readonly #maxRepairs: number;
@@ -174,9 +175,9 @@ export class PlanGenerator {
 
    constructor(options: PlanGeneratorOptions) {
       this.#sql = options.sql;
-      this.#chat =
-         options.chat ??
-         new BedrockChat({
+      this.#completion =
+         options.completion ??
+         new Completion({
             region: options.region,
             ...(options.credentials ? { credentials: options.credentials } : {}),
             ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
@@ -390,30 +391,29 @@ export class PlanGenerator {
       user: string;
       signal: AbortSignal | undefined;
    }) {
-      const result = await this.#chat
-         .chat({
+      // An open object rather than the plan's schema: `readPlan` reads
+      // leniently and names what is wrong, and the repair loop is built on
+      // those names. A strict schema here would refuse the document the
+      // repair role exists to fix.
+      const result = await this.#completion
+         .json({
             model: input.model.model,
             system: input.system,
             user: input.user,
-            // Asked for, not relied on: Bedrock has no cross-family
-            // `response_format`, so this is an instruction and the answer is
-            // still parsed defensively below.
-            json: true,
             ...(input.signal ? { signal: input.signal } : {}),
          })
          .catch((cause: unknown) => {
+            if (cause instanceof CompletionInvalid) {
+               throw new PlannerUnavailable(`the ${input.role} did not answer with a plan`, input.stage);
+            }
             throw new PlannerUnavailable(
                `the ${input.role} could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`,
                input.stage
             );
          });
 
-      if (result.text.trim() === '') {
-         throw new PlannerUnavailable(`the ${input.role} returned nothing`, input.stage);
-      }
-
       return {
-         json: parseJson(result.text),
+         json: result.value,
          inputTokens: result.inputTokens,
          outputTokens: result.outputTokens,
          durationMs: result.durationMs,
@@ -517,40 +517,6 @@ function readCritique(raw: unknown): Critique {
          ];
       }),
    };
-}
-
-/**
- * JSON out of whatever the model said.
- *
- * Models fence their JSON, prefix it with "Here you go:", or both, however
- * firmly they are told not to. Finding the outermost braces recovers the
- * answer instead of failing a generation over punctuation.
- */
-function parseJson(content: string): unknown {
-   const direct = tryParse(content);
-   if (direct !== undefined) return direct;
-
-   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-   if (fenced?.[1]) {
-      const parsed = tryParse(fenced[1]);
-      if (parsed !== undefined) return parsed;
-   }
-
-   const start = content.indexOf('{');
-   const end = content.lastIndexOf('}');
-   if (start >= 0 && end > start) {
-      const parsed = tryParse(content.slice(start, end + 1));
-      if (parsed !== undefined) return parsed;
-   }
-   return {};
-}
-
-function tryParse(text: string): unknown {
-   try {
-      return JSON.parse(text.trim());
-   } catch {
-      return undefined;
-   }
 }
 
 export type { FieldProblem };

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { RunExecutor } from '../agents/executor.ts';
+import { Completion } from './completion.ts';
 import { PlanGenerator } from '../plans/generator.ts';
 import { PlanTriage } from '../plans/triage.ts';
 import { ConversationResponder } from '../conversations/responder.ts';
@@ -90,5 +91,17 @@ test('omitting credentials is still allowed, and means the default chain', () =>
    assert.doesNotThrow(() => {
       new PlanGenerator({ sql, region: 'us-east-1', defaultModel: MODEL });
       new RunExecutor({ sql, storage, region: 'us-east-1' });
+   });
+});
+
+test('the root builds one Completion and every single-shot caller accepts it', () => {
+   // Credentials are plumbed once, into the Completion, and the four callers
+   // take that rather than each building a client of their own.
+   const completion = new Completion({ region: 'us-east-1', credentials: CREDENTIALS });
+   assert.doesNotThrow(() => {
+      new PlanGenerator({ sql, region: 'us-east-1', defaultModel: MODEL, completion });
+      new PlanTriage({ sql, region: 'us-east-1', defaultModel: MODEL, completion });
+      new ConversationResponder({ sql, region: 'us-east-1', defaultModel: MODEL, completion });
+      new EditorAssist({ region: 'us-east-1', defaultModel: MODEL, completion });
    });
 });

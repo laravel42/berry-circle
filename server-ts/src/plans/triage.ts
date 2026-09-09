@@ -1,5 +1,7 @@
 import type { Sql } from '../db/pool.ts';
-import { BedrockChat, readJson, type AwsCredentials } from '../llm/bedrock-chat.ts';
+import { z } from 'zod';
+import { Completion, CompletionInvalid } from '../llm/completion.ts';
+import type { AwsCredentials } from '../agents/runtime/model.ts';
 
 /**
  * Who does the work a plan just created, and starting it.
@@ -61,7 +63,7 @@ Assign every task you can. Leave a task out only when no agent on the roster
 could plausibly do it — an unassigned task is work nobody will pick up, so
 omitting one is a real cost, not a safe default.
 
-Answer with JSON only — no prose, no code fence. The shape is:
+The shape of the answer is:
 
 { "assignments": [ { "taskId": "...", "agentId": "..." } ] }
 
@@ -81,21 +83,26 @@ export interface PlanTriageOptions {
    credentials?: AwsCredentials | null;
    defaultModel: string;
    /** Injected by tests; production builds one from the region. */
-   chat?: BedrockChat;
+   completion?: Pick<Completion, 'structured'>;
    timeoutMs?: number;
 }
 
+/** What the orchestrator answers with. Only ids on both lists are believed. */
+const ASSIGNMENTS = z.object({
+   assignments: z.array(z.object({ taskId: z.string(), agentId: z.string() })).default([]),
+});
+
 export class PlanTriage {
    readonly #sql: Sql;
-   readonly #chat: BedrockChat;
+   readonly #completion: Pick<Completion, 'structured'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
 
    constructor(options: PlanTriageOptions) {
       this.#sql = options.sql;
-      this.#chat =
-         options.chat ??
-         new BedrockChat({
+      this.#completion =
+         options.completion ??
+         new Completion({
             region: options.region,
             ...(options.credentials ? { credentials: options.credentials } : {}),
             ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
@@ -179,31 +186,21 @@ export class PlanTriage {
          })),
       });
 
-      const result = await this.#chat
-         .chat({
+      const result = await this.#completion
+         .structured({
             model: await this.#model(workspaceId),
             system: SYSTEM,
             user,
-            json: true,
+            schema: ASSIGNMENTS,
             ...(signal ? { signal } : {}),
          })
          .catch((cause: unknown) => {
             throw new TriageUnavailable(
-               `the orchestrator could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`
+               cause instanceof CompletionInvalid
+                  ? 'the orchestrator did not answer with assignments'
+                  : `the orchestrator could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`
             );
          });
-
-      const content = result.text;
-      if (content.trim() === '') {
-         throw new TriageUnavailable('the orchestrator answered with nothing to read');
-      }
-
-      // Read leniently: a model asked for JSON may still fence it, and losing
-      // an assignment to punctuation would leave every task unowned.
-      const parsed = readJson(content);
-      if (parsed === null) {
-         throw new TriageUnavailable('the orchestrator did not answer with JSON');
-      }
 
       // Only ids from both lists survive. A model naming an agent that does not
       // exist would otherwise write a dangling assignee, and one naming a task
@@ -211,14 +208,9 @@ export class PlanTriage {
       const agentIds = new Set(roster.map((agent) => agent.id));
       const taskIds = new Set(tasks.map((task) => task.id));
       const decided = new Map<string, string>();
-      const rows = (parsed as { assignments?: unknown }).assignments;
-      if (Array.isArray(rows)) {
-         for (const row of rows) {
-            const { taskId, agentId } = (row ?? {}) as { taskId?: unknown; agentId?: unknown };
-            if (typeof taskId !== 'string' || typeof agentId !== 'string') continue;
-            if (!taskIds.has(taskId) || !agentIds.has(agentId)) continue;
-            decided.set(taskId, agentId);
-         }
+      for (const { taskId, agentId } of result.value.assignments) {
+         if (!taskIds.has(taskId) || !agentIds.has(agentId)) continue;
+         decided.set(taskId, agentId);
       }
       return decided;
    }

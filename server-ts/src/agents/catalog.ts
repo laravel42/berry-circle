@@ -4,7 +4,7 @@ import {
    ListInferenceProfilesCommand,
    type FoundationModelSummary,
 } from '@aws-sdk/client-bedrock';
-import type { AwsCredentials } from '../llm/bedrock-chat.ts';
+import type { AwsCredentials } from './runtime/model.ts';
 /**
  * The models an agent can be switched to.
  *
