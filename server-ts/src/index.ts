@@ -77,6 +77,7 @@ import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
 import { createExecutionDriver } from './execution/factory.ts';
+import { AgentCoreRunMemory } from './agentcore/memory.ts';
 import { ConnectionRepository } from './integrations/connections.ts';
 import { GitHubAppRepository } from './integrations/github-app.ts';
 import { sealerFromKey } from './integrations/sealing.ts';
@@ -149,6 +150,30 @@ const storage = config.storage
 const execution = createExecutionDriver(config.execution, config.agentCore);
 
 /**
+ * Run recall, when a Memory store is configured.
+ *
+ * Null rather than a disabled instance so the executor's own default decides
+ * what "no memory" means; `nullRunMemory` is that decision, in one place.
+ * Errors are logged and never raised: a store that is unreachable costs an
+ * agent its recall, and the run ledger still holds what actually happened.
+ */
+const runMemory =
+   config.agentCore?.memoryId
+      ? new AgentCoreRunMemory({
+           region: config.agentCore.region,
+           memoryId: config.agentCore.memoryId,
+           ...(config.agentCore.credentials
+              ? { credentials: config.agentCore.credentials }
+              : {}),
+           onError: (operation, error) =>
+              console.error(
+                 `[memory] ${operation} failed:`,
+                 error instanceof Error ? error.message : error
+              ),
+        })
+      : null;
+
+/**
  * Provider connections, when a key exists to open them with.
  *
  * Null rather than a repository that cannot decrypt: a run then simply never
@@ -200,6 +225,7 @@ const executor =
            ...(config.execution ? { execution } : {}),
            ...(connections ? { connections } : {}),
            ...(githubApp ? { githubApp } : {}),
+           ...(runMemory ? { memory: runMemory } : {}),
            gitCredential: scm.gitCredential,
         })
       : null;
@@ -460,6 +486,9 @@ logger.info('Berry server listening', {
    // Named at boot because a server that admits runs but does not execute them
    // looks identical from outside until the first one sits queued forever.
    runDispatch: dispatcher ? `${config.agents!.concurrency} at a time` : 'off',
+   // Named at boot because recall is invisible from outside: an agent with no
+   // memory and an agent whose store is misconfigured both just start fresh.
+   runMemory: runMemory ? 'agentcore' : 'off',
    // Named at boot so an operator can see whether a run can reach a
    // repository, without reading the environment back.
    integrations: connections

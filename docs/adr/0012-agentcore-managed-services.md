@@ -46,9 +46,17 @@ Current state, per pillar, from the code as it stands:
   provider powers agent-run SCM work (provision, sync, issues, PRs); it does
   **not** currently back the project repository picker, which uses the direct
   `GitHubClient`.
-- **Memory** — not implemented. `AgentCoreConfig.memoryId` is parsed and read by
-  nothing. Berry's durable record is the run ledger (Postgres); there is no
-  short-term/long-term memory store.
+- **Memory** — implemented for short-term run recall: `agentcore/memory.ts`
+  writes a run's outcome with `CreateEvent` and reads earlier ones with
+  `ListEvents`, keyed `actorId` = agent, `sessionId` = issue. `executor.ts`
+  recalls before the run is marked running and folds the result into the first
+  message as `PromptContext.priorWork`; it records on both success and failure.
+  The store is provisioned in us-east-1 with no `memoryStrategies`, so there is
+  no extraction role and no lag between writing an event and reading it. The run
+  ledger is unchanged and still authoritative — Memory augments it, and a
+  memory failure degrades recall rather than failing a run. Long-term semantic
+  extraction is still unimplemented; it is a strategy added to the same
+  resource, producing derived records alongside these events.
 - **Policy** — not implemented, and **dependent on Gateway**. AWS Policy
   enforces at the Gateway: Cedar rules are validated against the schema
   generated from the Gateway's tools' input schemas, and evaluated on each tool
@@ -117,21 +125,34 @@ begins.
   agent run creates an issue/PR through the Gateway; `startGateway` resolves the
   required tools rather than returning a null provider.
 
-### Phase 3 — Memory (greenfield; independent of Gateway)
+### Phase 3 — Memory (delivered; short-term recall)
 
-- **Change:** introduce an AgentCore Memory client and wire it into the run /
-  conversation path. Short-term: write conversational events per run with
-  `CreateEvent` keyed by `memoryId` + an `actorId` (the agent) + a `sessionId`
-  (the run or conversation). Optionally read prior events with `ListEvents` to
-  enrich a run's opening context. Long-term: a semantic strategy on the memory
-  resource extracts insights across sessions. The dead `memoryId` config field
-  is the seam; nothing about the run ledger is removed — Memory augments it.
-- **Config:** `BERRY_AGENTCORE_MEMORY_ID=<id>`.
-- **AWS prerequisite:** a created AgentCore Memory resource (a semantic strategy
-  if long-term recall is wanted).
-- **Verify:** offline — unit tests with a mocked memory client. Live — events
-  written for a run are retrievable by `actorId`/`sessionId`; a follow-up run
-  reads prior context.
+- **Delivered:** `agentcore/memory.ts` — a `RunMemory` seam with an AgentCore
+  implementation and a `nullRunMemory()` no-op, so the executor's recall path has
+  no branch in it. `recall` reads with `ListEvents`; `record` writes with
+  `CreateEvent`. `recallPrompt` renders the result, returning null for a first
+  run rather than an empty heading that would read as "you did nothing".
+- **Keying:** `actorId` = `agent-<id>`, `sessionId` = `issue-<id>`. An actor is
+  the entity that participates across sessions and a session is the thread of
+  work, so "this agent, on this issue" is one query. `ListEvents` requires both.
+- **Wiring:** `executor.ts` recalls concurrently with the review-feedback read,
+  before the run is marked running, and passes `priorWork` to `buildMessage`. It
+  records the summary on success and the failure code on failure — a failure
+  being the most valuable thing to recall, and the one a rejected review never
+  captures because the run produced nothing to review.
+- **What is recorded:** the outcome, not the transcript. The ledger already holds
+  every command; what the next run needs is the conclusion.
+- **Bounds:** 30 events recalled, 4000 bytes per event keeping the tail (a
+  command's failure is at the end). The prompt is a bill.
+- **Config:** `BERRY_AGENTCORE_MEMORY_ID=<id>`; unset disables recall. Also
+  `BERRY_AGENTCORE_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY`, falling back to the
+  Bedrock pair — see Validation for why the default chain is not usable.
+- **Not delivered:** long-term semantic extraction, and conversation recall
+  (`conversations/responder.ts` still replays its own Postgres rows, which is
+  correct for a chat thread and needs no store).
+- **Verify:** offline — `agentcore/memory.test.ts` (11 tests, mocked client) plus
+  prompt tests in `executor.test.ts`. Live — verified against the provisioned
+  store, including from inside the `berry-api` container.
 
 ### Phase 4 — Policy (greenfield; requires Gateway from Phase 2)
 
@@ -214,6 +235,38 @@ now fixed and pinned by tests:
 2. **`writeFile` appended a blank line** to any content already ending in a
    newline, because the heredoc terminator was always preceded by an added `\n`.
    Fixed in both AgentCore drivers.
+
+### Phase 3 evidence
+
+A Memory store was created in us-east-1 (`eventExpiryDuration` 90 days, no
+strategies) and reached `ACTIVE`. Against it, verified directly: a fresh issue
+recalls nothing and yields a null prompt; two events written are recalled
+oldest-first; a blank event is not sent; a different issue sees nothing; a 20 000
+character event is stored truncated to 4001; and an invalid `memoryId` degrades
+with `ValidationException` returning no events instead of throwing. The IAM grant
+is `CreateEvent` + `ListEvents` scoped to that one memory ARN.
+
+A third defect surfaced here, and it is the reason this phase carries a config
+change rather than only new code:
+
+3. **AgentCore clients on the AWS default credential chain authenticate as
+   MinIO.** In the Compose stack `AWS_ACCESS_KEY_ID` is `berryminio` — the object
+   store's credential, which the stack has always set under that name. Any
+   AgentCore SDK client constructed without explicit credentials therefore
+   presents it to AWS and is refused. Confirmed from inside the running
+   `berry-api` container: with explicit credentials a recall round-trips, and on
+   the default chain the same call fails `UnrecognizedClientException`. Fixed by
+   adding `AgentCoreConfig.credentials`
+   (`BERRY_AGENTCORE_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_SESSION_TOKEN`,
+   falling back to the `BERRY_BEDROCK_*` pair), mirroring the reason Bedrock
+   already had its own pair. Both execution drivers were passing no credentials
+   too, so the same fix was applied in `execution/factory.ts` — meaning the
+   `agentcore` and `agentcore-runtime` substrates were also relying on ambient
+   credentials that are wrong inside the container.
+
+The boot line now reports `runMemory: agentcore | off`, because recall is
+otherwise invisible from outside: an agent with no store and an agent whose store
+is misconfigured both simply start fresh.
 
 ## Follow-up
 

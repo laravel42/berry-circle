@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { ResultText, splitUtf8, toAgentName } from './executor.ts';
 import { commentBody, truncateUtf8 } from '../runs/result-comment.ts';
 import { buildMessage } from './prompt.ts';
+import { recallPrompt } from '../agentcore/memory.ts';
 
 /**
  * The parts of the executor that do not need a model or a database. What it
@@ -134,6 +135,24 @@ test('a rejected task carries the review that sent it back', () => {
    // Files from the earlier attempt survive now that artifacts are shared, so
    // the agent is told to read them rather than to start again.
    assert.match(message, /list_files/);
+});
+
+test('recall of earlier attempts reaches the prompt, and is not the same as a review', () => {
+   // A review is somebody else's verdict on a finished attempt; recall is the
+   // agent's own account of attempts that may never have finished. A run can
+   // have either, or both, so they are separate fields and read as such.
+   const priorWork = recallPrompt([
+      { at: new Date(), role: 'ASSISTANT', text: 'Cloned the repo; the build already failed.' },
+   ]);
+   const message = buildMessage({ ...dispatch, priorWork: priorWork! });
+   assert.match(message, /worked on this issue before/);
+   assert.match(message, /the build already failed/);
+   assert.doesNotMatch(message, /sent back/, 'no review happened, so none is claimed');
+});
+
+test('a first run says nothing about earlier attempts', () => {
+   const message = buildMessage({ ...dispatch });
+   assert.doesNotMatch(message, /worked on this issue before/);
 });
 
 test('the contracts survive a description long enough to fill the prompt', () => {

@@ -7,6 +7,7 @@ import { BerryArtifactService } from './artifact-service.ts';
 import { berryTools } from './tools.ts';
 import type { ExecutionDriver, ExecutionSession } from '../execution/driver.ts';
 import { permissionsOf, type PermissionSet } from './permissions.ts';
+import { nullRunMemory, recallPrompt, type RunMemory } from '../agentcore/memory.ts';
 import type { ConnectionRepository } from '../integrations/connections.ts';
 import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
@@ -94,6 +95,11 @@ export interface ExecutorOptions {
    github?: (token: string) => GitHubClient;
    /** The credential a run clones and pushes with, from AgentCore Identity. */
    gitCredential?: ((workspaceId: string) => Promise<{ username: string; password: string }>) | undefined;
+   /**
+    * What earlier runs on the issue did. Omitted means no recall, which is the
+    * behaviour every run had before Memory was wired.
+    */
+   memory?: RunMemory;
 }
 
 export interface RunOutcome {
@@ -144,6 +150,8 @@ export class AdkExecutor {
    private readonly defaultModel: string;
    private readonly clock: () => Date;
    private readonly newId: () => string;
+   /** Never null, so the recall path has no branch in it. */
+   private readonly memory: RunMemory;
 
    constructor(options: ExecutorOptions) {
       this.sql = options.sql;
@@ -164,6 +172,7 @@ export class AdkExecutor {
       this.defaultModel = options.defaultModel ?? 'anthropic/claude-sonnet-4.5';
       this.clock = options.clock ?? (() => new Date());
       this.newId = options.newId ?? randomUUID;
+      this.memory = options.memory ?? nullRunMemory();
    }
 
    /**
@@ -253,9 +262,15 @@ export class AdkExecutor {
             : {}),
       });
 
-      // Read before the run is marked running, so a reviewer's feedback is
-      // part of the first message rather than something the agent learns late.
-      const reviewFeedback = await lastRejection(this.sql, dispatch.issueId);
+      // Both read before the run is marked running, so a reviewer's feedback
+      // and the agent's own earlier attempts are part of the first message
+      // rather than something it learns late. Concurrent because neither needs
+      // the other, and both sit in front of a run that has not started yet.
+      const [reviewFeedback, recalled] = await Promise.all([
+         lastRejection(this.sql, dispatch.issueId),
+         this.memory.recall({ agentId: dispatch.agentId, issueId: dispatch.issueId }),
+      ]);
+      const priorWork = recallPrompt(recalled);
 
       await this.ledger.markRunning(dispatch.runId);
 
@@ -307,7 +322,11 @@ export class AdkExecutor {
                   systemPrompt: agent.instructions ?? '',
                   tools: agentTools,
                },
-               buildMessage({ ...dispatch, reviewFeedback }),
+               buildMessage({
+                  ...dispatch,
+                  reviewFeedback,
+                  ...(priorWork ? { priorWork } : {}),
+               }),
                signal
             )) {
                if (signal?.aborted) throw new RunCancelled();
@@ -474,6 +493,20 @@ export class AdkExecutor {
          summary,
          usage,
       });
+
+      // The summary rather than the whole transcript: the ledger already holds
+      // every command, and what the next run needs is the conclusion, not the
+      // work. Recorded after the ledger, because the ledger is the durable
+      // record and memory is the convenience built on top of it.
+      if (summary) {
+         await this.memory.record({
+            agentId: dispatch.agentId,
+            issueId: dispatch.issueId,
+            role: 'ASSISTANT',
+            text: summary,
+            runId: dispatch.runId,
+         });
+      }
       if (text !== '') {
          // Best effort by design: the run succeeded and its ledger says so. A
          // comment that fails to post is worth a retry, not a failed run.
@@ -511,6 +544,17 @@ export class AdkExecutor {
       // cancellation.
       await this.ledger.fail({ runId: dispatch.runId, failure }).catch((cause) => {
          if (!(cause instanceof RunTerminal)) throw cause;
+      });
+
+      // A failure is the most valuable thing to recall: it is the one outcome
+      // the next run should not reproduce, and unlike a rejected review it is
+      // recorded even when the run never produced a result to review.
+      await this.memory.record({
+         agentId: dispatch.agentId,
+         issueId: dispatch.issueId,
+         role: 'ASSISTANT',
+         text: `An earlier run failed with ${failure.code}: ${failure.message}`,
+         runId: dispatch.runId,
       });
       return { runId: dispatch.runId, status: 'failed', summary: null, usage, toolCalls, failure };
    }

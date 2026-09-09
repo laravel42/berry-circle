@@ -18,6 +18,15 @@ const MAX_PROMPT_BYTES = 64 * 1024;
 export interface PromptContext extends Dispatch {
    /** Why a peer reviewer last sent this task back, when one did. */
    reviewFeedback?: string;
+   /**
+    * What this agent already did on this issue, from AgentCore Memory.
+    *
+    * Distinct from `reviewFeedback`, which is somebody else's verdict on a
+    * finished attempt. This is the agent's own account of attempts that may
+    * never have finished at all — a run that was cancelled, or that failed
+    * halfway — and without it those attempts are invisible to the next one.
+    */
+   priorWork?: string;
 }
 
 export function buildMessage(dispatch: PromptContext): string {
@@ -39,6 +48,12 @@ export function buildMessage(dispatch: PromptContext): string {
          'repeating. Files an earlier attempt saved are still there — call ' +
          'list_files to see them, and replace what needs replacing rather than ' +
          'starting from nothing.\n';
+   }
+   // After the review, before the repository: a reviewer's verdict is the
+   // sharper instruction and should be read first, but both are history and
+   // belong together, ahead of the mechanics of where the code lives.
+   if (dispatch.priorWork) {
+      message += `\n\n${dispatch.priorWork}\n`;
    }
    if (dispatch.repository) {
       message += `\n\nRepository: ${dispatch.repository}`;
