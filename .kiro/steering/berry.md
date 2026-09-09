@@ -14,8 +14,9 @@ coding playbook, gateway-v1, ADRs, design system), plus `server-ts/SCOPE.md` and
 ## Two workspaces
 
 `server-ts` (Node 22, no build step, `--experimental-strip-types`, Zod 4) and
-`frontend` (Next.js, Prettier **3-space** + ESLint, `@/`, Zod 4) do not share a
-toolchain. Never format one with the other.
+`frontend` (Next.js, Prettier **3-space** + ESLint, `@/`, Zod 3) do not share a
+toolchain. Never format one with the other, and do not assume their Zod major
+matches.
 
 ## Boundaries
 

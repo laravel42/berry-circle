@@ -48,8 +48,10 @@ lib/<domain>.ts  ──►  lib/api.ts  ──► Berry API (same-origin, proxie
 - **Formatting:** Prettier with **3-space** indent, single quotes, semicolons,
   `es5` trailing commas, `printWidth` 100. The alias `@/*` maps to the frontend
   root (the bundler resolves it — unlike the server, aliases are fine here).
-- **Forms use `react-hook-form` + a Zod schema** (one schema per form). See
-  `lib/zod-resolver.ts` for the resolver seam.
+- **Forms use `react-hook-form` + a Zod schema** (one schema per form). The
+  frontend is on **Zod 3** (`package.json` pins `^3.24.2`) while the server is
+  on Zod 4 — do not assume they match. See `lib/zod-resolver.ts` for the
+  resolver seam that bridges `@hookform/resolvers` 4 against Zod 3.
 - **No test runner.** Verify with `pnpm lint` and `pnpm build:check` (which
   writes to a throwaway dist dir so it will not corrupt a running `next dev`),
   plus a manual check of the changed view.

@@ -7,8 +7,9 @@ fileMatchPattern: ['frontend/**']
 
 Next.js App Router (see `package.json` for the installed version). Prettier
 **3-space**, single quotes, semicolons, `es5` trailing commas, `printWidth`
-100. Alias `@/*` → frontend root. Zod 4. No test runner — `pnpm lint` and
-`pnpm build`, plus a manual check of the changed view.
+100. Alias `@/*` → frontend root. Zod 3 (`package.json` pins `^3.24.2`; the
+server is on Zod 4 — do not assume they match). No test runner — `pnpm lint`
+and `pnpm build`, plus a manual check of the changed view.
 
 ## Data and API
 

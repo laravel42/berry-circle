@@ -42,7 +42,7 @@ write code. Never run one workspace's tools over another.
 | Paths | relative, `.ts` extensions kept | `@/*` → frontend root |
 | Format + lint | none configured; match surrounding style | Prettier **3-space**, single quotes + ESLint |
 | Tests | `node --test` | none yet — lint + `next build` |
-| Validation | Zod v4 | Zod v4 |
+| Validation | Zod v4 | Zod v3 (`package.json` pins `^3.24.2`) |
 
 Also in the repo: `docs/`, `docker-compose.yml` (server + Postgres + MinIO),
 and `scripts/` (Python repository checks).
