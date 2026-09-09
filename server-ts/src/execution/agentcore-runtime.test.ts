@@ -76,6 +76,36 @@ test('a session is addressed by the run, so a retry reaches the same session', a
    assert.ok(first.id.length >= 33, `session id must be >= 33 chars, got ${first.id.length}`);
 });
 
+test('the invoke carries the documented envelope: contentType, accept and qualifier', async () => {
+   // `accept` is load-bearing — the response is an event stream, and the
+   // reference call asks for it by name rather than relying on an SDK default.
+   const f = fake();
+   const session = await driver(f).createSession({ runId: 'r' });
+   // Drained, not broken out of: the driver yields `start` before it sends the
+   // command, so an early break records no invoke at all.
+   await session.exec('echo hi');
+
+   const invoke = f.sent.find((s) => s.name === 'InvokeAgentRuntimeCommandCommand')!;
+   assert.equal(invoke.input.contentType, 'application/json');
+   assert.equal(invoke.input.accept, 'application/vnd.amazon.eventstream');
+   assert.equal(invoke.input.qualifier, 'DEFAULT');
+});
+
+test('an explicit qualifier overrides the DEFAULT alias', async () => {
+   const f = fake();
+   const pinned = agentCoreRuntimeDriver({
+      region: 'us-east-1',
+      runtimeArn: ARN,
+      qualifier: 'prod',
+      client: f.client,
+   });
+   const session = await pinned.createSession({ runId: 'r' });
+   await session.exec('echo hi');
+
+   const invoke = f.sent.find((s) => s.name === 'InvokeAgentRuntimeCommandCommand')!;
+   assert.equal(invoke.input.qualifier, 'prod');
+});
+
 test('a command produces start, output and exit', async () => {
    const f = fake({
       chunks: [

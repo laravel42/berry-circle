@@ -38,6 +38,19 @@ import {
 /** Runtime session container idle ceiling is AWS-managed; a stopped run is torn down explicitly. */
 const DEFAULT_COMMAND_TIMEOUT_MS = 15 * 60 * 1000;
 
+/**
+ * The invoke envelope AWS's own examples set explicitly.
+ *
+ * `accept` is the load-bearing one: the response is an event stream, and asking
+ * for it by name is what the documented call does rather than relying on an SDK
+ * default. `qualifier` names the agent alias — `DEFAULT` when a deployment has
+ * not pinned a version, which is what AgentCore resolves to anyway; sending it
+ * makes the call the same shape as the reference example.
+ */
+const CONTENT_TYPE = 'application/json';
+const ACCEPT_EVENT_STREAM = 'application/vnd.amazon.eventstream';
+const DEFAULT_QUALIFIER = 'DEFAULT';
+
 export interface AgentCoreRuntimeDriverOptions {
    region: string;
    /** The deployed AgentCore Runtime to invoke, addressed by ARN. */
@@ -69,13 +82,15 @@ export function agentCoreRuntimeDriver(options: AgentCoreRuntimeDriverOptions): 
          // the credential, the region and the runtime ARN, and a control-plane
          // listing would exercise none of them. The session it opens is stopped
          // straight after so a health check leaves nothing running.
-         const sessionId = `berry-runtime-health-${Date.now()}`;
+         const sessionId = runtimeSessionId(`health-${Date.now()}`);
          try {
             const response = await client.send(
                new InvokeAgentRuntimeCommandCommand({
                   agentRuntimeArn: options.runtimeArn,
-                  ...(options.qualifier ? { qualifier: options.qualifier } : {}),
+                  qualifier: options.qualifier ?? DEFAULT_QUALIFIER,
                   runtimeSessionId: sessionId,
+                  contentType: CONTENT_TYPE,
+                  accept: ACCEPT_EVENT_STREAM,
                   body: { command: 'true' },
                })
             );
@@ -94,7 +109,7 @@ export function agentCoreRuntimeDriver(options: AgentCoreRuntimeDriverOptions): 
                .send(
                   new StopRuntimeSessionCommand({
                      agentRuntimeArn: options.runtimeArn,
-                     ...(options.qualifier ? { qualifier: options.qualifier } : {}),
+                     qualifier: options.qualifier ?? DEFAULT_QUALIFIER,
                      runtimeSessionId: sessionId,
                   })
                )
@@ -167,8 +182,10 @@ class AgentCoreRuntimeSession implements ExecutionSession {
          const response = await this.#client.send(
             new InvokeAgentRuntimeCommandCommand({
                agentRuntimeArn: this.#runtimeArn,
-               ...(this.#qualifier ? { qualifier: this.#qualifier } : {}),
+               qualifier: this.#qualifier ?? DEFAULT_QUALIFIER,
                runtimeSessionId: this.id,
+               contentType: CONTENT_TYPE,
+               accept: ACCEPT_EVENT_STREAM,
                body: {
                   command: full,
                   // AgentCore's timeout is seconds; Berry's is millis.
@@ -272,7 +289,7 @@ class AgentCoreRuntimeSession implements ExecutionSession {
          .send(
             new StopRuntimeSessionCommand({
                agentRuntimeArn: this.#runtimeArn,
-               ...(this.#qualifier ? { qualifier: this.#qualifier } : {}),
+               qualifier: this.#qualifier ?? DEFAULT_QUALIFIER,
                runtimeSessionId: this.id,
             })
          )
