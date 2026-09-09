@@ -15,6 +15,7 @@ import { idempotent } from '../http/idempotent.ts';
 import type { IdempotencyStore } from '../http/idempotency.ts';
 import type { Broadcaster } from '../realtime/hub.ts';
 import type { BoardRepository } from '../core/boards.ts';
+import type { GoalLinker } from '../core/goal-linker.ts';
 import {
    ApprovalRequired,
    InvalidTransition,
@@ -62,17 +63,6 @@ const PAGE_PARAMS = new Set([
    'assigneeId',
    'query',
 ]);
-
-export interface GoalLinker {
-   clearIssueGoal(issueId: string): Promise<void>;
-   /** False when the goal is not in this workspace. */
-   linkIssue(
-      workspaceId: string,
-      goalId: string,
-      issueId: string,
-      actorId: string
-   ): Promise<boolean>;
-}
 
 export interface IssueOptions {
    sessions: SessionService;

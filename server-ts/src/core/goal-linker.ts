@@ -1,6 +1,25 @@
 import type { Sql } from '../db/pool.ts';
 import type { GoalRepository } from './goals.ts';
-import type { GoalLinker } from '../mounts/issues.ts';
+
+/**
+ * The narrow slice of goal linking the issue mount depends on.
+ *
+ * The mount only ever wants to clear an issue's goal or link it to one, so it
+ * takes this two-method contract rather than the whole `GoalRepository`. It is
+ * defined here, beside the adapter that implements it, so the dependency runs
+ * mount → core (an HTTP adapter depending on a domain contract) rather than
+ * the other way round.
+ */
+export interface GoalLinker {
+   clearIssueGoal(issueId: string): Promise<void>;
+   /** False when the goal is not in this workspace. */
+   linkIssue(
+      workspaceId: string,
+      goalId: string,
+      issueId: string,
+      actorId: string
+   ): Promise<boolean>;
+}
 
 /**
  * Adapts the goal repository to the narrow `GoalLinker` the issue mount needs.
