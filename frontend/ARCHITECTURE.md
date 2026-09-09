@@ -45,6 +45,13 @@ lib/<domain>.ts  ──►  lib/api.ts  ──► Berry API (same-origin, proxie
 - **No secret may use a `NEXT_PUBLIC_*` name** — that prefix is the browser
   bundle. The session token lives in an in-memory closure plus tab-scoped
   `sessionStorage`, never in a URL or build variable (`lib/session.ts`).
+- **Store for shared state, `lib/` for one-shot operations.** A component reads
+  and mutates cross-render collection state through the Zustand store, but calls
+  a `lib/<domain>.ts` function directly for a single-record fetch, a create, or
+  a delete — operations that do not belong in a client cache. Both talking to
+  the same feature from one component is expected; it is not a layering
+  violation, and wrapping a one-shot call in a pass-through store action only
+  adds indirection.
 - **Formatting:** Prettier with **3-space** indent, single quotes, semicolons,
   `es5` trailing commas, `printWidth` 100. The alias `@/*` maps to the frontend
   root (the bundler resolves it — unlike the server, aliases are fine here).
