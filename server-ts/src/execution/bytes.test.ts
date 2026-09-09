@@ -47,7 +47,10 @@ test('bytes survive the round trip, every byte value and a size over one chunk',
    const back = await getBytes(session, 'video/clip.mp4', { maxBytes: 2 * 1024 * 1024 });
 
    assert.ok(back && Buffer.from(back).equals(bytes));
-   assert.ok(commands.filter((c) => c.includes('base64 -d')).length >= 3, 'written in more than one chunk');
+   const writes = commands.filter((c) => c.includes('base64 -d'));
+   assert.ok(writes.length >= 3, 'written in more than one chunk');
+   // The command channel's ceiling, measured on AgentCore: 64 KB is refused.
+   for (const command of writes) assert.ok(command.length < 48 * 1024, `a write command of ${command.length} bytes`);
    for (const command of commands) assert.ok(!command.includes('\n'), 'one line per command');
 });
 

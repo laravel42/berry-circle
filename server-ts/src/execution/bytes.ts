@@ -14,8 +14,16 @@ import { shellQuote } from '../agents/checkout.ts';
  * should be.
  */
 
-/** Raw bytes per command. Base64 grows it by a third; the wrapped script a little more. */
-const PUT_CHUNK = 384 * 1024;
+/**
+ * Raw bytes per write command.
+ *
+ * Base64 grows it by a third, and the AgentCore driver wraps the whole
+ * script in base64 again, so 24 KB of file is about 44 KB of command —
+ * under the 64 KB that InvokeAgentRuntimeCommand refuses at (measured: 32 KB
+ * raw passed, 64 KB was rejected on `body.command` length). A clip goes in
+ * about a hundred commands; slow, but it arrives.
+ */
+const PUT_CHUNK = 24 * 1024;
 const GET_CHUNK = 1024 * 1024;
 
 export async function putBytes(session: ExecutionSession, path: string, bytes: Uint8Array): Promise<void> {
