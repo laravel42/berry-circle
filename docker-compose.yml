@@ -98,9 +98,11 @@ services:
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-berryminio}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
       AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
-      # Where an agent's commands run. The API reaches the runtime over HTTP
-      # with a shared secret and never touches the Docker socket itself — that
-      # is the whole reason `runtime` is a separate service.
+      # Where an agent's commands run: `docker` (the runtime service over HTTP —
+      # the API never touches the Docker socket itself, which is why `runtime`
+      # is separate), `agentcore` (Bedrock AgentCore Code Interpreter), or
+      # `agentcore-runtime` (a deployed AgentCore Runtime by ARN). URL and token
+      # are read only by the `docker` driver.
       BERRY_RUNTIME_DRIVER: "${BERRY_RUNTIME_DRIVER:-docker}"
       BERRY_RUNTIME_URL: "${BERRY_RUNTIME_URL:-http://runtime:4300}"
       BERRY_RUNTIME_TOKEN: "${BERRY_RUNTIME_TOKEN:-}"
@@ -147,8 +149,11 @@ services:
     # intact. berry-api talks to this over HTTP with a shared secret, exactly
     # as it would talk to a remote substrate.
     build:
-      context: ./runtime
-      dockerfile: Dockerfile
+      # The runtime source moved under server-ts (one package to reason about),
+      # but it still ships as its own image and runs as its own service so the
+      # Docker socket stays out of berry-api.
+      context: ./server-ts
+      dockerfile: Dockerfile.runtime
     image: berry-runtime:local
     depends_on:
       # The image runs happen in has to exist before the first run asks for
@@ -196,7 +201,7 @@ services:
     # a pull, because the image needs git and a package manager that the stock
     # node image does not carry.
     build:
-      context: ./runtime/sandbox
+      context: ./server-ts/sandbox
       dockerfile: Dockerfile
     image: "${BERRY_SANDBOX_IMAGE:-berry-sandbox:local}"
     command: ["true"]

@@ -9,7 +9,7 @@ import type { ExecEvent } from './driver.ts';
  * `event:` line — self-describing frames survive being logged, replayed and
  * pasted into a bug report, and there is only one thing to parse.
  *
- * `PROTOCOL.md` in the worker package is the normative description. The schema
+ * `protocol.ts` in the runtime service is the shared description. The schema
  * below is the enforcement, and the two have to agree.
  */
 

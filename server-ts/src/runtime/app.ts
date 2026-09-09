@@ -11,9 +11,8 @@ import type { Frame } from './demux.ts';
  * the network and a process that runs arbitrary commands, and a check that can
  * only be exercised against a live daemon is one nobody exercises.
  *
- * Every route here answers exactly what `PROTOCOL.md` describes, because the
- * Cloudflare worker answers the same thing and Berry must not be able to tell
- * which one it is talking to.
+ * Every route here answers exactly the wire contract in `protocol.ts`, which
+ * the execution driver in `server-ts/src/execution/http.ts` speaks.
  */
 
 export interface Env {

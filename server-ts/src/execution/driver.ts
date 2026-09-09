@@ -2,13 +2,12 @@
  * The execution seam.
  *
  * Berry runs an agent's commands somewhere that is not Berry. Where that is
- * differs by deployment and must keep differing: the hosted workspace runs
- * them in a Cloudflare sandbox, and a self-hosted Berry has to run them in a
- * local container, because Cloudflare Containers cannot be self-hosted and
- * "MIT, on your own infrastructure" is a claim the product makes.
+ * differs by deployment and must keep differing: a self-hosted Berry runs them
+ * in a local container on its own Docker daemon, and a managed one runs them in
+ * AWS Bedrock AgentCore — a Code Interpreter session or a deployed Runtime.
  *
  * So this file is the only thing the rest of the server is allowed to know
- * about execution. Nothing above it imports a Cloudflare type, and no driver
+ * about execution. Nothing above it imports a substrate's type, and no driver
  * leaks its vocabulary upward — the event names here are Berry's, not any
  * provider's, which is what lets a second driver drop in without touching the
  * ledger, the tools or the executor.

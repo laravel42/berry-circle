@@ -11,12 +11,13 @@ import {
 } from './driver.ts';
 
 /**
- * The driver for any substrate that speaks `runtime-worker/PROTOCOL.md`.
+ * The driver for the Docker runtime service (`server-ts/src/runtime/`).
  *
- * There are two, and this file cannot tell them apart — which is the point.
- * `runtime/` runs containers on the operator's own Docker daemon;
- * `runtime-worker/` runs them on Cloudflare. Both answer the same routes with
- * the same event shapes, so the choice is a URL and a name in a log line.
+ * It speaks the small HTTP contract that service answers: one disposable
+ * container per run on the operator's own Docker daemon, reached over HTTP with
+ * a shared bearer token. The transport is deliberately generic — the driver
+ * only knows a base URL and a token — so a future remote substrate that spoke
+ * the same routes would need no new client here.
  *
  * Berry calls out to the substrate and never the reverse. That direction is
  * not incidental: a self-hosted Berry sits behind NAT and could not receive a

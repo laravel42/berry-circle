@@ -1,11 +1,16 @@
-# Berry runtime
+# Berry runtime service
 
 Where an agent's commands run, on the operator's own Docker daemon.
 
-One disposable container per Berry run, named for the run. It answers the same
-wire contract as `runtime-worker/` — [`PROTOCOL.md`](../runtime-worker/PROTOCOL.md)
-is normative for both — so Berry cannot tell which substrate it is talking to,
-and the driver in `server-ts/src/execution/http.ts` is unchanged between them.
+One disposable container per Berry run, named for the run. It answers a small
+HTTP wire contract that the `docker` execution driver
+(`server-ts/src/execution/http.ts`) speaks, so a run's ledger is unaware of
+where work happened.
+
+This source lives under `server-ts/src/runtime/` so there is one package to
+reason about, but it is still shipped as its own image
+(`server-ts/Dockerfile.runtime`) and run as its own Compose service — the
+Docker socket stays out of `berry-api`.
 
 ## Why it is a separate service
 
@@ -21,35 +26,33 @@ socket. That check fails if anything else picks it up.
 
 | File | What |
 |---|---|
-| `src/app.ts` | The routes, separated from the daemon so auth is testable |
-| `src/docker.ts` | The Engine API — seven calls, written directly |
-| `src/demux.ts` | Docker's multiplexed exec stream, which is how stdout and stderr stay apart |
-| `src/config.ts` | Every limit that bounds a container running code an agent wrote |
+| `src/runtime/app.ts` | The routes, separated from the daemon so auth is testable |
+| `src/runtime/docker.ts` | The Engine API — seven calls, written directly |
+| `src/runtime/demux.ts` | Docker's multiplexed exec stream, which is how stdout and stderr stay apart |
+| `src/runtime/config.ts` | Every limit that bounds a container running code an agent wrote |
 | `sandbox/Dockerfile` | The image runs happen in: node 22, pnpm, git |
 
 ## Running it
 
-```sh
-pnpm install
-pnpm --filter @berry/runtime typecheck
-pnpm --filter @berry/runtime test      # routes, auth and framing, no daemon needed
-```
-
-Against a real daemon:
+Types and tests come with the rest of the server:
 
 ```sh
-docker build -t berry-sandbox:local runtime/sandbox
-
-cd runtime
-BERRY_RUNTIME_TOKEN=$(openssl rand -base64 32) \
-BERRY_SANDBOX_IMAGE=berry-sandbox:local \
-  pnpm dev
+pnpm typecheck:server
+pnpm test:server        # includes the runtime routes, auth and framing, no daemon needed
 ```
 
 In the Compose stack it comes up as `runtime`, and `sandbox-image` builds the
 run image before it starts.
 
-## What bounds a run
+## Substrate choice
+
+`BERRY_RUNTIME_DRIVER` selects where an agent's commands run:
+
+- `docker` — this service, a disposable container per run on the host daemon.
+- `agentcore` — AWS Bedrock AgentCore Code Interpreter session.
+- `agentcore-runtime` — a deployed AWS Bedrock AgentCore Runtime, invoked by ARN.
+
+## What bounds a run (docker driver)
 
 Every default is deliberately modest: a runaway run must not be able to take
 the host down because nothing was set.
@@ -69,14 +72,5 @@ Containers also run with `CapDrop: ALL` and `no-new-privileges`.
 **It is not a boundary against untrusted code.** Containers share the host
 kernel. For a self-hosted Berry that is the right trade — the agent runs code
 the team already trusts, on their own machine, and there is no other tenant to
-protect them from. Hosting other people's agents is a different problem and
-wants `runtime-worker/`, or a VM boundary.
-
-## Not built yet
-
-- **Nothing calls this from a run.** The seam and both substrates exist; the
-  `run_command` agent tool is the next increment.
-- **No resume.** Events carry `seq`, so the format is ready, but a dropped
-  connection loses the tail of the log rather than resuming.
-- **No repository checkout.** `git` is in the sandbox image; nothing clones
-  with it until the GitHub phase.
+protect them from. Hosting other people's agents wants a managed substrate
+(`agentcore` / `agentcore-runtime`) or a VM boundary.

@@ -6,7 +6,7 @@ import type { Frame } from './demux.ts';
 /**
  * The routes against a fake container runtime.
  *
- * These assert the half of `PROTOCOL.md` this service owns, and they assert it
+ * These assert the half of the wire contract this service owns, and they assert it
  * without a daemon — so the authorization check and the exit-code handling are
  * exercised on every run of the suite rather than only when someone has Docker
  * up.

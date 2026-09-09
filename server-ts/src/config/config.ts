@@ -71,12 +71,16 @@ export interface GitConfig {
  */
 export interface ExecutionConfig {
    /**
-    * `docker` is the runtime service in `runtime/`, for a self-hosted Berry.
-    * `cloudflare` is the worker in `runtime-worker/`, for the hosted
-    * workspace. They speak the same protocol; the name selects a label, not a
-    * different client.
+    * Where an agent's commands run.
+    *
+    * `docker` is the runtime service (`server-ts/src/runtime/`), a disposable
+    * container per run on the operator's own Docker daemon — the self-hosted
+    * default. `agentcore` is an AWS Bedrock AgentCore Code Interpreter session.
+    * `agentcore-runtime` is a deployed AgentCore Runtime, invoked by ARN. Only
+    * `docker` uses `baseUrl`/`token`; the AgentCore substrates are reached with
+    * SigV4 and addressed from `AgentCoreConfig`.
     */
-   driver: 'docker' | 'cloudflare' | 'agentcore';
+   driver: 'docker' | 'agentcore' | 'agentcore-runtime';
    baseUrl: string;
    token: string;
 }
@@ -265,20 +269,23 @@ function execution(env: NodeJS.ProcessEnv, problems: string[]): ExecutionConfig 
 
    if (!driver && !baseUrl && !token) return null;
 
-   if (driver !== 'docker' && driver !== 'cloudflare' && driver !== 'agentcore') {
+   if (driver !== 'docker' && driver !== 'agentcore' && driver !== 'agentcore-runtime') {
       problems.push(
-         `BERRY_RUNTIME_DRIVER must be 'docker', 'cloudflare' or 'agentcore' when execution is configured, got '${driver}'`
+         `BERRY_RUNTIME_DRIVER must be 'docker', 'agentcore' or 'agentcore-runtime' when execution is configured, got '${driver}'`
       );
       return null;
    }
 
-   // AgentCore is reached with SigV4 and addressed by an interpreter id, so it
-   // has neither a URL nor a token of its own. Demanding them would make the
-   // one substrate that needs no secret the only one that cannot start.
-   if (driver === 'agentcore') return { driver, baseUrl: '', token: '' };
+   // The AgentCore substrates are reached with SigV4 and addressed from
+   // AgentCoreConfig (an interpreter id or a runtime ARN), so they have neither
+   // a URL nor a token of their own. Demanding them would make the substrates
+   // that need no secret the only ones that cannot start.
+   if (driver === 'agentcore' || driver === 'agentcore-runtime') {
+      return { driver, baseUrl: '', token: '' };
+   }
 
-   if (!baseUrl) problems.push('BERRY_RUNTIME_URL is required when BERRY_RUNTIME_DRIVER is set');
-   if (!token) problems.push('BERRY_RUNTIME_TOKEN is required when BERRY_RUNTIME_DRIVER is set');
+   if (!baseUrl) problems.push('BERRY_RUNTIME_URL is required when BERRY_RUNTIME_DRIVER=docker');
+   if (!token) problems.push('BERRY_RUNTIME_TOKEN is required when BERRY_RUNTIME_DRIVER=docker');
    if (!baseUrl || !token) return null;
 
    return { driver, baseUrl, token };

@@ -1,14 +1,14 @@
 /**
- * The wire contract between Berry and this worker.
+ * The wire contract between Berry and the runtime service.
  *
- * These types are duplicated in `server-ts/src/execution/`, deliberately: the
- * two packages deploy separately and must not share a build. `PROTOCOL.md` is
- * the normative description, and `server-ts` pins these shapes in a test so a
- * change on one side fails on the other rather than at runtime.
+ * Mirrored by the execution driver's copy in `server-ts/src/execution/`: the
+ * runtime image ships only `src/runtime/`, so it carries its own copy of these
+ * shapes rather than importing across the tree. `server-ts` pins them in a test
+ * so a change on one side fails the build rather than a run.
  *
- * Nothing from `@cloudflare/sandbox` appears here. The translation happens in
- * this worker so Berry never learns a provider's vocabulary — which is the
- * whole reason a second driver can exist later.
+ * Berry cannot tell which service answered. That is the point — this one runs
+ * containers on the operator's own Docker daemon, the other runs them on
+ * Cloudflare, and the wire format says nothing about either.
  */
 
 export type ExecEvent =

@@ -96,9 +96,9 @@ test('only exit and error end a stream', () => {
    assert.equal(isTerminal({ type: 'start', seq: 0, command: 'x' }), false);
 });
 
-test('frames the worker actually writes decode here, byte for byte', async () => {
+test('frames the runtime service actually writes decode here, byte for byte', async () => {
    // Pinned as literal bytes rather than round-tripped through encodeFrame, so
-   // this fails if either side of PROTOCOL.md drifts from the other.
+   // this fails if either copy of the protocol drifts from the other.
    const captured =
       'data: {"type":"start","seq":0,"command":"pnpm test"}\n\n' +
       'data: {"type":"stdout","seq":1,"data":"84 passed\\n"}\n\n' +
