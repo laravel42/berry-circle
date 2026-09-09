@@ -128,7 +128,7 @@ test('a retried run updates its own branch but refuses to clobber someone else',
    // The lease has to have something to compare with: a fresh clone knows
    // nothing about the branch the earlier attempt pushed, and was refused
    // with "stale info" until the branch was fetched first.
-   const fetch = calls.findIndex((call) => /git .*fetch origin 'b'/.test(call.command));
+   const fetch = calls.findIndex((call) => /fetch origin '\+refs\/heads\/b:refs\/remotes\/origin\/b'/.test(call.command));
    const pushAt = calls.findIndex((call) => call.command.includes('push'));
    assert.ok(fetch >= 0 && fetch < pushAt, 'the branch is fetched before it is pushed');
    assert.equal(calls[fetch]!.env?.BERRY_GIT_TOKEN, TOKEN, 'the fetch authenticates the same way');

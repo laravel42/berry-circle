@@ -77,10 +77,13 @@ export async function commitAndPush(options: DeliveryOptions): Promise<Delivery>
    // shallow clone of the default branch has none for this branch — so a
    // retried run, whose earlier attempt already pushed, was refused with
    // "stale info". Fetching the branch first gives the lease something true
-   // to compare with. A branch that does not exist yet fails to fetch, which
+   // to compare with. The refspec is explicit because `clone --branch` is a
+   // single-branch clone: its remote covers only the default branch, and a
+   // bare `fetch origin <branch>` would land in FETCH_HEAD and update nothing
+   // the lease reads. A branch that does not exist yet fails to fetch, which
    // is fine: the push then creates it.
    await options.session.exec(
-      `git -c credential.helper=${shellQuote(CREDENTIAL_HELPER)} fetch origin ${shellQuote(options.branch)}`,
+      `git -c credential.helper=${shellQuote(CREDENTIAL_HELPER)} fetch origin ${shellQuote(`+refs/heads/${options.branch}:refs/remotes/origin/${options.branch}`)}`,
       { ...at, env: { [TOKEN_VARIABLE]: options.token } }
    );
 
