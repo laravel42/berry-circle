@@ -164,6 +164,13 @@ export class ModelCatalog {
       const canFilter = capability.size > 0;
       const models = (profiles.inferenceProfileSummaries ?? [])
          .filter((entry) => entry.inferenceProfileId)
+         // Drop the `global.` cross-region routing family. Bedrock lists both a
+         // regional (`us.`) and a global (`global.`) profile for many models, so
+         // keeping both shows the picker two near-identical rows per model. The
+         // deployment invokes in one region, so the regional profile is the one
+         // to offer; the global duplicate is noise. Any agent already pinned to
+         // a `us.` id is unaffected, since resolveModel matches the exact id.
+         .filter((entry) => !isGlobalProfile(entry.inferenceProfileId!))
          .map((entry) => toCatalogModel(entry, capability, pricing))
          // Keep a profile only when its underlying model produces text. An id
          // that does not resolve to a known model is kept rather than hidden:
@@ -421,6 +428,16 @@ export function normalizeModelId(provider: string, id: string): string {
  * two-or-three-letter strip misses, which left those profiles unmatched.
  */
 const ROUTING_PREFIXES = ['us-gov', 'us', 'eu', 'apac', 'apne', 'global'];
+
+/**
+ * Whether a profile id is on the `global.` cross-region routing family.
+ *
+ * These duplicate the regional (`us.`, `eu.`, …) profiles for the same models,
+ * so the catalogue drops them to keep one row per model in the picker.
+ */
+export function isGlobalProfile(id: string): boolean {
+   return id.startsWith('global.');
+}
 
 /** Strips a known routing prefix (`us.`, `global.`, …) from a profile id. */
 export function stripRoutingPrefix(id: string): string {

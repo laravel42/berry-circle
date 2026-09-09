@@ -300,12 +300,38 @@ test('an unavailable foundation-model list leaves the profiles unfiltered', asyn
    assert.deepEqual((await models.list()).map((m) => m.id), ['us.amazon.titan-embed-text-v2:0']);
 });
 
-test('a global. profile resolves its capability, like a us. one', async () => {
-   // The `global.` routing prefix must be stripped for the capability lookup to
-   // hit; a naive two-or-three-letter strip left these profiles unmatched.
+test('global. profiles are excluded, leaving the regional profile', async () => {
+   // Bedrock lists both a regional and a global profile for the same model. The
+   // catalogue keeps the regional one and drops the global duplicate, so the
+   // picker shows one row per model rather than two.
    const models = catalog(
       listingWithModels(
-         [{ inferenceProfileId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0' }],
+         [
+            { inferenceProfileId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' },
+            { inferenceProfileId: 'global.anthropic.claude-sonnet-4-5-20250929-v1:0' },
+         ],
+         [
+            {
+               modelId: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
+               outputModalities: ['TEXT'],
+               inputModalities: ['TEXT', 'IMAGE'],
+            },
+         ]
+      )
+   );
+   const listed = await models.list();
+   assert.deepEqual(
+      listed.map((m) => m.id),
+      ['us.anthropic.claude-sonnet-4-5-20250929-v1:0']
+   );
+});
+
+test('a us. profile resolves its capability through the stripped prefix', async () => {
+   // The routing prefix must be stripped for the capability lookup to hit; a
+   // naive two-or-three-letter strip once left these profiles unmatched.
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0' }],
          [
             {
                modelId: 'anthropic.claude-sonnet-4-5-20250929-v1:0',
