@@ -6,6 +6,8 @@ export const BoardID = '11111111-1111-4111-8111-111111111120';
 
 export const UserEmail = 'prototype@berry.test';
 export const UserName = 'Prototype User';
+/** Development-only password for the seeded Prototype User. Never used outside local seed. */
+export const UserPassword = 'prototype-password';
 export const WorkspaceName = 'Berry';
 export const WorkspaceSlug = 'berry';
 export const BoardName = 'Platform';

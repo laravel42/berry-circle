@@ -1,3 +1,4 @@
+import { hashPassword } from '../auth/password.ts';
 import type { Sql } from '../db/pool.ts';
 import { withinTx } from '../db/pool.ts';
 import {
@@ -7,6 +8,7 @@ import {
    UserEmail,
    UserID,
    UserName,
+   UserPassword,
    WorkspaceID,
    WorkspaceName,
    WorkspaceSlug,
@@ -22,6 +24,7 @@ import {
 export async function apply(sql: Sql, now: string = new Date().toISOString()): Promise<void> {
    await withinTx(sql, async (tx) => {
       await upsertUser(tx, now);
+      await setUserPassword(tx, now);
       await upsertWorkspace(tx, now);
       await upsertMembership(tx, now);
       await setUserLastWorkspace(tx, now);
@@ -56,6 +59,23 @@ async function upsertUser(tx: Sql, now: string): Promise<void> {
          name = EXCLUDED.name,
          role = EXCLUDED.role,
          updated_at = EXCLUDED.updated_at
+   `;
+}
+
+async function setUserPassword(tx: Sql, now: string): Promise<void> {
+   // Set a real scrypt credential so the seeded identity can sign in through the
+   // password flow (passwordless login is off unless APP_ENV is development/test
+   // and the flag is on). Uses the same hashPassword the sign-up path uses, so
+   // the stored salt (16 bytes) and hash (32 bytes) satisfy migration 050's
+   // length constraints. Rewritten on every seed run, which is harmless.
+   const { salt, hash } = await hashPassword(UserPassword);
+   await tx`
+      UPDATE users
+         SET password_hash = ${hash},
+             password_salt = ${salt},
+             password_updated_at = ${now},
+             updated_at = ${now}
+       WHERE id = ${UserID}
    `;
 }
 
