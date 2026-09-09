@@ -2,7 +2,7 @@ import { LexoRank } from '@/lib/utils';
 import { LabelInterface } from './labels';
 import { Priority } from './priorities';
 import { Project } from './projects';
-import { Status, StatusCategory } from './status';
+import { Status } from './status';
 import { User } from './users';
 
 /** A task this one waits on, or that waits on it; enough to draw a row without a second read. */
@@ -114,17 +114,6 @@ export function sortIssuesByPriority(issues: Issue[]): Issue[] {
             priorityOrder[a.priority.id as keyof typeof priorityOrder] -
             priorityOrder[b.priority.id as keyof typeof priorityOrder]
       );
-}
-
-export function filterIssuesByCycle(allIssues: Issue[], cycleId: string): Issue[] {
-   return allIssues.filter((issue) => issue.cycleId === cycleId);
-}
-
-export function filterIssuesByCategories(
-   allIssues: Issue[],
-   categories: StatusCategory[]
-): Issue[] {
-   return allIssues.filter((issue) => categories.includes(issue.status.category));
 }
 
 /**
