@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import { runCommandTool } from './command-tool.ts';
 import { ExecutionUnavailable, type ExecEvent, type ExecutionSession } from '../execution/driver.ts';
 import type { RunLedger } from '../runs/ledger.ts';
-import { permissionsOf } from './permissions.ts';
+import { StateStore, type ToolContext } from '@strands-agents/sdk';
+import { WORKDIR_KEY } from './command-tool.ts';
 
 /**
  * The tool that turns a run into something you can watch.
@@ -78,10 +79,19 @@ function tool(session: ExecutionSession, ledger: RunLedger, clock = tickingClock
  * SDK actually uses, so a schema that stopped matching the arguments would
  * fail here too rather than only in production.
  */
-async function call(t: ReturnType<typeof tool>, args: object): Promise<Record<string, unknown>> {
-   return (await (t as unknown as { invoke: (a: object) => Promise<unknown> }).invoke(
-      args
-   )) as Record<string, unknown>;
+async function call(
+   t: ReturnType<typeof tool>,
+   args: object,
+   context?: Partial<Pick<ToolContext, 'cancelSignal'>> & { workdir?: string }
+): Promise<Record<string, unknown>> {
+   const invoke = (t as unknown as { invoke: (a: object, c?: unknown) => Promise<unknown> }).invoke;
+   const toolContext = context
+      ? {
+           ...(context.cancelSignal ? { cancelSignal: context.cancelSignal } : {}),
+           agent: { appState: new StateStore(context.workdir ? { [WORKDIR_KEY]: context.workdir } : {}) },
+        }
+      : undefined;
+   return (await invoke.call(t, args, toolContext)) as Record<string, unknown>;
 }
 
 test('a failing command is a result the model can read, not an exception', async () => {
@@ -276,14 +286,7 @@ test('the run\'s cancellation reaches the command, not just the model call', asy
       seen.push(options)
    );
 
-   const cancellable = runCommandTool({
-      ledger,
-      runId: 'run-1',
-      session: async () => session,
-      newId: () => 'cmd-1',
-      signal: controller.signal,
-   });
-   await call(cancellable as ReturnType<typeof tool>, { command: 'pnpm test' });
+   await call(tool(session, ledger), { command: 'pnpm test' }, { cancelSignal: controller.signal });
 
    assert.deepEqual(seen, [{ signal: controller.signal }]);
 });
@@ -309,14 +312,11 @@ test('a cancelled command says so, rather than reporting a broken substrate', as
       destroy: async () => undefined,
    } satisfies ExecutionSession;
 
-   const cancellable = runCommandTool({
-      ledger,
-      runId: 'run-1',
-      session: async () => session,
-      newId: () => 'cmd-1',
-      signal: controller.signal,
-   });
-   const result = await call(cancellable as ReturnType<typeof tool>, { command: 'pnpm build' });
+   const result = await call(
+      tool(session, ledger),
+      { command: 'pnpm build' },
+      { cancelSignal: controller.signal }
+   );
 
    assert.equal(result.exitCode, null);
    assert.equal(result.error, 'the run was cancelled');
@@ -353,44 +353,19 @@ test('a run that ends mid-command still gets a result, not an exception', async 
    assert.equal(result.exitCode, 0);
 });
 
-test('a revoked permission refuses the call rather than hiding the button', async () => {
-   // The claim is that the runtime refuses. A check that only decided whether
-   // to offer the tool would be a hidden button, and a hidden button is not an
-   // enforcement point — so this calls the tool directly, as a model would.
+test('a command runs in the checkout when the run has one, unless told otherwise', async () => {
+   // The tools are built before the repository is cloned, so the directory is
+   // read from the agent's state at call time rather than fixed at
+   // construction — which would always be the workspace root.
    const { ledger, events } = fakeLedger();
-   let opened = false;
-   const refusing = runCommandTool({
-      ledger,
-      runId: 'run-1',
-      session: async () => {
-         opened = true;
-         return fakeSession([]);
-      },
-      newId: () => 'cmd-1',
-      permissions: permissionsOf(['read_repository'], 'Forge'),
-   });
+   const seen: unknown[] = [];
+   const session = fakeSession([{ type: 'exit', seq: 0, exitCode: 0 }], (_command, options) =>
+      seen.push(options)
+   );
 
-   const result = await call(refusing as ReturnType<typeof tool>, { command: 'rm -rf /' });
-   assert.equal(result.exitCode, null);
-   assert.equal(result.permissionDenied, true);
-   assert.match(result.error as string, /Forge does not have permission to run commands/);
+   await call(tool(session, ledger), { command: 'pnpm test' }, { workdir: 'circle' });
+   await call(tool(session, ledger), { command: 'ls', cwd: 'elsewhere' }, { workdir: 'circle' });
 
-   // Nothing was opened and nothing was recorded: the refusal happens before
-   // a workspace is touched.
-   assert.equal(opened, false);
-   assert.deepEqual(events, []);
-});
-
-test('a granted permission lets the call through', async () => {
-   const { ledger } = fakeLedger();
-   const permitted = runCommandTool({
-      ledger,
-      runId: 'run-1',
-      session: async () => fakeSession([{ type: 'exit', seq: 0, exitCode: 0 }]),
-      newId: () => 'cmd-1',
-      permissions: permissionsOf(['run_commands'], 'Forge'),
-   });
-   const result = await call(permitted as ReturnType<typeof tool>, { command: 'ls' });
-   assert.equal(result.exitCode, 0);
-   assert.equal(result.permissionDenied, undefined);
+   assert.deepEqual(seen, [{ cwd: 'circle' }, { cwd: 'elsewhere' }]);
+   assert.equal(events.find((event) => event.type === 'started')?.cwd, 'circle');
 });

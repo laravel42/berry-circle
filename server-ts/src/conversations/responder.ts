@@ -1,6 +1,6 @@
 import type { Sql } from '../db/pool.ts';
 import { BedrockChat, type AwsCredentials } from '../llm/bedrock-chat.ts';
-import { toAgentName } from '../agents/executor.ts';
+import { toAgentName } from '../agents/runtime/agent.ts';
 import type { ConversationMessage } from './repository.ts';
 
 /**

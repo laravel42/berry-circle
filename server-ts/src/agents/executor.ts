@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from '../db/pool.ts';
 import type { Storage } from '../storage/storage.ts';
-import { RunLedger, RunTerminal, type Dispatch, type Usage } from '../runs/ledger.ts';
+import { RunLedger, RunTerminal, type Dispatch, type Run, type Usage } from '../runs/ledger.ts';
 import { postRunResult, truncateUtf8 } from '../runs/result-comment.ts';
 import { BerryArtifactService } from './artifact-service.ts';
 import { berryTools } from './tools.ts';
@@ -11,8 +11,6 @@ import { nullRunMemory, recallPrompt, type RunMemory } from '../agentcore/memory
 import type { ConnectionRepository } from '../integrations/connections.ts';
 import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
-import { runAgent, type AgentEvent } from './strands-runtime.ts';
-import type { AwsCredentials } from '../llm/bedrock-chat.ts';
 import {
    deliverRepository,
    prepareRepository,
@@ -20,28 +18,37 @@ import {
    type RepositoryRunDeps,
 } from './repository-run.ts';
 import { buildMessage, lastRejection } from './prompt.ts';
-import { MAX_SUMMARY_BYTES, ResultText } from './runtime/result-text.ts';
-import { OutputBuffer } from './runtime/output-buffer.ts';
+import { MAX_SUMMARY_BYTES, type ResultText } from './runtime/result-text.ts';
+import { classify } from './runtime/failure.ts';
+import { buildRunAgent } from './runtime/agent.ts';
+import { bedrockModel, type AwsCredentials, type ModelFactory } from './runtime/model.ts';
+import { LedgerPlugin } from './runtime/plugins/ledger.ts';
+import { AccountingPlugin } from './runtime/plugins/accounting.ts';
+import { PermissionPlugin } from './runtime/plugins/permissions.ts';
+import { ToolFailed, ToolOutcomePlugin } from './runtime/plugins/tool-outcome.ts';
+import { WORKDIR_KEY } from './command-tool.ts';
 
 /**
- * Runs one Berry run through ADK, writing the ledger Berry already keeps.
+ * Runs one Berry run on the Strands agent loop, writing the ledger Berry
+ * already keeps.
  *
- * This is what replaces Berry's consumption of a separate runtime's event
- * stream. The ledger does not change — the same `run_events`, the
- * same statuses, the same result comment on the task — because those are
- * product surfaces read by the run stream, the task timeline and the peer
- * reviewer. What changes is who produces them, and that the agent now has
- * tools that reach Berry itself.
+ * The ledger does not change — the same `run_events`, the same statuses, the
+ * same result comment on the task — because those are product surfaces read
+ * by the run stream, the task timeline and the peer reviewer. What produces
+ * them is a set of plugins on the SDK's own lifecycle: the ledger plugin
+ * writes tool and output rows from hooks, accounting sums usage and tracks
+ * the result, the permission plugin refuses what the agent may not do, and
+ * the tool-outcome plugin decides what a thrown tool costs. This file no
+ * longer reads a single event; it builds the agent, invokes it once, and
+ * records how it ended.
  *
- * One failure from the previous runtime is worth keeping in view, because it
- * shaped this loop. It emitted `done` at the end of every model turn and
- * kept the connection open when the agent had called a tool, so treating the
- * first `done` as the end recorded runs as succeeded seconds in — with "I'll
- * look into this" posted as the result — while the agent worked on for minutes
- * into a stream nobody read. ADK has no such ambiguity: the event iterator
- * ends when the agent is done. The lesson survives anyway in two places: a run
- * is recorded as succeeded only when the iterator actually completes, and the
- * result is the last substantive turn rather than the last thing said.
+ * One failure from a much earlier runtime is worth keeping in view, because
+ * it shaped the result handling that survives here. It emitted `done` at the
+ * end of every model turn and kept going, so treating the first `done` as the
+ * end recorded runs as succeeded seconds in — with "I'll look into this"
+ * posted as the result. The lesson is kept in two places: a run is recorded
+ * as succeeded only when `invoke()` returns, and the result is the last
+ * substantive turn rather than the last thing said.
  */
 
 export interface ExecutorOptions {
@@ -84,6 +91,11 @@ export interface ExecutorOptions {
     * behaviour every run had before Memory was wired.
     */
    memory?: RunMemory;
+   /** Builds the model for a run. Tests pass a scripted one. */
+   modelFactory?: ModelFactory;
+   /** A ceiling on one model reply. Omitted means the factory's default. */
+   maxTokens?: number;
+   temperature?: number;
 }
 
 export interface RunOutcome {
@@ -137,6 +149,9 @@ export class AdkExecutor {
    private readonly newId: () => string;
    /** Never null, so the recall path has no branch in it. */
    private readonly memory: RunMemory;
+   private readonly modelFactory: ModelFactory;
+   private readonly maxTokens: number | undefined;
+   private readonly temperature: number | undefined;
 
    constructor(options: ExecutorOptions) {
       this.sql = options.sql;
@@ -165,6 +180,9 @@ export class AdkExecutor {
       this.clock = options.clock ?? (() => new Date());
       this.newId = options.newId ?? randomUUID;
       this.memory = options.memory ?? nullRunMemory();
+      this.modelFactory = options.modelFactory ?? bedrockModel;
+      this.maxTokens = options.maxTokens;
+      this.temperature = options.temperature;
    }
 
    /**
@@ -217,16 +235,10 @@ export class AdkExecutor {
       // and a container started for every run would pay that cost for nothing.
       const workspace = this.execution ? lazyWorkspace(this.execution, dispatch.runId) : null;
 
-      // Set once the repository is in place, and read by the command tool when
-      // the agent runs something — so its commands land in the checkout rather
-      // than at the workspace root.
-      let workdir: string | undefined;
-
-      // No session service. ADK kept a transcript in Postgres because its
-      // Runner needed one to resume a turn; Strands holds the conversation in
-      // the agent for the life of the call, and Berry's durable record of what
-      // happened has always been the run ledger rather than a second copy.
-      const agentTools = berryTools({
+      // No session service: Strands holds the conversation in the agent for
+      // the life of the call, and Berry's durable record of what happened has
+      // always been the run ledger rather than a second copy.
+      const tools = berryTools({
          sql: this.sql,
          artifacts,
          workspaceId: dispatch.workspaceId,
@@ -239,16 +251,6 @@ export class AdkExecutor {
                     session: workspace.open,
                     newId: this.newId,
                     clock: this.clock,
-                    // Read at call time, not at construction: the checkout
-                    // happens after the tools are built.
-                    workdirAt: () => workdir,
-                    // Checked inside the call, so a revoked permission refuses
-                    // rather than merely hiding the affordance.
-                    permissions: agent.permissions,
-                    // Cancellation has to reach the command, not just the model
-                    // call: the check below only runs between events, and a tool
-                    // waiting on `pnpm test` produces none for minutes.
-                    ...(signal ? { signal } : {}),
                  },
               }
             : {}),
@@ -264,139 +266,118 @@ export class AdkExecutor {
       ]);
       const priorWork = recallPrompt(recalled);
 
-      await this.ledger.markRunning(dispatch.runId);
-
-      // The repository, if the task's project names one. Done after the run is
-      // running so a clone that takes a minute is visible as a run in progress
-      // rather than as one that has not started.
-      let prepared: PreparedRepository | null = null;
-      try {
-         prepared = await prepareRepository(this.repositoryDeps(), {
-            dispatch,
-            agentName: agent.name,
-            permissions: agent.permissions,
-            session: workspace ? workspace.open : null,
-         });
-      } catch (error) {
-         // A run that cannot get its repository has not begun its work, and
-         // letting the agent loose in an empty workspace would produce a
-         // confident answer about code it never saw.
-         return await this.fail(dispatch, error, usageZero(), 0);
-      }
-      if (prepared) workdir = prepared.checkout.directory;
-      const usage: Usage = {
-         inputTokens: 0,
-         outputTokens: 0,
-         totalTokens: 0,
-         costMicros: null,
-         currency: null,
-      };
-      const result = new ResultText();
+      const ledger = new LedgerPlugin({ ledger: this.ledger, runId: dispatch.runId });
+      const accounting = new AccountingPlugin();
+      const outcome = new ToolOutcomePlugin();
 
       // The outer try exists only for the finally: the workspace is torn down
       // whatever happens, and the inner try decides what "whatever" means.
       try {
-         const openTools = new Map<string, string>();
-         const output = new OutputBuffer((text) =>
-            this.ledger.appendOutput(dispatch.runId, 'progress', text)
-         );
-         let toolCalls = 0;
-         // Whether this turn arrived as deltas. When it did, the aggregated event
-         // that closes the turn repeats every one of them, and recording its text
-         // too would double the run's output and its report.
-         let streamed = false;
-
          try {
-            for await (const event of runAgent(
+            // Inside the try: a cancel landing between the claim and here must
+            // return an outcome rather than throw out of execute().
+            await this.ledger.markRunning(dispatch.runId);
+
+            // The repository, if the task's project names one. Done after the
+            // run is running so a clone that takes a minute is visible as a run
+            // in progress rather than as one that has not started.
+            let prepared: PreparedRepository | null;
+            try {
+               prepared = await prepareRepository(this.repositoryDeps(), {
+                  dispatch,
+                  agentName: agent.name,
+                  permissions: agent.permissions,
+                  session: workspace ? workspace.open : null,
+               });
+            } catch (error) {
+               // A run that cannot get its repository has not begun its work,
+               // and letting the agent loose in an empty workspace would
+               // produce a confident answer about code it never saw.
+               return await this.fail(dispatch, error, usageZero(), 0);
+            }
+
+            const runAgent = buildRunAgent(
                {
+                  agentName: agent.name,
                   model: agent.model,
                   region: this.region,
-                  // Without this the model client falls back to the AWS default
-                  // chain, which in the Compose stack finds MinIO's key and is
-                  // refused as an invalid security token — so every run failed
-                  // before it made a single model call.
-                  ...(this.credentials ? { credentials: this.credentials } : {}),
-                  systemPrompt: agent.instructions ?? '',
-                  tools: agentTools,
+                  credentials: this.credentials,
+                  systemPrompt: agent.instructions?.trim() || defaultInstructions(agent.name),
+                  tools,
+                  plugins: [
+                     ledger,
+                     accounting,
+                     // Checked inside every call, so a revoked permission
+                     // refuses rather than merely hiding the affordance.
+                     new PermissionPlugin({ permissions: agent.permissions }),
+                     outcome,
+                  ],
+                  maxTokens: this.maxTokens,
+                  temperature: this.temperature,
+                  traceAttributes: {
+                     'berry.run_id': dispatch.runId,
+                     'berry.issue_id': dispatch.issueId,
+                     'berry.workspace_id': dispatch.workspaceId,
+                     'berry.agent_id': dispatch.agentId,
+                  },
                },
+               this.modelFactory
+            );
+            // Read by the command tool at call time, so the agent's commands
+            // land in the checkout rather than at the workspace root.
+            if (prepared) runAgent.appState.set(WORKDIR_KEY, prepared.checkout.directory);
+
+            const result = await runAgent.invoke(
                buildMessage({
                   ...dispatch,
                   reviewFeedback,
                   ...(priorWork ? { priorWork } : {}),
                }),
-               signal
-            )) {
-               if (signal?.aborted) throw new RunCancelled();
-               toolCalls += await this.recordEvent(
-                  dispatch.runId,
-                  event,
-                  result,
-                  openTools,
-                  output,
-                  usage
-               );
-               if (event.type === 'turn_complete') {
-                  // Flushed at the boundary so the ledger never shows a turn
-                  // ending before the text that ended it.
-                  await output.flush();
-                  result.endTurn();
-               }
-            }
+               signal ? { cancelSignal: signal } : {}
+            );
+            // The SDK reports an aborted loop as a stop reason rather than by
+            // raising, so a run cancelled mid-turn arrives here looking
+            // finished. Reporting success would contradict a ledger that
+            // already says cancelled.
+            if (signal?.aborted || result.stopReason === 'cancelled') throw new RunCancelled();
 
-            // ADK ends its iterator when the abort signal fires rather than
-            // raising, so a run cancelled mid-turn arrives here looking exactly
-            // like one that finished. Reporting success would then contradict a
-            // ledger that already says cancelled — and `completeSuccess`
-            // refuses a terminal run, so the run would end as an unexplained
-            // error instead of as the cancellation the person asked for.
-            if (signal?.aborted) throw new RunCancelled();
+            // A tool whose failure means durable state was silently lost ends
+            // the run as failed rather than as a confident success.
+            const fatal = outcome.fatal();
+            if (fatal) throw fatal;
 
-            await output.flush();
-            result.endTurn();
-            // Every tool the agent left open failed by omission: the iterator
-            // ended without a response for it. Recording nothing would leave the
-            // run stream showing a tool that never stops running.
-            await this.closeOpenTools(dispatch.runId, openTools);
-
-            // Inside the try, because the workspace is torn down in the finally
-            // and the push needs it still standing.
-            const repository = prepared;
-            if (repository) {
-               const [delivered] = result.final();
-               try {
-                  await deliverRepository(this.repositoryDeps(), {
-                     dispatch,
-                     prepared: repository,
-                     // The same workspace the checkout went into — a new
-                     // session would be an empty container with nothing to
-                     // push.
-                     session: await workspace!.open(),
-                     summary: delivered === '' ? null : delivered,
-                  });
-               } catch (error) {
-                  // The agent's work is in the ledger either way, but a run that
-                  // reports success with nothing pushed sends a reviewer looking
-                  // for a pull request that was never opened. Undelivered is not
-                  // done.
-                  return await this.fail(dispatch, error, usage, toolCalls);
-               }
+            // Inside the try, because the workspace is torn down in the
+            // finally and the push needs it still standing.
+            if (prepared && workspace) {
+               const [delivered] = accounting.snapshot().result.final();
+               await deliverRepository(this.repositoryDeps(), {
+                  dispatch,
+                  prepared,
+                  // The same workspace the checkout went into — a new session
+                  // would be an empty container with nothing to push.
+                  session: await workspace.open(),
+                  summary: delivered === '' ? null : delivered,
+               });
             }
          } catch (error) {
-            // Whatever was gathered is part of the record even when the run ends
-            // badly: it is what the agent had said before it stopped.
-            await output.flush().catch(() => undefined);
-            result.endTurn();
+            // Whatever was gathered is part of the record even when the run
+            // ends badly: it is what the agent had said before it stopped.
+            await ledger.flush().catch(() => undefined);
+            const { usage, toolCalls } = accounting.snapshot();
             if (error instanceof RunCancelled || signal?.aborted) {
-               // Awaited inside the try so the workspace is not torn down while
-               // the run is still being recorded.
+               // Awaited inside the try so the workspace is not torn down
+               // while the run is still being recorded.
                return await this.cancel(dispatch, usage, toolCalls);
             }
+            // An undelivered run is not done: a run that reports success with
+            // nothing pushed sends a reviewer looking for a pull request that
+            // was never opened.
             return await this.fail(dispatch, error, usage, toolCalls);
          }
 
          // Outside the catch on purpose: a failure while *recording* success is
-         // not a failed run, and calling fail() on a run the ledger has already
-         // completed would refuse anyway.
+         // not a failed run.
+         const { usage, toolCalls, result } = accounting.snapshot();
          return await this.succeed(dispatch, result, usage, toolCalls);
       } finally {
          // Whether the run succeeded, failed or was cancelled: "the workspace
@@ -406,8 +387,6 @@ export class AdkExecutor {
          if (workspace) await workspace.close();
       }
    }
-
-
 
    /** The collaborators the repository half needs, in one place. */
    private repositoryDeps(): RepositoryRunDeps {
@@ -421,61 +400,6 @@ export class AdkExecutor {
       };
    }
 
-   /**
-    * One ADK event as ledger rows.
-    *
-    * A tool call and its result are two events here as they are in Berry: the
-    * pair is what lets a run stream show a tool as running rather than only as
-    * having run. Neither carries arguments or output — the ledger is public to
-    * everyone who can see the task, and a tool's input is not.
-    */
-   private async recordEvent(
-      runId: string,
-      event: AgentEvent,
-      result: ResultText,
-      openTools: Map<string, string>,
-      output: OutputBuffer,
-      usage: Usage
-   ): Promise<number> {
-      if (event.type === 'tool_started') {
-         // Before the tool event, so the ledger reads in the order things
-         // happened: the agent said something, then called something.
-         await output.flush();
-         openTools.set(event.callId, event.name);
-         await this.ledger.appendToolStarted(runId, event.callId, event.name);
-         return 1;
-      }
-
-      if (event.type === 'tool_completed') {
-         openTools.delete(event.callId);
-         await this.ledger.appendToolCompleted(runId, event.callId, event.ok);
-         return 0;
-      }
-
-      if (event.type === 'text' && event.text !== '') {
-         // The result keeps every character; the ledger gets them gathered.
-         result.append(event.text);
-         await output.add(event.text);
-         return 0;
-      }
-
-      if (event.type === 'usage') {
-         // Summed across turns: an agent that called three tools made four
-         // model calls, and the run cost all of them.
-         usage.inputTokens += event.inputTokens;
-         usage.outputTokens += event.outputTokens;
-         usage.totalTokens = usage.inputTokens + usage.outputTokens;
-      }
-      return 0;
-   }
-
-   private async closeOpenTools(runId: string, openTools: Map<string, string>): Promise<void> {
-      for (const callId of openTools.keys()) {
-         await this.ledger.appendToolCompleted(runId, callId, false).catch(() => undefined);
-      }
-      openTools.clear();
-   }
-
    private async succeed(
       dispatch: Dispatch,
       result: ResultText,
@@ -485,11 +409,16 @@ export class AdkExecutor {
       const [text, cut] = result.final();
       const summary = text === '' ? null : truncateUtf8(text, MAX_SUMMARY_BYTES);
 
-      const run = await this.ledger.completeSuccess({
-         runId: dispatch.runId,
-         summary,
-         usage,
-      });
+      let run: Run;
+      try {
+         run = await this.ledger.completeSuccess({ runId: dispatch.runId, summary, usage });
+      } catch (cause) {
+         if (!(cause instanceof RunTerminal)) throw cause;
+         // Swept or cancelled while completing. The work is in the ledger and
+         // the row already says how it ended; that verdict stands. What was
+         // paid for is returned rather than discarded.
+         return { runId: dispatch.runId, status: 'cancelled', summary, usage, toolCalls };
+      }
 
       // The summary rather than the whole transcript: the ledger already holds
       // every command, and what the next run needs is the conclusion, not the
@@ -531,11 +460,10 @@ export class AdkExecutor {
       usage: Usage,
       toolCalls: number
    ): Promise<RunOutcome> {
-      const failure = {
-         code: failureCode(error),
-         message: truncateUtf8(String((error as Error)?.message ?? error), 2_000),
-         retryable: isRetryable(error),
-      };
+      const failure =
+         error instanceof ToolFailed
+            ? { code: error.code, message: error.message, retryable: false }
+            : classify(error);
       // A run already made terminal elsewhere — cancelled while this loop was
       // unwinding — must not be overwritten with a failure caused by that
       // cancellation.
@@ -592,39 +520,9 @@ class RunCancelled extends Error {
    }
 }
 
-/**
- * A model-safe agent name.
- *
- * Berry's names are free text — "Prototype Writer" — so they are normalised
- * rather than rejected: the name is a label the model sees, and refusing to
- * run an agent because its name has a space in it would be absurd.
- */
-export function toAgentName(name: string): string {
-   const normalized = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-   return normalized === '' ? 'agent' : normalized;
-}
-
-function failureCode(error: unknown): string {
-   const status = (error as { status?: number })?.status;
-   if (status === 429) return 'RATE_LIMITED';
-   if (typeof status === 'number' && status >= 500) return 'UPSTREAM_UNAVAILABLE';
-   if (typeof status === 'number') return 'UPSTREAM_REJECTED';
-   return 'RUNTIME_ERROR';
-}
-
-/**
- * Whether trying again could plausibly work.
- *
- * Deliberately narrow. A retryable failure invites another paid run, and an
- * agent's tools have side effects, so anything not clearly transient is
- * reported as final.
- */
-function isRetryable(error: unknown): boolean {
-   const status = (error as { status?: number })?.status;
-   return status === 429 || (typeof status === 'number' && status >= 500);
+/** What an agent with no instructions of its own is told it is. */
+function defaultInstructions(name: string): string {
+   return `You are ${name}, an agent working a task in Berry. Do the task you are given and report what you did.`;
 }
 
 /**
@@ -643,9 +541,13 @@ function lazyWorkspace(
 
    return {
       open: () => {
-         // Memoised on the promise, not on its result: two tool calls racing
-         // would otherwise each create a workspace and one would be orphaned.
-         opening ??= driver.createSession({ runId });
+         // Memoised on the promise so two racing tool calls share one
+         // workspace — and cleared on rejection, so one transient failure does
+         // not answer every later call with the same stale error.
+         opening ??= driver.createSession({ runId }).catch((error: unknown) => {
+            opening = null;
+            throw error;
+         });
          return opening;
       },
       close: async () => {

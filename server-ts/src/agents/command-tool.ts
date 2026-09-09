@@ -1,9 +1,8 @@
-import { tool, type Tool } from '@strands-agents/sdk';
+import { tool, type Tool, type ToolContext } from '@strands-agents/sdk';
 import { z } from 'zod';
 import type { ExecutionSession } from '../execution/driver.ts';
 import { ExecutionUnavailable } from '../execution/driver.ts';
 import type { RunLedger } from '../runs/ledger.ts';
-import { PermissionDenied, type PermissionSet } from './permissions.ts';
 
 /**
  * The tool that makes a run something you can watch.
@@ -25,7 +24,16 @@ import { PermissionDenied, type PermissionSet } from './permissions.ts';
  *   - What the model is handed is bounded separately from what is recorded.
  *     A 200,000-line test log belongs in the ledger and does not belong in the
  *     next prompt.
+ *
+ * What is *not* here any more: the permission check. It lives in the
+ * permission plugin, in front of every tool rather than inside one, so a
+ * scope built without a permission set cannot quietly grant commands. And the
+ * run's checkout directory and cancellation arrive through the SDK's own
+ * tool context rather than through closures threaded in from the executor.
  */
+
+/** Where the checkout is, on the agent's state. Set by the executor after cloning. */
+export const WORKDIR_KEY = 'workdir';
 
 export interface CommandToolScope {
    ledger: RunLedger;
@@ -39,39 +47,6 @@ export interface CommandToolScope {
     */
    session: () => Promise<ExecutionSession>;
    newId: () => string;
-   /**
-    * Where a command runs when it does not say.
-    *
-    * Optional because the substrate has its own root, and Berry knowing the
-    * container's directory layout is a coupling with nothing to gain.
-    */
-   workdir?: string;
-   /**
-    * The same thing, read at call time.
-    *
-    * The tools are built before the repository is cloned, so a fixed value
-    * would always be the one from before the checkout — which is the workspace
-    * root, and the agent's commands would run beside its repository instead of
-    * inside it.
-    */
-   workdirAt?: () => string | undefined;
-   /**
-    * Checked on every call, not once at construction.
-    *
-    * Berry's claim is that revoking a permission makes the runtime refuse the
-    * call. A check that only decided whether to offer the tool would be a
-    * hidden button, and a hidden button is not an enforcement point.
-    */
-   permissions?: PermissionSet;
-   /**
-    * Aborted when the run is cancelled.
-    *
-    * Without it a cancelled run's `pnpm test` runs to completion: the model
-    * call is abandoned between events, but the tool is parked inside the
-    * command's own stream and nothing there is watching. The run then reads as
-    * cancelled while the work carries on in a container nobody will reap.
-    */
-   signal?: AbortSignal;
    clock?: () => Date;
 }
 
@@ -101,21 +76,10 @@ export function runCommandTool(scope: CommandToolScope): Tool {
             .optional()
             .describe('Directory to run in, relative to the workspace root. Defaults to the root.'),
       }),
-      callback: async ({ command, cwd }) => {
+      callback: async ({ command, cwd }, context?: ToolContext) => {
          const trimmed = command.trim();
          if (trimmed === '') {
             return { error: 'command was empty', exitCode: null };
-         }
-
-         try {
-            scope.permissions?.require('run_commands');
-         } catch (error) {
-            if (error instanceof PermissionDenied) {
-               // Told plainly so the agent stops trying and says so, rather
-               // than reading a refusal as a transient failure to retry.
-               return { error: error.message, exitCode: null, permissionDenied: true };
-            }
-            throw error;
          }
 
          let session: ExecutionSession;
@@ -133,7 +97,13 @@ export function runCommandTool(scope: CommandToolScope): Tool {
 
          const commandId = scope.newId();
          const startedAt = clock().getTime();
-         const directory = cwd ?? scope.workdirAt?.() ?? scope.workdir ?? null;
+         // The checkout, when the run has one, read at call time: the tools are
+         // built before the repository is cloned.
+         const workdir = context?.agent.appState.get(WORKDIR_KEY);
+         const directory = cwd ?? (typeof workdir === 'string' ? workdir : null);
+         // The run's cancellation, so a `pnpm test` three minutes in stops
+         // with the run rather than finishing in a container nobody will reap.
+         const signal = context?.cancelSignal;
 
          await scope.ledger.appendCommandStarted(scope.runId, {
             commandId,
@@ -149,7 +119,7 @@ export function runCommandTool(scope: CommandToolScope): Tool {
          try {
             const options = {
                ...(directory === null ? {} : { cwd: directory }),
-               ...(scope.signal ? { signal: scope.signal } : {}),
+               ...(signal ? { signal } : {}),
             };
             for await (const event of session.stream(trimmed, options)) {
                switch (event.type) {
@@ -172,7 +142,7 @@ export function runCommandTool(scope: CommandToolScope): Tool {
             // Cancellation is not a broken stream, and must not be recorded as
             // one: the person asked for this, and the agent should say so
             // rather than report an infrastructure fault it can retry.
-            failure = scope.signal?.aborted
+            failure = signal?.aborted
                ? 'the run was cancelled'
                : error instanceof Error
                  ? error.message

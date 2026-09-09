@@ -7,7 +7,7 @@ import { ConversationResponder } from '../conversations/responder.ts';
 import { EditorAssist } from '../editor/assist.ts';
 import type { Sql } from '../db/pool.ts';
 import type { Storage } from '../storage/storage.ts';
-import type { AwsCredentials } from './bedrock-chat.ts';
+import type { AwsCredentials } from '../agents/runtime/model.ts';
 
 /**
  * That every Bedrock caller accepts, and keeps, the credentials it is handed.

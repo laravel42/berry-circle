@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { toAgentName } from './executor.ts';
+import { toAgentName } from './runtime/agent.ts';
 import { ResultText } from './runtime/result-text.ts';
 import { splitUtf8 } from './runtime/output-buffer.ts';
 import { commentBody, truncateUtf8 } from '../runs/result-comment.ts';

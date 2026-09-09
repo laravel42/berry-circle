@@ -35,6 +35,8 @@ test('the status is read from where AWS puts it', () => {
    assert.equal(httpStatus(validation()), 400);
    assert.equal(httpStatus(new Error('plain')), null);
    assert.equal(httpStatus({ status: 503 }), 503);
+   // The agent SDK wraps what Bedrock threw; the status is underneath.
+   assert.equal(httpStatus(new Error('wrapped', { cause: throttling() })), 429);
 });
 
 test('a throttle is transient and a bad model id is not', () => {

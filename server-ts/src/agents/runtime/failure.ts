@@ -20,19 +20,25 @@ const TRANSIENT_NAMES = new Set([
    'TooManyRequestsException',
 ]);
 
-/** The HTTP status an error carries, wherever its SDK put it. */
+/**
+ * The HTTP status an error carries, wherever its SDK put it.
+ *
+ * Follows `cause`: the agent SDK wraps a provider's error in its own, and the
+ * status is on the one underneath.
+ */
 export function httpStatus(error: unknown): number | null {
    if (typeof error !== 'object' || error === null) return null;
    const source = error as {
       $metadata?: { httpStatusCode?: unknown };
       status?: unknown;
       statusCode?: unknown;
+      cause?: unknown;
    };
    const candidates = [source.$metadata?.httpStatusCode, source.status, source.statusCode];
    for (const candidate of candidates) {
       if (typeof candidate === 'number') return candidate;
    }
-   return null;
+   return source.cause !== undefined && source.cause !== error ? httpStatus(source.cause) : null;
 }
 
 /**
@@ -47,7 +53,7 @@ export function isTransient(error: unknown): boolean {
    if (typeof name === 'string' && TRANSIENT_NAMES.has(name)) return true;
    const status = httpStatus(error);
    if (status === 429 || (status !== null && status >= 500)) return true;
-   // The SDK wraps a provider error; the reason is underneath.
+   // The SDK wraps a provider error; the name is on the one underneath.
    const cause = (error as { cause?: unknown })?.cause;
    return cause !== undefined && cause !== error && isTransient(cause);
 }
