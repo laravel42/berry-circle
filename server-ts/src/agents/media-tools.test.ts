@@ -74,7 +74,9 @@ test('a video job is started, waited on, fetched from S3 and saved as an MP4', a
          calls.push(command.constructor.name);
          if (command.constructor.name === 'StartAsyncInvokeCommand') {
             const output = (command.input.outputDataConfig as { s3OutputDataConfig: { s3Uri: string } }).s3OutputDataConfig.s3Uri;
-            assert.match(output, /^s3:\/\/media-bucket\/berry\/run-1\/\d+$/);
+            // Bedrock only takes a directory, and a directory ends in a slash:
+            // without one the job is refused as "not a bucket or a directory".
+            assert.match(output, /^s3:\/\/media-bucket\/berry\/run-1\/\d+\/$/);
             assert.equal((command.input.modelInput as { taskType: string }).taskType, 'TEXT_VIDEO');
             return { invocationArn: 'arn:job' };
          }

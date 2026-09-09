@@ -137,8 +137,11 @@ function generateVideo(scope: MediaScope, video: VideoOutput): Tool {
          const s3 = scope.clients?.s3 ?? new S3Client(clientConfig(scope) as S3ClientConfig);
          const sleep = scope.sleep ?? defaultSleep;
          const signal = context?.cancelSignal;
-         // One folder per call, so two clips on one run never overwrite each other.
-         const folder = `${video.s3Uri.replace(/\/$/, '')}/${scope.runId}/${Date.now()}`;
+         // One folder per call, so two clips on one run never overwrite each
+         // other. The trailing slash is what makes it a directory to Bedrock;
+         // without it the job is refused as pointing at neither a bucket nor
+         // a directory.
+         const folder = `${video.s3Uri.replace(/\/$/, '')}/${scope.runId}/${Date.now()}/`;
 
          try {
             const started = await bedrock.send(
