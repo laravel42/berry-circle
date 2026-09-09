@@ -134,6 +134,36 @@ export class GitHubAppRepository {
       this.#api = options.apiBaseUrl ?? 'https://api.github.com';
    }
 
+   /**
+    * What the installation may actually do, as GitHub reports it.
+    *
+    * Read from the installation rather than from a repository listing: the
+    * per-repository `permissions` object is not meaningful for an installation
+    * token — one granting `contents` was observed reporting `push:false` on
+    * every repository. `contents: write` is what a run needs to push, and this
+    * is the only place that answer is truthful.
+    */
+   async grantedPermissions(workspaceId: string): Promise<Record<string, string> | null> {
+      const installed = await this.installation(workspaceId);
+      if (!installed) return null;
+      const jwt = await this.#jwt();
+      const response = await this.#fetch(
+         new URL(`/app/installations/${installed.installationId}`, this.#api),
+         {
+            headers: {
+               accept: 'application/vnd.github+json',
+               authorization: `Bearer ${jwt}`,
+               'x-github-api-version': '2022-11-28',
+            },
+         }
+      );
+      if (!response.ok) return null;
+      const body = (await response.json().catch(() => ({}))) as {
+         permissions?: Record<string, string>;
+      };
+      return body.permissions ?? null;
+   }
+
    /** The App, without anything sealed — safe to send to a settings page. */
    async app(): Promise<StoredApp | null> {
       const [row] = await this.#sql<AppRow[]>`

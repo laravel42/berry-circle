@@ -393,9 +393,17 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
 
       const accounts = [...new Set(repositories.map((repository) => repository.fullName.split('/')[0]!))];
       const viaApp = credential.kind === 'installation';
+      // A run clones, commits and pushes, so `contents: write` is the grant
+      // that decides whether linking a repository leads anywhere. It is asked
+      // of the installation because the per-repository `permissions` object is
+      // not meaningful for an installation token. Reported so the UI can say a
+      // read-only App is read-only, instead of accepting the link and failing
+      // at the push after the work is already done.
+      const granted = viaApp ? await options.githubApp?.grantedPermissions(workspaceId) : null;
       return json({
          repositories,
          access: {
+            canPush: viaApp ? granted?.contents === 'write' : true,
             // An installation sees only what it was granted; a classic OAuth
             // token sees everything the person can. Saying which is what lets
             // an empty picker be read as "grant more repositories" rather than

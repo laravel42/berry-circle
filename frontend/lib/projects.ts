@@ -212,6 +212,12 @@ const repositorySchema = z.object({
 export type GitHubRepository = z.infer<typeof repositorySchema>;
 
 const accessSchema = z.object({
+   /**
+    * Whether a run could push. A read-only GitHub App still lists every
+    * repository, so without this the picker looks fully working and the link
+    * fails much later, at the push, with the run's work already done.
+    */
+   canPush: z.boolean().optional(),
    selectedOnly: z.boolean(),
    installed: z.boolean(),
    manageUrl: z.string().optional(),

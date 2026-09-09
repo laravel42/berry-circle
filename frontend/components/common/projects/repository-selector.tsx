@@ -175,6 +175,26 @@ export function RepositoryPicker({
                      .
                   </div>
                ) : null}
+               {/* An installed app that cannot write contents lists every
+                   repository and then fails at the push, after a run has
+                   already done the work. Said here so the gap is visible
+                   before a repository is chosen, not after. */}
+               {access && access.installed && access.canPush === false ? (
+                  <div className="border-t px-3 py-2 text-muted-foreground">
+                     Read-only access: runs can clone but not push.{' '}
+                     {access.manageUrl ? (
+                        <a
+                           href={access.manageUrl}
+                           target="_blank"
+                           rel="noreferrer"
+                           className="text-foreground underline underline-offset-2"
+                        >
+                           Grant write access
+                        </a>
+                     ) : null}
+                     .
+                  </div>
+               ) : null}
             </Command>
          </PopoverContent>
       </Popover>

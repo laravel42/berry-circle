@@ -170,16 +170,19 @@ export class GitHubClient {
          // endpoint returns a bare array.
          const rows = Array.isArray(payload) ? payload : (payload.repositories ?? []);
          for (const row of rows) {
-            // Only what the agent could actually work in: a repository it can
-            // read but not push to would be offered, chosen, and then fail at
-            // the push — after a run had done the work. An installation listing
-            // may omit `permissions` entirely, and there the grant is the
-            // installation itself, so absent is treated as allowed rather than
-            // silently emptying the picker.
-            const pushable = installation
-               ? row.permissions === undefined || row.permissions.push === true
-               : row.permissions?.push === true;
-            if (!pushable) continue;
+            // For a *user* token, the per-repository `permissions` object is the
+            // honest signal, and filtering on it keeps a repository the person
+            // can only read out of the picker — chosen, it would fail at the
+            // push after a run had already done the work.
+            //
+            // For an *installation* token that object is not meaningful: an
+            // installation which genuinely grants `contents` was observed
+            // reporting `pull:false, push:false` on every repository. Filtering
+            // on it emptied the picker for a working installation. What an
+            // installation may do is decided by the App's granted permissions,
+            // not per repository, so every granted repository is listed and the
+            // capability is reported alongside the list instead.
+            if (!installation && row.permissions?.push !== true) continue;
             collected.push({
                id: Number(row.id),
                fullName: String(row.full_name),
