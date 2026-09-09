@@ -4,6 +4,8 @@ import { withinTx } from '../db/pool.ts';
 import {
    AgentModelName,
    AgentModelProvider,
+   TextToSpeechAgentID,
+   TextToVideoAgentID,
    BoardID,
    BoardName,
    BoardSlug,
@@ -46,6 +48,7 @@ export async function apply(
       await upsertMembership(tx, now);
       await setUserLastWorkspace(tx, now);
       await upsertBoard(tx, now);
+      await upsertMediaAgents(tx, now);
       if (options.demoWork ?? true) {
          await upsertIssues(tx, now);
          await upsertProjects(tx, now);
@@ -68,6 +71,85 @@ export async function apply(
  * undo a choice a developer made, and `COALESCE` in a single statement would do
  * exactly that on the next run.
  */
+/**
+ * The two media agents, on the models that suit the work.
+ *
+ * Neither renders with its own model. A text-to-speech or text-to-video agent
+ * is a chat model that writes the script and calls a tool — Polly, or Nova
+ * Reel — that renders it; the rendering models are not chat models and cannot
+ * drive the loop. So the choice here is which model writes best for the
+ * medium. Narration is prose that has to sound right read aloud, and Claude
+ * Sonnet 4.5 writes it markedly better than Haiku. A video prompt is a dense
+ * visual description in the vocabulary Nova Reel was trained beside, and Nova
+ * Pro is the family's own chat model, which Amazon recommends for writing
+ * Reel prompts. Both are upserted with fixed ids, so a re-seed updates the
+ * instructions rather than creating a second copy.
+ */
+const MEDIA_AGENTS = [
+   {
+      id: TextToSpeechAgentID,
+      name: 'text-to-speech',
+      description: 'Turns text into narrated audio: writes the script for the ear, then renders it with Amazon Polly.',
+      model: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      capabilities: ['text_to_speech', 'file_list', 'file_read', 'file_write'],
+      instructions: `You produce spoken audio from text.
+
+First write the script for the ear, not the eye: short sentences, no
+headings or bullet marks, numbers and abbreviations spelled the way they are
+said, and pauses where a listener needs them. Then render it with
+generate_speech, choosing a voice that fits the content (Joanna or Matthew
+for neutral narration; ask for another only when the task names one). One
+call takes at most 3000 characters, so split a longer script into numbered
+parts — narration/part-01.mp3, narration/part-02.mp3 — and render each.
+
+Save the script itself beside the audio as a text file, so a person can read
+what was said. Your final message lists the files you produced and their
+durations in words.`,
+   },
+   {
+      id: TextToVideoAgentID,
+      name: 'text-to-video',
+      description: 'Turns a description into short video clips: writes the shot prompts, then renders them with Amazon Nova Reel.',
+      model: 'us.amazon.nova-pro-v1:0',
+      capabilities: ['text_to_video', 'file_list', 'file_read', 'file_write'],
+      instructions: `You produce short video clips from a description.
+
+A clip is six seconds, so plan in shots: break the request into a sequence
+of shots that each show one thing, and write one prompt per shot. A good
+prompt is a dense visual description under 512 characters — subject,
+setting, camera motion, lighting, style — and never a story or a list of
+instructions. Render each with generate_video at a path like
+clips/01-opening.mp4. Rendering takes a few minutes per clip; do not start
+more than four clips on one task without being asked.
+
+Save the shot list as a text file beside the clips, one line per shot with
+its prompt, so a person can read what each clip was meant to show. Your
+final message lists the clips in order.`,
+   },
+] as const;
+
+async function upsertMediaAgents(tx: Sql, now: string): Promise<void> {
+   for (const agent of MEDIA_AGENTS) {
+      await tx`
+         INSERT INTO agents (
+            id, workspace_id, board_id, name, description, status, capabilities,
+            instructions, model_provider, model_name, created_at, updated_at
+         ) VALUES (
+            ${agent.id}, ${WorkspaceID}, ${BoardID}, ${agent.name}, ${agent.description}, 'available',
+            ${[...agent.capabilities]}, ${agent.instructions}, ${AgentModelProvider}, ${agent.model},
+            ${now}, ${now}
+         )
+         ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            capabilities = EXCLUDED.capabilities,
+            instructions = EXCLUDED.instructions,
+            archived_at = NULL,
+            updated_at = EXCLUDED.updated_at
+      `;
+   }
+}
+
 async function assignAgentModels(tx: Sql, now: string): Promise<void> {
    await tx`
       UPDATE agents

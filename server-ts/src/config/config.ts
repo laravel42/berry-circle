@@ -219,6 +219,12 @@ export interface AgentConfig {
    maxTokens: number | null;
    /** How many times AutoGate sends a task back before leaving it to a person. */
    autoGateMaxAttempts: number;
+   /**
+    * `s3://bucket/prefix` where Nova Reel writes a rendered video before Berry
+    * copies it into an artifact. A real S3 bucket the credential can read and
+    * write; null means agents can make speech but not video.
+    */
+   mediaVideoS3Uri: string | null;
 }
 
 export class ConfigError extends Error {
@@ -374,6 +380,9 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       maxCriticRounds: positive(env.PLANNER_MAX_CRITIC_ROUNDS, 1),
       maxTokens: env.BERRY_AGENT_MAX_TOKENS ? positive(env.BERRY_AGENT_MAX_TOKENS, 32_000) : null,
       autoGateMaxAttempts: positive(env.BERRY_AUTOGATE_MAX_ATTEMPTS, 2),
+      mediaVideoS3Uri: /^s3:\/\/[^/]+/.test((env.BERRY_MEDIA_VIDEO_S3_URI ?? '').trim())
+         ? (env.BERRY_MEDIA_VIDEO_S3_URI ?? '').trim()
+         : null,
    };
 }
 

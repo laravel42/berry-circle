@@ -27,6 +27,7 @@ import { AccountingPlugin } from './runtime/plugins/accounting.ts';
 import { PermissionPlugin } from './runtime/plugins/permissions.ts';
 import { ToolFailed, ToolOutcomePlugin } from './runtime/plugins/tool-outcome.ts';
 import { WORKDIR_KEY } from './command-tool.ts';
+import { mediaTools, type VideoOutput } from './media-tools.ts';
 
 /**
  * Runs one Berry run on the Strands agent loop, writing the ledger Berry
@@ -105,6 +106,12 @@ export interface ExecutorOptions {
    /** A ceiling on one model reply. Omitted means the factory's default. */
    maxTokens?: number;
    temperature?: number;
+   /**
+    * Media an agent may render: speech through Polly always, video through
+    * Nova Reel when the job has somewhere in S3 to write. Omitted means no
+    * media tools at all.
+    */
+   media?: { video?: VideoOutput | undefined } | undefined;
 }
 
 export interface RunOutcome {
@@ -163,6 +170,7 @@ export class RunExecutor {
    private readonly onGateError: (error: unknown) => void;
    private readonly maxTokens: number | undefined;
    private readonly temperature: number | undefined;
+   private readonly media: { video?: VideoOutput | undefined } | undefined;
 
    constructor(options: ExecutorOptions) {
       this.sql = options.sql;
@@ -196,6 +204,7 @@ export class RunExecutor {
       this.onGateError = options.onGateError ?? (() => {});
       this.maxTokens = options.maxTokens;
       this.temperature = options.temperature;
+      this.media = options.media;
    }
 
    /**
@@ -268,6 +277,24 @@ export class RunExecutor {
               }
             : {}),
       });
+      if (this.media) {
+         tools.push(
+            ...mediaTools({
+               region: this.region,
+               credentials: this.credentials,
+               runId: dispatch.runId,
+               video: this.media.video,
+               // Rendered media is an artifact like any other file the agent
+               // saves, so the task page lists it and a person can download it.
+               save: async ({ path, bytes, contentType }) => {
+                  await artifacts.saveArtifact({
+                     filename: path,
+                     artifact: { inlineData: { data: Buffer.from(bytes).toString('base64'), mimeType: contentType } },
+                  });
+               },
+            })
+         );
+      }
 
       // Both read before the run is marked running, so a reviewer's feedback
       // and the agent's own earlier attempts are part of the first message

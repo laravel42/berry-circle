@@ -3,6 +3,8 @@
 export const UserID = '11111111-1111-4111-8111-111111111101';
 export const WorkspaceID = '11111111-1111-4111-8111-111111111110';
 export const BoardID = '11111111-1111-4111-8111-111111111120';
+export const TextToSpeechAgentID = '11111111-1111-4111-8111-111111111131';
+export const TextToVideoAgentID = '11111111-1111-4111-8111-111111111132';
 
 export const UserEmail = 'prototype@berry.test';
 export const UserName = 'Prototype User';

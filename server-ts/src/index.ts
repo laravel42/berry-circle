@@ -268,6 +268,9 @@ const executor =
            ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
            defaultModel: config.agents.defaultModel,
            ...(config.agents.maxTokens ? { maxTokens: config.agents.maxTokens } : {}),
+           media: {
+              ...(config.agents.mediaVideoS3Uri ? { video: { s3Uri: config.agents.mediaVideoS3Uri } } : {}),
+           },
            // Only when one is actually configured. Handing over the
            // unconfigured driver would give agents a `run_command` that
            // refuses every call, and an agent cannot work around a tool it was

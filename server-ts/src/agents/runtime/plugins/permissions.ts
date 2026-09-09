@@ -28,6 +28,9 @@ export const TOOL_PERMISSIONS: Readonly<Record<string, Permission | null>> = {
    list_files: null,
    read_task: null,
    list_dependencies: null,
+   // Rendered media is an artifact the agent saves, gated the same way.
+   generate_speech: null,
+   generate_video: null,
 };
 
 export class PermissionPlugin implements Plugin {
