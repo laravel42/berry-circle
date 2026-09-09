@@ -54,6 +54,19 @@ export type ModelFactory = (spec: ModelSpec) => Model<BaseModelConfig>;
 export const DEFAULT_MAX_TOKENS = 32_000;
 
 /**
+ * What a family will accept as a reply ceiling. Bedrock refuses a request
+ * above it outright, so a value the deployment or the default asks for is
+ * clamped here rather than failing every run on that model: Nova Pro stops
+ * at 10,000, the smaller Nova models at 5,000. Anything not listed keeps
+ * what it was asked for.
+ */
+export function maxTokensFor(model: string, requested: number): number {
+   if (/amazon\.nova-(pro|premier)/.test(model)) return Math.min(requested, 10_000);
+   if (/amazon\.nova-/.test(model)) return Math.min(requested, 5_000);
+   return requested;
+}
+
+/**
  * A Bedrock model for a spec.
  *
  * No API key: Bedrock authenticates with SigV4 through the AWS credential
@@ -64,7 +77,7 @@ export function bedrockModel(spec: ModelSpec): BedrockModel {
       region: spec.region,
       ...(spec.credentials ? { clientConfig: { credentials: spec.credentials } } : {}),
       modelId: spec.model,
-      maxTokens: spec.maxTokens ?? DEFAULT_MAX_TOKENS,
+      maxTokens: maxTokensFor(spec.model, spec.maxTokens ?? DEFAULT_MAX_TOKENS),
       ...(spec.temperature === undefined ? {} : { temperature: spec.temperature }),
       ...(spec.stream === undefined ? {} : { stream: spec.stream }),
    });

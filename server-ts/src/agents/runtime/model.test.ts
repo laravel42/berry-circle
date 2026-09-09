@@ -29,6 +29,13 @@ test('a completion can ask for the non-streaming API', () => {
    assert.equal(bedrockModel({ model: 'm', region: 'us-east-1' }).getConfig().stream, undefined);
 });
 
+test('a family that accepts less than the default is clamped, not refused', () => {
+   assert.equal(bedrockModel({ model: 'us.amazon.nova-pro-v1:0', region: 'r' }).getConfig().maxTokens, 10_000);
+   assert.equal(bedrockModel({ model: 'us.amazon.nova-lite-v1:0', region: 'r' }).getConfig().maxTokens, 5_000);
+   assert.equal(bedrockModel({ model: 'us.amazon.nova-pro-v1:0', region: 'r', maxTokens: 2_000 }).getConfig().maxTokens, 2_000);
+   assert.equal(bedrockModel({ model: 'us.anthropic.claude-sonnet-4-6', region: 'r' }).getConfig().maxTokens, DEFAULT_MAX_TOKENS);
+});
+
 test('omitted inference options fall back to the documented ceiling', () => {
    const config = bedrockModel({ model: 'm', region: 'us-east-1' }).getConfig();
    assert.equal(config.maxTokens, DEFAULT_MAX_TOKENS);
