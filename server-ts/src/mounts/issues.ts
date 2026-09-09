@@ -1,5 +1,7 @@
 import type { ScmSync } from '../scm/sync.ts';
 import { Hono } from 'hono';
+import { autoDispatch } from '../runs/auto-dispatch.ts';
+import type { RunRepository } from '../runs/repository.ts';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
@@ -82,6 +84,12 @@ export interface IssueOptions {
    /** An issue's files: the listing, and the multipart upload. */
    attachments?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
+   /**
+    * Where a task assigned to an agent gets its run. Omitted means a task
+    * handed to an agent waits for someone to press Run — the behaviour of a
+    * deployment with no execution at all.
+    */
+   dispatch?: RunRepository | undefined;
 }
 
 export function issueMounts(options: IssueOptions): Mount[] {
@@ -180,13 +188,23 @@ export function issueMounts(options: IssueOptions): Mount[] {
       if (input.goalSet) {
          await applyGoal(options, scope.workspaceId, created.issue.id, input.goal, user.id);
       }
+      // A task made for an agent starts. Re-read afterwards so the response
+      // carries the run the task now has.
+      let issueToServe = created.issue;
+      if (options.dispatch) {
+         const run = await autoDispatch(options.dispatch, created.issue, {
+            workspaceId: scope.workspaceId,
+            requestedBy: user.id,
+         });
+         if (run) issueToServe = await issues.get(created.issue.id);
+      }
 
       // After the goal is applied, not before: the issue on the host is filed
       // under the goal's milestone, and that link has to exist to be read.
       options.scm?.guard('issue.created', options.scm.issueCreated(created.issue.id));
 
       const relations = await issues.loadRelations([created.issue.id]);
-      const response = json(serializeIssue(created.issue, relations.get(created.issue.id)), 201);
+      const response = json(serializeIssue(issueToServe, relations.get(created.issue.id)), 201);
       response.headers.set('Location', `/api/v1/issues/${created.issue.id}`);
       return response;
    });
@@ -210,6 +228,15 @@ export function issueMounts(options: IssueOptions): Mount[] {
             .catch(rethrowWrite('updated'));
          updated = result.issue;
          await publish(options, result.events);
+         // Assigned to an agent, or moved to todo while assigned to one: the
+         // same rule as creation, checked on every edit that touches the row.
+         if (options.dispatch) {
+            const run = await autoDispatch(options.dispatch, updated, {
+               workspaceId: scope.workspaceId,
+               requestedBy: user.id,
+            });
+            if (run) updated = await issues.get(found.id);
+         }
       }
       if (goalSet) await applyGoal(options, scope.workspaceId, found.id, goal, user.id);
 
