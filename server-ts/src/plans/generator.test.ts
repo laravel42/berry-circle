@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PlanGenerator, PlannerUnavailable } from './generator.ts';
 import type { Sql } from '../db/pool.ts';
-import { CompletionFailed, CompletionInvalid } from '../llm/completion.ts';
+import { CompletionFailed, CompletionInvalid, type Completion } from '../llm/completion.ts';
 
 /**
  * The pipeline: generate, validate, repair, critic.
@@ -24,12 +24,12 @@ function scripted(answers: unknown[]) {
    const prompts: Array<{ system: string; user: string }> = [];
    let index = 0;
    const completion = {
-      async json(input: { system: string; user: string }) {
+      async structured(input: { system: string; user: string }) {
          prompts.push({ system: input.system, user: input.user });
          const value = answers[index++] ?? {};
          return { value, text: JSON.stringify(value), inputTokens: 10, outputTokens: 20, durationMs: 1 };
       },
-   };
+   } as unknown as Pick<Completion, 'structured'>;
    return { completion, prompts, calls: () => index };
 }
 
@@ -219,7 +219,7 @@ test('a refusal names the stage it happened at', async () => {
       $metadata: { httpStatusCode: 429 },
    });
    const completion = {
-      async json() {
+      async structured() {
          throw new CompletionFailed(throttle);
       },
    };
@@ -245,7 +245,7 @@ test('a model that will not answer in the schema names the stage', async () => {
    // typed failure rather than a fence to dig through — and it is reported
    // as the planner's, at the stage it happened.
    const completion = {
-      async json() {
+      async structured() {
          throw new CompletionInvalid('no shape', 'I would rather write prose.');
       },
    };

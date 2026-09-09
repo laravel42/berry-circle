@@ -14,6 +14,7 @@ function planWith(overrides: Partial<Plan> = {}): Plan {
    return {
       version: '1',
       goal: { tempId: 'goal-1', title: 'Ship the thing' },
+      milestones: [],
       assumptions: [],
       requiredConnections: [],
       issues: [],
@@ -37,6 +38,7 @@ function issue(tempId: string, dependsOn: string[] = []) {
       requiresApproval: false,
       expectedArtifacts: [],
       estimate: null,
+      milestone: null,
    };
 }
 
@@ -333,4 +335,106 @@ test('a flood of options is capped rather than passed through', () => {
 
 test('an option that is not a list is no options at all', () => {
    assert.deepEqual(assumptionFrom({ id: 'a1', options: 'real-time' }).options, []);
+});
+
+// ------------------------------------------------------------- milestones
+
+function milestone(tempId: string, title = `Milestone ${tempId}`) {
+   return { tempId, title, description: null };
+}
+
+test('milestones are read, and each task names the one it belongs to', () => {
+   const { plan, problems } = readPlan({
+      goal: { title: 'Ship it' },
+      milestones: [
+         { tempId: 'm1', title: 'Foundations', description: 'Schema and auth' },
+         { tempId: 'm2', title: 'Tickets' },
+      ],
+      issues: [
+         { tempId: 't1', title: 'Create the schema', milestone: 'm1' },
+         { tempId: 't2', title: 'Create a ticket', milestone: 'm2' },
+      ],
+   });
+   assert.equal(problems.length, 0);
+   assert.deepEqual(
+      plan.milestones.map((m) => [m.tempId, m.title, m.description]),
+      [
+         ['m1', 'Foundations', 'Schema and auth'],
+         ['m2', 'Tickets', null],
+      ]
+   );
+   assert.deepEqual(
+      plan.issues.map((issue) => issue.milestone),
+      ['m1', 'm2']
+   );
+});
+
+test('a plan with tasks and no milestones gets one from its goal, so an older answer still reads', () => {
+   const { plan, problems } = readPlan({
+      goal: { title: 'Ship it', description: 'All of it' },
+      issues: [{ tempId: 't1', title: 'Do the work' }],
+   });
+   assert.equal(problems.length, 0);
+   assert.equal(plan.milestones.length, 1);
+   assert.equal(plan.milestones[0]?.title, 'Ship it');
+   assert.equal(plan.issues[0]?.milestone, plan.milestones[0]?.tempId);
+});
+
+test('a milestone without a title is named as the problem', () => {
+   const { problems } = readPlan({
+      goal: { title: 'Ship it' },
+      milestones: [{ tempId: 'm1' }],
+      issues: [{ tempId: 't1', title: 'x', milestone: 'm1' }],
+   });
+   assert.ok(problems.some((problem) => problem.path === '/milestones/0/title'));
+});
+
+test('a task in a milestone the plan does not have is an error', () => {
+   const report = validatePlan(
+      planWith({
+         milestones: [milestone('m1')],
+         issues: [{ ...issue('a'), milestone: 'ghost' }],
+      })
+   );
+   assert.equal(report.status, 'invalid');
+   assert.ok(report.errors.some((error) => error.code === 'unknown_milestone'));
+});
+
+test('a milestone with no tasks is an error, because a goal groups work', () => {
+   const report = validatePlan(
+      planWith({
+         milestones: [milestone('m1'), milestone('m2')],
+         issues: [{ ...issue('a'), milestone: 'm1' }],
+      })
+   );
+   assert.equal(report.status, 'invalid');
+   assert.ok(
+      report.errors.some((error) => error.code === 'empty_milestone' && error.path === '/milestones/1')
+   );
+});
+
+test('a plan whose tasks each sit in a milestone that exists is valid', () => {
+   const report = validatePlan(
+      planWith({
+         milestones: [milestone('m1'), milestone('m2')],
+         issues: [
+            { ...issue('a'), milestone: 'm1' },
+            { ...issue('b', ['a']), milestone: 'm2' },
+         ],
+      })
+   );
+   assert.equal(report.status, 'valid');
+});
+
+test('a plan wrapped in a key the model chose is still the plan', () => {
+   const { plan, problems } = readPlan({
+      request: {
+         goal: { title: 'Ship it' },
+         milestones: [{ tempId: 'm1', title: 'First' }],
+         issues: [{ tempId: 't1', title: 'Do the work', milestone: 'm1' }],
+      },
+   });
+   assert.equal(problems.length, 0);
+   assert.equal(plan.goal.title, 'Ship it');
+   assert.equal(plan.issues.length, 1);
 });

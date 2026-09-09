@@ -27,6 +27,16 @@ export interface PlanGoal {
  * asking: a question about email volume wants "real-time" and "nightly batch",
  * not a text box the asker has to guess the vocabulary of.
  */
+/**
+ * A milestone: one outcome on the way to the goal, and the group its tasks
+ * compile into. Each becomes a goal in the project when the plan starts.
+ */
+export interface PlanMilestone {
+   tempId: string;
+   title: string;
+   description?: string | null;
+}
+
 export interface PlanAssumptionOption {
    id: string;
    label: string;
@@ -63,6 +73,8 @@ export interface PlanIssue {
    requiresApproval: boolean;
    expectedArtifacts: string[];
    estimate?: string | null;
+   /** The milestone this task belongs to, by `tempId`. */
+   milestone: string | null;
 }
 
 export interface PlanApproval {
@@ -84,6 +96,8 @@ export interface PlanDependency {
 export interface Plan {
    version: string;
    goal: PlanGoal;
+   /** In delivery order. Never empty when there are tasks: the reader sees to that. */
+   milestones: PlanMilestone[];
    assumptions: PlanAssumption[];
    requiredConnections: Array<{ provider: string; purpose: string; connected: boolean }>;
    issues: PlanIssue[];
@@ -109,6 +123,7 @@ export interface ValidationReport {
 }
 
 const MAX_ISSUES = 50;
+const MAX_MILESTONES = 12;
 const MAX_TITLE = 200;
 const MAX_OPTIONS = 6;
 const MAX_OPTION_LABEL = 120;
@@ -124,7 +139,7 @@ const MAX_OPTION_DETAIL = 300;
  */
 export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] } {
    const problems: FieldProblem[] = [];
-   const source = isRecord(raw) ? raw : {};
+   const source = unwrapped(isRecord(raw) ? raw : {});
 
    const goalSource = isRecord(source.goal) ? source.goal : {};
    const goal: PlanGoal = {
@@ -136,6 +151,32 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
    if (goal.title === '') {
       problems.push({ path: '/goal/title', code: 'required', message: 'The plan needs a goal.' });
    }
+
+   const milestones: PlanMilestone[] = [];
+   const rawMilestones = Array.isArray(source.milestones) ? source.milestones : [];
+   if (rawMilestones.length > MAX_MILESTONES) {
+      problems.push({
+         path: '/milestones',
+         code: 'too_long',
+         message: `A plan proposes at most ${MAX_MILESTONES} milestones.`,
+      });
+   }
+   rawMilestones.slice(0, MAX_MILESTONES).forEach((entry, index) => {
+      const item = isRecord(entry) ? entry : {};
+      const title = text(item.title);
+      if (title === '') {
+         problems.push({
+            path: `/milestones/${index}/title`,
+            code: 'required',
+            message: 'Every milestone needs a title.',
+         });
+      }
+      milestones.push({
+         tempId: text(item.tempId) || `milestone-${index + 1}`,
+         title: title.slice(0, MAX_TITLE),
+         description: text(item.description) || null,
+      });
+   });
 
    const issues: PlanIssue[] = [];
    const rawIssues = Array.isArray(source.issues) ? source.issues : [];
@@ -170,8 +211,22 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
          requiresApproval: item.requiresApproval === true,
          expectedArtifacts: strings(item.expectedArtifacts),
          estimate: text(item.estimate) || null,
+         milestone: text(item.milestone) || null,
       });
    });
+
+   // A plan written before milestones existed, or by a model that skipped
+   // them, is read as one milestone standing for the goal rather than
+   // refused: the tasks are still work, and one group is still a group.
+   if (milestones.length === 0 && issues.length > 0) {
+      const single: PlanMilestone = {
+         tempId: goal.tempId,
+         title: goal.title || 'Milestone 1',
+         description: goal.description ?? null,
+      };
+      milestones.push(single);
+      for (const issue of issues) issue.milestone = single.tempId;
+   }
 
    const approvals: PlanApproval[] = (Array.isArray(source.approvals) ? source.approvals : []).map(
       (entry, index) => {
@@ -220,6 +275,7 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
       plan: {
          version: '1',
          goal,
+         milestones,
          assumptions,
          requiredConnections: [],
          issues,
@@ -229,6 +285,21 @@ export function readPlan(raw: unknown): { plan: Plan; problems: FieldProblem[] }
       },
       problems,
    };
+}
+
+const PLAN_KEYS = ['goal', 'milestones', 'issues', 'assumptions', 'approvals'];
+
+/**
+ * A plan handed over inside a wrapper — `{ "request": { "goal": … } }` — is
+ * read as the plan. A model asked for "an object" sometimes names the object,
+ * and losing a whole plan to the name it chose is not a useful strictness.
+ */
+function unwrapped(source: Record<string, unknown>): Record<string, unknown> {
+   if (PLAN_KEYS.some((key) => key in source)) return source;
+   const keys = Object.keys(source);
+   if (keys.length !== 1) return source;
+   const inner = source[keys[0]!];
+   return isRecord(inner) && PLAN_KEYS.some((key) => key in inner) ? inner : source;
 }
 
 /**
@@ -302,6 +373,31 @@ export function validatePlan(
          });
       }
    });
+
+   // Milestones are checked only when the plan has them; the reader gives
+   // every real plan at least one, and a hand-built fixture without any is
+   // not making a claim about grouping.
+   if (plan.milestones.length > 0) {
+      const known = new Set(plan.milestones.map((milestone) => milestone.tempId));
+      plan.issues.forEach((issue, index) => {
+         if (issue.milestone === null || !known.has(issue.milestone)) {
+            errors.push({
+               path: `/issues/${index}/milestone`,
+               code: 'unknown_milestone',
+               message: `"${issue.title}" belongs to a milestone the plan does not have.`,
+            });
+         }
+      });
+      plan.milestones.forEach((milestone, index) => {
+         if (!plan.issues.some((issue) => issue.milestone === milestone.tempId)) {
+            errors.push({
+               path: `/milestones/${index}`,
+               code: 'empty_milestone',
+               message: `"${milestone.title}" has no tasks. A milestone is the group of work that reaches it.`,
+            });
+         }
+      });
+   }
 
    if (errors.length === 0 && hasCycle(plan.issues)) {
       errors.push({

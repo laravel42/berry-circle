@@ -130,8 +130,9 @@ event emission on the existing path and still means no caller *authors* a status
 - `berry_goal_derived_status` returns each of the four states for a constructed
   set of tasks, including the two ordering cases: blocked-plus-todo is `planned`,
   blocked-plus-done is `blocked`.
-- Compiling a plan produces exactly one goal, and generating without compiling
-  produces none.
+- Compiling a plan produces one goal per milestone in the plan (one when the
+  plan has a single milestone), and generating without compiling produces
+  none. See `docs/superpowers/specs/2026-09-09-plan-milestones-design.md`.
 - Completing every task in a goal moves it to Done and sets `completed_at`,
   emitting `goal.completed` on the workspace stream.
 

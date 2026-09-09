@@ -148,71 +148,121 @@ export function PlanConnections({
    );
 }
 
-/** The finite work: one row per task the plan would create. */
+/**
+ * The finite work, grouped by the milestone it reaches.
+ *
+ * A milestone becomes a goal when the plan starts, so this is the shape the
+ * board will have: a heading per goal and its tasks beneath. A plan written
+ * before milestones existed has none, and its tasks list under the goal as
+ * they always did.
+ */
 export function PlanIssues({ plan }: { plan: Plan }) {
    const agents = useAgentsStore((state) => state.agents);
    if (plan.issues.length === 0) return null;
    const titleOf = new Map(plan.issues.map((issue) => [issue.tempId, issue.title]));
+
+   const groups: Array<{ key: string; title: string | null; description: string | null; issues: typeof plan.issues }> =
+      plan.milestones.length > 0
+         ? plan.milestones.map((milestone) => ({
+              key: milestone.tempId,
+              title: milestone.title,
+              description: milestone.description ?? null,
+              issues: plan.issues.filter((issue) => issue.milestone === milestone.tempId),
+           }))
+         : [{ key: 'all', title: null, description: null, issues: plan.issues }];
+   // A task the planner left outside every milestone is still work; it is
+   // shown last rather than lost.
+   const placed = new Set(groups.flatMap((group) => group.issues.map((issue) => issue.tempId)));
+   const stray = plan.issues.filter((issue) => !placed.has(issue.tempId));
+   if (stray.length > 0 && plan.milestones.length > 0) {
+      groups.push({ key: 'stray', title: 'Not in a milestone', description: null, issues: stray });
+   }
+
    return (
       <section className="mt-8">
-         <SectionHeading title="Work" count={plan.issues.length} />
-         <ul className="mt-2 space-y-2">
-            {plan.issues.map((issue) => {
-               const priority = uiPriorityFromApi(issue.priority ?? 'none');
-               const PriorityIcon = priority?.icon;
-               const agent = issue.suggestedAgentId
-                  ? agents.find((candidate) => candidate.id === issue.suggestedAgentId)
-                  : undefined;
-               return (
-                  <li
-                     key={issue.tempId}
-                     className="flex items-start gap-3 rounded-md border border-border/60 bg-background px-3 py-2.5"
-                  >
-                     {PriorityIcon && (
-                        <span
-                           className="mt-1 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground"
-                           title={priority?.name}
-                        >
-                           <PriorityIcon className="size-4" />
-                        </span>
+         <SectionHeading
+            title="Work"
+            count={plan.issues.length}
+         />
+         {plan.milestones.length > 1 && (
+            <p className="mt-1 text-muted-foreground">
+               {plan.milestones.length} milestones, each a goal on the board once the plan starts.
+            </p>
+         )}
+         {groups.map((group) => (
+            <div key={group.key} className={cn(group.title ? 'mt-5' : 'mt-2')}>
+               {group.title && (
+                  <div className="mb-2">
+                     <h4 className="font-medium">
+                        {group.title}
+                        <span className="ml-1.5 text-muted-foreground">· {group.issues.length}</span>
+                     </h4>
+                     {group.description && (
+                        <p className="mt-0.5 whitespace-pre-line text-muted-foreground">
+                           {group.description}
+                        </p>
                      )}
-                     <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                           <span className="font-medium">{issue.title}</span>
-                           {issue.requiresReview && <Pill tone="review">review</Pill>}
-                           {issue.requiresApproval && <Pill tone="attention">approval</Pill>}
-                        </div>
-                        {issue.description && (
-                           <p className="mt-1 whitespace-pre-line text-muted-foreground">
-                              {issue.description}
-                           </p>
-                        )}
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
-                           <span>
-                              {agent
-                                 ? `agent · ${agent.name}`
-                                 : issue.suggestedAgentId
-                                   ? 'agent · unknown'
-                                   : 'agent · by capability'}
-                           </span>
-                           {issue.requiredCapabilities.map((capability) => (
-                              <Pill key={capability}>{capability}</Pill>
-                           ))}
-                           {issue.dependsOn.length > 0 && (
-                              <span>
-                                 after{' '}
-                                 {issue.dependsOn
-                                    .map((tempId) => titleOf.get(tempId) ?? tempId)
-                                    .join(', ')}
+                  </div>
+               )}
+               <ul className="space-y-2">
+                  {group.issues.map((issue) => {
+                     const priority = uiPriorityFromApi(issue.priority ?? 'none');
+                     const PriorityIcon = priority?.icon;
+                     const agent = issue.suggestedAgentId
+                        ? agents.find((candidate) => candidate.id === issue.suggestedAgentId)
+                        : undefined;
+                     return (
+                        <li
+                           key={issue.tempId}
+                           className="flex items-start gap-3 rounded-md border border-border/60 bg-background px-3 py-2.5"
+                        >
+                           {PriorityIcon && (
+                              <span
+                                 className="mt-1 inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+                                 title={priority?.name}
+                              >
+                                 <PriorityIcon className="size-4" />
                               </span>
                            )}
-                           {issue.estimate && <span>{issue.estimate}</span>}
-                        </div>
-                     </div>
-                  </li>
-               );
-            })}
-         </ul>
+                           <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                 <span className="font-medium">{issue.title}</span>
+                                 {issue.requiresReview && <Pill tone="review">review</Pill>}
+                                 {issue.requiresApproval && <Pill tone="attention">approval</Pill>}
+                              </div>
+                              {issue.description && (
+                                 <p className="mt-1 whitespace-pre-line text-muted-foreground">
+                                    {issue.description}
+                                 </p>
+                              )}
+                              <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+                                 <span>
+                                    {agent
+                                       ? `agent · ${agent.name}`
+                                       : issue.suggestedAgentId
+                                         ? 'agent · unknown'
+                                         : 'agent · by capability'}
+                                 </span>
+                                 {issue.requiredCapabilities.map((capability) => (
+                                    <Pill key={capability}>{capability}</Pill>
+                                 ))}
+                                 {issue.dependsOn.length > 0 && (
+                                    <span>
+                                       after{' '}
+                                       {issue.dependsOn
+                                          .map((tempId) => titleOf.get(tempId) ?? tempId)
+                                          .join(', ')}
+                                    </span>
+                                 )}
+                                 {issue.estimate && <span>{issue.estimate}</span>}
+                              </div>
+                           </div>
+                        </li>
+                     );
+                  })}
+               </ul>
+            </div>
+         ))}
       </section>
    );
 }

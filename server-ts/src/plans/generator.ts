@@ -1,4 +1,5 @@
 import type { Sql } from '../db/pool.ts';
+import { z } from 'zod';
 import { Completion, CompletionInvalid } from '../llm/completion.ts';
 import type { AwsCredentials } from '../agents/runtime/model.ts';
 import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationReport } from './schema.ts';
@@ -27,19 +28,23 @@ import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationRe
  * "should it be" and is allowed to be wrong. Only the first can block a plan.
  */
 
-const GENERATE_SYSTEM = `You turn a request into a Berry plan: the tasks a team
-would create to do it, and the order they depend on each other in.
+const GENERATE_SYSTEM = `You turn a request into a Berry plan: the milestones a
+team would deliver it in, the tasks that reach each milestone, and the order
+they depend on each other in.
 
 The shape of the answer is:
 
 {
   "goal": { "tempId": "goal-1", "title": "...", "description": "..." },
+  "milestones": [
+    { "tempId": "m1", "title": "...", "description": "..." }
+  ],
   "assumptions": [
     { "id": "a1", "description": "...", "confidence": "low|medium|high", "blocking": false,
       "options": [ { "id": "a1-o1", "label": "...", "detail": "..." } ] }
   ],
   "issues": [
-    { "tempId": "t1", "title": "...", "description": "...",
+    { "tempId": "t1", "title": "...", "description": "...", "milestone": "m1",
       "requiredCapabilities": ["typescript"], "dependsOn": ["t2"],
       "requiresReview": false, "requiresApproval": false, "priority": "medium" }
   ],
@@ -50,8 +55,23 @@ The shape of the answer is:
 }
 
 Rules:
-- Each task is one piece of work one agent or person could finish. Not
-  "build the feature"; not "rename a variable" either.
+- The goal is the whole request in one line. It is not a milestone and it
+  has no tasks of its own.
+- Decompose the request into 2 to 6 milestones, in delivery order. Each
+  milestone is an outcome somebody could see working on its own — "people
+  can sign in", "a ticket can be created and assigned" — not a layer of the
+  system, not a phase name like "backend" or "testing". Do not restate the
+  request as a single milestone: if the request has several parts, it has
+  several milestones.
+- Every task belongs to exactly one milestone, named in \`milestone\` by its
+  \`tempId\`, and every milestone has 3 to 8 tasks.
+- Each task has one responsibility: one thing to build, change or decide, so
+  that finishing it can be checked without asking what "done" meant. Not
+  "build the feature"; not "rename a variable" either. A task that needs
+  "and" to describe is usually two tasks.
+- Order the milestones so that each one builds on the ones before it, and
+  keep dependencies inside a milestone where you can; a task that waits on
+  an earlier milestone names the specific task it waits on.
 - \`dependsOn\` names tasks in this plan by \`tempId\`, and never forms a
   circle.
 - Set \`requiresApproval\` only where starting the task is a commitment a
@@ -95,11 +115,36 @@ The shape of the answer is:
                   "severity": "error" | "warning" } ] }
 
 Say "revise" only for something a person would actually send back: a task too
-big for one agent to finish, a missing step the rest depends on, an ordering
-that cannot work, a task that will silently do something destructive. Style,
-wording and preference are "accept" with a warning at most.
+big for one agent to finish, a task that does two unrelated things, a request
+with several parts squeezed into one milestone, a milestone that is a layer or
+a phase rather than an outcome, a missing step the rest depends on, an
+ordering that cannot work, a task that will silently do something
+destructive. Style, wording and preference are "accept" with a warning at
+most.
 
 An empty problem list with "accept" is a good answer, and the common one.`;
+
+/**
+ * The shape the planner and the repair role answer in.
+ *
+ * Top-level keys are named so the model's structured-output tool advertises
+ * them — an open object tempted it to wrap the plan under a key of its own.
+ * Everything inside stays loose on purpose: `readPlan` reads leniently and
+ * names what is wrong, and the repair loop is built on those names. A strict
+ * schema here would refuse the document the repair role exists to fix.
+ */
+const PLAN_SHAPE = z.looseObject({
+   goal: z.looseObject({}).optional(),
+   milestones: z.array(z.looseObject({})).optional(),
+   assumptions: z.array(z.looseObject({})).optional(),
+   issues: z.array(z.looseObject({})).optional(),
+   approvals: z.array(z.looseObject({})).optional(),
+});
+
+const CRITIQUE_SHAPE = z.looseObject({
+   verdict: z.string().optional(),
+   problems: z.array(z.looseObject({})).optional(),
+});
 
 export type Stage = 'generate' | 'validate' | 'repair' | 'critic';
 
@@ -155,7 +200,7 @@ export interface PlanGeneratorOptions {
    credentials?: AwsCredentials | null;
    defaultModel: string;
    /** Injected by tests; production builds one from the region. */
-   completion?: Pick<Completion, 'json'>;
+   completion?: Pick<Completion, 'structured'>;
    timeoutMs?: number;
    /** How many times a document may be sent back to be fixed. */
    maxRepairs?: number;
@@ -167,7 +212,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class PlanGenerator {
    readonly #sql: Sql;
-   readonly #completion: Pick<Completion, 'json'>;
+   readonly #completion: Pick<Completion, 'structured'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
    readonly #maxRepairs: number;
@@ -236,6 +281,7 @@ export class PlanGenerator {
          model: planner,
          system: GENERATE_SYSTEM,
          user: withAnswers(input.prompt, input.answers ?? []),
+         shape: PLAN_SHAPE,
          signal: input.signal,
       });
       account(usage, first);
@@ -341,6 +387,7 @@ export class PlanGenerator {
          model: role,
          system: REPAIR_SYSTEM,
          user: `Plan:\n${JSON.stringify(plan)}\n\nProblems:\n${JSON.stringify(problems)}`,
+         shape: PLAN_SHAPE,
          signal,
       });
       const { plan: repaired, problems: readingProblems } = readPlan(result.json);
@@ -363,6 +410,7 @@ export class PlanGenerator {
          model: role,
          system: CRITIC_SYSTEM,
          user: JSON.stringify(plan),
+         shape: CRITIQUE_SHAPE,
          signal,
       });
       const critique = readCritique(result.json);
@@ -389,17 +437,15 @@ export class PlanGenerator {
       model: { provider: string; model: string };
       system: string;
       user: string;
+      shape: z.ZodType;
       signal: AbortSignal | undefined;
    }) {
-      // An open object rather than the plan's schema: `readPlan` reads
-      // leniently and names what is wrong, and the repair loop is built on
-      // those names. A strict schema here would refuse the document the
-      // repair role exists to fix.
       const result = await this.#completion
-         .json({
+         .structured({
             model: input.model.model,
             system: input.system,
             user: input.user,
+            schema: input.shape,
             ...(input.signal ? { signal: input.signal } : {}),
          })
          .catch((cause: unknown) => {

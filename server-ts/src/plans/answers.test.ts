@@ -36,6 +36,7 @@ function planWith(assumptions: PlanAssumption[]): Plan {
    return {
       version: '1',
       goal: { tempId: 'goal-1', title: 'Ship the thing' },
+      milestones: [],
       assumptions,
       requiredConnections: [],
       issues: [],

@@ -89,6 +89,8 @@ export const compileReportSchema = z.object({
    error: z.string().nullish(),
    compiledAt: z.string().nullish(),
    goalId: z.string().nullish(),
+   /** One goal per milestone, in delivery order. Empty for older compiles. */
+   goalIds: z.array(z.string()).default([]),
    issueIds: z.array(z.string()).default([]),
    approvalIds: z.array(z.string()).default([]),
 });
@@ -102,6 +104,15 @@ const planGoalSchema = z.object({
    description: z.string().nullish(),
    projectId: z.string().nullish(),
 });
+
+/** One outcome on the way to the goal; each becomes a goal when the plan starts. */
+export const planMilestoneSchema = z.object({
+   tempId: z.string(),
+   title: z.string(),
+   description: z.string().nullish(),
+});
+
+export type PlanMilestone = z.infer<typeof planMilestoneSchema>;
 
 /**
  * One answer a person can pick for a planner question.
@@ -141,6 +152,8 @@ export const planIssueSchema = z.object({
    requiresApproval: z.boolean().default(false),
    expectedArtifacts: z.array(z.string()).default([]),
    estimate: z.string().nullish(),
+   /** The milestone this task belongs to. Null on plans written before milestones. */
+   milestone: z.string().nullish(),
 });
 
 const approverSchema = z.object({
@@ -174,6 +187,9 @@ export const planSchema = z.object({
    $schema: z.string().optional(),
    version: z.string().optional(),
    goal: planGoalSchema,
+   // Empty for plans generated before milestones existed; the preview then
+   // lists the work under the goal, as it always did.
+   milestones: z.array(planMilestoneSchema).default([]),
    assumptions: z.array(planAssumptionSchema).default([]),
    requiredConnections: z.array(requiredConnectionSchema).default([]),
    issues: z.array(planIssueSchema).default([]),
@@ -415,6 +431,8 @@ export function startPlanBlocker(record: PlanRecord): string | null {
 export interface PlanCounts {
    tasks: number;
    approvals: number;
+   /** Absent when the caller counts only what was created. */
+   milestones?: number;
 }
 
 /**
@@ -422,7 +440,7 @@ export interface PlanCounts {
  * tasks and steps that ask for one, since those become approvals at compile.
  */
 export function planCounts(plan: Plan | null | undefined): PlanCounts {
-   if (!plan) return { tasks: 0, approvals: 0 };
+   if (!plan) return { tasks: 0, approvals: 0, milestones: 0 };
    const explicit = new Set(plan.approvals.map((approval) => approval.tempId));
    let approvals = explicit.size;
    for (const issue of plan.issues) {
@@ -430,12 +448,16 @@ export function planCounts(plan: Plan | null | undefined): PlanCounts {
          approvals += 1;
       }
    }
-   return { tasks: plan.issues.length, approvals };
+   return { tasks: plan.issues.length, approvals, milestones: plan.milestones.length };
 }
 
 export function describePlanCounts(counts: PlanCounts): string {
    const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`;
-   return [plural(counts.tasks, 'task'), plural(counts.approvals, 'approval')].join(' · ');
+   const parts = [plural(counts.tasks, 'task'), plural(counts.approvals, 'approval')];
+   // Said only when the plan is actually split: "1 milestone" is the goal
+   // restated, and not worth a word.
+   if ((counts.milestones ?? 0) > 1) parts.unshift(plural(counts.milestones ?? 0, 'milestone'));
+   return parts.join(' · ');
 }
 
 /** Progress copy for the stage in flight, lowercase like the rest of the shell. */
