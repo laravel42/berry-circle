@@ -5,6 +5,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { RunLedger } from '../runs/ledger.ts';
 import {
    deliverRepository,
+   insideRepository,
    loadIssue,
    prepareRepository,
    pullRequestBody,
@@ -44,6 +45,8 @@ describe(
       let events: Recorded[] = [];
       let openedBodies: string[] = [];
       let commands: Array<{ command: string; env: Record<string, string> | undefined }> = [];
+      let writes: Array<{ path: string; content: string }> = [];
+      let outputs: string[] = [];
 
       before(async () => {
          sql = openDatabase({ url: url! });
@@ -103,7 +106,11 @@ describe(
                } as ExecResult;
             },
             stream: () => ({ async *[Symbol.asyncIterator]() {} }),
-            writeFile: async () => undefined,
+            writeFile: async (path: string, content: string) => {
+               writes.push({ path, content });
+               // Ordered with the commands, so a test can say "before git add".
+               commands.push({ command: `write ${path}`, env: undefined });
+            },
             readFile: async () => '',
             stop: async () => undefined,
             destroy: async () => undefined,
@@ -148,7 +155,10 @@ describe(
       function deps(over: Partial<RepositoryRunDeps> = {}): RepositoryRunDeps {
          events = [];
          openedBodies = [];
+         outputs = [];
          const ledger = {
+            appendOutput: async (_id: string, _channel: string, text: string) =>
+               void outputs.push(text),
             appendVerified: async (_id: string, p: object) =>
                void events.push({ type: 'verified', ...p }),
             appendRepositoryReady: async (_id: string, p: object) =>
@@ -395,6 +405,57 @@ describe(
                mergeRequiresApproval: true,
             },
          ]);
+      });
+
+      test('files the agent saved are written into the checkout before the commit', async () => {
+         // The contract tells the agent to save committable files with
+         // write_file. Nothing used to carry them into the working tree, so a
+         // compliant agent committed nothing and the run reported success.
+         const { dispatch } = await newIssue('Bridge artifacts', 'berry/frontend');
+         const collaborators = deps();
+         const prepared = await prepareRepository(collaborators, {
+            dispatch,
+            agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
+            session: async () => fakeSession({ 'rev-parse': { stdout: 'base\n' } }),
+         });
+         assert.ok(prepared);
+
+         commands = [];
+         writes = [];
+         events = [];
+         const saved: Record<string, string> = {
+            'src/api/handler.go': 'package api\n',
+            'docs/notes.md': '# notes\n',
+            '../escape.txt': 'nope',
+            '/etc/passwd': 'nope',
+         };
+         await deliverRepository(collaborators, {
+            dispatch,
+            prepared,
+            session: fakeSession({
+               numstat: { stdout: '1\t0\tsrc/api/handler.go\n1\t0\tdocs/notes.md\n' },
+               'rev-parse': { stdout: 'a1b2c3d\n' },
+            }),
+            summary: 'Wrote the handler.',
+            artifacts: {
+               paths: async () => Object.keys(saved),
+               read: async (path) => Buffer.from(saved[path]!),
+            },
+         });
+
+         assert.deepEqual(
+            writes.map((write) => write.path),
+            [`${prepared.checkout.directory}/src/api/handler.go`, `${prepared.checkout.directory}/docs/notes.md`],
+            'only paths inside the repository are written'
+         );
+         const firstWrite = commands.findIndex((entry) => entry.command.startsWith('write '));
+         const add = commands.findIndex((entry) => entry.command === 'git add -A');
+         assert.ok(firstWrite >= 0 && add > firstWrite, 'written before the tree is staged');
+         assert.ok(
+            outputs.some((text) => /Refused to write \.\.\/escape\.txt/.test(text)),
+            'a refused path is said in the run log'
+         );
       });
 
       test('an agent that changed nothing is recorded as delivering nothing', async () => {
@@ -690,3 +751,15 @@ describe(
       });
    }
 );
+
+test('a path is inside the repository or it is refused', () => {
+   assert.equal(insideRepository('src/a.ts'), 'src/a.ts');
+   assert.equal(insideRepository('./src//a.ts'), 'src/a.ts');
+   assert.equal(insideRepository('docs\\notes.md'), 'docs/notes.md');
+   assert.equal(insideRepository('../escape.txt'), null);
+   assert.equal(insideRepository('src/../../escape.txt'), null);
+   assert.equal(insideRepository('/etc/passwd'), null);
+   assert.equal(insideRepository('C:/x'), null);
+   assert.equal(insideRepository(''), null);
+   assert.equal(insideRepository('.'), null);
+});

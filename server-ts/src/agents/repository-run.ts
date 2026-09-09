@@ -61,6 +61,20 @@ export interface RepositoryRunDeps {
       | undefined;
 }
 
+/**
+ * The files a run saved with `write_file`, read back for delivery.
+ *
+ * Artifacts are the agent's hand-back: the contract tells it to save a
+ * committable file at the path it should have in the repository. Nothing
+ * bridged that to the checkout, so a compliant agent committed nothing and
+ * the run still reported success (hardening F-01). This is the bridge.
+ */
+export interface RunArtifacts {
+   paths(): Promise<string[]>;
+   /** The newest version's bytes, or null when the path has none. */
+   read(path: string): Promise<Buffer | null>;
+}
+
 /** What a run authenticates with, and what the minter said it may do. */
 interface RunCredential {
    token: string;
@@ -157,11 +171,19 @@ export async function deliverRepository(
       /** The workspace the checkout went into — a fresh one has nothing to push. */
       session: ExecutionSession;
       summary: string | null;
+      /** What the agent saved with `write_file`. Omitted means nothing to bridge. */
+      artifacts?: RunArtifacts;
    }
 ): Promise<void> {
    const { dispatch, prepared, summary } = input;
    const { token } = await runCredential(deps, dispatch.workspaceId);
    const title = `${prepared.issue.reference}: ${prepared.issue.title}`;
+
+   // Before the checks and the commit: the files the agent saved are part of
+   // the tree being delivered, at the paths it gave them.
+   if (input.artifacts) {
+      await materialise(deps, dispatch.runId, input.session, prepared.checkout.directory, input.artifacts);
+   }
 
    // Before the push, so the evidence describes the tree being delivered
    // rather than whatever the branch looked like afterwards. A failing check
@@ -245,6 +267,50 @@ export async function deliverRepository(
       // record already says what the gate was.
       mergeRequiresApproval: !prepared.permissions.has('merge_without_approval'),
    });
+}
+
+/**
+ * Writes the run's artifacts into the checkout.
+ *
+ * A path that would land outside the repository — absolute, or climbing out
+ * with `..` — is refused rather than written, and the refusal is put in the
+ * run's log where a person will see it. Skipping silently would make the
+ * missing file look like something the agent never wrote.
+ */
+async function materialise(
+   deps: RepositoryRunDeps,
+   runId: string,
+   session: ExecutionSession,
+   directory: string,
+   artifacts: RunArtifacts
+): Promise<void> {
+   for (const path of await artifacts.paths()) {
+      const relative = insideRepository(path);
+      if (relative === null) {
+         await deps.ledger.appendOutput(
+            runId,
+            'progress',
+            `Refused to write ${path}: it is outside the repository.`
+         );
+         continue;
+      }
+      const bytes = await artifacts.read(path);
+      if (bytes === null) continue;
+      await session.writeFile(`${directory}/${relative}`, bytes.toString('utf8'));
+   }
+}
+
+/** The path relative to the checkout root, or null when it would escape it. */
+export function insideRepository(path: string): string | null {
+   const trimmed = path.trim().replaceAll('\\', '/');
+   if (trimmed === '' || trimmed.startsWith('/') || /^[A-Za-z]:/.test(trimmed)) return null;
+   const parts: string[] = [];
+   for (const segment of trimmed.split('/')) {
+      if (segment === '' || segment === '.') continue;
+      if (segment === '..') return null;
+      parts.push(segment);
+   }
+   return parts.length === 0 ? null : parts.join('/');
 }
 
 /** The task's reference and title, for the branch, the commit and the pull request. */

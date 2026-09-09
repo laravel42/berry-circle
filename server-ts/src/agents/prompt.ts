@@ -116,19 +116,24 @@ function fenced(tag: string, text: string): string {
 /**
  * How code is handed back.
  *
- * Spelled out because nothing in the runtime reveals it: there is no git, no
- * credential and no network path to the repository, so an agent left to work
- * it out describes the change it would make instead of writing it.
+ * Spelled out because the agent cannot see it otherwise: the repository is
+ * checked out in its workspace on a branch of its own, Berry commits that
+ * working tree when the run ends and opens the pull request. The agent never
+ * holds a credential and never pushes.
  */
 function deliveryContract(): string {
    return (
       '\n\nDelivering your work\n' +
-      'Save every file you want committed with write_file, at the path it ' +
-      'should have in the repository: a change to src/api/handler.go is saved ' +
-      'as src/api/handler.go. Those paths are the paths that are committed.\n' +
-      "Save each file's complete new contents. Berry commits the file as you " +
-      'wrote it rather than applying a patch, so a partial file replaces the ' +
-      'whole one and deletes everything you left out.\n'
+      'The repository is checked out in your workspace, on a branch made for ' +
+      'this task, and run_command runs inside it. When you finish, Berry ' +
+      'commits everything in that working tree, pushes the branch and opens a ' +
+      'pull request; you never push yourself.\n' +
+      'Files you save with write_file are written into the checkout before the ' +
+      'commit, at the path you gave them: write_file with path src/api/handler.go ' +
+      'becomes src/api/handler.go in the repository. Editing the checkout with ' +
+      'run_command works too. Either way, save or write the complete new ' +
+      'contents of a file — Berry commits the file as it is, not a patch, so a ' +
+      'partial file replaces the whole one.\n'
    );
 }
 

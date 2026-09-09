@@ -359,6 +359,15 @@ export class RunExecutor {
                   // would be an empty container with nothing to push.
                   session: await workspace.open(),
                   summary: delivered === '' ? null : delivered,
+                  artifacts: {
+                     paths: () => artifacts.listArtifactKeys(),
+                     read: async (path) => {
+                        const part = await artifacts.loadArtifact({ filename: path });
+                        return part?.inlineData?.data
+                           ? Buffer.from(part.inlineData.data, 'base64')
+                           : null;
+                     },
+                  },
                });
             }
          } catch (error) {
