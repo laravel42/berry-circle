@@ -286,6 +286,42 @@ describe(
          );
       });
 
+      test("the minter's own grant outranks the repository's permissions field", async () => {
+         // GitHub computes `permissions` for a user and answers an App token
+         // with all-false, so a credential that knows it was granted
+         // `contents: write` must be believed over that field — and one that
+         // knows it was not must be refused even when the field says yes.
+         const { dispatch } = await newIssue('App credential', 'berry/frontend');
+         const granted = deps({
+            gitCredential: async () => ({ username: 'x-access-token', password: TOKEN, canPush: true }),
+            github: fakeGitHub({ repository: { canPush: false } }),
+         });
+         const prepared = await prepareRepository(granted, {
+            dispatch,
+            agentName: 'Forge',
+            permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
+            session: async () => fakeSession(),
+         });
+         assert.ok(prepared, 'a credential granted write is enough to start');
+
+         const { dispatch: second } = await newIssue('App credential, read only', 'berry/frontend');
+         await assert.rejects(
+            prepareRepository(
+               deps({
+                  gitCredential: async () => ({ username: 'x-access-token', password: TOKEN, canPush: false }),
+                  github: fakeGitHub({ repository: { canPush: true } }),
+               }),
+               {
+                  dispatch: second,
+                  agentName: 'Forge',
+                  permissions: permissionsOf(DEFAULT_PERMISSIONS, 'Forge'),
+                  session: async () => fakeSession(),
+               }
+            ),
+            (error: GitHubError) => error.remedy === 'grant-access'
+         );
+      });
+
       test('a missing credential stops the run rather than cloning anonymously', async () => {
          const { dispatch } = await newIssue('No credential', 'berry/frontend');
          await assert.rejects(

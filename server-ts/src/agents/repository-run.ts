@@ -56,7 +56,16 @@ export interface RepositoryRunDeps {
     * repository to `git clone`, so this is the one GitHub credential Berry
     * still holds — for the length of a call, and never written down.
     */
-   gitCredential?: ((workspaceId: string) => Promise<{ username: string; password: string }>) | undefined;
+   gitCredential?:
+      | ((workspaceId: string) => Promise<{ username: string; password: string; canPush?: boolean }>)
+      | undefined;
+}
+
+/** What a run authenticates with, and what the minter said it may do. */
+interface RunCredential {
+   token: string;
+   /** Null when only the repository can say. */
+   canPush: boolean | null;
 }
 
 /**
@@ -91,13 +100,16 @@ export async function prepareRepository(
    input.permissions.require('read_repository');
    input.permissions.require('create_branches');
 
-   const token = await runToken(deps, input.dispatch.workspaceId);
+   const credential = await runCredential(deps, input.dispatch.workspaceId);
+   const token = credential.token;
    const { owner, name } = parseRepository(repository.fullName);
 
    // Asked before the work rather than after: an agent that spends ten minutes
    // building something and then cannot push has wasted the tokens and the wait.
+   // The minter's own word wins over the repository's `permissions`, which
+   // GitHub computes for a user and reports as all-false to an App token.
    const remote = await deps.github(token).repository(owner, name);
-   if (!remote.canPush) {
+   if (!(credential.canPush ?? remote.canPush)) {
       throw new GitHubError(
          `the GitHub connection cannot push to ${repository.fullName}`,
          403,
@@ -148,7 +160,7 @@ export async function deliverRepository(
    }
 ): Promise<void> {
    const { dispatch, prepared, summary } = input;
-   const token = await runToken(deps, dispatch.workspaceId);
+   const { token } = await runCredential(deps, dispatch.workspaceId);
    const title = `${prepared.issue.reference}: ${prepared.issue.title}`;
 
    // Before the push, so the evidence describes the tree being delivered
@@ -284,16 +296,21 @@ export function pullRequestBody(
  * The App is asked only when one exists, so a deployment that has not created
  * one keeps working exactly as before.
  */
-async function runToken(deps: RepositoryRunDeps, workspaceId: string): Promise<string> {
+async function runCredential(deps: RepositoryRunDeps, workspaceId: string): Promise<RunCredential> {
    // Identity first when it is configured: it is the credential the rest of
    // the integration already uses, and asking the App as well would keep a
    // second lifecycle alive for no reason.
    if (deps.gitCredential) {
-      return (await deps.gitCredential(workspaceId)).password;
+      const minted = await deps.gitCredential(workspaceId);
+      return { token: minted.password, canPush: minted.canPush ?? null };
    }
    if (deps.githubApp && (await deps.githubApp.app())) {
-      return deps.githubApp.token(workspaceId);
+      const access = await deps.githubApp.access(workspaceId);
+      return { token: access.token, canPush: access.canPush };
    }
-   return deps.connections!.token(workspaceId, 'github');
+   if (!deps.connections) {
+      throw new GitHubError('no GitHub credential is configured for this deployment', 503, 'reconnect');
+   }
+   return { token: await deps.connections.token(workspaceId, 'github'), canPush: null };
 }
 

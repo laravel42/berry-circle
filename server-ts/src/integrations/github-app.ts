@@ -111,6 +111,20 @@ const DEFAULT_TOKEN_MARGIN_MS = 60_000;
 interface CachedToken {
    token: string;
    expiresAtMs: number;
+   /** Whether the installation grants `contents: write`, from the mint. */
+   canPush: boolean;
+}
+
+/** A token and what it was granted, for the run that clones and pushes with it. */
+export interface InstallationAccess {
+   token: string;
+   /**
+    * Whether this token may push. Read from the mint response rather than
+    * from a repository's `permissions` field, which GitHub computes for a user
+    * and reports as all-false for an installation token — the false "cannot
+    * push" that stopped every repository run on the App path.
+    */
+   canPush: boolean;
 }
 
 export class GitHubAppRepository {
@@ -123,7 +137,7 @@ export class GitHubAppRepository {
    /** Per installation, so two runs in a workspace share one mint. */
    readonly #tokens = new Map<number, CachedToken>();
    /** In-flight mints, so concurrent runs do not each ask GitHub. */
-   readonly #minting = new Map<number, Promise<string>>();
+   readonly #minting = new Map<number, Promise<InstallationAccess>>();
 
    constructor(options: GitHubAppRepositoryOptions) {
       this.#sql = options.sql;
@@ -270,6 +284,11 @@ export class GitHubAppRepository {
     * runs starting together should not each spend one.
     */
    async token(workspaceId: string): Promise<string> {
+      return (await this.access(workspaceId)).token;
+   }
+
+   /** The token together with what it may do. */
+   async access(workspaceId: string): Promise<InstallationAccess> {
       const installation = await this.installation(workspaceId);
       if (!installation) {
          throw new GitHubAppUnavailable(
@@ -280,7 +299,7 @@ export class GitHubAppRepository {
 
       const cached = this.#tokens.get(installation.installationId);
       if (cached && cached.expiresAtMs - this.#margin > this.#clock().getTime()) {
-         return cached.token;
+         return { token: cached.token, canPush: cached.canPush };
       }
 
       const inFlight = this.#minting.get(installation.installationId);
@@ -350,7 +369,7 @@ export class GitHubAppRepository {
       return row?.workspace_id ?? null;
    }
 
-   async #mint(installationId: number): Promise<string> {
+   async #mint(installationId: number): Promise<InstallationAccess> {
       const jwt = await this.#jwt();
       const response = await this.#fetch(
          new URL(`/app/installations/${installationId}/access_tokens`, this.#api),
@@ -373,16 +392,26 @@ export class GitHubAppRepository {
          );
       }
 
-      const body = (await response.json()) as { token?: unknown; expires_at?: unknown };
+      const body = (await response.json()) as {
+         token?: unknown;
+         expires_at?: unknown;
+         permissions?: Record<string, unknown>;
+      };
       if (typeof body.token !== 'string' || typeof body.expires_at !== 'string') {
          throw new GitHubAppUnavailable('GitHub returned an unrecognised token', 'mint_failed');
       }
       const expiresAtMs = Date.parse(body.expires_at);
-      this.#tokens.set(installationId, {
+      const access: InstallationAccess = {
          token: body.token,
+         // `contents: write` is the permission a push needs; the manifest asks
+         // for it, and the mint says whether the installation still grants it.
+         canPush: body.permissions?.contents === 'write',
+      };
+      this.#tokens.set(installationId, {
+         ...access,
          expiresAtMs: Number.isNaN(expiresAtMs) ? this.#clock().getTime() : expiresAtMs,
       });
-      return body.token;
+      return access;
    }
 }
 

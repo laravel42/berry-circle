@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
-import { createVerify, generateKeyPairSync } from 'node:crypto';
+import { createVerify, generateKeyPairSync, randomBytes } from 'node:crypto';
 import { describe, test } from 'node:test';
-import { GitHubAppUnavailable, appJwt, buildManifest, convertManifest } from './github-app.ts';
+import {
+   GitHubAppRepository,
+   GitHubAppUnavailable,
+   appJwt,
+   buildManifest,
+   convertManifest,
+} from './github-app.ts';
+import { sealerFromKey } from './sealing.ts';
+import type { Sql } from '../db/pool.ts';
 
 /** The pure halves of the App flow: the JWT Berry signs and the answer it reads. */
 
@@ -129,5 +137,63 @@ describe('converting the manifest code', () => {
          }),
          GitHubAppUnavailable
       );
+   });
+});
+
+describe('minting an installation token', () => {
+   const sealer = sealerFromKey(randomBytes(32).toString('base64'));
+   const sealedKey = sealer.seal(pem);
+
+   /** A database holding one App and one installation. */
+   function fakeSql(): Sql {
+      const sql = async (strings: TemplateStringsArray) => {
+         const text = strings.join('?');
+         if (text.includes('FROM github_installations')) {
+            return [{ workspace_id: 'ws', installation_id: '77', account_login: 'ann', account_type: 'User' }];
+         }
+         if (text.includes('FROM github_apps')) {
+            return [{ app_id: '42', private_key_encrypted: sealedKey }];
+         }
+         throw new Error(`unexpected query: ${text}`);
+      };
+      return sql as unknown as Sql;
+   }
+
+   function app(permissions: Record<string, string>) {
+      return new GitHubAppRepository({
+         sql: fakeSql(),
+         sealer,
+         apiBaseUrl: 'https://api.example.test',
+         fetch: async (input, init) => {
+            assert.equal(String(input), 'https://api.example.test/app/installations/77/access_tokens');
+            assert.equal(init?.method, 'POST');
+            return new Response(
+               JSON.stringify({
+                  token: 'ghs_minted',
+                  expires_at: new Date(Date.now() + 3_600_000).toISOString(),
+                  permissions,
+                  repository_selection: 'selected',
+               }),
+               { status: 201 }
+            );
+         },
+      });
+   }
+
+   test('the token carries whether the installation may push, from the mint itself', async () => {
+      // GitHub reports a repository's `permissions` for a user and answers an
+      // App token with all-false, so the mint is the only place that says.
+      const writer = await app({ contents: 'write', metadata: 'read' }).access('ws');
+      assert.equal(writer.token, 'ghs_minted');
+      assert.equal(writer.canPush, true);
+
+      const reader = await app({ contents: 'read', metadata: 'read' }).access('ws');
+      assert.equal(reader.canPush, false);
+   });
+
+   test('token() is the same mint, and the cache keeps the grant with it', async () => {
+      const repository = app({ contents: 'write' });
+      assert.equal(await repository.token('ws'), 'ghs_minted');
+      assert.equal((await repository.access('ws')).canPush, true);
    });
 });

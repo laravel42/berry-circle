@@ -395,19 +395,23 @@ function agentCore(env: NodeJS.ProcessEnv): AgentCoreConfig | null {
    // AgentCore's own pair first, then Bedrock's: both address AWS proper in the
    // same account, so a deployment that already named one credential should not
    // have to name it twice. Never `AWS_ACCESS_KEY_ID` — that is MinIO's.
+   // `||`, not `??`: Compose passes an unset variable as an empty string, and
+   // an empty AgentCore key must fall through to Bedrock's rather than count
+   // as "configured" and send the clients to the default chain — which in the
+   // Compose stack is MinIO's key, refused as an invalid security token.
    const accessKeyId = (
-      env.BERRY_AGENTCORE_ACCESS_KEY_ID ??
-      env.BERRY_BEDROCK_ACCESS_KEY_ID ??
+      env.BERRY_AGENTCORE_ACCESS_KEY_ID?.trim() ||
+      env.BERRY_BEDROCK_ACCESS_KEY_ID?.trim() ||
       ''
    ).trim();
    const secretAccessKey = (
-      env.BERRY_AGENTCORE_SECRET_ACCESS_KEY ??
-      env.BERRY_BEDROCK_SECRET_ACCESS_KEY ??
+      env.BERRY_AGENTCORE_SECRET_ACCESS_KEY?.trim() ||
+      env.BERRY_BEDROCK_SECRET_ACCESS_KEY?.trim() ||
       ''
    ).trim();
    const sessionToken = (
-      env.BERRY_AGENTCORE_SESSION_TOKEN ??
-      env.BERRY_BEDROCK_SESSION_TOKEN ??
+      env.BERRY_AGENTCORE_SESSION_TOKEN?.trim() ||
+      env.BERRY_BEDROCK_SESSION_TOKEN?.trim() ||
       ''
    ).trim();
    return {

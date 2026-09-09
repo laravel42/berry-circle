@@ -85,7 +85,9 @@ export interface ExecutorOptions {
    /** Injected in tests. Defaults to the real GitHub API. */
    github?: (token: string) => GitHubClient;
    /** The credential a run clones and pushes with, from AgentCore Identity. */
-   gitCredential?: ((workspaceId: string) => Promise<{ username: string; password: string }>) | undefined;
+   gitCredential?:
+      | ((workspaceId: string) => Promise<{ username: string; password: string; canPush?: boolean }>)
+      | undefined;
    /**
     * What earlier runs on the issue did. Omitted means no recall, which is the
     * behaviour every run had before Memory was wired.
@@ -141,7 +143,7 @@ export class RunExecutor {
    private readonly credentials: AwsCredentials | null;
    private readonly github: (token: string) => GitHubClient;
    private readonly gitCredential:
-      | ((workspaceId: string) => Promise<{ username: string; password: string }>)
+      | ((workspaceId: string) => Promise<{ username: string; password: string; canPush?: boolean }>)
       | undefined;
    private readonly ledger: RunLedger;
    private readonly defaultModel: string;

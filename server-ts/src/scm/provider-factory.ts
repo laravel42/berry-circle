@@ -9,10 +9,16 @@ import { ScmProvisioning } from './provisioning.ts';
 import { ScmWorkspaces } from './workspaces.ts';
 import { ScmSync } from './sync.ts';
 
-/** A git credential minted per workspace, for cloning and pushing. */
+/**
+ * A git credential minted per workspace, for cloning and pushing.
+ *
+ * `canPush` is set when the minter knows what it granted — the GitHub App
+ * does, from the token exchange. Absent means "ask the repository", which is
+ * what the older credential paths can do.
+ */
 export type GitCredential = (
    workspaceId: string
-) => Promise<{ username: string; password: string }>;
+) => Promise<{ username: string; password: string; canPush?: boolean }>;
 
 /**
  * The source-control pieces the composition root wires into the mounts. All
@@ -83,7 +89,9 @@ export async function createScm(options: {
          logger,
       });
       gitCredential = (workspaceId: string) =>
-         app.token(workspaceId).then((password) => ({ username: 'x-access-token', password }));
+         app
+            .access(workspaceId)
+            .then((access) => ({ username: 'x-access-token', password: access.token, canPush: access.canPush }));
       return {
          links,
          provisioning,
