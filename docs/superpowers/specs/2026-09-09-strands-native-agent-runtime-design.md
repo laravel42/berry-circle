@@ -1,12 +1,12 @@
 # Strands-native agent runtime: design and refactor plan
 
-Status: **proposal, awaiting review.** Nothing has been moved. This is the
-output of reading the run path in `server-ts/src/agents/`, `src/llm/`,
+Status: **implemented** on `refactor/strands-native-runtime` (see §11). The
+analysis below describes the tree as it was before; it is the output of reading the run path in `server-ts/src/agents/`, `src/llm/`,
 `src/execution/`, `src/agentcore/` and `src/runs/` against
 `@strands-agents/sdk` 1.16.0 as installed, and against the pending
 `.kiro/specs/agent-runtime-hardening/tasks.md`.
 
-Date: 2026-09-09. Branch: `refactor/architecture-clarity`.
+Date: 2026-09-09. Branched from `refactor/architecture-clarity`.
 
 ## 1. Summary
 
