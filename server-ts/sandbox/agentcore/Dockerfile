@@ -26,9 +26,12 @@ FROM --platform=linux/arm64 node:22-slim
 #   curl, tar, unzip, gcc/g++/make — what a dependency install commonly needs
 #      to build a native module; absent, `pnpm install` fails deep in a
 #      postinstall script rather than at the top with a clear message.
+#   ffmpeg       — the one media tool: a run that renders a clip and narrates
+#      it has to be able to put the two together, and nothing else here can.
 RUN apt-get update \
    && apt-get install -y --no-install-recommends \
       git \
+      ffmpeg \
       ca-certificates \
       openssh-client \
       curl \

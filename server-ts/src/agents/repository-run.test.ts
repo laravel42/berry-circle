@@ -97,6 +97,16 @@ describe(
             id: 'session',
             exec: async (command, options) => {
                commands.push({ command, env: options?.env });
+               // A file write is now bytes through the shell: `... | base64 -d > 'path'`.
+               // Recorded as a write, ordered with the commands, so a test can
+               // still say "before git add".
+               const written = /base64 -d >>? '((?:[^']|'\\'')+)'$/.exec(command);
+               if (written) {
+                  const path = written[1]!.replaceAll(`'\\''`, "'");
+                  writes.push({ path, content: '' });
+                  commands.push({ command: `write ${path}`, env: undefined });
+                  return { stdout: '', stderr: '', exitCode: 0 } as ExecResult;
+               }
                const match = Object.keys(results).find((key) => command.includes(key));
                return {
                   stdout: '',

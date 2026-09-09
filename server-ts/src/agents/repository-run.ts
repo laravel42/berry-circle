@@ -9,6 +9,7 @@ import { commitAndPush } from './delivery.ts';
 import { summarise, verify, type VerificationReport } from './verification.ts';
 import { repositoryForIssue, type RepositoryContext } from './repository-context.ts';
 import type { PermissionSet } from './permissions.ts';
+import { insideDirectory, placeFiles, type TaskFiles } from './workspace-files.ts';
 
 /**
  * The repository half of a run: getting the code in, and getting the work out.
@@ -69,11 +70,7 @@ export interface RepositoryRunDeps {
  * bridged that to the checkout, so a compliant agent committed nothing and
  * the run still reported success (hardening F-01). This is the bridge.
  */
-export interface RunArtifacts {
-   paths(): Promise<string[]>;
-   /** The newest version's bytes, or null when the path has none. */
-   read(path: string): Promise<Buffer | null>;
-}
+export type RunArtifacts = TaskFiles;
 
 /** What a run authenticates with, and what the minter said it may do. */
 interface RunCredential {
@@ -270,12 +267,10 @@ export async function deliverRepository(
 }
 
 /**
- * Writes the run's artifacts into the checkout.
+ * Writes the task's files into the checkout, so they are committed.
  *
- * A path that would land outside the repository — absolute, or climbing out
- * with `..` — is refused rather than written, and the refusal is put in the
- * run's log where a person will see it. Skipping silently would make the
- * missing file look like something the agent never wrote.
+ * A path that would land outside the repository is refused and the refusal
+ * put in the run's log; see `placeFiles`.
  */
 async function materialise(
    deps: RepositoryRunDeps,
@@ -284,34 +279,13 @@ async function materialise(
    directory: string,
    artifacts: RunArtifacts
 ): Promise<void> {
-   for (const path of await artifacts.paths()) {
-      const relative = insideRepository(path);
-      if (relative === null) {
-         await deps.ledger.appendOutput(
-            runId,
-            'progress',
-            `Refused to write ${path}: it is outside the repository.`
-         );
-         continue;
-      }
-      const bytes = await artifacts.read(path);
-      if (bytes === null) continue;
-      await session.writeFile(`${directory}/${relative}`, bytes.toString('utf8'));
-   }
+   await placeFiles(session, directory, artifacts, (message) =>
+      deps.ledger.appendOutput(runId, 'progress', message.replace('outside the workspace', 'outside the repository'))
+   );
 }
 
 /** The path relative to the checkout root, or null when it would escape it. */
-export function insideRepository(path: string): string | null {
-   const trimmed = path.trim().replaceAll('\\', '/');
-   if (trimmed === '' || trimmed.startsWith('/') || /^[A-Za-z]:/.test(trimmed)) return null;
-   const parts: string[] = [];
-   for (const segment of trimmed.split('/')) {
-      if (segment === '' || segment === '.') continue;
-      if (segment === '..') return null;
-      parts.push(segment);
-   }
-   return parts.length === 0 ? null : parts.join('/');
-}
+export const insideRepository = insideDirectory;
 
 /** The task's reference and title, for the branch, the commit and the pull request. */
 export async function loadIssue(sql: Sql, issueId: string): Promise<IssueReference> {

@@ -9,7 +9,9 @@ FROM node:22-alpine
 # git is the one addition that is not optional — a run that cannot clone a
 # repository or open a branch cannot deliver work. The rest is what a
 # JavaScript project needs to install and build.
-RUN apk add --no-cache git ca-certificates openssh-client bash \
+# ffmpeg is the one media tool: a run that renders a clip and narrates it
+# has to be able to put the two together, and nothing else on the image can.
+RUN apk add --no-cache git ca-certificates openssh-client bash ffmpeg \
  && corepack enable \
  && corepack prepare pnpm@10.12.1 --activate
 

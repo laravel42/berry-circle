@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { tool, type Tool } from '@strands-agents/sdk';
+import { tool, type Tool, type ToolContext } from '@strands-agents/sdk';
 import { z } from 'zod';
 import type { Sql } from '../db/pool.ts';
 import type { BerryArtifactService } from './artifact-service.ts';
-import { runCommandTool, type CommandToolScope } from './command-tool.ts';
+import { runCommandTool, WORKDIR_KEY, type CommandToolScope } from './command-tool.ts';
+import { FileTooLarge, getBytes } from '../execution/bytes.ts';
+import { ExecutionUnavailable } from '../execution/driver.ts';
 
 /**
  * The tools an agent gets, built per run with its workspace already in scope.
@@ -50,9 +52,56 @@ export function berryTools(scope: ToolScope): Tool[] {
    ];
    if (scope.commands) {
       tools.push(runCommandTool({ ...scope.commands, newId: scope.commands.newId ?? randomUUID }));
+      tools.push(collectFile(scope, scope.commands.session));
    }
    return tools;
 }
+
+/** The most a command-produced file can be brought back at: the bucket's own ceiling. */
+const MAX_COLLECT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Brings a file a command produced back onto the task.
+ *
+ * `write_file` carries text the model composes; a clip ffmpeg wrote is bytes
+ * in the workspace that the model never sees. This is the other half of the
+ * bridge: the file is read out of the workspace and saved as an artifact,
+ * where the task page lists it and the next run finds it.
+ */
+function collectFile(scope: ToolScope, session: () => Promise<ExecutionSessionLike>): Tool {
+   return tool({
+      name: 'collect_file',
+      description:
+         'Save a file from your workspace onto the task — the way to keep a file a command produced, ' +
+         'such as a clip ffmpeg wrote. Other agents and people on the task can then read or download it.',
+      inputSchema: z.object({
+         path: z.string().describe('The file in the workspace, relative to where run_command runs, e.g. output/final.mp4'),
+         as: z.string().optional().describe('The path to save it under on the task. Defaults to the same path.'),
+      }),
+      callback: async ({ path, as }, context?: ToolContext) => {
+         const workdir = context?.agent.appState.get(WORKDIR_KEY);
+         const cwd = typeof workdir === 'string' ? workdir : undefined;
+         try {
+            const bytes = await getBytes(await session(), path, { maxBytes: MAX_COLLECT_BYTES, ...(cwd ? { cwd } : {}) });
+            if (bytes === null) return { path, found: false, error: `no file at ${path} in the workspace` };
+            const saved = (as ?? path).trim() || path;
+            const version = await scope.artifacts.saveArtifact({
+               filename: saved,
+               // No type given: it is sniffed from the bytes, the same as a
+               // text write with no type.
+               artifact: { inlineData: { data: Buffer.from(bytes).toString('base64') } },
+            });
+            return { path: saved, version, sizeBytes: bytes.byteLength, saved: true };
+         } catch (error) {
+            if (error instanceof FileTooLarge) return { path, error: error.message };
+            if (error instanceof ExecutionUnavailable) return { path, error: `no workspace is available: ${error.message}` };
+            throw error;
+         }
+      },
+   });
+}
+
+type ExecutionSessionLike = Parameters<typeof getBytes>[0];
 
 /** What this run has produced so far, including by other agents. */
 function listFiles(scope: ToolScope): Tool {

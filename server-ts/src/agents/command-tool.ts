@@ -67,7 +67,9 @@ export function runCommandTool(scope: CommandToolScope): Tool {
       name: 'run_command',
       description:
          'Run a shell command in this task\'s isolated workspace and return its output and exit code. ' +
-         'The workspace is yours alone and is destroyed when the run ends. ' +
+         'The files saved on this task (see list_files) are present in the workspace at the same paths. ' +
+         'The workspace is yours alone and is destroyed when the run ends; a file a command produces ' +
+         'is kept only if you collect_file it. ' +
          'A non-zero exit code is a result you should read and act on, not an error.',
       inputSchema: z.object({
          command: z.string().describe('A shell command, e.g. "pnpm install" or "pnpm test"'),

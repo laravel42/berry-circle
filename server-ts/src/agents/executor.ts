@@ -28,6 +28,7 @@ import { PermissionPlugin } from './runtime/plugins/permissions.ts';
 import { ToolFailed, ToolOutcomePlugin } from './runtime/plugins/tool-outcome.ts';
 import { WORKDIR_KEY } from './command-tool.ts';
 import { mediaTools, type VideoOutput } from './media-tools.ts';
+import { placeFiles, type TaskFiles } from './workspace-files.ts';
 
 /**
  * Runs one Berry run on the Strands agent loop, writing the ledger Berry
@@ -253,9 +254,26 @@ export class RunExecutor {
          clock: this.clock,
          newId: this.newId,
       });
+      // The task's files as bytes, for whoever needs them on a disk: the
+      // workspace when it opens, and the checkout before it is committed.
+      const taskFiles: TaskFiles = {
+         paths: () => artifacts.listArtifactKeys(),
+         read: async (path) => {
+            const part = await artifacts.loadArtifact({ filename: path });
+            return part?.inlineData?.data ? Buffer.from(part.inlineData.data, 'base64') : null;
+         },
+      };
       // Opened on the first command and not before: most runs never call one,
       // and a container started for every run would pay that cost for nothing.
-      const workspace = this.execution ? lazyWorkspace(this.execution, dispatch.runId) : null;
+      // Seeded with the task's files as it opens, so a command finds the clip
+      // an earlier attempt rendered at the path list_files reports.
+      const workspace = this.execution
+         ? lazyWorkspace(this.execution, dispatch.runId, (session) =>
+              placeFiles(session, null, taskFiles, (message) =>
+                 this.ledger.appendOutput(dispatch.runId, 'progress', message)
+              ).then(() => undefined)
+           )
+         : null;
 
       // No session service: Strands holds the conversation in the agent for
       // the life of the call, and Berry's durable record of what happened has
@@ -397,15 +415,7 @@ export class RunExecutor {
                   // would be an empty container with nothing to push.
                   session: await workspace.open(),
                   summary: delivered === '' ? null : delivered,
-                  artifacts: {
-                     paths: () => artifacts.listArtifactKeys(),
-                     read: async (path) => {
-                        const part = await artifacts.loadArtifact({ filename: path });
-                        return part?.inlineData?.data
-                           ? Buffer.from(part.inlineData.data, 'base64')
-                           : null;
-                     },
-                  },
+                  artifacts: taskFiles,
                });
             }
          } catch (error) {
@@ -589,7 +599,8 @@ function defaultInstructions(name: string): string {
  */
 function lazyWorkspace(
    driver: ExecutionDriver,
-   runId: string
+   runId: string,
+   seed: (session: ExecutionSession) => Promise<void>
 ): { open: () => Promise<ExecutionSession>; close: () => Promise<void> } {
    let opening: Promise<ExecutionSession> | null = null;
 
@@ -597,11 +608,24 @@ function lazyWorkspace(
       open: () => {
          // Memoised on the promise so two racing tool calls share one
          // workspace — and cleared on rejection, so one transient failure does
-         // not answer every later call with the same stale error.
-         opening ??= driver.createSession({ runId }).catch((error: unknown) => {
-            opening = null;
-            throw error;
-         });
+         // not answer every later call with the same stale error. The seed is
+         // part of opening: a workspace handed out before the task's files
+         // are in it would answer the first command with a missing file.
+         opening ??= driver
+            .createSession({ runId })
+            .then(async (session) => {
+               try {
+                  await seed(session);
+               } catch (error) {
+                  await session.destroy().catch(() => undefined);
+                  throw error;
+               }
+               return session;
+            })
+            .catch((error: unknown) => {
+               opening = null;
+               throw error;
+            });
          return opening;
       },
       close: async () => {
