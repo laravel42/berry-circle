@@ -354,8 +354,13 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       // Bedrock are only invocable through a cross-region profile in most
       // regions, and the `us.` prefix is what makes the difference between a
       // call that works and a ValidationException that reads like a typo.
+      //
+      // Haiku 4.5 rather than Sonnet: a third of Sonnet's price ($1/$5 per
+      // million against $3/$15) and still reliable at the tool-calling loop a
+      // run is. This is the fallback for an agent that names no model, so it is
+      // the one paid most often by deployments that never touch the picker.
       defaultModel: (
-         env.BERRY_AGENT_DEFAULT_MODEL ?? 'us.anthropic.claude-sonnet-4-20250514-v1:0'
+         env.BERRY_AGENT_DEFAULT_MODEL ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0'
       ).trim(),
       concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
       maxRepairs: positive(env.PLANNER_MAX_REPAIRS, 2),

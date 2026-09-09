@@ -169,7 +169,13 @@ export class AdkExecutor {
       this.region = options.region;
       this.github = options.github ?? ((token) => new GitHubClient({ token }));
       this.gitCredential = options.gitCredential;
-      this.defaultModel = options.defaultModel ?? 'anthropic/claude-sonnet-4.5';
+      // A Bedrock inference profile id. The previous default here was
+      // `anthropic/claude-sonnet-4.5`, an OpenRouter-style name that Bedrock
+      // cannot serve — the exact vocabulary migration 047 existed to rewrite,
+      // left behind in the one place a migration could not reach. Production
+      // always passes `config.agents.defaultModel`, so this was reachable only
+      // by a caller that omitted it, which is why it stayed wrong quietly.
+      this.defaultModel = options.defaultModel ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
       this.clock = options.clock ?? (() => new Date());
       this.newId = options.newId ?? randomUUID;
       this.memory = options.memory ?? nullRunMemory();

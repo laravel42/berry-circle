@@ -149,11 +149,19 @@ See [`frontend/README.md`](frontend/README.md) for the UI contract and env table
 
 ### Models
 
-Agents call OpenRouter. `BERRY_OPENROUTER_API_KEY` is the credential and
-`BERRY_AGENT_DEFAULT_MODEL` is used when an agent row names no model of its own. The
-`BERRY_`-prefixed name is read first on purpose: a stale `OPENROUTER_API_KEY` exported in
-the launching shell outranks `.env` for Compose substitution, and has twice revived a
-spent key.
+Agents call Amazon Bedrock. `BERRY_BEDROCK_ACCESS_KEY_ID` /
+`BERRY_BEDROCK_SECRET_ACCESS_KEY` are the credentials, and
+`BERRY_AGENT_DEFAULT_MODEL` is used when an agent row names no model of its own.
+It takes a Bedrock **inference profile** id, not an OpenRouter-style name: the
+`us.` prefix is the cross-region profile Anthropic models need in most regions,
+and a bare model id fails with a `ValidationException` that reads like a typo.
+The default is `us.anthropic.claude-haiku-4-5-20251001-v1:0`, chosen for cost per
+unit of useful work — a third of Sonnet 4.5's price, and still reliable at the
+tool-calling loop a run performs.
+
+The `BERRY_`-prefixed names are read first on purpose: a stale `AWS_ACCESS_KEY_ID`
+exported in the launching shell — or set for MinIO, which uses that name in the
+Compose stack — outranks `.env` for Compose substitution.
 
 ### GitHub
 

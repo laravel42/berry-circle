@@ -2,6 +2,8 @@ import { hashPassword } from '../auth/password.ts';
 import type { Sql } from '../db/pool.ts';
 import { withinTx } from '../db/pool.ts';
 import {
+   AgentModelName,
+   AgentModelProvider,
    BoardID,
    BoardName,
    BoardSlug,
@@ -31,7 +33,34 @@ export async function apply(sql: Sql, now: string = new Date().toISOString()): P
       await upsertBoard(tx, now);
       await upsertIssues(tx, now);
       await upsertProjects(tx, now);
+      await assignAgentModels(tx, now);
    });
+}
+
+/**
+ * Gives the workspace's agents a model to run on.
+ *
+ * Berry does not create agents here — a trigger inserts the protected
+ * Orchestrator when the workspace appears, and it inserts it with no model. The
+ * effect in a fresh environment is an agent that exists, can be assigned an
+ * issue, and then cannot run, because the picker shows no model and nothing
+ * chose one. This closes that gap for local development.
+ *
+ * Only rows with no model are touched. An agent someone deliberately pointed at
+ * a different model keeps it: a seed that runs on every boot must not quietly
+ * undo a choice a developer made, and `COALESCE` in a single statement would do
+ * exactly that on the next run.
+ */
+async function assignAgentModels(tx: Sql, now: string): Promise<void> {
+   await tx`
+      UPDATE agents
+         SET model_provider = ${AgentModelProvider},
+             model_name = ${AgentModelName},
+             updated_at = ${now}
+       WHERE workspace_id = ${WorkspaceID}
+         AND archived_at IS NULL
+         AND (model_provider IS NULL OR model_name IS NULL)
+   `;
 }
 
 async function upsertUser(tx: Sql, now: string): Promise<void> {

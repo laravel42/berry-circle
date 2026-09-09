@@ -59,7 +59,10 @@ services:
       BERRY_BEDROCK_SESSION_TOKEN: "${BERRY_BEDROCK_SESSION_TOKEN:-}"
       # An inference profile, not a bare model id: Anthropic models on Bedrock
       # are only invocable through a cross-region profile in most regions.
-      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-us.anthropic.claude-sonnet-4-20250514-v1:0}"
+      # Haiku 4.5 rather than Sonnet: a third of the price ($1/$5 per million
+      # against $3/$15) and still reliable at a tool-calling loop, which is what
+      # a run is. This is the fallback for an agent naming no model of its own.
+      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-us.anthropic.claude-haiku-4-5-20251001-v1:0}"
       # Signs and verifies inbound GitHub webhooks. Empty disables the route
       # outright rather than leaving it unauthenticated: anyone who could reach
       # it would otherwise be able to close every task in the deployment.
