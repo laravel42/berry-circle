@@ -16,7 +16,7 @@ import { truncateUtf8 } from '../runs/result-comment.ts';
 const MAX_PROMPT_BYTES = 64 * 1024;
 
 export interface PromptContext extends Dispatch {
-   /** Why a peer reviewer last sent this task back, when one did. */
+   /** Why a reviewer — the AutoGate peer or a person — last sent this task back. */
    reviewFeedback?: string;
    /**
     * What this agent already did on this issue, from AgentCore Memory.
@@ -40,8 +40,8 @@ export function buildMessage(dispatch: PromptContext): string {
    }
    if (dispatch.reviewFeedback) {
       message +=
-         '\n\nThis task was already worked once and sent back\n' +
-         'A reviewing agent read the result and declined to approve it:\n\n' +
+         '\n\nThis task was already worked once and sent back.\n' +
+         'A reviewer read the result and declined to approve it:\n\n' +
          fenced('review_feedback', dispatch.reviewFeedback) +
          '\n\nAddress that specifically. Anything the review says is missing is the ' +
          'first thing to produce, and anything it says is wrong is not worth ' +
@@ -138,16 +138,40 @@ function deliveryContract(): string {
 }
 
 /**
- * Why a peer reviewer last sent this task back.
+ * Why this task was last sent back, from whoever did it.
  *
- * Empty when it was never rejected, which is the common case — an absent
+ * Two people can send a task back: the AutoGate peer, whose verdict is a row
+ * in `issue_auto_reviews`, and a person on the review page, whose verdict is
+ * a comment on the task followed by a move to `todo`. The comment is the only
+ * trace the person leaves, so it is read as their review: every top-level
+ * comment written after the last run finished, in their name. Whichever
+ * rejection is newer wins — a person overruling the gate is the last word,
+ * and so is a gate rejecting the rerun that answered the person.
+ *
+ * Empty when it was never sent back, which is the common case — an absent
  * rejection is not an error and must not stop a run.
  */
 export async function lastRejection(sql: Sql, issueId: string): Promise<string> {
-   const [row] = await sql`
-      SELECT reason FROM issue_auto_reviews
-       WHERE issue_id = ${issueId} AND approved = false
-       ORDER BY decided_at DESC NULLS LAST
+   const [gate] = await sql`
+      SELECT reason, decided_at FROM issue_auto_reviews
+       WHERE issue_id = ${issueId} AND approved = false AND decided_at IS NOT NULL
+       ORDER BY decided_at DESC
        LIMIT 1`;
-   return (row?.reason as string | null) ?? '';
+   const notes = await sql`
+      SELECT c.body, c.created_at, u.name
+        FROM comments c
+        JOIN users u ON u.id = c.author_id
+       WHERE c.issue_id = ${issueId}
+         AND c.author_type = 'user'
+         AND c.parent_id IS NULL
+         AND c.created_at > (
+            SELECT max(completed_at) FROM runs WHERE issue_id = ${issueId} AND completed_at IS NOT NULL)
+       ORDER BY c.created_at ASC`;
+
+   const gateAt = gate ? new Date(gate.decided_at as string).getTime() : -Infinity;
+   const personAt = notes.length > 0 ? new Date(notes.at(-1)!.created_at as string).getTime() : -Infinity;
+   if (notes.length > 0 && personAt >= gateAt) {
+      return notes.map((note) => `${note.name as string} wrote:\n${(note.body as string).trim()}`).join('\n\n');
+   }
+   return (gate?.reason as string | null) ?? '';
 }

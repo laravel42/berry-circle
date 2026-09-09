@@ -7,6 +7,7 @@ import { RunRepository } from '../runs/repository.ts';
 import { RunLedger } from '../runs/ledger.ts';
 import type { GitHubClient } from '../integrations/github.ts';
 import { boundedTail, reviewPrompt, ReviewGate, type ReviewMaterial } from './review-gate.ts';
+import { lastRejection } from './prompt.ts';
 
 /**
  * The peer review gate.
@@ -201,5 +202,32 @@ describe('the gate, end to end', { skip: url ? false : 'BERRY_TEST_DATABASE_URL 
       const forced = await g.reviewLatest(issueId, { force: true });
       assert.equal(forced.kind, 'reviewed');
       assert.equal((await issueState(issueId)).status, 'done');
+   });
+
+   test("a person's send-back reaches the next run as the review, in their name", async () => {
+      // The review page leaves a comment and moves the task to todo. Nothing
+      // is written to issue_auto_reviews, so a rerun that read only the gate
+      // saw an approved-looking task and declared the earlier clip finished.
+      const { issueId } = await delivered('Add narration');
+      assert.equal(await lastRejection(sql, issueId), '', 'nothing to answer before anyone sends it back');
+
+      await sql`INSERT INTO comments (issue_id, author_type, author_id, body)
+                VALUES (${issueId}, 'user', ${userId}, '**Review: sent back.**\n\nAdd a narrative voice')`;
+      const feedback = await lastRejection(sql, issueId);
+      assert.match(feedback, /^Gate wrote:/);
+      assert.match(feedback, /Add a narrative voice/);
+   });
+
+   test('the newer of the two reviewers has the last word', async () => {
+      const { issueId, runId } = await delivered('Two verdicts');
+      await sql`INSERT INTO comments (issue_id, author_type, author_id, body, created_at)
+                VALUES (${issueId}, 'user', ${userId}, 'Make it shorter', now() - interval '1 minute')`;
+      const { gate: g } = gate([{ approved: false, reason: 'The clip has no sound.' }]);
+      await g.review(runId);
+
+      // The gate rejected after the person wrote, so the gate's reason is
+      // what the rerun answers. A comment on the task from before the last
+      // run finished is history, not a review of the run that followed it.
+      assert.equal(await lastRejection(sql, issueId), 'The clip has no sound.');
    });
 });
