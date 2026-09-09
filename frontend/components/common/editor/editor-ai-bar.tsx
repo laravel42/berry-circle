@@ -101,7 +101,7 @@ export function EditorAiBar({
                   placeholder="Ask about this document or request a change…"
                   disabled={busy}
                   aria-label="Ask AI"
-                  className="placeholder:text-muted-foreground/70 min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+                  className="placeholder:text-muted-foreground/70 min-w-0 flex-1 bg-transparent outline-none"
                />
 
                <Button

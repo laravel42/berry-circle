@@ -17,15 +17,6 @@ export const WORKSPACE_SLUG = process.env.NEXT_PUBLIC_WORKSPACE_SLUG || 'berry';
  */
 export const WORKSPACE_NAME = process.env.NEXT_PUBLIC_WORKSPACE_NAME || 'Berry';
 
-
-/**
- * When set, Berry skips the login screen and signs in with this email if no
- * session token exists. Empty disables auto-login.
- */
-export const AUTO_LOGIN_EMAIL = (
-   process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL ?? 'prototype@berry.test'
-).trim();
-
 /**
  * Optional browser-visible API origin for cross-origin development.
  *

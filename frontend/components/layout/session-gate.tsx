@@ -6,6 +6,15 @@ import { useSessionStore } from '@/store/session-store';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
+// Routes that must render for an anonymous visitor. `/login` is the legacy
+// entry that now forwards to `/sign-in`; keep it here so a 'ready' user landing
+// on it is bounced into the app rather than left on a redirect shim.
+const AUTH_ROUTES = new Set(['/sign-in', '/sign-up', '/login']);
+
+function isAuthRoute(pathname: string): boolean {
+   return AUTH_ROUTES.has(pathname);
+}
+
 function BootScreen() {
    return (
       <div className="flex min-h-svh items-center justify-center bg-background">
@@ -30,7 +39,19 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
 
    useEffect(() => {
       if (status === 'booting') return;
-      if (status === 'ready' && pathname === '/login') {
+
+      const onAuthRoute = isAuthRoute(pathname);
+
+      // Anonymous visitors may only see the auth routes; everything else sends
+      // them to sign in.
+      if (status === 'anonymous' && !onAuthRoute) {
+         router.replace('/sign-in');
+         return;
+      }
+
+      // A signed-in user has no business on an auth route — carry them into
+      // their workspace.
+      if (status === 'ready' && onAuthRoute) {
          router.replace(`/${workspace?.slug || WORKSPACE_SLUG}/my-issues`);
       }
    }, [status, pathname, router, workspace?.slug]);

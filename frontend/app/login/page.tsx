@@ -1,7 +1,6 @@
-import { WORKSPACE_SLUG } from '@/lib/config';
 import { redirect } from 'next/navigation';
 
-/** Login is hidden for now; auto-login runs from the session store instead. */
+/** Legacy entry point. The real screen is `/sign-in`; forward any stale link. */
 export default function LoginPage() {
-   redirect(`/${WORKSPACE_SLUG}/my-issues`);
+   redirect('/sign-in');
 }

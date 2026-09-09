@@ -58,6 +58,43 @@ export async function loginWithEmail(email: string): Promise<LoginUser> {
    return parsed.data.user;
 }
 
+/**
+ * Password sign-in. On success the raw token is installed in memory and tab
+ * storage; on a 401 the server returns the uniform invalid-credentials
+ * envelope, which the caller surfaces without revealing whether the email is
+ * registered.
+ */
+export async function signInWithPassword(email: string, password: string): Promise<LoginUser> {
+   const json: unknown = await apiFetch('/api/v1/auth/sign-in', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim(), password }),
+   });
+   const parsed = loginResponseSchema.safeParse(json);
+   if (!parsed.success) {
+      throw new Error('Sign-in response was not recognized');
+   }
+   persistSessionToken(parsed.data.token);
+   return parsed.data.user;
+}
+
+/**
+ * Password sign-up. Creates the account and issues a session in one server
+ * transaction, so a 201 already carries a usable token — treated exactly like
+ * sign-in from here on.
+ */
+export async function signUpWithPassword(email: string, password: string): Promise<LoginUser> {
+   const json: unknown = await apiFetch('/api/v1/auth/sign-up', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim(), password }),
+   });
+   const parsed = loginResponseSchema.safeParse(json);
+   if (!parsed.success) {
+      throw new Error('Sign-up response was not recognized');
+   }
+   persistSessionToken(parsed.data.token);
+   return parsed.data.user;
+}
+
 export async function fetchBootstrap(): Promise<BootstrapPayload> {
    const json: unknown = await apiFetch('/api/v1/me/bootstrap');
    const parsed = bootstrapSchema.safeParse(json);
@@ -69,7 +106,7 @@ export async function fetchBootstrap(): Promise<BootstrapPayload> {
 
 export async function logoutSession(): Promise<void> {
    try {
-      await apiFetch('/api/v1/auth/logout', { method: 'POST' });
+      await apiFetch('/api/v1/auth/sign-out', { method: 'POST' });
    } catch (error) {
       if (!(error instanceof BerryApiError) || error.status !== 401) {
          throw error;

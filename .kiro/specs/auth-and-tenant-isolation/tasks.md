@@ -217,7 +217,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
     - DB-backed, self-skip without `BERRY_TEST_DATABASE_URL`
     - _Requirements: 6.2, 6.3, 7.1, 4.1_
 
-- [ ] 7. Checkpoint - isolation mechanism
+- [x] 7. Checkpoint - isolation mechanism
   - Ensure all tests pass, ask the user if questions arise. Run `pnpm typecheck:server` and
     `pnpm test:server`.
 
@@ -259,7 +259,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
       pre/post snapshot; DB-backed, self-skip; tag Property 4
     - **Validates: Requirements 7.2, 7.3, 8.1, 8.3, 8.4, 8.5, 8.6, 8.7**
 
-  - [ ] 8.6 Write property test P13 for the passwordless availability truth table
+  - [x] 8.6 Write property test P13 for the passwordless availability truth table
     - **Property 13: Passwordless login availability is exactly the environment-and-flag truth table**
     - fast-check ≥100 iters over environment ∈ {development, test, production, staging, random} × flag ∈
       {on, off} × target ∈ {existing, unknown}; available iff `env ∈ {development,test} ∧ flag`, else 404
@@ -267,14 +267,14 @@ are forward-only and immutable and the single new one is `050_user_password_cred
       DB-backed, self-skip; tag Property 13
     - **Validates: Requirements 11.1, 11.2, 11.4**
 
-  - [ ] 8.7 Write unit tests for middleware fault injection and passwordless issuance sameness
+  - [x] 8.7 Write unit tests for middleware fault injection and passwordless issuance sameness
     - Resolver-throws → 401 (Requirement 4.7); context unreachable without a resolved user (Requirement
       4.6); passwordless issuance uses the same `SessionService` path as password sign-in (Requirement
       11.3)
     - _Requirements: 4.6, 4.7, 11.3_
 
 - [ ] 9. Onboarding server paths (selection and invitations)
-  - [ ] 9.1 Wire workspace selection over the existing `last_workspace_id`
+  - [x] 9.1 Wire workspace selection over the existing `last_workspace_id`
     - Ensure `POST /api/v1/workspaces` records the creator as an `owner` membership and sets
       `users.last_workspace_id` (migration 004, no new migration), and the workspace-select endpoint
       records selection only for a workspace the user belongs to, returning 404 `NOT_FOUND` and leaving
@@ -282,7 +282,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
       `server-ts/src/identity/workspaces.ts`
     - _Requirements: 10.1, 10.3, 10.4, 10.5_
 
-  - [ ] 9.2 Confirm single-use invitation acceptance
+  - [x] 9.2 Confirm single-use invitation acceptance
     - Ensure `POST /api/v1/invitations/:id/accept` uses `SecretsRepository.acceptInvitation`
       (`server-ts/src/identity/secrets.ts`) marking the invitation consumed inside a `FOR UPDATE`
       transaction, creating at most one membership with the invitation's role, and rejecting
@@ -290,7 +290,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
       migration; `workspace_invitations` exists at migration 004)
     - _Requirements: 10.6, 10.7, 10.8_
 
-  - [ ] 9.3 Write property test P12 for workspace selection
+  - [x] 9.3 Write property test P12 for workspace selection
     - **Property 12: Workspace selection follows previous-if-valid-else-earliest and select requires
       membership**
     - fast-check ≥100 iters over memberships with random `joined_at`, stored selection ∈ {valid, stale,
@@ -299,18 +299,18 @@ are forward-only and immutable and the single new one is `050_user_password_cred
       DB-backed, self-skip; tag Property 12
     - **Validates: Requirements 10.1, 10.3, 10.4, 10.5**
 
-  - [ ] 9.4 Write property test P11 for invitation single-use
+  - [x] 9.4 Write property test P11 for invitation single-use
     - **Property 11: Invitation acceptance is single-use and idempotent for the invitee**
     - fast-check ≥100 iters over invitation state ∈ {valid, expired, revoked, alreadyAccepted,
       wrongIdentity} with possibly-repeated accepts; valid → membership count exactly 1, invalid → rejected
       and count 0; DB-backed, self-skip; tag Property 11
     - **Validates: Requirements 10.6, 10.7, 10.8**
 
-- [ ] 10. Checkpoint - server complete
+- [x] 10. Checkpoint - server complete
   - Ensure all tests pass, ask the user if questions arise. Run `pnpm typecheck:server` and
     `pnpm test:server`, plus property test P14 below once wired.
 
-  - [ ] 10.1 Write property test P14 for wire-contract preservation
+  - [x] 10.1 Write property test P14 for wire-contract preservation
     - **Property 14: The wire contract shapes are preserved**
     - fast-check ≥100 iters; failure bodies match the `{ error: { code, message, requestId, details } }`
       envelope, `endCursor === null` exactly when `hasNextPage === false`, serialized `user`/`workspace`/
@@ -318,7 +318,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
     - **Validates: Requirements 12.2, 12.3, 12.7**
 
 - [ ] 11. Frontend Session_Client confirmation
-  - [ ] 11.1 Confirm the token holder never uses `NEXT_PUBLIC_`
+  - [x] 11.1 Confirm the token holder never uses `NEXT_PUBLIC_`
     - Verify `frontend/lib/session.ts` keeps the raw token in an in-memory closure plus tab-scoped
       `sessionStorage` (`createMemoryApiSession`, `persistSessionToken`, `clearSessionToken`) and
       `frontend/lib/api.ts` `apiFetch` attaches `Authorization: Bearer <token>`; the token is never placed
@@ -327,7 +327,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
     - _Requirements: 9.3, 9.6_
 
 - [ ] 12. Frontend auth screens
-  - [ ] 12.1 Build the `/sign-in` screen
+  - [x] 12.1 Build the `/sign-in` screen
     - Create `frontend/app/sign-in/page.tsx` with an email + password form calling
       `POST /api/v1/auth/sign-in` via `apiFetch`; client-side required-field validation blocks empty
       submits with field-level errors; on 401 show a neutral credential error that does not reveal whether
@@ -336,18 +336,18 @@ are forward-only and immutable and the single new one is `050_user_password_cred
       and route into the workspace within 2s; follow Prettier (3-space, single-quote) + ESLint
     - _Requirements: 9.1, 9.2, 9.5, 9.8, 9.9_
 
-  - [ ] 12.2 Build the `/sign-up` screen
+  - [x] 12.2 Build the `/sign-up` screen
     - Create `frontend/app/sign-up/page.tsx` with email + password (+ confirm) calling
       `POST /api/v1/auth/sign-up`; on success behave like sign-in and enter onboarding
     - _Requirements: 9.2, 10.2_
 
-  - [ ] 12.3 Add the sign-out control
+  - [x] 12.3 Add the sign-out control
     - Add a sign-out control calling `POST /api/v1/auth/sign-out`; on success clear both the in-memory
       holder and `sessionStorage` and return to `/sign-in`; if it does not succeed within 5s, clear
       locally, return to `/sign-in`, and show a "session ended locally" notice
     - _Requirements: 9.4, 9.10_
 
-  - [ ] 12.4 Remove auto-login and add the protected-route guard
+  - [x] 12.4 Remove auto-login and add the protected-route guard
     - Change `frontend/store/session-store.ts` hydrate path so that where `Passwordless_Login` is disabled
       it does not auto-establish a session (remove the `AUTO_LOGIN_EMAIL` auto-login) and requires an
       explicit sign-in before any protected route renders; the guard presents `/sign-in` for an anonymous
@@ -362,7 +362,7 @@ are forward-only and immutable and the single new one is `050_user_password_cred
     - _Requirements: 9.1, 9.2, 9.4, 9.5, 9.7, 9.8, 9.9, 9.10_
 
 - [ ] 13. Frontend onboarding
-  - [ ] 13.1 Build the onboarding flow
+  - [x] 13.1 Build the onboarding flow
     - Create `frontend/app/onboarding/` screens: after auth call `GET /api/v1/me/bootstrap`; with ≥1
       membership route into the selected workspace (previously selected if valid, else earliest-joined)
       within 2s without forcing creation; with no membership show a create-or-join step — create calls
