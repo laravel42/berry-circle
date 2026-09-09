@@ -23,6 +23,8 @@ import { issueMounts } from './mounts/issues.ts';
 import { commentMounts, issueCommentRoutes } from './mounts/comments.ts';
 import { issueRelationRoutes } from './mounts/issue-relations.ts';
 import { issueAttachmentRoutes } from './mounts/issue-attachments.ts';
+import { artifactMounts, issueArtifactRoutes } from './mounts/artifacts.ts';
+import { RunArtifactRepository } from './core/run-artifacts.ts';
 import { goalMounts } from './mounts/goals.ts';
 import { attachmentMounts } from './mounts/attachments.ts';
 import { projectMounts } from './mounts/projects.ts';
@@ -109,6 +111,7 @@ const workspaces = new WorkspaceRepository(sql);
 const secrets = new SecretsRepository(sql);
 const boards = new BoardRepository(sql);
 const issues = new IssueRepository(sql);
+const runArtifacts = new RunArtifactRepository(sql);
 const comments = new CommentRepository(sql);
 const dependencies = new DependencyRepository(sql);
 const reviews = new ReviewRepository(sql);
@@ -329,6 +332,7 @@ registry.registerAll(
       // A task handed to an agent starts on its own. Only where runs can
       // execute: without an executor a queued run would sit forever.
       ...(executor ? { dispatch: runOptions.runs } : {}),
+      artifacts: issueArtifactRoutes({ artifacts: runArtifacts, issues }),
       attachments: issueAttachmentRoutes({
          attachments,
          issues,
@@ -352,6 +356,7 @@ registry.registerAll(
    goalMounts({ sessions, goals, issues, idempotency, broadcaster, scm: scmSync })
 );
 registry.registerAll(attachmentMounts({ sessions, attachments, storage }));
+registry.registerAll(artifactMounts({ sessions, artifacts: runArtifacts, issues, storage }));
 registry.registerAll(
    projectMounts({
       sessions,

@@ -83,6 +83,8 @@ export interface IssueOptions {
    runs?: Hono<{ Variables: AuthVariables }> | undefined;
    /** An issue's files: the listing, and the multipart upload. */
    attachments?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** What the agents on an issue produced: the listing. */
+   artifacts?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
    /**
     * Where a task assigned to an agent gets its run. Omitted means a task
@@ -104,6 +106,7 @@ export function issueMounts(options: IssueOptions): Mount[] {
    if (options.relations) route.route('/', options.relations);
    if (options.runs) route.route('/', options.runs);
    if (options.attachments) route.route('/', options.attachments);
+   if (options.artifacts) route.route('/', options.artifacts);
 
    const { issues, boards } = options;
 
