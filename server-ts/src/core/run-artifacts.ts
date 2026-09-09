@@ -41,7 +41,9 @@ export class RunArtifactRepository {
                 artifact.created_at
            FROM run_artifacts AS artifact
           WHERE artifact.issue_id = ${issueId} AND artifact.state = 'ready'
-          ORDER BY artifact.path ASC, artifact.version DESC, artifact.created_at DESC`;
+          -- Newest write wins. Versions count within a run, so a rerun's
+          -- version 0 is newer than the earlier attempt's version 1.
+          ORDER BY artifact.path ASC, artifact.created_at DESC`;
       return rows.map(toArtifact);
    }
 
