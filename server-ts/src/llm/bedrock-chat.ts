@@ -3,6 +3,7 @@ import {
    ConverseCommand,
    type ContentBlock,
 } from '@aws-sdk/client-bedrock-runtime';
+import type { AwsCredentials } from '../agents/runtime/model.ts';
 
 /**
  * One model call, for the parts of Berry that are not an agent.
@@ -37,14 +38,7 @@ export class BedrockUnavailable extends Error {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_TOKENS = 8192;
 
-export interface AwsCredentials {
-   accessKeyId: string;
-   secretAccessKey: string;
-   // Not optional-with-undefined: the AWS clients are built with
-   // `exactOptionalPropertyTypes`, and an explicit `undefined` is a different
-   // thing to them than an absent key.
-   sessionToken?: string;
-}
+export type { AwsCredentials } from '../agents/runtime/model.ts';
 
 export interface BedrockChatOptions {
    region: string;
