@@ -7,9 +7,15 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Dependencies first, so a source change does not reinstall them.
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# pnpm is the project's package manager. Pinned through corepack so the image
+# resolves the same version the workspace uses rather than whatever npm ships.
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+
+# Dependencies first, so a source change does not reinstall them. The
+# standalone lockfile is committed alongside package.json; --frozen-lockfile
+# refuses to drift from it, the same guarantee `npm ci` gave.
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile --ignore-workspace
 
 COPY tsconfig.json ./
 COPY src ./src
