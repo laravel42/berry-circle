@@ -7,7 +7,8 @@ import {
    SidebarMenuButton,
    SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { forYouReviews } from '@/data/reviews';
+import { loadReviews } from '@/lib/reviews';
+import { useSessionStore } from '@/store/session-store';
 import { inboxItems } from '@/data/side-bar-nav';
 import { useNotificationsStore } from '@/store/notifications-store';
 import {
@@ -34,6 +35,22 @@ export function NavInbox() {
    const { getUnreadCount } = useNotificationsStore();
    const [mounted, setMounted] = useState(false);
    useEffect(() => setMounted(true), []);
+   const workspace = useSessionStore((state) => state.workspace);
+   // How many tasks wait at the review gate, from the API. Read once per
+   // workspace: the badge is a hint, and the Reviews page is the truth.
+   const [waiting, setWaiting] = useState(0);
+   useEffect(() => {
+      if (!workspace) return;
+      let cancelled = false;
+      loadReviews(workspace.id, 'open')
+         .then((items) => {
+            if (!cancelled) setWaiting(items.length);
+         })
+         .catch(() => undefined);
+      return () => {
+         cancelled = true;
+      };
+   }, [workspace]);
 
    const unread = mounted ? getUnreadCount() : 0;
 
@@ -46,7 +63,7 @@ export function NavInbox() {
    const items = orderedItems.filter((item) => {
       const key = ITEM_KEYS[item.name];
       if (!key) return true;
-      const badge = key === 'inbox' ? unread : key === 'reviews' ? forYouReviews.length : 0;
+      const badge = key === 'inbox' ? unread : key === 'reviews' ? waiting : 0;
       return isSidebarItemVisible(visibility[key], badge);
    });
 

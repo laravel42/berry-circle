@@ -73,6 +73,17 @@ export async function commitAndPush(options: DeliveryOptions): Promise<Delivery>
       await run(options.session, 'git rev-parse HEAD', at, 'read the commit')
    ).trim();
 
+   // The lease below compares against the remote-tracking ref, and a fresh
+   // shallow clone of the default branch has none for this branch — so a
+   // retried run, whose earlier attempt already pushed, was refused with
+   // "stale info". Fetching the branch first gives the lease something true
+   // to compare with. A branch that does not exist yet fails to fetch, which
+   // is fine: the push then creates it.
+   await options.session.exec(
+      `git -c credential.helper=${shellQuote(CREDENTIAL_HELPER)} fetch origin ${shellQuote(options.branch)}`,
+      { ...at, env: { [TOKEN_VARIABLE]: options.token } }
+   );
+
    await run(
       options.session,
       // `--force-with-lease` so a retried run updates its own branch, and

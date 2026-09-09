@@ -76,6 +76,8 @@ import { SessionService } from './auth/sessions.ts';
 import { Storage } from './storage/storage.ts';
 import { RunExecutor } from './agents/executor.ts';
 import { ReviewGate } from './agents/review-gate.ts';
+import { ReviewQueue } from './core/review-queue.ts';
+import { reviewMounts } from './mounts/reviews.ts';
 import { GitHubClient } from './integrations/github.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
@@ -360,6 +362,16 @@ registry.registerAll(
    })
 );
 registry.registerAll(runMounts(runOptions));
+registry.registerAll(
+   reviewMounts({
+      sessions,
+      boards,
+      queue: new ReviewQueue(sql),
+      // The same credential runs clone with; null when no git host is
+      // configured, in which case the list still serves and the diff says so.
+      gitCredential: scm.provisioning ? scm.gitCredential : null,
+   })
+);
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
 registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
 registry.registerAll(

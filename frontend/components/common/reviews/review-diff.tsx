@@ -1,103 +1,61 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { cn } from '@/lib/utils';
-import { getReviewFileDiff, Review } from '@/data/reviews';
-import {
-   Check,
-   FileCode2,
-   GitCommitHorizontal,
-   ListFilter,
-   Search,
-   SlidersHorizontal,
-} from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { loadReviewDiff, parseUnifiedDiff, type ReviewItem } from '@/lib/reviews';
+import type { FileDiff } from '@/data/reviews';
+import { Search } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { DiffView } from './diff-view';
 
-/** Diff tab: Files / Commits toolbar, file list and stacked unified diffs. */
-export function ReviewDiff({ review }: { review: Review }) {
+/** Diff tab: the pull request's changes, one file at a time, filterable by path. */
+export function ReviewDiff({ item }: { item: ReviewItem }) {
    const [query, setQuery] = useState('');
+   const [files, setFiles] = useState<FileDiff[] | null>(null);
+   const [error, setError] = useState<string | null>(null);
 
-   const files = useMemo(
-      () =>
-         review.files.filter((file) =>
-            (file.name + file.path).toLowerCase().includes(query.trim().toLowerCase())
-         ),
-      [review.files, query]
+   useEffect(() => {
+      let cancelled = false;
+      setFiles(null);
+      setError(null);
+      if (!item.pullRequest) return;
+      loadReviewDiff(item.run.id)
+         .then((text) => {
+            if (!cancelled) setFiles(parseUnifiedDiff(text));
+         })
+         .catch((cause: unknown) => {
+            if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not load the diff');
+         });
+      return () => {
+         cancelled = true;
+      };
+   }, [item.run.id, item.pullRequest]);
+
+   const shown = useMemo(
+      () => (files ?? []).filter((file) => `${file.path}/${file.name}`.toLowerCase().includes(query.trim().toLowerCase())),
+      [files, query]
    );
+
+   if (!item.pullRequest) {
+      return <div className="h-full flex items-center justify-center text-muted-foreground">This run opened no pull request.</div>;
+   }
 
    return (
       <div className="h-full flex flex-col overflow-hidden">
          <div className="flex items-center justify-between gap-2 px-4 py-2 border-b shrink-0">
-            <div className="flex items-center gap-1.5">
-               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border bg-accent font-medium">
-                  <ListFilter className="size-3.5" />
-                  Files
-                  <span className="text-muted-foreground">{review.files.length}</span>
-               </span>
-               <Popover>
-                  <PopoverTrigger asChild>
-                     <button className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-muted-foreground hover:bg-accent/50 transition-colors">
-                        <GitCommitHorizontal className="size-3.5" />
-                        Commits
-                        <span>{review.commits.length}</span>
-                     </button>
-                  </PopoverTrigger>
-                  <PopoverContent align="start" className="w-96 p-0">
-                     <div className="flex items-center justify-between px-3 py-2 border-b">
-                        <span className="font-medium">All commits</span>
-                        <span className="inline-flex items-center gap-1 text-muted-foreground">
-                           <Check className="size-3.5" />
-                           {review.commits.length} commits
-                        </span>
-                     </div>
-                     {review.commits.map((commit) => (
-                        <div
-                           key={commit.sha}
-                           className="flex items-center gap-2 px-3 py-2 border-b last:border-b-0"
-                        >
-                           <span className="font-mono text-muted-foreground">{commit.sha}</span>
-                           <span className="flex-1 truncate">{commit.message}</span>
-                           <span className="text-muted-foreground shrink-0">{commit.timeAgo}</span>
-                        </div>
-                     ))}
-                  </PopoverContent>
-               </Popover>
+            <span className="font-medium">
+               Files <span className="text-muted-foreground">{files ? files.length : '…'}</span>
+            </span>
+            <div className="relative w-64">
+               <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+               <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Filter files" className="h-7 pl-7" />
             </div>
-            <SlidersHorizontal className="size-4 text-muted-foreground" />
          </div>
-
-         <div className="flex-1 min-h-0 flex overflow-hidden">
-            <div className="hidden md:flex flex-col w-64 shrink-0 border-r p-3 gap-2 overflow-y-auto">
-               <div className="relative shrink-0">
-                  <Search className="size-3.5 text-muted-foreground absolute left-2 top-1/2 -translate-y-1/2" />
-                  <Input
-                     placeholder="Filter files..."
-                     value={query}
-                     onChange={(event) => setQuery(event.target.value)}
-                     className="pl-7 h-8"
-                  />
-               </div>
-               {files.map((file) => (
-                  <a
-                     key={file.name + file.path}
-                     href={`#diff-${file.name}`}
-                     className={cn(
-                        'flex items-center gap-1.5 rounded-md px-2 py-1.5 hover:bg-accent/50 transition-colors'
-                     )}
-                  >
-                     <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />
-                     <span className="font-medium truncate">{file.name}</span>
-                     <span className="text-muted-foreground truncate">{file.path}</span>
-                  </a>
-               ))}
-            </div>
-            <div className="flex-1 min-w-0 overflow-y-auto p-4 flex flex-col gap-4">
-               {files.map((file) => (
-                  <div key={file.name + file.path} id={`diff-${file.name}`}>
-                     <DiffView diff={getReviewFileDiff(review, file)} />
-                  </div>
+         <div className="flex-1 overflow-y-auto">
+            <div className="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-6">
+               {error && <p className="text-muted-foreground" role="alert">{error}</p>}
+               {!error && files === null && <p className="text-muted-foreground">Loading the diff…</p>}
+               {shown.map((file) => (
+                  <DiffView key={`${file.path}/${file.name}`} diff={file} />
                ))}
             </div>
          </div>
