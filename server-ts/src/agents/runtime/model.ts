@@ -43,7 +43,15 @@ export interface ModelSpec {
 /** What builds a model. Production passes `bedrockModel`; tests pass a script. */
 export type ModelFactory = (spec: ModelSpec) => Model<BaseModelConfig>;
 
-export const DEFAULT_MAX_TOKENS = 8192;
+/**
+ * The ceiling on one model reply.
+ *
+ * Raised from 8192 after a run failed writing a README: a single `write_file`
+ * call carries a whole file as tool input, and the SDK treats a reply cut off
+ * at the ceiling as unrecoverable. The default model accepts this value; a
+ * deployment on a model that does not sets `BERRY_AGENT_MAX_TOKENS`.
+ */
+export const DEFAULT_MAX_TOKENS = 32_000;
 
 /**
  * A Bedrock model for a spec.

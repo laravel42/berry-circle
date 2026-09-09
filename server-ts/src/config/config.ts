@@ -214,7 +214,7 @@ export interface AgentConfig {
    maxCriticRounds: number;
    /**
     * A ceiling on one model reply, in tokens. Null means the runtime's
-    * default (8192). Raised for agents whose work is long documents.
+    * default (32000). Lowered for a model that accepts less.
     */
    maxTokens: number | null;
 }
@@ -370,7 +370,7 @@ function agents(env: NodeJS.ProcessEnv): AgentConfig | null {
       concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
       maxRepairs: positive(env.PLANNER_MAX_REPAIRS, 2),
       maxCriticRounds: positive(env.PLANNER_MAX_CRITIC_ROUNDS, 1),
-      maxTokens: env.BERRY_AGENT_MAX_TOKENS ? positive(env.BERRY_AGENT_MAX_TOKENS, 8192) : null,
+      maxTokens: env.BERRY_AGENT_MAX_TOKENS ? positive(env.BERRY_AGENT_MAX_TOKENS, 32_000) : null,
    };
 }
 
