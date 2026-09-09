@@ -71,11 +71,20 @@ test('a pairing resolves through the prefix quirk from either side', () => {
    assert.equal(resolveModel(models, 'openrouter', 'openai/gpt-5'), undefined);
 });
 
-/** A Bedrock client that lists the given profiles, counting how often it is asked. */
+/**
+ * A Bedrock client that lists the given profiles, counting how often a refresh
+ * happens. A refresh now issues two commands — `ListInferenceProfiles` and
+ * `ListFoundationModels` — so the profile command is what a refresh is counted
+ * by; the foundation command is answered (with no summaries here, which leaves
+ * the catalogue unfiltered) without inflating the count.
+ */
 function listing(profiles: Array<{ inferenceProfileId?: string; inferenceProfileName?: string }>) {
    let calls = 0;
    const client = {
-      async send() {
+      async send(command: { constructor: { name: string } }) {
+         if (command.constructor.name === 'ListFoundationModelsCommand') {
+            return { modelSummaries: [] };
+         }
          calls += 1;
          return { inferenceProfileSummaries: profiles };
       },
@@ -177,4 +186,100 @@ test('a profile with no id is dropped rather than listed as blank', async () => 
       listing([{ inferenceProfileName: 'nameless' }, { inferenceProfileId: 'us.anthropic.x' }]).client
    );
    assert.deepEqual((await models.list()).map((m) => m.id), ['us.anthropic.x']);
+});
+
+/**
+ * A Bedrock client answering both refresh commands: the given profiles, and
+ * the given foundation-model summaries the catalogue filters against.
+ */
+function listingWithModels(
+   profiles: Array<{ inferenceProfileId?: string; inferenceProfileName?: string }>,
+   modelSummaries: Array<{
+      modelId?: string;
+      outputModalities?: string[];
+      inputModalities?: string[];
+   }>
+) {
+   const client = {
+      async send(command: { constructor: { name: string } }) {
+         if (command.constructor.name === 'ListFoundationModelsCommand') {
+            return { modelSummaries };
+         }
+         return { inferenceProfileSummaries: profiles };
+      },
+   };
+   return client as never;
+}
+
+test('non-text models are filtered out and image input surfaces as vision', async () => {
+   const models = catalog(
+      listingWithModels(
+         [
+            { inferenceProfileId: 'us.anthropic.claude-sonnet-4-20250514-v1:0' },
+            { inferenceProfileId: 'us.meta.llama3-3-70b-instruct-v1:0' },
+            { inferenceProfileId: 'us.amazon.titan-embed-text-v2:0' },
+            { inferenceProfileId: 'us.amazon.nova-canvas-v1:0' },
+         ],
+         [
+            {
+               modelId: 'anthropic.claude-sonnet-4-20250514-v1:0',
+               outputModalities: ['TEXT'],
+               inputModalities: ['TEXT', 'IMAGE'],
+            },
+            { modelId: 'meta.llama3-3-70b-instruct-v1:0', outputModalities: ['TEXT'], inputModalities: ['TEXT'] },
+            { modelId: 'amazon.titan-embed-text-v2:0', outputModalities: ['EMBEDDING'], inputModalities: ['TEXT'] },
+            { modelId: 'amazon.nova-canvas-v1:0', outputModalities: ['IMAGE'], inputModalities: ['TEXT'] },
+         ]
+      )
+   );
+
+   const listed = await models.list();
+   // The embedding and image models are gone; the two text models remain.
+   assert.deepEqual(
+      listed.map((m) => m.id).sort(),
+      [
+         'us.anthropic.claude-sonnet-4-20250514-v1:0',
+         'us.meta.llama3-3-70b-instruct-v1:0',
+      ]
+   );
+   // Claude accepts image input, so it reads as a vision model; Llama does not.
+   const claude = listed.find((m) => m.id.includes('anthropic'));
+   const llama = listed.find((m) => m.id.includes('meta'));
+   assert.equal(claude!.supportsVision, true);
+   assert.equal(llama!.supportsVision, false);
+   // Every surviving model still advertises tools for the agent runtime.
+   assert.ok(listed.every((m) => m.supportsTools));
+});
+
+test('a profile whose model id does not resolve is kept rather than dropped', async () => {
+   // An unknown id (no matching foundation model) is not evidence of "unusable":
+   // keep it and let the run-time Converse call be the backstop.
+   const models = catalog(
+      listingWithModels(
+         [{ inferenceProfileId: 'us.somefuture.model-v1:0' }],
+         [{ modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', outputModalities: ['TEXT'] }]
+      )
+   );
+   const listed = await models.list();
+   assert.deepEqual(listed.map((m) => m.id), ['us.somefuture.model-v1:0']);
+});
+
+test('an unavailable foundation-model list leaves the profiles unfiltered', async () => {
+   // ListFoundationModels failing must not empty the picker: with no capability
+   // data the catalogue cannot filter, so every profile is listed.
+   const client = {
+      async send(command: { constructor: { name: string } }) {
+         if (command.constructor.name === 'ListFoundationModelsCommand') {
+            throw new Error('AccessDeniedException');
+         }
+         return {
+            inferenceProfileSummaries: [
+               { inferenceProfileId: 'us.amazon.titan-embed-text-v2:0' },
+            ],
+         };
+      },
+   } as never;
+   const models = catalog(client);
+   // Even an embedding profile survives when there is nothing to filter with.
+   assert.deepEqual((await models.list()).map((m) => m.id), ['us.amazon.titan-embed-text-v2:0']);
 });

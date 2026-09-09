@@ -14,6 +14,7 @@ import {
    type AgentRepository,
 } from '../agents/repository.ts';
 import { PERMISSIONS } from '../agents/permissions.ts';
+import type { Logger } from '../observability/log.ts';
 import {
    CatalogUnavailable,
    normalizeModelId,
@@ -60,6 +61,13 @@ export interface AgentOptions {
    idempotency: IdempotencyStore;
    /** Null when no model credential is configured; the picker then 503s. */
    catalog: ModelCatalog | null;
+   /**
+    * Optional: records why the catalogue was unreachable. The client only ever
+    * sees an opaque 502, so without this the underlying Bedrock cause (bad
+    * credentials, a missing IAM permission, a region with no profiles) is lost
+    * — which is exactly what makes an empty model picker hard to diagnose.
+    */
+   logger?: Logger;
    clock?: () => Date;
 }
 
@@ -67,7 +75,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
 
-   const { agents, catalog } = options;
+   const { agents, catalog, logger } = options;
    const clock = options.clock ?? (() => new Date());
 
    route.get('/', async (context) => {
@@ -137,7 +145,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
       await agents.authorizeWorkspace(context.get('user').id, workspaceId, 'product.read')
          .catch(rethrowWorkspace);
 
-      const models = await listModels(catalog);
+      const models = await listModels(catalog, logger);
       // Grouped by provider, cheapest first inside it: the list is read as
       // "who serves this, and what does it cost".
       const nodes = models
@@ -169,7 +177,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
       const description = optionalText(body, 'description', MAX_DESCRIPTION);
       const instructions = optionalText(body, 'instructions', MAX_INSTRUCTIONS);
       const skills = body.skills === undefined ? undefined : parseSkills(body.skills);
-      const pair = await parseModelPair(body, catalog);
+      const pair = await parseModelPair(body, catalog, logger);
 
       const created = await agents
          .create({
@@ -210,7 +218,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
       const instructions = optionalText(body, 'instructions', MAX_INSTRUCTIONS);
       const description = optionalText(body, 'description', MAX_DESCRIPTION);
       const skills = body.skills === undefined ? undefined : parseSkills(body.skills);
-      const pair = await parseModelPair(body, catalog);
+      const pair = await parseModelPair(body, catalog, logger);
 
       if (
          instructions === undefined &&
@@ -441,7 +449,8 @@ function skillsInvalid(): ApiError {
  */
 async function parseModelPair(
    body: Record<string, unknown>,
-   catalog: ModelCatalog | null
+   catalog: ModelCatalog | null,
+   logger?: Logger
 ): Promise<{ provider: string; model: string } | undefined> {
    const hasProvider = 'provider' in body && body.provider !== null;
    const hasModel = 'model' in body && body.model !== null;
@@ -452,7 +461,7 @@ async function parseModelPair(
 
    const provider = text(body.provider, 'provider', 100, true)!;
    const model = text(body.model, 'model', 200, true)!;
-   const models = await listModels(catalog);
+   const models = await listModels(catalog, logger);
    if (!resolveModel(models, provider, model)) {
       throw new ApiError(
          400,
@@ -463,7 +472,7 @@ async function parseModelPair(
    return { provider, model };
 }
 
-async function listModels(catalog: ModelCatalog | null) {
+async function listModels(catalog: ModelCatalog | null, logger?: Logger) {
    if (!catalog) {
       // A picker with nothing behind it would offer models that cannot run.
       throw new ApiError(
@@ -476,6 +485,12 @@ async function listModels(catalog: ModelCatalog | null) {
       return await catalog.list();
    } catch (error) {
       if (error instanceof CatalogUnavailable) {
+         // The 502 the client gets is deliberately opaque; the cause is not.
+         // Logging it here is the only place the underlying Bedrock failure
+         // (an invalid token, a missing bedrock:ListInferenceProfiles grant, a
+         // region with no system profiles) is visible to an operator staring
+         // at an empty model picker.
+         logger?.error('model catalogue unavailable', { error: error.message });
          throw new ApiError(
             502,
             'DEPENDENCY_UNAVAILABLE',

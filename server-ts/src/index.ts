@@ -442,7 +442,7 @@ registry.registerAll(
       appUrl: config.integrations.appUrl,
    })
 );
-registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog }));
+registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog, logger }));
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
 );
