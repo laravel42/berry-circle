@@ -1,4 +1,4 @@
-import { Agent, type Plugin, type Tool } from '@strands-agents/sdk';
+import { Agent, SlidingWindowConversationManager, type Plugin, type Tool } from '@strands-agents/sdk';
 import { BerryRetryStrategy } from './failure.ts';
 import { bedrockModel, type AwsCredentials, type ModelFactory } from './model.ts';
 
@@ -24,6 +24,9 @@ export interface RunAgentSpec {
    traceAttributes: Record<string, string>;
 }
 
+/** Messages kept in the model's view of the conversation. */
+export const WINDOW_SIZE = 60;
+
 export function buildRunAgent(spec: RunAgentSpec, modelFactory: ModelFactory = bedrockModel): Agent {
    return new Agent({
       model: modelFactory({
@@ -40,6 +43,13 @@ export function buildRunAgent(spec: RunAgentSpec, modelFactory: ModelFactory = b
       // Replacing the SDK's default rather than joining it, so a throttled
       // call is retried on Berry's idea of transient and nothing else.
       retryStrategy: new BerryRetryStrategy(),
+      // A long run reads many files and runs many commands; without a ceiling
+      // the conversation grows until the model refuses it. The window keeps
+      // the recent turns and the run ledger keeps everything that fell out.
+      conversationManager: new SlidingWindowConversationManager({
+         windowSize: WINDOW_SIZE,
+         proactiveCompression: true,
+      }),
       traceAttributes: spec.traceAttributes,
       printer: false,
    });

@@ -49,20 +49,30 @@ export function throwing(error: Error): ScriptedTurn {
 
 export class ScriptedModel extends Model<BaseModelConfig> {
    readonly #turns: ScriptedTurn[];
+   readonly #contextWindowLimit: number | undefined;
    /** How many model calls the agent made. */
    calls = 0;
    /** The messages each call was given, oldest call first. */
    readonly received: Message[][] = [];
 
-   constructor(turns: ScriptedTurn[]) {
+   /**
+    * `contextWindowLimit` lets a test make the conversation manager act: the
+    * SDK compresses proactively when the estimated input nears the window,
+    * and a scripted model has no window unless it is told one.
+    */
+   constructor(turns: ScriptedTurn[], options: { contextWindowLimit?: number } = {}) {
       super();
       this.#turns = turns;
+      this.#contextWindowLimit = options.contextWindowLimit;
    }
 
    updateConfig(): void {}
 
    getConfig(): BaseModelConfig {
-      return { modelId: 'scripted' };
+      return {
+         modelId: 'scripted',
+         ...(this.#contextWindowLimit ? { contextWindowLimit: this.#contextWindowLimit } : {}),
+      };
    }
 
    async *stream(messages: Message[], _options?: StreamOptions): AsyncIterable<ModelStreamEvent> {

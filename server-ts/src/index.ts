@@ -40,6 +40,8 @@ import { accountRoutes } from './mounts/account.ts';
 import { conversationMounts } from './mounts/conversations.ts';
 import { editorMounts } from './mounts/editor.ts';
 import { EditorAssist } from './editor/assist.ts';
+import { Completion } from './llm/completion.ts';
+import { setupTelemetry } from './observability/telemetry.ts';
 import { planMounts } from './mounts/plans.ts';
 import { PlanAnswerRepository } from './plans/answers.ts';
 import { PlanRepository } from './plans/repository.ts';
@@ -210,6 +212,24 @@ const scmWorkspaces = scm.workspaces;
 const scmSync = scm.sync;
 const scmInbound = new ScmInbound({ sql, links: scm.links, logger });
 
+/**
+ * The one client the single-completion callers share.
+ *
+ * Credentials are plumbed here once. Each caller used to build its own
+ * Bedrock client from the same three fields, and each was a place for them
+ * to go missing (BERR-67).
+ */
+const completion = config.agents
+   ? new Completion({
+        region: config.agents.region,
+        ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+     })
+   : null;
+
+// Traces, only when an OTLP endpoint is configured. Before the executor so
+// the first run is traced.
+await setupTelemetry(logger);
+
 const executor =
    config.agents && storage
       ? new RunExecutor({
@@ -321,11 +341,12 @@ registry.registerAll(
       // Reading a plan works without a model credential; only generating one
       // needs it, and a null generator answers PLANNER_UNAVAILABLE rather
       // than opening a plan nothing will ever fill in.
-      generator: config.agents
+      generator:
+         config.agents && completion
          ? new PlanGenerator({
               sql,
               region: config.agents.region,
-              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+              completion,
               defaultModel: config.agents.defaultModel,
               maxRepairs: config.agents.maxRepairs,
               maxCriticRounds: config.agents.maxCriticRounds,
@@ -333,11 +354,12 @@ registry.registerAll(
          : null,
       // Routing needs the same credential planning does: it is the
       // orchestrator reading the roster and deciding, not a lookup table.
-      triage: config.agents
+      triage:
+         config.agents && completion
          ? new PlanTriage({
               sql,
               region: config.agents.region,
-              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+              completion,
               defaultModel: config.agents.defaultModel,
            })
          : null,
@@ -358,11 +380,12 @@ registry.registerAll(
       sql,
       // Reading a thread works without a model credential; only answering
       // needs one, and a null responder says so rather than failing the turn.
-      responder: config.agents
+      responder:
+         config.agents && completion
          ? new ConversationResponder({
               sql,
               region: config.agents.region,
-              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+              completion,
               defaultModel: config.agents.defaultModel,
            })
          : null,
@@ -371,10 +394,11 @@ registry.registerAll(
 registry.registerAll(
    editorMounts({
       sessions,
-      assist: config.agents
+      assist:
+         config.agents && completion
          ? new EditorAssist({
               region: config.agents.region,
-              ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
+              completion,
               defaultModel: config.agents.defaultModel,
            })
          : null,

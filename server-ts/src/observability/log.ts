@@ -8,6 +8,7 @@
 
 export interface Logger {
    info(message: string, fields?: Record<string, unknown>): void;
+   warn(message: string, fields?: Record<string, unknown>): void;
    error(message: string, fields?: Record<string, unknown>): void;
 }
 
@@ -25,6 +26,7 @@ export function createLogger(serviceName: string): Logger {
    };
    return {
       info: (message, fields = {}) => emit('info', message, fields),
+      warn: (message, fields = {}) => emit('warn', message, fields),
       error: (message, fields = {}) => emit('error', message, fields),
    };
 }

@@ -296,7 +296,7 @@ function build(
    return new Dispatcher({
       sql,
       executor,
-      logger: { info: () => undefined, error: () => undefined },
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
       concurrency: options.concurrency ?? 4,
       ...MANUAL,
    });
