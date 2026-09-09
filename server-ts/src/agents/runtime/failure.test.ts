@@ -60,6 +60,21 @@ test('classification names the failure and whether to try again', () => {
    assert.equal(classify(new Error('x')).code, 'RUNTIME_ERROR');
 });
 
+test("a provider's content filter is a named, final failure that tells a person what to change", () => {
+   // Seen live: an agent set out to put a song's real lyrics into the speech
+   // tool, and Bedrock refused the output. It came through as RUNTIME_ERROR
+   // with nothing on the task, which reads like a crash rather than a refusal.
+   const blocked = new Error('The model returned the following errors: Output blocked by content filtering policy');
+   const failure = classify(blocked);
+   assert.equal(failure.code, 'CONTENT_BLOCKED');
+   assert.equal(failure.retryable, false);
+   assert.match(failure.message, /content filter/);
+   assert.match(failure.message, /change what the task asks/);
+   assert.match(failure.message, /Output blocked by content filtering policy/);
+   // Wrapped by the SDK, the text is on the cause.
+   assert.equal(classify(new Error('model call failed', { cause: blocked })).code, 'CONTENT_BLOCKED');
+});
+
 test('the strategy retries a throttle and gives up on a rejection', async () => {
    const retried = new ScriptedModel([throwing(throttling()), say('ok')]);
    const agent = new Agent({

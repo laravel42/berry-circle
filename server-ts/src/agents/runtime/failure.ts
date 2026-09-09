@@ -58,7 +58,35 @@ export function isTransient(error: unknown): boolean {
    return cause !== undefined && cause !== error && isTransient(cause);
 }
 
+/**
+ * The provider refused to produce the output, as opposed to failing to.
+ *
+ * Bedrock reports its content filter as a model error whose text names the
+ * policy — seen live when an agent set out to put a song's real lyrics
+ * into a speech tool. It is not transient and not a bug in the run, and a
+ * person can only fix it by changing what was asked, so it gets a name and
+ * a message that says that.
+ */
+const BLOCKED = /content filter|content filtering|guardrail|blocked by/i;
+
+export function isContentBlocked(error: unknown): boolean {
+   const message = (error as { message?: unknown })?.message;
+   if (typeof message === 'string' && BLOCKED.test(message)) return true;
+   const cause = (error as { cause?: unknown })?.cause;
+   return cause !== undefined && cause !== error && isContentBlocked(cause);
+}
+
 export function classify(error: unknown): Failure {
+   if (isContentBlocked(error)) {
+      return {
+         code: 'CONTENT_BLOCKED',
+         message:
+            "The model provider's content filter blocked what the agent was producing, so the run could not continue. " +
+            'This is not a transient error: change what the task asks for (for example, original lyrics instead of a ' +
+            `copyrighted song) and run it again. Provider message: ${truncateUtf8(String((error as Error)?.message ?? error), 500)}`,
+         retryable: false,
+      };
+   }
    const status = httpStatus(error);
    const throttled = error instanceof ModelThrottledError || status === 429;
    const code = throttled

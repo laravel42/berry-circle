@@ -535,6 +535,21 @@ export class RunExecutor {
          if (!(cause instanceof RunTerminal)) throw cause;
       });
 
+      // A failure nobody will retry is told on the task, where the person who
+      // wrote it is looking. A retryable one is not: the dispatcher will try
+      // again, and a comment per attempt is noise. Best effort, like the
+      // result comment on success — the ledger already says the run failed.
+      if (!failure.retryable) {
+         await postRunResult(this.sql, {
+            issueId: dispatch.issueId,
+            agentId: dispatch.agentId,
+            text: `This run failed (${failure.code}). ${failure.message}`,
+            cut: false,
+            occurredAt: this.clock().toISOString(),
+            newId: this.newId,
+         }).catch(() => null);
+      }
+
       // A failure is the most valuable thing to recall: it is the one outcome
       // the next run should not reproduce, and unlike a rejected review it is
       // recorded even when the run never produced a result to review.

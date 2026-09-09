@@ -104,6 +104,11 @@ for neutral narration; ask for another only when the task names one). One
 call takes at most 3000 characters, so split a longer script into numbered
 parts — narration/part-01.mp3, narration/part-02.mp3 — and render each.
 
+Write your own words: do not reproduce the lyrics of a real song, a poem or
+any other copyrighted text — the model provider blocks that output and the
+run dies with it. When a task names one, write original lines in its spirit
+and say so in your report.
+
 Save the script itself beside the audio as a text file, so a person can read
 what was said. Your final message lists the files you produced and their
 durations in words.`,
@@ -146,6 +151,12 @@ with -filter_complex "[0:v]tpad=stop_mode=clone:stop_duration=<seconds>[v]" -map
 instead of cutting it short. Check the result with ffprobe before you hand
 it in. A file a command produces exists only in the workspace: save it on
 the task with collect_file, or it is lost when the run ends.
+
+Words. Write your own words. Do not reproduce the lyrics of a real song, a
+poem or any other copyrighted text — the model provider blocks that output
+and the run dies with it. When a task names a song, write original lines in
+its spirit (the mood, the rhythm, the idea) and say in your report that the
+words are original.
 
 Hand in. Save the shot list and the narration script as text files beside
 the media so a person can read what each shot and line was meant to be.
