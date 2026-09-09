@@ -38,6 +38,7 @@ export function createExecutionDriver(
          return agentCoreDriver({
             region: agentCore.region,
             codeInterpreterId: agentCore.codeInterpreterId,
+            ...(agentCore.credentials ? { credentials: agentCore.credentials } : {}),
          });
       case 'agentcore-runtime':
          // The Runtimes substrate needs a deployed runtime to invoke, addressed
@@ -56,6 +57,7 @@ export function createExecutionDriver(
          return agentCoreRuntimeDriver({
             region: agentCore.region,
             runtimeArn: agentCore.runtimeArn,
+            ...(agentCore.credentials ? { credentials: agentCore.credentials } : {}),
          });
       case 'docker':
          return httpDriver({

@@ -38,12 +38,22 @@ const SESSION_TIMEOUT_SECONDS = 3600;
 export interface AgentCoreDriverOptions {
    region: string;
    codeInterpreterId: string;
+   /**
+    * Explicit AWS credentials. Absent means the default chain, which is wrong
+    * in the Compose stack: `AWS_ACCESS_KEY_ID` there is MinIO's, so a client
+    * left to find its own credential authenticates to AWS as the object store.
+    */
+   credentials?: { accessKeyId: string; secretAccessKey: string; sessionToken?: string };
    client?: BedrockAgentCoreClient;
 }
 
 export function agentCoreDriver(options: AgentCoreDriverOptions): ExecutionDriver {
    const client =
-      options.client ?? new BedrockAgentCoreClient({ region: options.region });
+      options.client ??
+      new BedrockAgentCoreClient({
+         region: options.region,
+         ...(options.credentials ? { credentials: options.credentials } : {}),
+      });
 
    return {
       name: 'agentcore',

@@ -126,8 +126,23 @@ export interface AgentCoreConfig {
    codeInterpreterId: string;
    /** An AgentCore Runtime to invoke instead of executing in this process. */
    runtimeArn: string | null;
-   /** An AgentCore Memory store, used in place of Berry's own session table. */
+   /**
+    * An AgentCore Memory store holding what earlier runs did.
+    *
+    * Null disables recall rather than degrading it: an agent told nothing is
+    * an agent that starts fresh, which is the behaviour Berry had before.
+    */
    memoryId: string | null;
+   /**
+    * Explicit credentials for the AgentCore APIs.
+    *
+    * Required for the same reason Bedrock's are, and it is not a theoretical
+    * concern: `AWS_ACCESS_KEY_ID` in the Compose stack holds MinIO's
+    * `berryminio`, so a client left on the default chain authenticates to AWS
+    * as the object store and is refused. Falls back to the Bedrock pair, which
+    * is already the account's real credential.
+    */
+   credentials: { accessKeyId: string; secretAccessKey: string; sessionToken?: string } | null;
 }
 
 /** Object storage for run artifacts. Null when it is not configured. */
@@ -366,11 +381,33 @@ function agentCore(env: NodeJS.ProcessEnv): AgentCoreConfig | null {
       env.BERRY_AGENTCORE_CODE_INTERPRETER_ID ?? 'aws.codeinterpreter.v1'
    ).trim();
    if (!region || !codeInterpreterId) return null;
+   // AgentCore's own pair first, then Bedrock's: both address AWS proper in the
+   // same account, so a deployment that already named one credential should not
+   // have to name it twice. Never `AWS_ACCESS_KEY_ID` — that is MinIO's.
+   const accessKeyId = (
+      env.BERRY_AGENTCORE_ACCESS_KEY_ID ??
+      env.BERRY_BEDROCK_ACCESS_KEY_ID ??
+      ''
+   ).trim();
+   const secretAccessKey = (
+      env.BERRY_AGENTCORE_SECRET_ACCESS_KEY ??
+      env.BERRY_BEDROCK_SECRET_ACCESS_KEY ??
+      ''
+   ).trim();
+   const sessionToken = (
+      env.BERRY_AGENTCORE_SESSION_TOKEN ??
+      env.BERRY_BEDROCK_SESSION_TOKEN ??
+      ''
+   ).trim();
    return {
       region,
       codeInterpreterId,
       runtimeArn: (env.BERRY_AGENTCORE_RUNTIME_ARN ?? '').trim() || null,
       memoryId: (env.BERRY_AGENTCORE_MEMORY_ID ?? '').trim() || null,
+      credentials:
+         accessKeyId && secretAccessKey
+            ? { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) }
+            : null,
    };
 }
 

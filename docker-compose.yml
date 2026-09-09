@@ -88,6 +88,13 @@ services:
       BERRY_AGENTCORE_CODE_INTERPRETER_ID: "${BERRY_AGENTCORE_CODE_INTERPRETER_ID:-aws.codeinterpreter.v1}"
       BERRY_AGENTCORE_RUNTIME_ARN: "${BERRY_AGENTCORE_RUNTIME_ARN:-}"
       BERRY_AGENTCORE_MEMORY_ID: "${BERRY_AGENTCORE_MEMORY_ID:-}"
+      # Deliberately not AWS_ACCESS_KEY_ID, for the same reason Bedrock is not:
+      # that name holds MinIO's credentials below, so an AgentCore client left
+      # on the default chain authenticates to AWS as the object store and is
+      # refused. Falls back to the Bedrock pair, which is already AWS's.
+      BERRY_AGENTCORE_ACCESS_KEY_ID: "${BERRY_AGENTCORE_ACCESS_KEY_ID:-}"
+      BERRY_AGENTCORE_SECRET_ACCESS_KEY: "${BERRY_AGENTCORE_SECRET_ACCESS_KEY:-}"
+      BERRY_AGENTCORE_SESSION_TOKEN: "${BERRY_AGENTCORE_SESSION_TOKEN:-}"
       STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
       S3_BUCKET: "${S3_BUCKET:-berry-artifacts}"
       S3_REGION: "${S3_REGION:-us-east-1}"
