@@ -42,9 +42,9 @@ import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
 import { AgentConfigField } from '@/components/common/agents/agent-config-field';
-import { AgentModelPicker } from '@/components/common/agents/agent-model-picker';
+import { AgentModelTab } from '@/components/common/agents/agent-model-tab';
 
-const DETAIL_TABS = ['overview', 'work', 'settings'] as const;
+const DETAIL_TABS = ['overview', 'work', 'model', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 function MetaPill({
@@ -502,12 +502,14 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                      </div>
                   )}
                </TabsContent>
-               <TabsContent value="settings" className="mt-0 flex flex-col gap-6 px-8 py-6">
-                  <AgentModelPicker
+               <TabsContent value="model" className="mt-0 h-full">
+                  <AgentModelTab
                      agentId={agent.id}
                      provider={agent.modelProvider ?? null}
                      model={agent.modelName ?? null}
                   />
+               </TabsContent>
+               <TabsContent value="settings" className="mt-0 flex flex-col gap-6 px-8 py-6">
                   <AgentConfigField
                      agentId={agent.id}
                      field="description"

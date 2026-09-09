@@ -221,6 +221,30 @@ export function modelKey(model: Pick<AgentModel, 'provider' | 'id'>): string {
    return `${model.provider}/${model.id}`;
 }
 
+/** Cross-region routing prefixes Bedrock puts on a profile id. */
+const ROUTING_PREFIXES = ['us-gov', 'us', 'eu', 'apac', 'apne', 'global'];
+
+/**
+ * The vendor that makes a model, derived from its Bedrock id.
+ *
+ * Every catalog row is served by the same provider (`bedrock`), so grouping on
+ * `provider` yields one bucket. The useful axis is the vendor, which Bedrock
+ * encodes as the id segment after the routing prefix:
+ * `us.anthropic.claude-…` → `anthropic`, `qwen.qwen3-32b-v1:0` → `qwen`. An id
+ * that does not match this shape falls back to its provider.
+ */
+export function modelVendor(model: Pick<AgentModel, 'id' | 'provider'>): string {
+   const segments = model.id.split('.');
+   if (segments.length >= 2) {
+      const first = segments[0]!.toLowerCase();
+      // A leading routing prefix (`us.`, `global.`) is not the vendor; the
+      // vendor is the segment after it.
+      const vendor = ROUTING_PREFIXES.includes(first) ? segments[1] : segments[0];
+      if (vendor) return vendor.toLowerCase();
+   }
+   return model.provider;
+}
+
 export async function updateAgentConfig(
    agentId: string,
    config: {
