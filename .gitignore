@@ -10,3 +10,4 @@ dist/
 .tmp-agents/
 .tmp-pr/
 .impeccable/
+.DS_Store
