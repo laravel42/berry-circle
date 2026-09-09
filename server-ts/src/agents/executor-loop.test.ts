@@ -36,7 +36,7 @@ function fakeSql(rows: { agent: Record<string, unknown> | null }): Sql {
    const sql = async (strings: TemplateStringsArray) => {
       const text = strings.join('?');
       if (text.includes('FROM agents')) return rows.agent ? [rows.agent] : [];
-      if (text.includes('issue_auto_reviews')) return [];
+      if (text.includes('issue_auto_reviews') || text.includes('FROM comments')) return [];
       throw new Error(`unexpected query: ${text}`);
    };
    return sql as unknown as Sql;
@@ -176,7 +176,7 @@ test('a thrown write_file fails the run instead of reporting a file that was nev
    const sql = (async (strings: TemplateStringsArray) => {
       const text = strings.join('?');
       if (text.includes('FROM agents')) return [agentRow];
-      if (text.includes('issue_auto_reviews')) return [];
+      if (text.includes('issue_auto_reviews') || text.includes('FROM comments')) return [];
       return failing();
    }) as unknown as Sql;
    const model = new ScriptedModel([call('write_file', { path: 'a.md', content: 'x' }), say('Saved it.')]);
