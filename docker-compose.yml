@@ -42,6 +42,9 @@ services:
       DATABASE_URL: "${BERRY_DATABASE_URL:-postgres://berry:berry@postgres:5432/berry?sslmode=disable}"
       SESSION_TTL: "${SESSION_TTL:-720h}"
       AUTH_ALLOW_PASSWORDLESS_LOGIN: "${AUTH_ALLOW_PASSWORDLESS_LOGIN:-true}"
+      # Set to false to seed the identity and board but no demo tasks or
+      # projects — and to stop them reappearing on every boot once deleted.
+      BERRY_SEED_DEMO_WORK: "${BERRY_SEED_DEMO_WORK:-true}"
       REALTIME_BUFFER: "${REALTIME_BUFFER:-64}"
       # Agent execution: the model credential and the bucket an agent's files
       # land in. Without both, this server reports agentExecution false and

@@ -23,7 +23,22 @@ import {
  * every boot. The fixed ids are what make that true: a second run updates the
  * same rows rather than creating a second workspace nobody asked for.
  */
-export async function apply(sql: Sql, now: string = new Date().toISOString()): Promise<void> {
+export interface SeedOptions {
+   /**
+    * Whether the demo tasks and projects are written. On by default, so a
+    * clean volume has something to look at; off for a developer who wants
+    * the identity, workspace and board but an empty product to work in —
+    * and who does not want the demo rows coming back on every boot after
+    * deleting them.
+    */
+   demoWork?: boolean;
+}
+
+export async function apply(
+   sql: Sql,
+   now: string = new Date().toISOString(),
+   options: SeedOptions = {}
+): Promise<void> {
    await withinTx(sql, async (tx) => {
       await upsertUser(tx, now);
       await setUserPassword(tx, now);
@@ -31,8 +46,10 @@ export async function apply(sql: Sql, now: string = new Date().toISOString()): P
       await upsertMembership(tx, now);
       await setUserLastWorkspace(tx, now);
       await upsertBoard(tx, now);
-      await upsertIssues(tx, now);
-      await upsertProjects(tx, now);
+      if (options.demoWork ?? true) {
+         await upsertIssues(tx, now);
+         await upsertProjects(tx, now);
+      }
       await assignAgentModels(tx, now);
    });
 }

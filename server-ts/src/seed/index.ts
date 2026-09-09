@@ -10,12 +10,19 @@ const config = loadConfig();
 const logger = createLogger(`${config.serviceName}-seed`);
 const sql = openDatabase({ url: config.databaseUrl });
 
+// `BERRY_SEED_DEMO_WORK=false` keeps the identity and the board and skips the
+// demo tasks and projects — for a developer working in an empty product.
+const demoWork = !['false', '0', 'no', 'off'].includes(
+   (process.env.BERRY_SEED_DEMO_WORK ?? '').trim().toLowerCase()
+);
+
 try {
-   await apply(sql);
+   await apply(sql, undefined, { demoWork });
    logger.info('development seed data is current', {
       userEmail: UserEmail,
       workspaceSlug: WorkspaceSlug,
       boardSlug: BoardSlug,
+      demoWork,
    });
 } catch (error) {
    logger.error('seed failed', { error: error instanceof Error ? error.message : String(error) });
