@@ -22,7 +22,7 @@ export default function HeaderNav() {
                </p>
             </div>
             <Button size="xs" variant="secondary" asChild>
-               <Link href={`/${orgId}/settings/ai`}>
+               <Link href={`/${orgId}/agents/new`}>
                   <Plus className="size-4" />
                   New agent
                </Link>

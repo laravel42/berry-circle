@@ -482,3 +482,20 @@ export function useAgentAvatarSrc(avatarUrl: string | null | undefined): string 
 
    return src;
 }
+
+/** Creates an agent by hand. Idempotent per call, so a retried click makes one agent. */
+export async function createAgent(input: {
+   name: string;
+   description?: string;
+   instructions?: string;
+   provider?: string;
+   model?: string;
+}): Promise<Agent> {
+   return parseAgent(
+      await apiFetch('/api/v1/agents', {
+         method: 'POST',
+         headers: { 'idempotency-key': crypto.randomUUID() },
+         body: JSON.stringify(input),
+      })
+   );
+}
