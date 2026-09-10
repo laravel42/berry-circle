@@ -43,6 +43,9 @@ interface World {
    w1ArchivedAgentId: string;
    userIds: string[];
    workspaceIds: string[];
+   ownThreadId: string;
+   foreignThreadId: string;
+   crossTenantThreadId: string;
 }
 
 describe(
@@ -119,6 +122,41 @@ describe(
          world.w2AgentId = await insertAgent(world.w2Id, `agent-${world.marker}-w2`);
          world.w1ArchivedAgentId = await insertAgent(world.w1Id, `agent-${world.marker}-old`, true);
 
+         // U1's own thread with the W1 agent, found by topic and by agent name.
+         const [own] = await sql`
+            INSERT INTO conversations (workspace_id, kind, topic, created_by)
+            VALUES (${world.w1Id}, 'direct', ${`thread-${world.marker}-mine`}, ${world.u1Id})
+            RETURNING id`;
+         world.ownThreadId = own!.id as string;
+         await sql`
+            INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, role)
+            VALUES (${world.ownThreadId}, 'user', ${world.u1Id}, 'owner'),
+                   (${world.ownThreadId}, 'agent', ${world.w1AgentId}, 'member')`;
+
+         // U3's thread in the same workspace. U1 is a fellow member but not a
+         // participant, so it must stay private to U3.
+         const [foreign] = await sql`
+            INSERT INTO conversations (workspace_id, kind, topic, created_by)
+            VALUES (${world.w1Id}, 'direct', ${`thread-${world.marker}-theirs`}, ${world.u3Id})
+            RETURNING id`;
+         world.foreignThreadId = foreign!.id as string;
+         await sql`
+            INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, role)
+            VALUES (${world.foreignThreadId}, 'user', ${world.u3Id}, 'owner')`;
+
+         // A W2 thread that U1 participates in (participant rows carry no
+         // membership FK). A W1-scoped search must still never return it, and
+         // the W2 agent on it must not leak its name.
+         const [crossTenant] = await sql`
+            INSERT INTO conversations (workspace_id, kind, topic, created_by)
+            VALUES (${world.w2Id}, 'direct', ${`thread-${world.marker}-w2`}, ${world.u1Id})
+            RETURNING id`;
+         world.crossTenantThreadId = crossTenant!.id as string;
+         await sql`
+            INSERT INTO conversation_participants (conversation_id, participant_type, participant_id, role)
+            VALUES (${world.crossTenantThreadId}, 'user', ${world.u1Id}, 'owner'),
+                   (${world.crossTenantThreadId}, 'agent', ${world.w2AgentId}, 'member')`;
+
          world.u1Token = (await sessions.issueForUser(world.u1Id)).token;
       });
 
@@ -172,6 +210,38 @@ describe(
          assert.ok(!ids.includes(world.w1ArchivedAgentId), 'an archived agent is not found');
          const own = nodes.find((node) => node.id === world.w1AgentId);
          assert.equal(own?.agentId, world.w1AgentId, 'an agent result carries its own id as agentId');
+      });
+
+      test('a chat search finds the caller’s own threads by topic', async () => {
+         const nodes = await search('chat', `thread-${world.marker}`);
+         const ids = nodes.map((node) => node.id);
+         assert.ok(ids.includes(world.ownThreadId), 'the caller’s thread is found');
+         const own = nodes.find((node) => node.id === world.ownThreadId);
+         assert.equal(own?.agentId, world.w1AgentId, 'a thread result names the agent it is with');
+      });
+
+      test('a chat search never surfaces a thread the caller is not in, even in their workspace', async () => {
+         const nodes = await search('chat', `thread-${world.marker}`);
+         assert.ok(!nodes.some((node) => node.id === world.foreignThreadId));
+      });
+
+      test('a chat search never surfaces the caller’s own thread from another workspace', async () => {
+         const byTopic = await search('chat', `thread-${world.marker}`);
+         assert.ok(!byTopic.some((node) => node.id === world.crossTenantThreadId));
+         const byAgent = await search('chat', `agent-${world.marker}-w2`);
+         assert.ok(!byAgent.some((node) => node.id === world.crossTenantThreadId));
+         assert.ok(!byAgent.some((node) => node.agentId === world.w2AgentId));
+      });
+
+      test('a chat search also matches the agent’s name', async () => {
+         const nodes = await search('chat', `agent-${world.marker}-w1`);
+         assert.ok(nodes.some((node) => node.id === world.ownThreadId));
+      });
+
+      test('a skill search answers 200 whether or not the skills catalogue exists yet', async () => {
+         const nodes = await search('skill', world.marker);
+         assert.ok(Array.isArray(nodes));
+         assert.ok(nodes.every((node) => node.type === 'skill'));
       });
 
       test('an unknown type is a 422, not an empty result', async () => {

@@ -37,7 +37,7 @@ implement, not routes that broke.
 | --- | --- | --- |
 | Automations | `/api/v1/workflows`, `/api/v1/workflow-runs`, `/api/v1/hooks` | No mount. Includes the `workflows`, `workflow`, and `workflow-runs` screens. |
 | Meetings | — | No section or prefix exists. |
-| Analytics | — | The rail links it, but no prefix exists. |
+| Analytics | — | No prefix exists, and the rail no longer links it. Usage and dashboard pages arrive with the usage workstream. |
 
 ## Deferred routes inside served mounts
 

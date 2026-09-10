@@ -203,11 +203,92 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
          }
       }
 
+      if (types.has('chat')) {
+         // Membership is not enough for a conversation: it is private to its
+         // participants, so the caller must be one. The workspace predicate is
+         // still the confirmed scope, so a thread in another workspace the
+         // caller happens to be in never answers a search here.
+         const userId = context.get('user').id;
+         const rows = await db.list((q) => q.sql`
+            SELECT conversation.id, conversation.topic,
+                   agent.id AS agent_id, agent.name AS agent_name
+              FROM conversations AS conversation
+              JOIN conversation_participants AS me
+                ON me.conversation_id = conversation.id
+               AND me.participant_type = 'user'
+               AND me.participant_id = ${userId}
+               AND me.left_at IS NULL
+              -- One agent per thread (LATERAL + LIMIT 1), so a thread with two
+              -- agents is one row, not two with a duplicate React key. The agent
+              -- is re-scoped to the confirmed workspace: participant_id has no
+              -- FK, so an unscoped join could surface another tenant's agent name.
+              LEFT JOIN LATERAL (
+                 SELECT candidate.id, candidate.name
+                   FROM conversation_participants AS bot
+                   JOIN agents AS candidate
+                     ON candidate.id = bot.participant_id
+                    AND candidate.workspace_id = ${q.workspaceId}
+                  WHERE bot.conversation_id = conversation.id
+                    AND bot.participant_type = 'agent'
+                    AND bot.left_at IS NULL
+                  ORDER BY bot.joined_at ASC, candidate.id ASC
+                  LIMIT 1
+              ) AS agent ON true
+             WHERE conversation.workspace_id = ${q.workspaceId}
+               AND conversation.status = 'open'
+               AND (conversation.topic ILIKE ${like} OR agent.name ILIKE ${like})
+             ORDER BY conversation.updated_at DESC, conversation.id DESC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            const agentName = (row.agent_name as string | null) ?? null;
+            nodes.push({
+               type: 'chat',
+               id: row.id as string,
+               title: (row.topic as string | null) ?? agentName ?? 'Conversation',
+               subtitle: agentName,
+               identifier: null,
+               boardId: null,
+               agentId: (row.agent_id as string | null) ?? null,
+            });
+         }
+      }
+
+      if (types.has('skill') && (await skillsCatalogueExists(options.sql))) {
+         const rows = await db.list((q) => q.sql`
+            SELECT id, name, description
+              FROM skills
+             WHERE ${q.scope} AND name ILIKE ${like}
+             ORDER BY name ASC, id ASC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            nodes.push({
+               type: 'skill',
+               id: row.id as string,
+               title: row.name as string,
+               subtitle: (row.description as string | null) ?? null,
+               identifier: null,
+               boardId: null,
+               agentId: null,
+            });
+         }
+      }
+
       // No cursor: a palette shows what it can and the person types more.
       return json({ nodes, pageInfo: { hasNextPage: false, endCursor: null } });
    });
 
    return route;
+}
+
+/**
+ * Whether the skills catalogue has been migrated in yet. Skills belong to
+ * another workstream's migration; until it lands, a skill search is an empty
+ * answer rather than a 500 from a missing relation. A catalogue probe, not
+ * workspace data, so it runs on the pool rather than through the scope.
+ */
+async function skillsCatalogueExists(sql: Sql): Promise<boolean> {
+   const [row] = await sql`SELECT to_regclass('public.skills') IS NOT NULL AS present`;
+   return row?.present === true;
 }
 
 /**
