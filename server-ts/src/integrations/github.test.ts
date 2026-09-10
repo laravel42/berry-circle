@@ -50,6 +50,37 @@ function json(value: unknown, status = 200): Response {
 
 const PR = { number: 381, html_url: 'https://github.com/berry/frontend/pull/381', state: 'open' };
 
+test('the picker learns which repositories are archived, whose they are, and how to clone them', async () => {
+   const { client } = stub(() =>
+      json({
+         repositories: [
+            {
+               id: 11,
+               full_name: 'acme/legacy',
+               name: 'legacy',
+               private: true,
+               archived: true,
+               default_branch: 'main',
+               html_url: 'https://github.com/acme/legacy',
+               ssh_url: 'git@github.com:acme/legacy.git',
+               owner: { login: 'acme' },
+            },
+            { id: 12, full_name: 'acme/api', name: 'api', private: false, owner: { login: 'acme' } },
+         ],
+      })
+   );
+   const [legacy, api] = await client.listRepositories({ credential: 'installation' });
+
+   assert.equal(legacy?.archived, true);
+   assert.equal(legacy?.owner, 'acme');
+   assert.equal(legacy?.htmlUrl, 'https://github.com/acme/legacy');
+   assert.equal(legacy?.sshUrl, 'git@github.com:acme/legacy.git');
+   // Absent means not archived: GitHub omits nothing it knows, and a picker
+   // that disabled every row it could not confirm would be empty.
+   assert.equal(api?.archived, false);
+   assert.equal(api?.htmlUrl, 'https://github.com/acme/api');
+});
+
 test('a pull request is opened with the branch, base and title', async () => {
    const { client, calls } = stub(() => json(PR, 201));
    const result = await client.openPullRequest({
