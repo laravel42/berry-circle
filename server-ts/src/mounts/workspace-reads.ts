@@ -33,6 +33,42 @@ import {
 
 const MAX_QUERY = 200;
 
+/**
+ * What the palette may ask for. `board` stays for API callers even though the
+ * palette no longer requests it: a board has no page of its own to open.
+ */
+export const SEARCH_TYPES = ['issue', 'board', 'project', 'agent', 'chat', 'skill'] as const;
+
+export type SearchType = (typeof SEARCH_TYPES)[number];
+
+function isSearchType(value: string): value is SearchType {
+   return (SEARCH_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * The `types` query parameter, as a set. Absent means issues, which is what
+ * the parameter meant before it grew; an unknown name is a 422 rather than a
+ * silent drop, so a client asking for a type this server lacks finds out.
+ */
+export function parseSearchTypes(raw: string | null): Set<SearchType> {
+   const names = (raw ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name !== '');
+   if (names.length === 0) return new Set<SearchType>(['issue']);
+   const types = new Set<SearchType>();
+   for (const name of names) {
+      if (!isSearchType(name)) {
+         assertValid([
+            fieldError('/types', 'invalid_value', `types are ${SEARCH_TYPES.join(', ')}.`),
+         ]);
+      } else {
+         types.add(name);
+      }
+   }
+   return types;
+}
+
 export interface WorkspaceReadOptions {
    sessions: SessionService;
    sql: Sql;
@@ -71,12 +107,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
       if (query.length > MAX_QUERY) {
          assertValid([fieldError('/query', 'too_long', `query is at most ${MAX_QUERY} characters.`)]);
       }
-      const types = new Set((url.searchParams.get('types') ?? 'issue').split(','));
-      for (const type of types) {
-         if (type !== 'issue' && type !== 'board') {
-            assertValid([fieldError('/types', 'invalid_value', 'types are issue and board.')]);
-         }
-      }
+      const types = parseSearchTypes(url.searchParams.get('types'));
 
       // Escaped for LIKE, not for SQL: the value is parameterised, but `%` and
       // `_` inside it would otherwise be wildcards the person did not type.
@@ -105,6 +136,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
                subtitle: (row.board_name as string | null) ?? null,
                identifier: (row.identifier as string | null) ?? null,
                boardId: row.board_id as string,
+               agentId: null,
             });
          }
       }
@@ -125,6 +157,48 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
                subtitle: (row.description as string | null) ?? null,
                identifier: null,
                boardId: row.id as string,
+               agentId: null,
+            });
+         }
+      }
+
+      if (types.has('project')) {
+         // `scope` is the pre-bound `workspace_id = ctx.workspaceId` fragment.
+         const rows = await db.list((q) => q.sql`
+            SELECT id, name, description
+              FROM projects
+             WHERE ${q.scope} AND deleted_at IS NULL AND name ILIKE ${like}
+             ORDER BY updated_at DESC, id DESC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            nodes.push({
+               type: 'project',
+               id: row.id as string,
+               title: row.name as string,
+               subtitle: (row.description as string | null) ?? null,
+               identifier: null,
+               boardId: null,
+               agentId: null,
+            });
+         }
+      }
+
+      if (types.has('agent')) {
+         const rows = await db.list((q) => q.sql`
+            SELECT id, name, description
+              FROM agents
+             WHERE ${q.scope} AND archived_at IS NULL AND name ILIKE ${like}
+             ORDER BY name ASC, id ASC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            nodes.push({
+               type: 'agent',
+               id: row.id as string,
+               title: row.name as string,
+               subtitle: (row.description as string | null) ?? null,
+               identifier: null,
+               boardId: null,
+               agentId: row.id as string,
             });
          }
       }
