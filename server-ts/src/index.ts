@@ -111,6 +111,7 @@ import { publicApiMounts } from './mounts/public-api.ts';
 import { PluginRepository } from './plugins/repository.ts';
 import { createPluginNetwork } from './plugins/net.ts';
 import { pluginMounts } from './mounts/plugins.ts';
+import { PluginCaller, PluginHookRunner } from './plugins/hooks.ts';
 import pg from 'pg';
 import { createBerryAuth, devSessionCookies } from './auth/better-auth.ts';
 import { betterAuthMounts } from './mounts/better-auth.ts';
@@ -603,6 +604,23 @@ registry.registerAll(
       publicUrl: config.integrations.publicUrl,
    })
 );
+// Plugin hooks run in every server process; the cursor and schedule rows are
+// claimed with SKIP LOCKED, so two processes never deliver the same thing.
+const pluginHooks = pluginRepository
+   ? new PluginHookRunner({
+        sql,
+        plugins: pluginRepository,
+        caller: new PluginCaller({
+           plugins: pluginRepository,
+           runtime: pluginRuntime,
+           network: pluginNetwork,
+           publicUrl: config.integrations.publicUrl,
+        }),
+        onError: (message, error) =>
+           logger.error(message, { error: error instanceof Error ? error.message : String(error) }),
+     })
+   : null;
+pluginHooks?.start();
 
 /**
  * Autopilots. Always served: reading and editing them needs no model
@@ -965,6 +983,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
          void Promise.all([
             dispatcher ? dispatcher.stop() : Promise.resolve(),
             autopilotScheduler ? autopilotScheduler.stop() : Promise.resolve(),
+            pluginHooks ? pluginHooks.stop() : Promise.resolve(),
          ])
             .then(() => closeDatabase(sql))
             .then(() => authPool?.end())
