@@ -163,20 +163,23 @@ describe(
       after(async () => {
          if (!sql) return;
          if (world.workspaceIds?.length) {
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               for (const ws of world.workspaceIds) {
-                  await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM conversations WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM projects WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM agents WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspaces WHERE id = ${ws}`;
+            const workspaceIds = world.workspaceIds;
+            // One transaction: the trigger toggle is table-global, and outside a
+            // transaction a suite running in parallel can re-enable it between
+            // our DISABLE and our DELETE. ALTER TABLE holds its lock to commit.
+            await sql.begin(async (tx) => {
+               await tx`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
+               for (const ws of workspaceIds) {
+                  await tx`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
+                  await tx`DELETE FROM conversations WHERE workspace_id = ${ws}`;
+                  await tx`DELETE FROM projects WHERE workspace_id = ${ws}`;
+                  await tx`DELETE FROM agents WHERE workspace_id = ${ws}`;
+                  await tx`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
+                  await tx`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
+                  await tx`DELETE FROM workspaces WHERE id = ${ws}`;
                }
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-            }
+               await tx`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+            });
          }
          for (const uid of world.userIds ?? []) {
             await sql`DELETE FROM users WHERE id = ${uid}`;
