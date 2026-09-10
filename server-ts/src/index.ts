@@ -57,6 +57,7 @@ import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
 import { agentMounts } from './mounts/agents.ts';
+import { usageMounts } from './mounts/usage.ts';
 import { PriceBook } from './agents/pricing.ts';
 import { configureUsagePricing } from './usage/record.ts';
 import { eventMounts } from './mounts/events.ts';
@@ -491,6 +492,7 @@ registry.registerAll(
    })
 );
 registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog, logger }));
+registry.registerAll(usageMounts({ sessions, sql }));
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
 );
