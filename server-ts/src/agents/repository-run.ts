@@ -6,6 +6,7 @@ import type { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubError, type GitHubClient, type PullRequest } from '../integrations/github.ts';
 import { branchName, checkout, parseRepository, type Checkout } from './checkout.ts';
 import { commitAndPush } from './delivery.ts';
+import { coAuthorTrailer } from '../scm/commit-trailer.ts';
 import { summarise, verify, type VerificationReport } from './verification.ts';
 import { repositoryForIssue, type RepositoryContext } from './repository-context.ts';
 import type { PermissionSet } from './permissions.ts';
@@ -206,6 +207,7 @@ export async function deliverRepository(
       });
    }
 
+   const coAuthor = await runCoAuthor(deps.sql, dispatch.runId, dispatch.workspaceId);
    const delivery = await commitAndPush({
       session: input.session,
       directory: prepared.checkout.directory,
@@ -213,6 +215,7 @@ export async function deliverRepository(
       token,
       message: title,
       ...(summary ? { body: summary } : {}),
+      ...(coAuthor ? { trailers: [coAuthor] } : {}),
    });
 
    let pullRequest: PullRequest | null = null;
@@ -286,6 +289,35 @@ async function materialise(
 
 /** The path relative to the checkout root, or null when it would escape it. */
 export const insideRepository = insideDirectory;
+
+/**
+ * The `Co-authored-by` line for this run's commit, or null.
+ *
+ * The person credited is whoever requested the run. A failed read costs the
+ * commit its trailer and nothing else — delivery must not fail over credit.
+ */
+async function runCoAuthor(sql: Sql, runId: string, workspaceId: string): Promise<string | null> {
+   try {
+      const [row] = await sql`
+         SELECT COALESCE(settings.enabled, true) AS enabled,
+                COALESCE(settings.co_author_trailer, true) AS co_author_trailer,
+                requester.name, requester.email
+           FROM runs AS run
+           LEFT JOIN users AS requester ON requester.id = run.requested_by
+           LEFT JOIN github_workspace_settings AS settings ON settings.workspace_id = ${workspaceId}
+          WHERE run.id = ${runId}`;
+      if (!row) return null;
+      return coAuthorTrailer(
+         { enabled: row.enabled === true, coAuthorTrailer: row.co_author_trailer === true },
+         {
+            name: typeof row.name === 'string' ? row.name : null,
+            email: typeof row.email === 'string' ? row.email : null,
+         }
+      );
+   } catch {
+      return null;
+   }
+}
 
 /** The task's reference and title, for the branch, the commit and the pull request. */
 export async function loadIssue(sql: Sql, issueId: string): Promise<IssueReference> {
