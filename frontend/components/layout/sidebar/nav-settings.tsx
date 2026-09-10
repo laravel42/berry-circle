@@ -13,6 +13,7 @@ import {
    Bot,
    Code,
    Columns3,
+   FolderGit2,
    KeyRound,
    LucideIcon,
    Settings,
@@ -58,6 +59,7 @@ export const settingsNav: SettingsNavGroup[] = [
          { name: 'task labels', url: '/settings/issue-labels', icon: Tag },
          { name: 'statuses', url: '/settings/project-statuses', icon: Columns3 },
          { name: 'integrations', url: '/settings/integrations', icon: Blocks },
+         { name: 'repositories', url: '/settings/repositories', icon: FolderGit2 },
       ],
    },
 ];
