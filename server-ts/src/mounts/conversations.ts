@@ -116,6 +116,7 @@ export function conversationMounts(options: ConversationOptions): Mount[] {
 
       try {
          const reply = await options.responder.reply({
+            workspaceId: conversation.workspaceId,
             agentId: conversation.agentId,
             history: await conversations.messages(conversation.id),
             signal: controller.signal,

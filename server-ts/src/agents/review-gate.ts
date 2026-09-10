@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Sql } from '../db/pool.ts';
-import { Completion, type CompletionResult } from '../llm/completion.ts';
+import type { CompletionResult, RuntimeCompletion } from '../runtime/completion.ts';
 import type { GitHubClient } from '../integrations/github.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { RunRepository } from '../runs/repository.ts';
@@ -87,7 +87,7 @@ export interface ReviewGateOptions {
    sql: Sql;
    issues: IssueRepository;
    runs: RunRepository;
-   completion: Pick<Completion, 'structured'>;
+   completion: Pick<RuntimeCompletion, 'structured'>;
    /** A client authenticated for the workspace's repository. */
    github: (workspaceId: string) => Promise<GitHubClient>;
    defaultModel: string;
@@ -120,7 +120,7 @@ export class ReviewGate {
    readonly #sql: Sql;
    readonly #issues: IssueRepository;
    readonly #runs: RunRepository;
-   readonly #completion: Pick<Completion, 'structured'>;
+   readonly #completion: Pick<RuntimeCompletion, 'structured'>;
    readonly #github: (workspaceId: string) => Promise<GitHubClient>;
    readonly #defaultModel: string;
    readonly #maxAttempts: number;
@@ -171,6 +171,8 @@ export class ReviewGate {
       try {
          const diff = await this.#diff(material);
          const result = await this.#completion.structured({
+            workspaceId: material.workspaceId,
+            purpose: 'review_gate',
             model: reviewer.model ?? this.#defaultModel,
             system: SYSTEM,
             user: reviewPrompt(material, diff),

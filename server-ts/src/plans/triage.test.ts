@@ -29,7 +29,6 @@ function fake(options: {
       // A tagged template that yields no rows: the model falls back to the
       // deployment default, and the assignment UPDATE writes into nothing.
       sql: (async () => []) as never,
-      region: 'us-east-1',
       defaultModel: 'test/model',
       completion: {
          async structured(input: { model: string; system: string; user: string; schema: z.ZodType }) {

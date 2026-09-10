@@ -42,7 +42,7 @@ import { accountRoutes } from './mounts/account.ts';
 import { conversationMounts } from './mounts/conversations.ts';
 import { editorMounts } from './mounts/editor.ts';
 import { EditorAssist } from './editor/assist.ts';
-import { Completion } from './llm/completion.ts';
+import { RuntimeCompletion } from './runtime/completion.ts';
 import { setupTelemetry } from './observability/telemetry.ts';
 import { planMounts } from './mounts/plans.ts';
 import { PlanAnswerRepository } from './plans/answers.ts';
@@ -220,18 +220,16 @@ const scmSync = scm.sync;
 const scmInbound = new ScmInbound({ sql, links: scm.links, logger });
 
 /**
- * The one client the single-completion callers share.
- *
- * Credentials are plumbed here once. Each caller used to build its own
- * Bedrock client from the same three fields, and each was a place for them
- * to go missing (BERR-67).
+ * The one completion client the single-call callers share. Each call is a
+ * `kind: 'completion'` task on the runtime (ADR-0014): the server holds no
+ * model client, so there is no credential to plumb here.
  */
-const completion = config.agents
-   ? new Completion({
-        region: config.agents.region,
-        ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
-     })
-   : null;
+const completion = new RuntimeCompletion({
+   sql,
+   // Declared further down; called only at request time, after boot.
+   nudge: () => dispatcher?.nudge(),
+   defaultModel: config.agents?.defaultModel ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+});
 
 // Traces, only when an OTLP endpoint is configured. Before the executor so
 // the first run is traced.
@@ -397,7 +395,6 @@ registry.registerAll(
          config.agents && completion
          ? new PlanGenerator({
               sql,
-              region: config.agents.region,
               completion,
               defaultModel: config.agents.defaultModel,
               maxRepairs: config.agents.maxRepairs,
@@ -410,7 +407,6 @@ registry.registerAll(
          config.agents && completion
          ? new PlanTriage({
               sql,
-              region: config.agents.region,
               completion,
               defaultModel: config.agents.defaultModel,
            })
@@ -436,7 +432,6 @@ registry.registerAll(
          config.agents && completion
          ? new ConversationResponder({
               sql,
-              region: config.agents.region,
               completion,
               defaultModel: config.agents.defaultModel,
            })
@@ -449,7 +444,6 @@ registry.registerAll(
       assist:
          config.agents && completion
          ? new EditorAssist({
-              region: config.agents.region,
               completion,
               defaultModel: config.agents.defaultModel,
            })
