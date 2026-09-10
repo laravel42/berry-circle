@@ -1,1 +1,27 @@
-{}
+{
+   "sections": {
+      "work": "作業",
+      "manage": "管理"
+   },
+   "nav": {
+      "tasks": "タスク",
+      "reviews": "レビュー",
+      "goals": "ゴール",
+      "projects": "プロジェクト",
+      "runtimes": "ランタイム",
+      "agents": "エージェント",
+      "analytics": "分析"
+   },
+   "rail": {
+      "workspace": "ワークスペース",
+      "workspaceMenu": "ワークスペースメニュー",
+      "runsInProgress": "実行中の処理があります",
+      "customizeSidebar": "サイドバーをカスタマイズ",
+      "collapseSidebar": "サイドバーを折りたたむ"
+   },
+   "tabs": {
+      "openViews": "開いているビュー",
+      "newTab": "新しいタブ",
+      "close": "{label} を閉じる"
+   }
+}

@@ -1,1 +1,27 @@
-{}
+{
+   "sections": {
+      "work": "작업",
+      "manage": "관리"
+   },
+   "nav": {
+      "tasks": "작업 항목",
+      "reviews": "리뷰",
+      "goals": "목표",
+      "projects": "프로젝트",
+      "runtimes": "런타임",
+      "agents": "에이전트",
+      "analytics": "분석"
+   },
+   "rail": {
+      "workspace": "워크스페이스",
+      "workspaceMenu": "워크스페이스 메뉴",
+      "runsInProgress": "진행 중인 실행이 있습니다",
+      "customizeSidebar": "사이드바 사용자 지정",
+      "collapseSidebar": "사이드바 접기"
+   },
+   "tabs": {
+      "openViews": "열린 보기",
+      "newTab": "새 탭",
+      "close": "{label} 닫기"
+   }
+}

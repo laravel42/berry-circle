@@ -5,6 +5,8 @@ import { Plus, X } from 'lucide-react';
 import { shellIconButton } from './shell-icon';
 import type { ShellTab } from '@/store/shell-store';
 import { BerryMark } from './shell-icon';
+import { useTranslations } from 'next-intl';
+import { SHELL_ROUTES } from './shell-routes';
 
 interface ShellTabsProps {
    tabs: ShellTab[];
@@ -32,15 +34,25 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
       activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
    }, [activeTabId]);
 
+   const t = useTranslations('shell');
+   // Tabs persist their English label; a rail destination is re-labelled at
+   // render so switching language renames open tabs too. Detail tabs (an issue
+   // key, "projects / abc") keep what they stored.
+   const labelOf = (tab: ShellTab) => {
+      const route = SHELL_ROUTES.find((candidate) => candidate.href === tab.href);
+      return route ? t(`nav.${route.labelKey}`) : tab.label;
+   };
+
    return (
       <div
          ref={stripRef}
          role="tablist"
-         aria-label="Open views"
+         aria-label={t('tabs.openViews')}
          className="tabstrip flex h-[34px] min-w-0 flex-1 items-stretch overflow-x-auto bg-[var(--shell-rail)]"
       >
          {tabs.map((tab) => {
             const on = tab.id === activeTabId;
+            const label = labelOf(tab);
             return (
                <div
                   key={tab.id}
@@ -64,16 +76,16 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
                            onClose(tab.id);
                         }
                      }}
-                     title={tab.label}
+                     title={label}
                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
                   >
                      <BerryMark size={13} muted />
-                     <span className="truncate">{tab.label}</span>
+                     <span className="truncate">{label}</span>
                   </button>
                   <button
                      type="button"
                      onClick={() => onClose(tab.id)}
-                     aria-label={`Close ${tab.label}`}
+                     aria-label={t('tabs.close', { label })}
                      className={[
                         // Unfilled until hovered: a filled square on every tab
                         // would read as a row of dismiss buttons.
@@ -95,7 +107,7 @@ export function ShellTabs({ tabs, activeTabId, onActivate, onClose, onNew }: She
          <button
             type="button"
             onClick={onNew}
-            aria-label="New tab"
+            aria-label={t('tabs.newTab')}
             className={`my-[3.5px] mx-1 size-[26px] ${shellIconButton}`}
          >
             <Plus size={16} strokeWidth={1.8} aria-hidden="true" />

@@ -1,1 +1,27 @@
-{}
+{
+   "sections": {
+      "work": "工作",
+      "manage": "管理"
+   },
+   "nav": {
+      "tasks": "任务",
+      "reviews": "评审",
+      "goals": "目标",
+      "projects": "项目",
+      "runtimes": "运行",
+      "agents": "智能体",
+      "analytics": "分析"
+   },
+   "rail": {
+      "workspace": "工作区",
+      "workspaceMenu": "工作区菜单",
+      "runsInProgress": "有运行正在进行",
+      "customizeSidebar": "自定义侧边栏",
+      "collapseSidebar": "收起侧边栏"
+   },
+   "tabs": {
+      "openViews": "已打开的视图",
+      "newTab": "新标签页",
+      "close": "关闭 {label}"
+   }
+}
