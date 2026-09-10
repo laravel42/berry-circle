@@ -23,9 +23,12 @@ import { useViewStore } from '@/store/view-store';
 import {
    ArrowUpNarrowWide,
    ArrowUpDown,
+   CalendarRange,
    LayoutGrid,
    LayoutList,
+   Rows3,
    SlidersHorizontal,
+   Table2,
 } from 'lucide-react';
 
 const GROUPINGS: { value: GroupingKey; label: string }[] = [
@@ -83,7 +86,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
             >
                <SlidersHorizontal className={cn('size-4', !iconOnly && 'mr-1')} />
                {iconOnly ? null : 'Display'}
-               {(!isDefault || viewType === 'grid') && (
+               {(!isDefault || viewType !== 'list') && (
                   <span className="absolute right-0 top-0 w-2 h-2 bg-orange-500 rounded-full" />
                )}
             </Button>
@@ -91,27 +94,28 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
          <PopoverContent className="w-80 p-0" align="end">
             {/* List / Board switch */}
             <div className="p-3">
-               <div className="grid grid-cols-2 gap-1 bg-accent/50 rounded-md p-1">
-                  <button
-                     onClick={() => setViewType('list')}
-                     className={cn(
-                        'flex items-center justify-center gap-1.5 h-8 rounded font-medium transition-colors',
-                        viewType === 'list' ? 'bg-background shadow-sm' : 'text-muted-foreground'
-                     )}
-                  >
-                     <LayoutList className="size-3.5" />
-                     List
-                  </button>
-                  <button
-                     onClick={() => setViewType('grid')}
-                     className={cn(
-                        'flex items-center justify-center gap-1.5 h-8 rounded font-medium transition-colors',
-                        viewType === 'grid' ? 'bg-background shadow-sm' : 'text-muted-foreground'
-                     )}
-                  >
-                     <LayoutGrid className="size-3.5" />
-                     Board
-                  </button>
+               <div className="grid grid-cols-5 gap-1 bg-accent/50 rounded-md p-1">
+                  {(
+                     [
+                        ['list', 'List', LayoutList],
+                        ['grid', 'Board', LayoutGrid],
+                        ['table', 'Table', Table2],
+                        ['swimlane', 'Lanes', Rows3],
+                        ['gantt', 'Gantt', CalendarRange],
+                     ] as const
+                  ).map(([type, label, Icon]) => (
+                     <button
+                        key={type}
+                        onClick={() => setViewType(type)}
+                        className={cn(
+                           'flex flex-col items-center justify-center gap-0.5 h-12 rounded font-medium transition-colors',
+                           viewType === type ? 'bg-background shadow-sm' : 'text-muted-foreground'
+                        )}
+                     >
+                        <Icon className="size-3.5" />
+                        {label}
+                     </button>
+                  ))}
                </div>
             </div>
 
