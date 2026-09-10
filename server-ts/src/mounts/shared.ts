@@ -140,6 +140,17 @@ export async function requireEmptyBody(request: Request): Promise<void> {
    }
 }
 
+/**
+ * The workspace the caller is currently in, or 404.
+ *
+ * Mounts that list "this workspace's" things (agents, skills, squads) scope to
+ * it rather than to one named in the query, the way the agents mount always has.
+ */
+export function currentWorkspace(workspaceId: string | null): string {
+   if (!workspaceId) throw ApiError.notFound('Workspace');
+   return workspaceId;
+}
+
 export function serializeMember(member: Membership): Record<string, unknown> {
    return {
       userId: member.userId,

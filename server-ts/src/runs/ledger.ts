@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
+import { notifyRunTerminal } from './terminal-hooks.ts';
 
 /**
  * The run ledger.
@@ -422,7 +423,7 @@ export class RunLedger {
       usage: Usage;
    }): Promise<Run> {
       const now = this.clock().toISOString();
-      return this.sql.begin(async (transaction) => {
+      const finished = await this.sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
          const run = await lockRun(tx, params.runId);
          if (isTerminal(run.status)) throw new RunTerminal();
@@ -483,7 +484,11 @@ export class RunLedger {
          });
          await this.appendIssueUpdated(tx, completed, issueAt!);
          return completed;
-      }) as Promise<Run>;
+      });
+      // After the commit: a hook must never be able to undo the fact that the
+      // run ended.
+      await notifyRunTerminal(finished as Run);
+      return finished as Run;
    }
 
    /**
@@ -496,7 +501,7 @@ export class RunLedger {
     */
    async fail(params: { runId: string; failure: Failure; reconcile?: boolean }): Promise<Run> {
       const now = this.clock().toISOString();
-      return this.sql.begin(async (transaction) => {
+      const finished = await this.sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
          const run = await lockRun(tx, params.runId);
          if (isTerminal(run.status)) throw new RunTerminal();
@@ -536,13 +541,17 @@ export class RunLedger {
             payload: { run: serializeRun(failed) },
          });
          return failed;
-      }) as Promise<Run>;
+      });
+      // After the commit: a hook must never be able to undo the fact that the
+      // run ended.
+      await notifyRunTerminal(finished as Run);
+      return finished as Run;
    }
 
    /** Idempotent: cancelling an already-cancelled run is what the caller wanted. */
    async markCancelled(runId: string): Promise<Run> {
       const now = this.clock().toISOString();
-      return this.sql.begin(async (transaction) => {
+      const finished = await this.sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
          const run = await lockRun(tx, runId);
          if (run.status === 'cancelled') return run;
@@ -577,7 +586,11 @@ export class RunLedger {
             payload: { run: serializeRun(cancelled) },
          });
          return cancelled;
-      }) as Promise<Run>;
+      });
+      // After the commit: a hook must never be able to undo the fact that the
+      // run ended. Idempotent cancels notify again; hooks are idempotent.
+      await notifyRunTerminal(finished as Run);
+      return finished as Run;
    }
 
    /**
