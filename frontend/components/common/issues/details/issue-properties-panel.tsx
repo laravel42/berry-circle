@@ -18,6 +18,8 @@ import {
 } from './issue-relations';
 import { Section } from './panel-section';
 import { ReviewerProperty } from './reviewer-property';
+import { CustomStatusSelect } from './custom-status-select';
+import { IssueCustomProperties } from './issue-custom-properties';
 
 interface IssuePropertiesPanelProps {
    issue: Issue;
@@ -44,6 +46,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                         <StatusSelector status={issue.status} issueId={issue.id} />
                         <span>{issue.status.name}</span>
                      </div>
+                     <CustomStatusSelect issue={issue} />
                      <div className="flex items-center gap-1.5 -ml-1.5">
                         <PrioritySelector priority={issue.priority} issueId={issue.id} />
                         <span>{issue.priority.name}</span>
@@ -61,6 +64,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                      )}
                   </div>
                </Section>
+               <IssueCustomProperties issueRef={issue.identifier} />
 
                {issue.project && (
                   <Section title="Project">
