@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runCommandTool } from './command-tool.ts';
-import { ExecutionUnavailable, type ExecEvent, type ExecutionSession } from '../execution/driver.ts';
-import type { RunLedger } from '../runs/ledger.ts';
+import { ExecutionUnavailable, type ExecEvent, type ExecutionSession } from '../../execution/driver.ts';
+import type { RunLedger } from '../../runs/ledger.ts';
 import { StateStore, type ToolContext } from '@strands-agents/sdk';
 import { WORKDIR_KEY } from './command-tool.ts';
 

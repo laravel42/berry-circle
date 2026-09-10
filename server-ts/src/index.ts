@@ -43,7 +43,6 @@ import { conversationMounts } from './mounts/conversations.ts';
 import { editorMounts } from './mounts/editor.ts';
 import { EditorAssist } from './editor/assist.ts';
 import { RuntimeCompletion } from './runtime/completion.ts';
-import { setupTelemetry } from './observability/telemetry.ts';
 import { planMounts } from './mounts/plans.ts';
 import { PlanAnswerRepository } from './plans/answers.ts';
 import { PlanRepository } from './plans/repository.ts';
@@ -76,7 +75,6 @@ import { ReplayRepository } from './realtime/replay.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { Storage } from './storage/storage.ts';
-import { RunExecutor } from './agents/executor.ts';
 import { ReviewGate } from './agents/review-gate.ts';
 import { ReviewQueue } from './core/review-queue.ts';
 import { reviewMounts } from './mounts/reviews.ts';
@@ -84,8 +82,13 @@ import { GitHubClient } from './integrations/github.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
-import { createExecutionDriver } from './execution/factory.ts';
-import { AgentCoreRunMemory } from './agentcore/memory.ts';
+import { AgentCoreRunMemory, nullRunMemory } from './agentcore/memory.ts';
+import { agentToolMounts } from './runtime/agent-tools/mount.ts';
+import { agentCoreTransport } from './runtime/agentcore-transport.ts';
+import { EnvelopeBuilder } from './runtime/envelope-builder.ts';
+import { httpTransport } from './runtime/http-transport.ts';
+import { RuntimeTaskExecutor, type UsageRecorder } from './runtime/task-executor.ts';
+import { routingTransport, type RuntimeTarget } from './runtime/transport.ts';
 import { ConnectionRepository } from './integrations/connections.ts';
 import { GitHubAppRepository } from './integrations/github-app.ts';
 import { sealerFromKey } from './integrations/sealing.ts';
@@ -127,12 +130,8 @@ const broadcaster = new Distributed(new Hub(config.realtimeBuffer), null);
 const idempotency = new IdempotencyStore(sql);
 
 /**
- * The agent runtime, present only when this server can actually run one.
- *
- * Both halves are required and neither has a safe default: without a model
- * credential there is nothing to call, and without object storage an agent's
- * files would have nowhere to land — a run that produced work and dropped it
- * is worse than one that never started.
+ * Object storage, where an agent's files land. Null when none is configured:
+ * the tool API then refuses file writes rather than dropping them.
  */
 const storage = config.storage
    ? new Storage({
@@ -148,15 +147,6 @@ const storage = config.storage
         maxBytes: config.storage.maxBytes,
      })
    : null;
-
-/**
- * Where an agent's commands run.
- *
- * Constructed even when nothing is configured — the unconfigured driver
- * refuses every call with a message naming what is missing, which is a better
- * failure than a null that reaches a call site expecting a driver.
- */
-const execution = createExecutionDriver(config.execution, config.agentCore);
 
 /**
  * Run recall, when a Memory store is configured.
@@ -228,12 +218,8 @@ const completion = new RuntimeCompletion({
    sql,
    // Declared further down; called only at request time, after boot.
    nudge: () => dispatcher?.nudge(),
-   defaultModel: config.agents?.defaultModel ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+   defaultModel: config.runtime.defaultModel,
 });
-
-// Traces, only when an OTLP endpoint is configured. Before the executor so
-// the first run is traced.
-await setupTelemetry(logger);
 
 /**
  * AutoGate: a peer agent reviews what a run delivered, for tasks whose plan
@@ -241,50 +227,103 @@ await setupTelemetry(logger);
  * credential runs do (to read the diff) and the same completion the planner
  * uses (to decide).
  */
-const reviewGate =
-   config.agents && completion
-      ? new ReviewGate({
-           sql,
-           issues,
-           runs: new RunRepository(sql),
-           completion,
-           defaultModel: config.agents.defaultModel,
-           maxAttempts: config.agents.autoGateMaxAttempts,
-           github: async (workspaceId) =>
-              new GitHubClient({ token: (await scm.gitCredential(workspaceId)).password }),
-           onError: (message, error) =>
-              logger.error(message, { error: error instanceof Error ? error.message : String(error) }),
-        })
-      : null;
+/**
+ * Where tasks run (ADR-0014). The configured AgentCore Runtime by ARN when
+ * there is one, else the same image on a URL (the local agent-runtime
+ * service). A workspace's registered runtimes override it per agent.
+ */
+const defaultTarget: RuntimeTarget | null = config.agentCore?.runtimeArn
+   ? {
+        id: null,
+        driver: 'agentcore',
+        arn: config.agentCore.runtimeArn,
+        qualifier: 'DEFAULT',
+        region: config.agentCore.region,
+        endpointUrl: null,
+     }
+   : config.runtime.agentRuntimeUrl
+     ? {
+          id: null,
+          driver: 'http',
+          arn: null,
+          qualifier: 'DEFAULT',
+          region: null,
+          endpointUrl: config.runtime.agentRuntimeUrl,
+       }
+     : null;
 
-const executor =
-   config.agents && storage
-      ? new RunExecutor({
-           sql,
-           storage,
-           region: config.agents.region,
-           ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
-           defaultModel: config.agents.defaultModel,
-           ...(config.agents.maxTokens ? { maxTokens: config.agents.maxTokens } : {}),
-           media: {
-              ...(config.agents.mediaVideoS3Uri ? { video: { s3Uri: config.agents.mediaVideoS3Uri } } : {}),
-           },
-           // Only when one is actually configured. Handing over the
-           // unconfigured driver would give agents a `run_command` that
-           // refuses every call, and an agent cannot work around a tool it was
-           // told it has.
-           ...(config.execution ? { execution } : {}),
-           ...(connections ? { connections } : {}),
-           ...(githubApp ? { githubApp } : {}),
-           ...(runMemory ? { memory: runMemory } : {}),
-           gitCredential: scm.gitCredential,
-           ...(reviewGate ? { reviewGate } : {}),
-           onGateError: (error) =>
-              logger.error('peer review failed', {
-                 error: error instanceof Error ? error.message : String(error),
-              }),
+/**
+ * AutoGate: a peer agent reviews what a run delivered, for tasks whose plan
+ * opted in — and on request for any task with a pull request. Its decision is
+ * a completion task, so it exists wherever tasks can run.
+ */
+const reviewGate = defaultTarget
+   ? new ReviewGate({
+        sql,
+        issues,
+        runs: new RunRepository(sql),
+        completion,
+        defaultModel: config.runtime.defaultModel,
+        maxAttempts: config.agents?.autoGateMaxAttempts ?? 2,
+        github: async (workspaceId) =>
+           new GitHubClient({ token: (await scm.gitCredential(workspaceId)).password }),
+        onError: (message, error) =>
+           logger.error(message, { error: error instanceof Error ? error.message : String(error) }),
+     })
+   : null;
+
+/**
+ * Token usage the runtime reports on `task.usage`.
+ *
+ * Interim: workstream C's `recordTaskUsage` (server-ts/src/usage/record.ts)
+ * replaces this at merge. Until then usage is logged, not stored, so it is
+ * visible rather than silently dropped.
+ */
+const recordUsage: UsageRecorder = async (_sql, usage) => {
+   logger.info('task usage', { ...usage });
+};
+
+const transport = routingTransport({
+   agentcore: config.agentCore
+      ? agentCoreTransport({
+           region: config.agentCore.region,
+           ...(config.agentCore.credentials ? { credentials: config.agentCore.credentials } : {}),
         })
-      : null;
+      : null,
+   http: httpTransport(),
+});
+
+const executor = defaultTarget
+   ? new RuntimeTaskExecutor({
+        sql,
+        transport,
+        defaultTarget,
+        recordUsage,
+        builder: new EnvelopeBuilder({
+           sql,
+           publicUrl:
+              config.integrations.publicUrl ?? `http://${config.apiAddr.host}:${config.apiAddr.port}`,
+           defaultModel: config.runtime.defaultModel,
+           memory: runMemory ?? nullRunMemory(),
+           sealer: config.integrationKey ? sealerFromKey(config.integrationKey) : null,
+           ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
+           github: (token) => new GitHubClient({ token }),
+        }),
+        memory: runMemory ?? nullRunMemory(),
+        ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
+        github: (token) => new GitHubClient({ token }),
+        ...(reviewGate ? { reviewGate } : {}),
+        onGateError: (error) =>
+           logger.error('peer review failed', {
+              error: error instanceof Error ? error.message : String(error),
+           }),
+        onUsageError: (error) =>
+           logger.error('usage was not recorded', {
+              error: error instanceof Error ? error.message : String(error),
+           }),
+        tokenTtlSeconds: config.runtime.tokenTtlSeconds,
+     })
+   : null;
 
 // The model picker's catalogue. Null without a credential rather than an
 // empty list: "no models exist" and "this server cannot ask" are different
@@ -371,6 +410,8 @@ registry.registerAll(
    })
 );
 registry.registerAll(runMounts(runOptions));
+// Berry's tools for a running task, behind its task token (not a session).
+registry.registerAll(agentToolMounts({ sql, storage, issues }));
 registry.registerAll(
    reviewMounts({
       sessions,
@@ -392,23 +433,23 @@ registry.registerAll(
       // needs it, and a null generator answers PLANNER_UNAVAILABLE rather
       // than opening a plan nothing will ever fill in.
       generator:
-         config.agents && completion
+         executor
          ? new PlanGenerator({
               sql,
               completion,
-              defaultModel: config.agents.defaultModel,
-              maxRepairs: config.agents.maxRepairs,
-              maxCriticRounds: config.agents.maxCriticRounds,
+              defaultModel: config.runtime.defaultModel,
+              maxRepairs: config.agents?.maxRepairs ?? 2,
+              maxCriticRounds: config.agents?.maxCriticRounds ?? 1,
            })
          : null,
       // Routing needs the same credential planning does: it is the
       // orchestrator reading the roster and deciding, not a lookup table.
       triage:
-         config.agents && completion
+         executor
          ? new PlanTriage({
               sql,
               completion,
-              defaultModel: config.agents.defaultModel,
+              defaultModel: config.runtime.defaultModel,
            })
          : null,
       // Its own repository rather than the request path's: a routed task is
@@ -429,11 +470,11 @@ registry.registerAll(
       // Reading a thread works without a model credential; only answering
       // needs one, and a null responder says so rather than failing the turn.
       responder:
-         config.agents && completion
+         executor
          ? new ConversationResponder({
               sql,
               completion,
-              defaultModel: config.agents.defaultModel,
+              defaultModel: config.runtime.defaultModel,
            })
          : null,
    })
@@ -442,10 +483,10 @@ registry.registerAll(
    editorMounts({
       sessions,
       assist:
-         config.agents && completion
+         executor
          ? new EditorAssist({
               completion,
-              defaultModel: config.agents.defaultModel,
+              defaultModel: config.runtime.defaultModel,
            })
          : null,
    })
@@ -522,7 +563,8 @@ registry.registerAll(
          storage: storage !== null,
          valkey: false,
          // The planner runs when there is a model credential to run it with.
-         planner: config.agents !== null,
+         // Planning is a completion task, so it runs wherever tasks do.
+         planner: executor !== null,
       },
    })
 );
@@ -534,15 +576,9 @@ registry.registerAll(
  * the ledger and admit runs, and a dispatcher there would claim work it cannot
  * do and fail every run it touched.
  */
-const dispatcher =
-   executor && config.agents
-      ? new Dispatcher({
-           sql,
-           executor,
-           logger,
-           concurrency: config.agents.concurrency,
-        })
-      : null;
+const dispatcher = executor
+   ? new Dispatcher({ sql, executor, logger, concurrency: config.runtime.concurrency })
+   : null;
 dispatcher?.start();
 
 const app = createApp(registry);
@@ -551,12 +587,16 @@ const server = serve({ fetch: app.fetch, hostname: config.apiAddr.host, port: co
 logger.info('Berry server listening', {
    apiAddr: `${config.apiAddr.host}:${config.apiAddr.port}`,
    environment: config.appEnv,
-   // Named at boot so an operator can see which substrate this process would
-   // run an agent's commands on, without reading the environment back.
-   executionDriver: execution.name,
+   // Named at boot so an operator can see where tasks are sent, without
+   // reading the environment back.
+   agentRuntime: defaultTarget
+      ? defaultTarget.driver === 'agentcore'
+         ? defaultTarget.arn
+         : defaultTarget.endpointUrl
+      : 'none',
    // Named at boot because a server that admits runs but does not execute them
    // looks identical from outside until the first one sits queued forever.
-   runDispatch: dispatcher ? `${config.agents!.concurrency} at a time` : 'off',
+   runDispatch: dispatcher ? `${config.runtime.concurrency} at a time` : 'off',
    // Named at boot because recall is invisible from outside: an agent with no
    // memory and an agent whose store is misconfigured both just start fresh.
    runMemory: runMemory ? 'agentcore' : 'off',

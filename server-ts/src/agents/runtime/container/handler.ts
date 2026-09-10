@@ -4,7 +4,7 @@ import type { Tool } from '@strands-agents/sdk';
 import type { TaskEnvelope } from '../../../runtime/envelope.ts';
 import type { TaskDelivery } from '../../../runtime/lifecycle.ts';
 import type { ExecutionSession } from '../../../execution/driver.ts';
-import { runCommandTool, WORKDIR_KEY } from '../../command-tool.ts';
+import { runCommandTool, WORKDIR_KEY } from '../command-tool.ts';
 import { permissionsOf } from '../../permissions.ts';
 import { buildRunAgent } from '../agent.ts';
 import { classify } from '../failure.ts';
@@ -19,8 +19,10 @@ import { runCompletionTask } from './completion-task.ts';
 import { toConversation } from './conversation.ts';
 import { emitterSink, type Emit } from './emitter.ts';
 import { LocalSession } from './local-session.ts';
+import { mediaTools, type VideoOutput } from '../tools/media.ts';
 import {
    RemoteToolsUnavailable,
+   callAttach,
    collectFileTool,
    loadRemoteTools,
    type BerryApi,
@@ -57,6 +59,8 @@ export interface HandlerDeps {
    fetch?: typeof fetch;
    loadTools?: (api: BerryApi) => Promise<Tool[]>;
    repository?: RepositoryStep;
+   /** Where the video job writes. Absent means agents get no video tool. */
+   videoOutput?: VideoOutput | undefined;
 }
 
 export async function handleInvocation(envelope: TaskEnvelope, emit: Emit, deps: HandlerDeps): Promise<void> {
@@ -102,6 +106,17 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
          runCommandTool({ ledger: sink, runId: envelope.runId, session, newId: randomUUID }),
          collectFileTool(api, session),
          ...remote,
+         // Speech and video render here, with the runtime's own role, and
+         // land on the task through Berry like any other file.
+         ...mediaTools({
+            region: deps.region,
+            credentials: null,
+            runId: envelope.runId,
+            video: deps.videoOutput,
+            save: async ({ path, bytes, contentType }) => {
+               await callAttach(api, { path, base64: Buffer.from(bytes).toString('base64'), contentType });
+            },
+         }),
       ];
       // Fail-closed stays: a name missing from the table is refused. Berry's
       // own tools are admitted by name, and Berry enforces their scope.

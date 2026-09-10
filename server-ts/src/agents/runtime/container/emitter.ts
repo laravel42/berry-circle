@@ -1,5 +1,5 @@
 import type { LifecycleEvent } from '../../../runtime/lifecycle.ts';
-import type { CommandLedger } from '../../command-tool.ts';
+import type { CommandLedger } from '../command-tool.ts';
 import type { LedgerSink } from '../plugins/ledger.ts';
 
 export type Emit = (event: LifecycleEvent) => void;

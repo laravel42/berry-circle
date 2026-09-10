@@ -245,6 +245,8 @@ services:
       BERRY_BEDROCK_SECRET_ACCESS_KEY: "${BERRY_BEDROCK_SECRET_ACCESS_KEY:-}"
       BERRY_BEDROCK_SESSION_TOKEN: "${BERRY_BEDROCK_SESSION_TOKEN:-}"
       BERRY_RUNTIME_LOCAL_CONTROL: "true"
+      # A real S3 prefix the video tool writes into; empty means no video tool.
+      BERRY_MEDIA_VIDEO_S3_URI: "${BERRY_MEDIA_VIDEO_S3_URI:-}"
     ports:
       - "127.0.0.1:${AGENT_RUNTIME_PORT:-8080}:8080"
     healthcheck:

@@ -16,6 +16,7 @@ For how the server is laid out, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 Every prefix `src/index.ts` registers today:
 
 ```
+/api/v1/agent-tools   (task-token auth only: the runtime calling Berry's tools)
 /api/v1/agents        /api/v1/approvals     /api/v1/attachments   /api/v1/auth
 /api/v1/boards        /api/v1/catalogs      /api/v1/comments      /api/v1/config
 /api/v1/conversations /api/v1/editor        /api/v1/events        /api/v1/goals

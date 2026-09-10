@@ -17,7 +17,6 @@ const SERVER_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../.
 export const CONTAINER_ALLOWED_FILES = [
    'src/agents/runtime/',
    'src/agents/permissions.ts',
-   'src/agents/command-tool.ts',
    'src/agents/checkout.ts',
    'src/agents/delivery.ts',
    'src/agents/verification.ts',

@@ -1,4 +1,4 @@
-import type { Logger } from './log.ts';
+import type { Logger } from '../../observability/log.ts';
 
 /**
  * Traces and metrics from the agent SDK, when somewhere to send them exists.

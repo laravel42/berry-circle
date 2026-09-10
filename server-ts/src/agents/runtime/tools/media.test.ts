@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mediaTools, parseS3Uri, type MediaScope } from './media-tools.ts';
+import { mediaTools, parseS3Uri, type MediaScope } from './media.ts';
 
 /**
  * The tools that render media. Polly, Bedrock and S3 are fakes; what is

@@ -1,4 +1,6 @@
+import type { Logger } from '../../../observability/log.ts';
 import { bedrockModel, type AwsCredentials } from '../model.ts';
+import { setupTelemetry } from '../telemetry.ts';
 import { containerRepository } from './repository.ts';
 import { createRuntimeServer } from './server.ts';
 import { SessionRegistry } from './sessions.ts';
@@ -26,7 +28,15 @@ const server = createRuntimeServer({
    workRoot: env.BERRY_RUNTIME_WORK_ROOT ?? '/mnt/workspace',
    repository: containerRepository(),
    localControl: (env.BERRY_RUNTIME_LOCAL_CONTROL ?? '').trim().toLowerCase() === 'true',
+   videoOutput: /^s3:\/\//.test((env.BERRY_MEDIA_VIDEO_S3_URI ?? '').trim())
+      ? { s3Uri: (env.BERRY_MEDIA_VIDEO_S3_URI ?? '').trim() }
+      : undefined,
 });
+
+// Traces of model and tool calls start here now: the server makes none.
+// A console-backed logger, because the server's logger module is not shipped.
+const logger = { info: console.log, error: console.error, warn: console.warn, debug: () => {} } as unknown as Logger;
+await setupTelemetry(logger);
 
 // 0.0.0.0, not localhost: AgentCore's health checks come from outside the container.
 server.listen(Number(env.PORT ?? 8080), '0.0.0.0', () => {

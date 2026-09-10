@@ -8,7 +8,7 @@ import {
    type BedrockRuntimeClientConfig,
 } from '@aws-sdk/client-bedrock-runtime';
 import { GetObjectCommand, ListObjectsV2Command, S3Client, type S3ClientConfig } from '@aws-sdk/client-s3';
-import type { AwsCredentials } from './runtime/model.ts';
+import type { AwsCredentials } from '../model.ts';
 
 /**
  * Media an agent can make, as tools.

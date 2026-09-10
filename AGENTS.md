@@ -21,10 +21,12 @@ Guidance for AI agents working in this repository.
 
 Berry is a self-hosted, multi-workspace web product where humans and AI coding
 agents plan, execute, and review work together. Berry owns the product, its
-durable state, and agent execution: agents run in-process on the Strands
-Agents SDK ([ADR-0008](docs/adr/0008-adk-agent-runtime.md) for the decision,
-[ADR-0013](docs/adr/0013-strands-native-agent-runtime.md) for the runtime),
-not on a separate substrate.
+durable state, and the dispatch of agent work: agents run in an AgentCore
+Runtime container on the Strands Agents SDK; Berry is the control plane
+([ADR-0014](docs/adr/0014-agentcore-runtime-control-plane.md), which
+supersedes the in-process runtime of
+[ADR-0013](docs/adr/0013-strands-native-agent-runtime.md)). The server process
+imports no model SDK; `scripts/check-no-model-in-server.py` enforces it.
 
 Core loop: issue → assign to a human or agent → work on the issue → human
 review gate → done. The approved direction is phased full web parity; desktop
@@ -96,10 +98,14 @@ attachments-by-id, agents and the realtime streams. It does **not** serve
 [`server-ts/SCOPE.md`](server-ts/SCOPE.md) before assuming a prefix is missing
 by accident.
 
-**Runs are dispatched in process.** `POST /api/v1/issues/{ref}/runs` writes a
-queued run; `runs/dispatcher.ts` claims it with `SKIP LOCKED`, holds a lease it
-renews, executes it, and sweeps runs whose lease expired. There is no external
-worker and no `/internal/` surface.
+**Runs are tasks the server hands to a runtime.** `POST /api/v1/issues/{ref}/runs`
+(or any other trigger) queues a task; `runs/dispatcher.ts` claims it with
+`SKIP LOCKED`, holds a lease it renews, and sweeps runs whose lease expired.
+The claimed task is built into a task envelope and sent to the runtime with
+`InvokeAgentRuntime` (or, locally, to the `agent-runtime` Compose service over
+HTTP). The runtime's lifecycle stream is written to the run ledger. The
+runtime calls Berry's tools back at `/api/v1/agent-tools` with a task-scoped
+token. There is no other external worker and no `/internal/` surface.
 
 **GitHub is an App Berry creates, not a credential it is given.** The manifest
 flow posts what the App may do, and the conversion returns the id, both halves

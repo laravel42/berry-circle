@@ -2,7 +2,7 @@ import { tool, type JSONSchema, type JSONValue, type Tool, type ToolContext } fr
 import { z } from 'zod';
 import type { ExecutionSession } from '../../../execution/driver.ts';
 import { FileTooLarge, getBytes } from '../../../execution/bytes.ts';
-import { WORKDIR_KEY } from '../../command-tool.ts';
+import { WORKDIR_KEY } from '../command-tool.ts';
 
 /**
  * Berry's tools, as the server describes them at the start of each task.
@@ -91,6 +91,23 @@ async function callBerry(api: BerryApi, name: string, input: unknown): Promise<J
    // exit code; throwing would end the tool as a failure it cannot see.
    if (!response.ok) return { error: body?.error?.message ?? `Berry answered ${response.status}` };
    return body?.result ?? null;
+}
+
+/**
+ * Saves bytes the container produced (a voiceover, a rendered clip) onto the
+ * task through Berry. Unlike a model-facing tool call, a refusal here throws:
+ * the media tool that called it reports the failure to the model itself.
+ */
+export async function callAttach(
+   api: BerryApi,
+   input: { path: string; base64: string; contentType: string }
+): Promise<void> {
+   const response = await (api.fetch ?? fetch)(`${base(api)}/api/v1/agent-tools/attach_file`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${api.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+   });
+   if (!response.ok) throw new Error(`Berry refused the file (${response.status})`);
 }
 
 function base(api: BerryApi): string {
