@@ -210,8 +210,16 @@ export class PluginHookRunner {
          return found;
       });
 
-      const byWorkspace = new Map<string, typeof rows>();
-      for (const row of rows) {
+      type OutboxRow = {
+         id: string;
+         topic: string;
+         workspace_id: string | null;
+         payload: unknown;
+         occurred_at: string;
+      };
+      const outbox = rows as unknown as OutboxRow[];
+      const byWorkspace = new Map<string, OutboxRow[]>();
+      for (const row of outbox) {
          const workspaceId = row.workspace_id as string | null;
          if (!workspaceId) continue;
          const list = byWorkspace.get(workspaceId) ?? [];
