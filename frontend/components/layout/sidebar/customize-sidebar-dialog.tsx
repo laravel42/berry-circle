@@ -19,6 +19,7 @@ import {
 import {
    Activity,
    BarChart3,
+   BookOpen,
    Box,
    Check,
    ChevronDown,
@@ -49,6 +50,7 @@ export const WORKSPACE_ITEMS: ItemConfig[] = [
 export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
+   { key: 'skills', label: 'skills', icon: BookOpen },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
 ];
 

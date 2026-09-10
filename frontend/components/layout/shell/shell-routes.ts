@@ -16,6 +16,7 @@ export type ShellRoute =
    | 'projects'
    | 'goals'
    | 'members'
+   | 'skills'
    | 'analytics';
 
 export interface ShellRouteDef {
@@ -97,6 +98,14 @@ const MANAGE: ShellRouteDef[] = [
       href: '/agents',
       prefsKey: 'agents',
       icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" /><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9z" />',
+   },
+   {
+      id: 'skills',
+      label: 'skills',
+      href: '/skills',
+      match: ['/skills/'],
+      prefsKey: 'skills',
+      icon: '<path d="M5 4h10a4 4 0 014 4v12H9a4 4 0 01-4-4z" /><path d="M9 8h6M9 12h6" />',
    },
    {
       id: 'analytics',
