@@ -16,10 +16,10 @@ export const LOCALE_COOKIE = 'berry_locale';
 
 /** Each language named in itself, so a reader can find their own. */
 export const LOCALE_NAMES: Record<Locale, string> = {
-   en: 'English',
+   'en': 'English',
    'zh-Hans': '简体中文',
-   ja: '日本語',
-   ko: '한국어',
+   'ja': '日本語',
+   'ko': '한국어',
 };
 
 /** One JSON file per namespace per locale under `messages/<locale>/`. */

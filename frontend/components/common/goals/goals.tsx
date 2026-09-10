@@ -18,9 +18,7 @@ function EmptyGoals() {
          <div className="flex max-w-sm flex-col items-center text-center">
             <BerryMark size="lg" tone="neutral" state="hollow" label={t('mark')} />
             <h2 className="mt-5 font-display tracking-[-0.025em]">{t('title')}</h2>
-            <p className="mt-2 leading-relaxed text-muted-foreground">
-               {t('body')}
-            </p>
+            <p className="mt-2 leading-relaxed text-muted-foreground">{t('body')}</p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
                <Button asChild className="h-10 px-5">
                   <Link href={`/${orgId}/projects`}>{t('cta')}</Link>
