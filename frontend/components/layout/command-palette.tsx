@@ -9,7 +9,6 @@ import {
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
-import { cycles, formatCycleDateRange } from '@/data/cycles';
 import { Issue } from '@/data/issues';
 import { useLabelsStore } from '@/store/labels-store';
 import { useMembersStore } from '@/store/members-store';
@@ -39,14 +38,12 @@ import {
    Clipboard,
    ClipboardList,
    ClipboardType,
-   Compass,
    FileText,
    GitBranch,
    Bell,
    Layers,
    Link2,
    MessageSquare,
-   PackagePlus,
    ShieldCheck,
    Sparkles,
    SquarePen,
@@ -61,8 +58,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-type PaletteRoute =
-   'root' | 'assign' | 'status' | 'priority' | 'labels' | 'project' | 'cycle' | 'due-date';
+type PaletteRoute = 'root' | 'assign' | 'status' | 'priority' | 'labels' | 'project' | 'due-date';
 
 /** Small keyboard hint chips on the right of a command row. */
 function Keys({ keys }: { keys: string[] }) {
@@ -378,26 +374,6 @@ export function CommandPalette() {
                            </CommandItem>
                            <CommandItem
                               onSelect={() => {
-                                 setRoute('cycle');
-                                 setQuery('');
-                              }}
-                           >
-                              <CircleDot className="text-muted-foreground" />
-                              Move to cycle…
-                              <Keys keys={['⇧', 'C']} />
-                           </CommandItem>
-                           <CommandItem
-                              onSelect={() => {
-                                 toast.success('Added to the next release');
-                                 close();
-                              }}
-                           >
-                              <PackagePlus className="text-muted-foreground" />
-                              Add to release…
-                              <Keys keys={['⌥', 'R']} />
-                           </CommandItem>
-                           <CommandItem
-                              onSelect={() => {
                                  setRoute('due-date');
                                  setQuery('');
                               }}
@@ -525,9 +501,6 @@ export function CommandPalette() {
                            </CommandItem>
                            <CommandItem onSelect={() => go('/chat')}>
                               <MessageSquare className="text-muted-foreground" /> Chat
-                           </CommandItem>
-                           <CommandItem onSelect={() => go('/initiatives')}>
-                              <Compass className="text-muted-foreground" /> Initiatives
                            </CommandItem>
                            <CommandItem onSelect={() => go('/projects')}>
                               <Box className="text-muted-foreground" /> Projects
@@ -670,38 +643,6 @@ export function CommandPalette() {
                               {issue.project?.id === project.id && (
                                  <Check className="ml-auto size-4" />
                               )}
-                           </CommandItem>
-                        ))}
-                     </CommandGroup>
-                  )}
-
-                  {route === 'cycle' && issue && (
-                     <CommandGroup heading="Move to cycle…">
-                        <CommandItem
-                           onSelect={() => {
-                              updateIssue(issue.id, { cycleId: '' });
-                              toast.success('Removed from cycle');
-                              close();
-                           }}
-                        >
-                           <CircleDot className="text-muted-foreground" />
-                           No cycle
-                        </CommandItem>
-                        {cycles.slice(0, 6).map((cycle) => (
-                           <CommandItem
-                              key={cycle.id}
-                              onSelect={() => {
-                                 updateIssue(issue.id, { cycleId: cycle.id });
-                                 toast.success(`Moved to ${cycle.name}`);
-                                 close();
-                              }}
-                           >
-                              <CircleDot className="text-muted-foreground" />
-                              {cycle.name}
-                              <span className="text-muted-foreground ml-2">
-                                 {formatCycleDateRange(cycle)}
-                              </span>
-                              {issue.cycleId === cycle.id && <Check className="ml-auto size-4" />}
                            </CommandItem>
                         ))}
                      </CommandGroup>

@@ -4,7 +4,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { createColumnConfigHelper } from '@/components/data-table-filter/core/filters';
 import type { ColumnOption, FiltersState } from '@/components/data-table-filter/core/types';
 import { multiOptionFilterFn, optionFilterFn } from '@/components/data-table-filter/lib/filter-fns';
-import { cycles, cycleStatusLabel } from '@/data/cycles';
 import { Issue } from '@/data/issues';
 import type { LabelInterface } from '@/data/labels';
 import { priorities } from '@/data/priorities';
@@ -20,7 +19,6 @@ import {
    CircleDashed,
    CircleUserRound,
    Folder,
-   RefreshCcw,
    Tag,
 } from 'lucide-react';
 import { useMemo } from 'react';
@@ -54,19 +52,6 @@ const priorityOptions: ColumnOption[] = priorities.map((priority) => ({
    label: priority.name,
    icon: <priority.icon className="size-4 text-muted-foreground" />,
 }));
-
-const cycleOptions: ColumnOption[] = [
-   {
-      value: 'no-cycle',
-      label: 'No cycle',
-      icon: <RefreshCcw className="size-4 text-muted-foreground" />,
-   },
-   ...cycles.map((cycle) => ({
-      value: cycle.id,
-      label: `${cycle.name} (${cycleStatusLabel[cycle.status]})`,
-      icon: <RefreshCcw className="size-4 text-muted-foreground" />,
-   })),
-];
 
 function buildAssigneeOptions(members: User[]): ColumnOption[] {
    return [
@@ -158,14 +143,6 @@ function buildIssueFilterColumns(
          .displayName('Project')
          .icon(Folder)
          .options(buildProjectOptions(workspaceProjects))
-         .build(),
-      dtf
-         .option()
-         .id('cycle')
-         .accessor((issue: Issue) => (issue.cycleId === '' ? 'no-cycle' : issue.cycleId))
-         .displayName('Cycle')
-         .icon(RefreshCcw)
-         .options(cycleOptions)
          .build(),
    ] as const;
 }
