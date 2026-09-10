@@ -14,12 +14,15 @@ import {
    Code,
    Columns3,
    KeyRound,
+   Link2,
+   ListChecks,
    LucideIcon,
    Settings,
    Sparkles,
    Tag,
    UserRound,
    Users,
+   Zap,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
@@ -58,6 +61,9 @@ export const settingsNav: SettingsNavGroup[] = [
          { name: 'task labels', url: '/settings/issue-labels', icon: Tag },
          { name: 'statuses', url: '/settings/project-statuses', icon: Columns3 },
          { name: 'integrations', url: '/settings/integrations', icon: Blocks },
+         { name: 'task fields', url: '/settings/issue-properties', icon: ListChecks },
+         { name: 'quick actions', url: '/settings/quick-actions', icon: Zap },
+         { name: 'join links', url: '/settings/join-links', icon: Link2 },
       ],
    },
 ];
