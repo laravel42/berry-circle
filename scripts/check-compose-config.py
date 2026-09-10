@@ -51,6 +51,9 @@ def render_compose() -> dict[str, Any]:
             "AWS_SESSION_TOKEN": "",
             "BERRY_AGENT_DEFAULT_MODEL": "",
             "BERRY_API_PORT": "4000",
+            "BERRY_AUTH_GITHUB_CLIENT_ID": "",
+            "BERRY_AUTH_GITHUB_CLIENT_SECRET": "",
+            "BERRY_AUTH_SECRET": "",
             "BERRY_DATABASE_URL": (
                 "postgres://berry:berry@postgres:5432/berry?sslmode=disable"
             ),
