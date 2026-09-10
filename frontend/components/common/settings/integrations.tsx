@@ -12,6 +12,7 @@ import {
    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { GitHubAppSetup } from '@/components/common/settings/github-app-setup';
+import { GitHubIntegrationSettings } from '@/components/common/settings/github-integration-settings';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -361,6 +362,14 @@ function IntegrationsDirectory() {
       const outcome = describeConnectionResult(callbackStatus, name);
       if (outcome.ok) toast.success(outcome.message);
       else toast.error(outcome.message);
+      // A fresh install is the moment to choose repositories, so the picker
+      // opens on the Repositories tab rather than leaving that to be found.
+      if (callbackProvider === 'github' && callbackStatus === 'installed') {
+         router.replace(
+            `${pathname.replace(/\/settings\/integrations$/, '/settings/repositories')}?import=github`
+         );
+         return;
+      }
       router.replace(`${pathname}?provider=${encodeURIComponent(callbackProvider)}`);
    }, [callbackProvider, callbackStatus, providers, router, pathname]);
 
@@ -412,6 +421,8 @@ function IntegrationsDirectory() {
          title="Integrations"
          description="Connect the tools your agents may reach. Berry's own tools need no connection; an agent cannot reach another provider until it is connected."
       >
+         <GitHubIntegrationSettings />
+
          <div className="relative">
             <Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
