@@ -28,7 +28,8 @@ describe('sessions', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' 
          INSERT INTO users (email, name, role) VALUES (${email}, 'Session Test', 'member')
          RETURNING id`;
       userId = (row as { id: string }).id;
-      sessions = new SessionService({ sql, sessionTtlMs: 60_000 });
+      // 300 s is the shortest TTL the service accepts.
+      sessions = new SessionService({ sql, sessionTtlMs: 300_000 });
    });
 
    after(async () => {
@@ -94,8 +95,9 @@ describe('sessions', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' 
    test('an expired session stops resolving, enforced by storage', async () => {
       const past = new SessionService({
          sql,
-         sessionTtlMs: 1,
-         now: () => new Date(Date.now() - 60_000),
+         // The minimum TTL, issued far enough in the past that it has lapsed.
+         sessionTtlMs: 300_000,
+         now: () => new Date(Date.now() - 600_000),
       });
       const issued = await past.issueKnownEmail(email);
       await assert.rejects(() => sessions.resolveSession(issued.token), SessionUnauthenticated);

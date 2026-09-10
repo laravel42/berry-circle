@@ -67,6 +67,9 @@ describe(
                   fc.date({
                      min: new Date('2000-01-01T00:00:00.000Z'),
                      max: new Date('2100-01-01T00:00:00.000Z'),
+                     // fast-check otherwise mixes in new Date(NaN), which no
+                     // clock ever returns.
+                     noInvalidDate: true,
                   }),
                   fc.option(fc.string({ maxLength: 200 }), { nil: null }),
                   fc.option(fc.string({ maxLength: 64 }), { nil: null }),

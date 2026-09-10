@@ -75,7 +75,7 @@ describe('sessions lifecycle', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is
          RETURNING id`;
       userId = (row as { id: string }).id;
       // A comfortably in-range TTL (60 s) for the live-resolve steps.
-      sessions = new SessionService({ sql, sessionTtlMs: 60_000 });
+      sessions = new SessionService({ sql, sessionTtlMs: 300_000 });
    });
 
    after(async () => {

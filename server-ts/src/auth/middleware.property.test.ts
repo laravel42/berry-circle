@@ -201,7 +201,7 @@ test('Feature: auth-and-tenant-isolation, Property 1: an unknown well-formed tok
 
    const sql = openDatabase({ url });
    try {
-      const sessions = new SessionService({ sql, sessionTtlMs: 60_000 });
+      const sessions = new SessionService({ sql, sessionTtlMs: 300_000 });
 
       const route = new Hono<{ Variables: AuthVariables }>();
       let ran = false;
