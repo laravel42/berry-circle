@@ -62,7 +62,19 @@ import { OAuthStateStore } from './integrations/oauth.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
-import { agentCompletion, agentEnqueue, quickActionEnqueue, registerDelegateTool } from './runtime/wiring.ts';
+import {
+   agentCompletion,
+   agentEnqueue,
+   autopilotEnqueue,
+   quickActionEnqueue,
+   registerDelegateTool,
+} from './runtime/wiring.ts';
+import { AutopilotRepository } from './autopilots/repository.ts';
+import { fireAutopilot, type FireInput } from './autopilots/fire.ts';
+import { resolveSquadLeader } from './autopilots/squads.ts';
+import { autopilotMounts } from './mounts/autopilots.ts';
+import { autopilotWebhookMounts } from './mounts/autopilot-webhooks.ts';
+import { AutopilotScheduler } from './runs/scheduler.ts';
 import { commentTriggers } from './agents/triggers.ts';
 import { registerChatReplies } from './conversations/chat-tasks.ts';
 import { registerSquadRetrigger } from './squads/retrigger.ts';
@@ -494,6 +506,23 @@ registry.registerAll(
    })
 );
 registry.registerAll(commentMounts(commentOptions));
+
+/**
+ * Autopilots. Always served: reading and editing them needs no model
+ * credential. A webhook trigger needs the encryption key for its signing
+ * secret, and without one the create answers 412 rather than storing a
+ * secret in the clear.
+ */
+const autopilots = new AutopilotRepository({
+   sql,
+   sealer: config.integrationKey
+      ? sealerFromKey(config.integrationKey)
+      : unavailableSealer('INTEGRATION_ENCRYPTION_KEY is not set'),
+});
+const fireAutopilotNow = (input: FireInput) =>
+   fireAutopilot({ sql, issues, enqueue: autopilotEnqueue, resolveSquadLeader }, input);
+registry.registerAll(autopilotMounts({ sessions, sql, autopilots, fire: fireAutopilotNow, idempotency }));
+registry.registerAll(autopilotWebhookMounts({ autopilots, fire: fireAutopilotNow, logger }));
 registry.registerAll(
    webhookMounts({
       inbound: scmInbound,
@@ -782,6 +811,12 @@ const dispatcher = executor
    : null;
 dispatcher?.start();
 
+// Schedules fire only where tasks can run: a schedule on a server with no
+// dispatcher would queue work nothing takes. Several servers may run this;
+// sys_cron_executions lets exactly one fire each slot.
+const autopilotScheduler = dispatcher ? new AutopilotScheduler({ sql, fire: fireAutopilotNow, logger }) : null;
+autopilotScheduler?.start();
+
 const app = createApp(registry);
 
 const server = serve({ fetch: app.fetch, hostname: config.apiAddr.host, port: config.apiAddr.port });
@@ -798,6 +833,8 @@ logger.info('Berry server listening', {
    // Named at boot because a server that admits runs but does not execute them
    // looks identical from outside until the first one sits queued forever.
    runDispatch: dispatcher ? `${config.runtime.concurrency} at a time` : 'off',
+   // Schedules fire beside the dispatcher and nowhere else.
+   autopilotSchedules: autopilotScheduler ? 'on' : 'off',
    // Named at boot because recall is invisible from outside: an agent with no
    // memory and an agent whose store is misconfigured both just start fresh.
    runMemory: runMemory ? 'agentcore' : 'off',
@@ -820,7 +857,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
          // The dispatcher first: it aborts what it is running, and a run left
          // mid-flight is reclaimed from its lease rather than recorded from a
          // process that is on its way out.
-         void (dispatcher ? dispatcher.stop() : Promise.resolve())
+         void Promise.all([
+            dispatcher ? dispatcher.stop() : Promise.resolve(),
+            autopilotScheduler ? autopilotScheduler.stop() : Promise.resolve(),
+         ])
             .then(() => closeDatabase(sql))
             .then(() => process.exit(0));
       });

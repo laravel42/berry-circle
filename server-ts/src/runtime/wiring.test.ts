@@ -9,7 +9,7 @@ import type { IssueRepository } from '../core/issues.ts';
 import type { Sql } from '../db/pool.ts';
 import { enqueueTask } from '../runs/queue.ts';
 import { getAgentTool } from './agent-tools/registry.ts';
-import { agentCompletion, agentEnqueue, quickActionEnqueue, registerDelegateTool } from './wiring.ts';
+import { agentCompletion, agentEnqueue, autopilotEnqueue, quickActionEnqueue, registerDelegateTool } from './wiring.ts';
 
 /**
  * Each seam carries the runtime's real function. The types are proven by the
@@ -56,6 +56,16 @@ test('the composition root gives the agent layer the real queue and completion e
       root,
       /extensions: \{ skills: skillRepository, mcp: mcpRepository, profile: agentProfiles, gateway: gatewayRoute \}/
    );
+});
+
+test('autopilots fire through the runtime task queue, on schedule, webhook and by hand', () => {
+   assert.equal(autopilotEnqueue, enqueueTask);
+   assert.match(root, /fireAutopilot\(\{ sql, issues, enqueue: autopilotEnqueue, resolveSquadLeader \}, input\)/);
+   assert.match(root, /autopilotMounts\(\{ sessions, sql, autopilots, fire: fireAutopilotNow, idempotency \}\)/);
+   assert.match(root, /autopilotWebhookMounts\(\{ autopilots, fire: fireAutopilotNow, logger \}\)/);
+   // Only beside a dispatcher, and stopped with it.
+   assert.match(root, /dispatcher \? new AutopilotScheduler\(\{ sql, fire: fireAutopilotNow, logger \}\) : null/);
+   assert.match(root, /autopilotScheduler \? autopilotScheduler\.stop\(\)/);
 });
 
 const url = process.env.BERRY_TEST_DATABASE_URL;

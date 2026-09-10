@@ -1,4 +1,5 @@
 import type { CompleteFn, EnqueueTask } from '../agents/seams.ts';
+import type { EnqueueTask as AutopilotEnqueue } from '../autopilots/fire.ts';
 import type { IssueRepository } from '../core/issues.ts';
 import type { Sql } from '../db/pool.ts';
 import { enqueueTask } from '../runs/queue.ts';
@@ -35,3 +36,10 @@ export function agentCompletion(deps: CompletionDeps): CompleteFn {
 export function registerDelegateTool(deps: { sql: Sql; issues: IssueRepository }): void {
    registerAgentTool('delegate_to_member', delegateTool(deps));
 }
+
+/**
+ * Autopilots: a firing queues the assignee's task. Typed with the autopilot
+ * seam and never widened: if the runtime's signature drifts from that
+ * contract, this stops compiling.
+ */
+export const autopilotEnqueue: AutopilotEnqueue = enqueueTask;
