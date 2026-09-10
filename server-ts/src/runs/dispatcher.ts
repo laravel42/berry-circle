@@ -105,6 +105,16 @@ export class Dispatcher {
       return this.#inflight.size;
    }
 
+   /**
+    * Looks for work now rather than at the next poll.
+    *
+    * For a caller that just queued something it is waiting on — a completion
+    * holds an HTTP request open until its task finishes.
+    */
+   nudge(): void {
+      this.#wake?.();
+   }
+
    async #poll(): Promise<void> {
       while (this.#running) {
          try {
@@ -143,19 +153,49 @@ export class Dispatcher {
     * between leaves a run that is reclaimable rather than one that is stuck.
     */
    async #claim(limit: number): Promise<string[]> {
-      // MATERIALIZED, not `WHERE id IN (SELECT … LIMIT … FOR UPDATE)`: the
-      // planner may turn that subquery into a join it re-runs per row, and a
-      // re-run `SKIP LOCKED` finds the next rows, so LIMIT stops bounding the
-      // claim. A materialised CTE picks and locks the rows exactly once.
+      // Priority first, then age. A runtime with a concurrency limit gets at
+      // most `limit - busy` new claims per statement: `slot` numbers each
+      // runtime's candidates in claim order, so one tick can never hand a
+      // limit-1 runtime two runs (a plain `busy < limit` filter is evaluated
+      // once for every candidate and would). The window lives in a CTE because
+      // Postgres refuses FOR UPDATE beside a window function. Two dispatchers
+      // claiming in the same instant can each read the same `busy`; that
+      // overshoot is bounded by the number of dispatchers and ends at the
+      // next tick.
+      //
+      // The lock is taken in a MATERIALIZED CTE, not `WHERE id IN (SELECT …
+      // LIMIT … FOR UPDATE)`: the planner may re-run that subquery per row,
+      // and a re-run `SKIP LOCKED` finds the next rows, so LIMIT stops
+      // bounding the claim.
       const rows = await this.#sql`
-         WITH picked AS MATERIALIZED (
-            SELECT id FROM runs
-             WHERE status = 'queued'
-               AND dispatch_state = 'pending'
-               AND (dispatch_lease_until IS NULL OR dispatch_lease_until < now())
-             ORDER BY created_at ASC
+         WITH candidate AS (
+            SELECT ranked.id, ranked.priority, ranked.created_at FROM (
+               SELECT r.id, r.priority, r.created_at, rt.concurrency_limit,
+                      row_number() OVER (PARTITION BY r.runtime_id
+                                         ORDER BY r.priority DESC, r.created_at ASC) AS slot,
+                      (SELECT count(*) FROM runs AS busy
+                        WHERE busy.runtime_id = r.runtime_id
+                          AND busy.status IN ('queued', 'running')
+                          AND (busy.dispatch_state <> 'pending'
+                               OR busy.dispatch_lease_until > now())) AS busy_count
+                 FROM runs AS r
+                 LEFT JOIN agent_runtimes AS rt ON rt.id = r.runtime_id
+                WHERE r.status = 'queued'
+                  AND r.dispatch_state = 'pending'
+                  AND (r.dispatch_lease_until IS NULL OR r.dispatch_lease_until < now())
+                  AND (rt.id IS NULL OR rt.status <> 'disabled')
+            ) AS ranked
+            WHERE ranked.concurrency_limit IS NULL
+               OR ranked.busy_count + ranked.slot <= ranked.concurrency_limit
+         ),
+         picked AS MATERIALIZED (
+            SELECT r.id FROM runs AS r JOIN candidate AS c ON c.id = r.id
+             WHERE r.status = 'queued'
+               AND r.dispatch_state = 'pending'
+               AND (r.dispatch_lease_until IS NULL OR r.dispatch_lease_until < now())
+             ORDER BY c.priority DESC, c.created_at ASC
              LIMIT ${limit}
-             FOR UPDATE SKIP LOCKED
+             FOR UPDATE OF r SKIP LOCKED
          )
          UPDATE runs
             SET dispatch_lease_until = now() + ${`${this.#leaseMs} milliseconds`}::interval
