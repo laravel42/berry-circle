@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { BerryApiError } from '@/lib/api';
 import {
@@ -27,6 +28,7 @@ function countRunsByAgent(agentIds: string[], runs: { agentId: string }[]): Map<
 }
 
 export default function Agents() {
+   const t = useTranslations('agents.list');
    const storedAgents = useAgentsStore((state) => state.agents);
    const storedError = useAgentsStore((state) => state.error);
    const hydrateAgents = useAgentsStore((state) => state.hydrateAgents);
@@ -117,28 +119,23 @@ export default function Agents() {
    return (
       <div className="w-full">
          <div className="sticky top-0 z-10 flex items-center border-b bg-container px-6 py-1.5 text-muted-foreground">
-            <div className="min-w-0 flex-1">Agent</div>
-            <div className="w-27.5 shrink-0">Status</div>
-            <div className="hidden w-25 shrink-0 lg:block">Access</div>
-            <div className="hidden w-45 shrink-0 xl:block">Model</div>
-            <div
-               className="hidden w-27.5 shrink-0 sm:block"
-               title="Input / output, per million tokens"
-            >
-               Price
+            <div className="min-w-0 flex-1">{t('agent')}</div>
+            <div className="w-27.5 shrink-0">{t('status')}</div>
+            <div className="hidden w-25 shrink-0 lg:block">{t('access')}</div>
+            <div className="hidden w-45 shrink-0 xl:block">{t('model')}</div>
+            <div className="hidden w-27.5 shrink-0 sm:block" title={t('priceHint')}>
+               {t('price')}
             </div>
-            <div className="w-14 shrink-0 text-right">Runtimes</div>
+            <div className="w-14 shrink-0 text-right">{t('runtimes')}</div>
          </div>
 
          {loading ? (
-            <div className="px-6 py-10 text-muted-foreground">Loading agents…</div>
+            <div className="px-6 py-10 text-muted-foreground">{t('loading')}</div>
          ) : storedError ? (
             <div className="px-6 py-10 text-muted-foreground">{storedError}</div>
          ) : displayed.length === 0 ? (
             <div className="px-6 py-10 text-muted-foreground">
-               {search.trim()
-                  ? 'No agents match your search.'
-                  : 'No agents are registered for this workspace yet.'}
+               {search.trim() ? t('noMatch') : t('none')}
             </div>
          ) : (
             displayed.map((agent) => (

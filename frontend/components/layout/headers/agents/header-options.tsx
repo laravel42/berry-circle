@@ -1,12 +1,14 @@
 'use client';
 
 import { ArrowDown, SlidersHorizontal } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAgentsListStore, type AgentsSort } from '@/store/agents-list-store';
 
 export default function HeaderOptions() {
+   const t = useTranslations('agents.options');
    const { search, sort, setSearch, setSort } = useAgentsListStore();
 
    const toggleSort = () => {
@@ -20,18 +22,18 @@ export default function HeaderOptions() {
             <Input
                value={search}
                onChange={(event) => setSearch(event.target.value)}
-               placeholder="Search agents…"
+               placeholder={t('searchPlaceholder')}
                className="h-7 max-w-xs border-none bg-transparent px-0 text-foreground shadow-none placeholder:text-foreground/40"
-               aria-label="Search agents"
+               aria-label={t('searchLabel')}
             />
          </div>
          <div className="flex shrink-0 items-center gap-2">
             <Button size="xs" variant="secondary" disabled>
                <SlidersHorizontal className="mr-1 size-4" />
-               Filter
+               {t('filter')}
             </Button>
             <Button size="xs" variant="secondary" onClick={toggleSort}>
-               {sort === 'last-active-desc' ? 'Last active' : 'Name'}
+               {sort === 'last-active-desc' ? t('sortLastActive') : t('sortName')}
                <ArrowDown className="ml-1 size-4" />
             </Button>
          </div>

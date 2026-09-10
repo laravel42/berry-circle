@@ -1,1 +1,26 @@
-{}
+{
+   "header": {
+      "title": "에이전트",
+      "description": "작업을 맡고, 댓글을 달고, 상태를 업데이트하는 AI 팀원입니다.",
+      "newAgent": "새 에이전트"
+   },
+   "options": {
+      "searchPlaceholder": "에이전트 검색…",
+      "searchLabel": "에이전트 검색",
+      "filter": "필터",
+      "sortLastActive": "최근 활동",
+      "sortName": "이름"
+   },
+   "list": {
+      "agent": "에이전트",
+      "status": "상태",
+      "access": "접근 권한",
+      "model": "모델",
+      "price": "가격",
+      "priceHint": "입력 / 출력, 100만 토큰당",
+      "runtimes": "런타임",
+      "loading": "에이전트를 불러오는 중…",
+      "noMatch": "검색과 일치하는 에이전트가 없습니다.",
+      "none": "이 워크스페이스에 등록된 에이전트가 아직 없습니다."
+   }
+}
