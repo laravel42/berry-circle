@@ -16,6 +16,7 @@ export type ShellRoute =
    | 'projects'
    | 'goals'
    | 'members'
+   | 'autopilots'
    | 'analytics';
 
 export interface ShellRouteDef {
@@ -97,6 +98,14 @@ const MANAGE: ShellRouteDef[] = [
       href: '/agents',
       prefsKey: 'agents',
       icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" /><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9z" />',
+   },
+   {
+      id: 'autopilots',
+      label: 'autopilots',
+      href: '/autopilots',
+      match: ['/autopilot/'],
+      prefsKey: 'autopilot',
+      icon: '<circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2.5" /><path d="M9.5 3h5" />',
    },
    {
       id: 'analytics',

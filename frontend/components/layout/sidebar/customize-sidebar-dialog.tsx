@@ -28,6 +28,7 @@ import {
    LucideIcon,
    Sparkles,
    Target,
+   Timer,
 } from 'lucide-react';
 import { Fragment, useRef, useState, type PointerEvent } from 'react';
 
@@ -49,6 +50,7 @@ export const WORKSPACE_ITEMS: ItemConfig[] = [
 export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
+   { key: 'autopilot', label: 'autopilots', icon: Timer },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
 ];
 
