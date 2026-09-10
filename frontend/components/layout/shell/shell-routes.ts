@@ -16,7 +16,8 @@ export type ShellRoute =
    | 'projects'
    | 'goals'
    | 'members'
-   | 'analytics';
+   | 'analytics'
+   | 'usage';
 
 export interface ShellRouteDef {
    /** Stable identifier, also the tab key. */
@@ -103,6 +104,13 @@ const MANAGE: ShellRouteDef[] = [
       label: 'analytics',
       prefsKey: 'analytics',
       icon: '<path d="M4 19V10M10 19V5M16 19v-7" /><path d="M3 19h18" />',
+   },
+   {
+      id: 'usage',
+      label: 'usage',
+      href: '/usage',
+      prefsKey: 'usage',
+      icon: '<circle cx="12" cy="12" r="8.5" /><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7c0 2.6-5 1.3-5 4 0 1.1 1 1.8 2.5 1.8s2.5-.5 2.5-1.5" />',
    },
 ];
 
