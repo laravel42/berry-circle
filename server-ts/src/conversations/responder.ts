@@ -1,8 +1,7 @@
 import type { Sql } from '../db/pool.ts';
-import { Message, TextBlock } from '@strands-agents/sdk';
-import { Completion } from '../llm/completion.ts';
-import type { AwsCredentials } from '../agents/runtime/model.ts';
-import { toAgentName } from '../agents/runtime/agent.ts';
+import type { RuntimeCompletion } from '../runtime/completion.ts';
+import type { TranscriptMessage } from '../runtime/envelope.ts';
+import { toAgentName } from '../agents/runtime/agent-name.ts';
 import type { ConversationMessage } from './repository.ts';
 
 /**
@@ -42,37 +41,24 @@ export class ResponderUnavailable extends Error {
 
 export interface ResponderOptions {
    sql: Sql;
-   /** The AWS region Bedrock is called in. */
-   region: string;
-   /**
-    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
-    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
-    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
-    * security token.
-    */
-   credentials?: AwsCredentials | null;
-   /** Injected by tests; production builds one from the region. */
-   completion?: Pick<Completion, 'converse'>;
+   /** Runs each call as a completion task on the runtime (ADR-0014). */
+   completion: Pick<RuntimeCompletion, 'converse'>;
    defaultModel: string;
 }
 
 export class ConversationResponder {
    readonly #sql: Sql;
-   readonly #completion: Pick<Completion, 'converse'>;
+   readonly #completion: Pick<RuntimeCompletion, 'converse'>;
    readonly #defaultModel: string;
 
    constructor(options: ResponderOptions) {
       this.#sql = options.sql;
-      this.#completion =
-         options.completion ??
-         new Completion({
-            region: options.region,
-            ...(options.credentials ? { credentials: options.credentials } : {}),
-         });
+      this.#completion = options.completion;
       this.#defaultModel = options.defaultModel;
    }
 
    async reply(input: {
+      workspaceId: string;
       agentId: string;
       history: ConversationMessage[];
       signal?: AbortSignal;
@@ -82,9 +68,8 @@ export class ConversationResponder {
           WHERE id = ${input.agentId} AND archived_at IS NULL`;
       if (!agent) throw new ResponderUnavailable('that agent no longer exists');
 
-      // A single completion with no tools, so this goes straight to Bedrock
-      // rather than through an agent framework: a tool loop with no tools is
-      // machinery with nothing to do.
+      // A single completion task with no tools: the runtime answers it as one
+      // model call, and a tool loop with no tools is machinery with nothing to do.
       const messages = toMessages(input.history);
       if (messages.length === 0 || messages.at(-1)?.role !== 'user') {
          // The reply is to a person; with nothing from one there is nothing
@@ -94,6 +79,8 @@ export class ConversationResponder {
 
       const result = await this.#completion
          .converse({
+            workspaceId: input.workspaceId,
+            purpose: 'chat_reply',
             model: (agent.model_name as string | null) || this.#defaultModel,
             // Its own instructions, plus what this conversation is not. An
             // agent that offers to "go ahead and fix it" here would be
@@ -139,7 +126,7 @@ doing the thing would need a task, say so and say what the task would be.`,
  * "Andrea:" back. The tail is kept: a long conversation's beginning matters
  * less than what was just said.
  */
-export function toMessages(history: ConversationMessage[]): Message[] {
+export function toMessages(history: ConversationMessage[]): TranscriptMessage[] {
    const recent = history.slice(-MAX_HISTORY);
    const people = new Set(
       recent.filter((message) => message.authorType === 'user').map((message) => message.authorName)
@@ -161,7 +148,5 @@ export function toMessages(history: ConversationMessage[]): Message[] {
       if (last && last.role === role) last.parts.push(...parts);
       else turns.push({ role, parts });
    }
-   return turns.map(
-      (turn) => new Message({ role: turn.role, content: [new TextBlock(turn.parts.join('\n\n'))] })
-   );
+   return turns.map((turn) => ({ role: turn.role, text: turn.parts.join('\n\n') }));
 }

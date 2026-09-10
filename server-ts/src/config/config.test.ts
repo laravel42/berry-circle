@@ -141,3 +141,19 @@ test('dev login needs both the flag and a development environment', () => {
       false
    );
 });
+
+test('the runtime section reads the local runtime URL and token lifetime', () => {
+   const config = loadConfig({
+      ...base,
+      BERRY_AGENT_RUNTIME_URL: 'http://agent-runtime:8080/',
+      BERRY_TASK_TOKEN_TTL_SECONDS: '3600',
+   });
+   assert.equal(config.runtime.agentRuntimeUrl, 'http://agent-runtime:8080');
+   assert.equal(config.runtime.tokenTtlSeconds, 3600);
+   assert.equal(config.runtime.concurrency, 2);
+});
+
+test('the runtime section needs no Bedrock region: the server calls no model', () => {
+   const config = loadConfig({ ...base, BERRY_BEDROCK_REGION: '', AWS_REGION: '' });
+   assert.equal(config.runtime.defaultModel, 'us.anthropic.claude-haiku-4-5-20251001-v1:0');
+});

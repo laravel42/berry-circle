@@ -12,7 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE_FILE = ROOT / "docker-compose.yml"
-EXPECTED_SERVICES = {"berry-api", "runtime", "sandbox-image", "postgres", "minio", "minio-bucket"}
+EXPECTED_SERVICES = {"berry-api", "runtime", "sandbox-image", "agent-runtime", "postgres", "minio", "minio-bucket"}
 
 
 def fail(message: str) -> None:
@@ -245,10 +245,17 @@ def check_runtime(services: dict[str, Any]) -> None:
         "BERRY_RUNTIME_DRIVER",
         "BERRY_RUNTIME_URL",
         "BERRY_RUNTIME_TOKEN",
+        "BERRY_AGENT_RUNTIME_URL",
         "INTEGRATION_ENCRYPTION_KEY",
     ):
         if key not in api_environment:
             fail(f"berry-api environment is missing: {key}")
+
+    agent_runtime = object_value(services["agent-runtime"], "agent-runtime service")
+    require_loopback_port(agent_runtime, "agent-runtime", 8080)
+    agent_environment = object_value(agent_runtime.get("environment"), "agent-runtime environment")
+    if str(agent_environment.get("BERRY_RUNTIME_LOCAL_CONTROL", "")).lower() != "true":
+        fail("agent-runtime must enable local session control")
 
 
 def main() -> int:

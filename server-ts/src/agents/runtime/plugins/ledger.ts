@@ -8,7 +8,7 @@ import {
    type LocalAgent,
    type Plugin,
 } from '@strands-agents/sdk';
-import { RunTerminal } from '../../../runs/ledger.ts';
+import { RunTerminal } from '../terminal.ts';
 import { OutputBuffer } from '../output-buffer.ts';
 
 /**

@@ -33,6 +33,7 @@ import { BoardRepository } from '../core/boards.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
+import { runtimeMounts } from './runtimes.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
@@ -53,6 +54,7 @@ interface World {
    u1Token: string;
    w1Id: string;
    w2Id: string;
+   w2RuntimeId: string;
    w1LabelId: string;
    w2LabelId: string;
    w1LabelName: string;
@@ -84,6 +86,7 @@ describe(
          const boards = new BoardRepository(sql);
          const registry = new Registry();
          registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+         registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
          app = createApp(registry);
 
          const suffix = randomUUID().slice(0, 8);
@@ -174,9 +177,20 @@ describe(
          world.w1BoardId = w1Board!.id as string;
          world.w2BoardId = w2Board!.id as string;
 
+         // W2's runtime. Rows cascade with the workspace, so the teardown
+         // needs nothing new.
+         const [w2Runtime] = await sql`
+            INSERT INTO agent_runtimes (workspace_id, name, kind, driver, endpoint_url)
+            VALUES (${world.w2Id}, 'W2 runtime', 'custom', 'http', 'http://w2-runtime:8080')
+            RETURNING id`;
+         world.w2RuntimeId = w2Runtime!.id as string;
+
          // A real session for U1, issued through the same path production uses.
          // The raw token is handed back once; we drive every authenticated
          // request below with it.
+         // U1's current workspace is W1, which is what a mount that scopes
+         // to the session's workspace (/api/v1/runtimes) reads.
+         await sql`UPDATE users SET last_workspace_id = ${world.w1Id} WHERE id = ${u1Id}`;
          const issued = await sessions.issueForUser(u1Id);
          world.u1Token = issued.token;
       });
@@ -239,6 +253,16 @@ describe(
             })
          );
       }
+
+      test('runtimes: W1 lists none of W2 and cannot open or change W2 runtime', async () => {
+         const list = await getAsU1('/api/v1/runtimes');
+         assert.equal(list.status, 200);
+         assert.equal((await list.text()).includes(world.w2RuntimeId), false);
+         assert.equal((await getAsU1(`/api/v1/runtimes/${world.w2RuntimeId}`)).status, 404);
+         assert.equal((await patchAsU1(`/api/v1/runtimes/${world.w2RuntimeId}`, { name: 'mine' })).status, 404);
+         const [row] = await sql`SELECT name FROM agent_runtimes WHERE id = ${world.w2RuntimeId}`;
+         assert.equal(row!.name, 'W2 runtime');
+      });
 
       // -------------------------------------------------------- guarantee (a)
 

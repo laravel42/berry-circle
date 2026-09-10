@@ -1,7 +1,6 @@
 import type { Sql } from '../db/pool.ts';
 import { z } from 'zod';
-import { Completion, CompletionInvalid } from '../llm/completion.ts';
-import type { AwsCredentials } from '../agents/runtime/model.ts';
+import { CompletionInvalid, type RuntimeCompletion } from '../runtime/completion.ts';
 import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationReport } from './schema.ts';
 
 /**
@@ -189,18 +188,9 @@ export class PlannerUnavailable extends Error {
 
 export interface PlanGeneratorOptions {
    sql: Sql;
-   /** The AWS region Bedrock is called in. */
-   region: string;
-   /**
-    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
-    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
-    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
-    * security token.
-    */
-   credentials?: AwsCredentials | null;
    defaultModel: string;
-   /** Injected by tests; production builds one from the region. */
-   completion?: Pick<Completion, 'structured'>;
+   /** Runs each call as a completion task on the runtime (ADR-0014). */
+   completion: Pick<RuntimeCompletion, 'structured'>;
    timeoutMs?: number;
    /** How many times a document may be sent back to be fixed. */
    maxRepairs?: number;
@@ -212,7 +202,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class PlanGenerator {
    readonly #sql: Sql;
-   readonly #completion: Pick<Completion, 'structured'>;
+   readonly #completion: Pick<RuntimeCompletion, 'structured'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
    readonly #maxRepairs: number;
@@ -220,13 +210,7 @@ export class PlanGenerator {
 
    constructor(options: PlanGeneratorOptions) {
       this.#sql = options.sql;
-      this.#completion =
-         options.completion ??
-         new Completion({
-            region: options.region,
-            ...(options.credentials ? { credentials: options.credentials } : {}),
-            ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-         });
+      this.#completion = options.completion;
       this.#defaultModel = options.defaultModel;
       this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       this.#maxRepairs = options.maxRepairs ?? 2;
@@ -258,6 +242,8 @@ export class PlanGenerator {
     * plan is instead of a spinner.
     */
    async generate(input: {
+      /** The workspace the plan is for; its completion tasks run there. */
+      workspaceId: string;
       prompt: string;
       /**
        * What the asker has already answered, when this is a second attempt.
@@ -276,6 +262,7 @@ export class PlanGenerator {
       input.onStage?.('generate');
       const planner = await this.role('planner');
       const first = await this.#call({
+         workspaceId: input.workspaceId,
          role: 'planner',
          stage: 'generate',
          model: planner,
@@ -300,7 +287,7 @@ export class PlanGenerator {
          while (validation.status === 'invalid' && repairs < this.#maxRepairs) {
             repairs += 1;
             input.onStage?.('repair');
-            const repaired = await this.#repair(plan, validation.errors, input.signal);
+            const repaired = await this.#repair(input.workspaceId, plan, validation.errors, input.signal);
             account(usage, repaired.result);
             plan = repaired.plan;
             validation = repaired.validation;
@@ -312,7 +299,7 @@ export class PlanGenerator {
             while (rounds < this.#maxCriticRounds) {
                rounds += 1;
                input.onStage?.('critic');
-               const reviewed = await this.#critique(plan, input.signal);
+               const reviewed = await this.#critique(input.workspaceId, plan, input.signal);
                account(usage, reviewed.result);
                stages.push(reviewed.record);
                if (reviewed.critique.verdict === 'accept') {
@@ -330,6 +317,7 @@ export class PlanGenerator {
 
                input.onStage?.('repair');
                const repaired = await this.#repair(
+                  input.workspaceId,
                   plan,
                   reviewed.critique.problems.map((problem) => ({
                      path: problem.path,
@@ -376,12 +364,14 @@ export class PlanGenerator {
    }
 
    async #repair(
+      workspaceId: string,
       plan: Plan,
       problems: Array<{ path: string; code: string; message: string }>,
       signal: AbortSignal | undefined
    ) {
       const role = await this.role('repair');
       const result = await this.#call({
+         workspaceId,
          role: 'repair',
          stage: 'repair',
          model: role,
@@ -402,9 +392,10 @@ export class PlanGenerator {
       };
    }
 
-   async #critique(plan: Plan, signal: AbortSignal | undefined) {
+   async #critique(workspaceId: string, plan: Plan, signal: AbortSignal | undefined) {
       const role = await this.role('critic');
       const result = await this.#call({
+         workspaceId,
          role: 'critic',
          stage: 'critic',
          model: role,
@@ -432,6 +423,7 @@ export class PlanGenerator {
    }
 
    async #call(input: {
+      workspaceId: string;
       role: 'planner' | 'repair' | 'critic';
       stage: Stage;
       model: { provider: string; model: string };
@@ -442,6 +434,8 @@ export class PlanGenerator {
    }) {
       const result = await this.#completion
          .structured({
+            workspaceId: input.workspaceId,
+            purpose: input.role,
             model: input.model.model,
             system: input.system,
             user: input.user,

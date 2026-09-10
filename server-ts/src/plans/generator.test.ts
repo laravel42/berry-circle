@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PlanGenerator, PlannerUnavailable } from './generator.ts';
 import type { Sql } from '../db/pool.ts';
-import { CompletionFailed, CompletionInvalid, type Completion } from '../llm/completion.ts';
+import { CompletionFailed, CompletionInvalid, type RuntimeCompletion } from '../runtime/completion.ts';
 
 /**
  * The pipeline: generate, validate, repair, critic.
@@ -29,7 +29,7 @@ function scripted(answers: unknown[]) {
          const value = answers[index++] ?? {};
          return { value, text: JSON.stringify(value), inputTokens: 10, outputTokens: 20, durationMs: 1 };
       },
-   } as unknown as Pick<Completion, 'structured'>;
+   } as unknown as Pick<RuntimeCompletion, 'structured'>;
    return { completion, prompts, calls: () => index };
 }
 
@@ -39,8 +39,7 @@ function generator(answers: unknown[], options: Record<string, unknown> = {}) {
       script,
       planner: new PlanGenerator({
          sql: NO_ROLES,
-         region: 'us-east-1',
-         defaultModel: 'test/model',
+                  defaultModel: 'test/model',
          completion: script.completion,
          ...options,
       }),
@@ -60,7 +59,7 @@ const ACCEPT = { verdict: 'accept', problems: [] };
 
 test('a good plan goes straight to the critic', async () => {
    const { planner, script } = generator([GOOD, ACCEPT]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.critique?.verdict, 'accept');
@@ -73,7 +72,7 @@ test('a good plan goes straight to the critic', async () => {
 
 test('a broken plan is sent back with its errors, and fixed', async () => {
    const { planner, script } = generator([BROKEN, GOOD, ACCEPT]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.exhausted, false);
@@ -93,7 +92,7 @@ test('repairs are bounded, and the last document is kept', async () => {
    // returned: named errors are something a person can fix, and throwing it
    // away would leave them with the prompt and nothing else.
    const { planner, script } = generator([BROKEN, BROKEN, BROKEN, BROKEN], { maxRepairs: 2 });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'invalid');
    assert.equal(result.exhausted, true);
@@ -117,7 +116,7 @@ test('a blocked plan is not sent to repair, because nothing is broken', async ()
          assumptions: [{ id: 'a1', description: 'Which repository?', blocking: true }],
       },
    ]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'blocked');
    assert.equal(result.exhausted, false);
@@ -143,7 +142,7 @@ test('a critic asking for a revision gets one round', async () => {
       ],
    };
    const { planner, script } = generator([GOOD, revise, better], { maxCriticRounds: 1 });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.plan.issues.length, 2, 'the revision was not taken');
    assert.deepEqual(
@@ -161,7 +160,7 @@ test("a revision that breaks the plan is discarded, not accepted", async () => {
       problems: [{ code: 'style', path: '/issues/0', message: 'Rename it.', severity: 'warning' }],
    };
    const { planner } = generator([GOOD, revise, BROKEN], { maxCriticRounds: 1 });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.plan.issues[0]!.title, 'Do the work');
@@ -172,7 +171,7 @@ test('the critic is asked once per round, and the rounds are bounded', async () 
    const { planner, script } = generator([GOOD, revise, GOOD, revise, GOOD, revise, GOOD], {
       maxCriticRounds: 2,
    });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.deepEqual(
       result.stages.map((stage) => stage.stage),
@@ -186,14 +185,14 @@ test('an unreadable critique is an accept, not a lost plan', async () => {
    // The document already passed the checks that decide whether it can be
    // compiled. Losing it because a reviewer answered badly is the wrong trade.
    const { planner } = generator([GOOD, 'not json at all']);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.critique?.verdict, 'accept');
 });
 
 test('every stage is costed, so the pipeline does not look free', async () => {
    const { planner } = generator([BROKEN, GOOD, ACCEPT]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
    // Three calls at 10 in / 20 out.
    assert.equal(result.usage.inputTokens, 30);
    assert.equal(result.usage.outputTokens, 60);
@@ -207,7 +206,7 @@ test('every stage is costed, so the pipeline does not look free', async () => {
 test('the caller is told which stage is running, as it starts', async () => {
    const seen: string[] = [];
    const { planner } = generator([BROKEN, GOOD, ACCEPT]);
-   await planner.generate({ prompt: 'ship it', onStage: (stage) => seen.push(stage) });
+   await planner.generate({ workspaceId: 'w', prompt: 'ship it', onStage: (stage) => seen.push(stage) });
    assert.deepEqual(seen, ['generate', 'validate', 'repair', 'critic']);
 });
 
@@ -220,17 +219,16 @@ test('a refusal names the stage it happened at', async () => {
    });
    const completion = {
       async structured() {
-         throw new CompletionFailed(throttle);
+         throw new CompletionFailed({ code: 'MODEL_THROTTLED', message: throttle.message, retryable: true });
       },
    };
    const planner = new PlanGenerator({
       sql: NO_ROLES,
-      region: 'us-east-1',
-      defaultModel: 'test/model',
+            defaultModel: 'test/model',
       completion,
    });
    await assert.rejects(
-      () => planner.generate({ prompt: 'ship it' }),
+      () => planner.generate({ workspaceId: 'w', prompt: 'ship it' }),
       (error: unknown) => {
          assert.ok(error instanceof PlannerUnavailable);
          assert.equal(error.stage, 'generate');
@@ -251,12 +249,11 @@ test('a model that will not answer in the schema names the stage', async () => {
    };
    const planner = new PlanGenerator({
       sql: NO_ROLES,
-      region: 'us-east-1',
-      defaultModel: 'test/model',
+            defaultModel: 'test/model',
       completion,
    });
    await assert.rejects(
-      () => planner.generate({ prompt: 'ship it' }),
+      () => planner.generate({ workspaceId: 'w', prompt: 'ship it' }),
       (error: unknown) =>
          error instanceof PlannerUnavailable &&
          error.stage === 'generate' &&

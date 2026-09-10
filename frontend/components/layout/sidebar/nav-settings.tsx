@@ -20,6 +20,7 @@ import {
    Tag,
    UserRound,
    Users,
+   Server,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
@@ -54,6 +55,7 @@ export const settingsNav: SettingsNavGroup[] = [
       items: [
          { name: 'agents', url: '/settings/ai', icon: Sparkles },
          { name: 'agent personalization', url: '/settings/agent-personalization', icon: Bot },
+         { name: 'runtimes', url: '/runtimes', icon: Server },
          { name: 'code & reviews', url: '/settings/code-and-reviews', icon: Code },
          { name: 'task labels', url: '/settings/issue-labels', icon: Tag },
          { name: 'statuses', url: '/settings/project-statuses', icon: Columns3 },
