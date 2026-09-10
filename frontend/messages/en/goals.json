@@ -1,1 +1,19 @@
-{}
+{
+   "header": {
+      "title": "Goals",
+      "description": "The tasks one plan produced, grouped inside their project. Berry makes a goal when you plan work in a project — there is nothing to start or write here."
+   },
+   "list": {
+      "goal": "Goal",
+      "status": "Status",
+      "progress": "Progress",
+      "updated": "Updated",
+      "loading": "Loading goals…"
+   },
+   "empty": {
+      "mark": "No goals",
+      "title": "No goals yet.",
+      "body": "A goal is the group of tasks one plan produced. Plan work in a project and the goal arrives with the tasks.",
+      "cta": "go to projects"
+   }
+}

@@ -1,1 +1,13 @@
-{}
+{
+   "header": {
+      "title": "任务",
+      "description": "工作从这里开始。分配给成员或智能体，然后一路跟踪到评审。",
+      "toggleInsights": "切换洞察面板",
+      "toggleBreakdown": "切换细分面板"
+   },
+   "tabs": {
+      "all": "全部",
+      "members": "成员",
+      "agent": "智能体"
+   }
+}

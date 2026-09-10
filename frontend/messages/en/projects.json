@@ -1,1 +1,7 @@
-{}
+{
+   "header": {
+      "title": "Projects",
+      "description": "Group related tasks into a shared plan with status, health, and a target date."
+   },
+   "toggleInsights": "Toggle projects insights panel"
+}

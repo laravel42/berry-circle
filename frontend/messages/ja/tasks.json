@@ -1,1 +1,13 @@
-{}
+{
+   "header": {
+      "title": "タスク",
+      "description": "作業はここから始まります。人またはエージェントに割り当て、レビューまで追跡します。",
+      "toggleInsights": "インサイトパネルを切り替え",
+      "toggleBreakdown": "内訳パネルを切り替え"
+   },
+   "tabs": {
+      "all": "すべて",
+      "members": "メンバー",
+      "agent": "エージェント"
+   }
+}

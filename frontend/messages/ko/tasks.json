@@ -1,1 +1,13 @@
-{}
+{
+   "header": {
+      "title": "작업 항목",
+      "description": "작업은 여기서 시작됩니다. 사람이나 에이전트에게 배정하고 리뷰까지 추적하세요.",
+      "toggleInsights": "인사이트 패널 전환",
+      "toggleBreakdown": "세부 패널 전환"
+   },
+   "tabs": {
+      "all": "전체",
+      "members": "멤버",
+      "agent": "에이전트"
+   }
+}
