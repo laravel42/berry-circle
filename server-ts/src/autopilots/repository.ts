@@ -53,18 +53,22 @@ export interface Autopilot extends AutopilotDraft {
    updatedAt: string;
 }
 
+/**
+ * A partial change. `undefined` means "not given", the same as absent: a
+ * parsed request body carries every optional key it did not receive.
+ */
 export interface AutopilotPatch {
-   name?: string;
-   description?: string | null;
-   assigneeType?: AssigneeType;
-   assigneeId?: string;
-   promptTemplate?: string;
-   executionMode?: ExecutionMode;
-   boardId?: string | null;
-   issueId?: string | null;
-   quotaPeriod?: QuotaPeriod;
-   quotaMax?: number | null;
-   status?: 'active' | 'paused';
+   name?: string | undefined;
+   description?: string | null | undefined;
+   assigneeType?: AssigneeType | undefined;
+   assigneeId?: string | undefined;
+   promptTemplate?: string | undefined;
+   executionMode?: ExecutionMode | undefined;
+   boardId?: string | null | undefined;
+   issueId?: string | null | undefined;
+   quotaPeriod?: QuotaPeriod | undefined;
+   quotaMax?: number | null | undefined;
+   status?: 'active' | 'paused' | undefined;
 }
 
 export interface AutopilotVersion {
@@ -96,10 +100,10 @@ export interface AutopilotTrigger {
 }
 
 export interface TriggerPatch {
-   enabled?: boolean;
-   expression?: string;
-   timezone?: string;
-   eventFilters?: string[];
+   enabled?: boolean | undefined;
+   expression?: string | undefined;
+   timezone?: string | undefined;
+   eventFilters?: string[] | undefined;
 }
 
 export interface WebhookSecrets {
@@ -575,9 +579,18 @@ export class AutopilotRepository {
       }) as Promise<string>;
    }
 
+   /**
+    * Settles a delivery and points it at the run its firing produced.
+    *
+    * The run is linked only if its record exists. `fire` is injected, and a
+    * delivery must still settle its status when the id it was handed names
+    * no autopilot_runs row, rather than failing on the foreign key.
+    */
    async linkDelivery(deliveryId: string, autopilotRunId: string | null, status: DeliveryStatus): Promise<void> {
       await this.#sql`
-         UPDATE webhook_deliveries SET autopilot_run_id = ${autopilotRunId}, status = ${status}
+         UPDATE webhook_deliveries
+            SET autopilot_run_id = (SELECT id FROM autopilot_runs WHERE id = ${autopilotRunId}),
+                status = ${status}
           WHERE id = ${deliveryId}`;
    }
 }
