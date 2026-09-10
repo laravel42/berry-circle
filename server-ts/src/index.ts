@@ -89,6 +89,11 @@ import { EnvelopeBuilder } from './runtime/envelope-builder.ts';
 import { httpTransport } from './runtime/http-transport.ts';
 import { RuntimeTaskExecutor, type UsageRecorder } from './runtime/task-executor.ts';
 import { routingTransport, type RuntimeTarget } from './runtime/transport.ts';
+import { runtimeMounts } from './mounts/runtimes.ts';
+import { syncPlatformRuntime } from './runtime/runtimes.ts';
+import { applyLifecycle } from './runtime/runtime-control.ts';
+import { agentCoreRuntimeDriver } from './execution/agentcore-runtime.ts';
+import { BedrockAgentCoreControlClient } from '@aws-sdk/client-bedrock-agentcore-control';
 import { ConnectionRepository } from './integrations/connections.ts';
 import { GitHubAppRepository } from './integrations/github-app.ts';
 import { sealerFromKey } from './integrations/sealing.ts';
@@ -325,6 +330,14 @@ const executor = defaultTarget
      })
    : null;
 
+// Every workspace sees the deployment's own runtime as a row it can bind
+// agents to and probe. A failure here costs the listing, never the boot.
+await syncPlatformRuntime(sql, defaultTarget).catch((error: unknown) =>
+   logger.error('could not sync the platform runtime', {
+      error: error instanceof Error ? error.message : String(error),
+   })
+);
+
 // The model picker's catalogue. Null without a credential rather than an
 // empty list: "no models exist" and "this server cannot ask" are different
 // answers, and only one of them is true.
@@ -412,6 +425,45 @@ registry.registerAll(
 registry.registerAll(runMounts(runOptions));
 // Berry's tools for a running task, behind its task token (not a session).
 registry.registerAll(agentToolMounts({ sql, storage, issues }));
+const agentCore = config.agentCore;
+registry.registerAll(
+   runtimeMounts({
+      sessions,
+      sql,
+      sealer: config.integrationKey ? sealerFromKey(config.integrationKey) : null,
+      defaultTarget,
+      health: async (target) => {
+         if (target.driver === 'http') {
+            const response = await fetch(`${(target.endpointUrl ?? '').replace(/\/+$/, '')}/ping`, {
+               signal: AbortSignal.timeout(10_000),
+            });
+            if (!response.ok) throw new Error(`the runtime answered ${response.status}`);
+            return;
+         }
+         if (!target.arn || !agentCore) throw new Error('AgentCore is not configured');
+         await agentCoreRuntimeDriver({
+            region: target.region ?? agentCore.region,
+            runtimeArn: target.arn,
+            qualifier: target.qualifier,
+            ...(agentCore.credentials ? { credentials: agentCore.credentials } : {}),
+         }).health();
+      },
+      // Only with AgentCore: a profile's idle timeout is a runtime setting.
+      ...(agentCore
+         ? {
+              applyLifecycle: (arn: string, lifecycle: { idleRuntimeSessionTimeout: number; maxLifetime: number }) =>
+                 applyLifecycle(
+                    new BedrockAgentCoreControlClient({
+                       region: agentCore.region,
+                       ...(agentCore.credentials ? { credentials: agentCore.credentials } : {}),
+                    }),
+                    arn,
+                    lifecycle
+                 ),
+           }
+         : {}),
+   })
+);
 registry.registerAll(
    reviewMounts({
       sessions,

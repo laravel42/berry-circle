@@ -5,6 +5,15 @@
 #   docker build -f sandbox/agentcore/Dockerfile -t berry-agent-runtime server-ts
 # What it copies is pinned by src/agents/runtime/container/closure.test.ts.
 #
+# Session lifecycle (spec 2.2a): apply once per deploy, not at every boot —
+# UpdateAgentRuntime creates a new runtime version each time it runs:
+#   aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id <id> \
+#     --lifecycle-configuration idleRuntimeSessionTimeout=3600,maxLifetime=28800 \
+#     --agent-runtime-artifact file://artifact.json --role-arn <role> \
+#     --network-configuration networkMode=PUBLIC
+# A profile's idle timeout on a registered runtime is applied by Berry when the
+# profile is saved (src/runtime/runtime-control.ts).
+#
 # ARM64 is required by AgentCore Runtime. Local x86 hosts can build with
 # --build-arg BERRY_RUNTIME_PLATFORM=linux/amd64 (Compose does via env).
 ARG BERRY_RUNTIME_PLATFORM=linux/arm64

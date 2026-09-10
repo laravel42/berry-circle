@@ -22,6 +22,7 @@ Every prefix `src/index.ts` registers today:
 /api/v1/conversations /api/v1/editor        /api/v1/events        /api/v1/goals
 /api/v1/inbox         /api/v1/integrations  /api/v1/invitations   /api/v1/issues
 /api/v1/me            /api/v1/plans         /api/v1/projects      /api/v1/runs
+/api/v1/runtimes
 /api/v1/search        /api/v1/tokens        /api/v1/views         /api/v1/webhooks
 /api/v1/workspaces
 /health  /metrics  /ready  /readyz

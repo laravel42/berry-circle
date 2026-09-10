@@ -55,3 +55,11 @@ concept that operators can register, bound and observe.
   cold path restores it.
 - A run past `maxLifetime` loses its lease, is re-queued retryable and resumes
   cold.
+- The session lifecycle is a runtime setting, not a session one. The default
+  (idle 3600 s, life 28800 s) is applied once per deploy, because each
+  `UpdateAgentRuntime` creates a runtime version:
+  `aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id <id>
+  --lifecycle-configuration idleRuntimeSessionTimeout=3600,maxLifetime=28800
+  --agent-runtime-artifact file://artifact.json --role-arn <role>
+  --network-configuration networkMode=PUBLIC`. A profile's idle timeout on a
+  registered runtime is written by Berry when the profile is saved.
