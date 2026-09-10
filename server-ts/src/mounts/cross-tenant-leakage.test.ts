@@ -45,6 +45,13 @@ import { githubMounts } from './github.ts';
 import { usageMounts } from './usage.ts';
 import { workCatalogRoutes } from './work-catalogs.ts';
 import { savedViewRoutes } from './view-routes.ts';
+import { CommentRepository } from '../core/comments.ts';
+import { sealerFromKey } from '../integrations/sealing.ts';
+import { parsePackage } from '../plugins/manifest.ts';
+import { PluginRepository } from '../plugins/repository.ts';
+import { PluginRuntimeStore } from '../plugins/runtime-store.ts';
+import { pluginMounts } from './plugins.ts';
+import { publicApiMounts } from './public-api.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -87,6 +94,8 @@ describe(
       let sql: Sql;
       let app: BerryApp;
       const world = {} as World;
+      /** W2's installed plugin and a token minted for it (workstream G). */
+      const plugin = { w2InstallationId: '', w2Token: '' };
 
       before(async () => {
          sql = openDatabase({ url: url as string });
@@ -119,6 +128,31 @@ describe(
                pullRequests: new PullRequestStore({ sql, issues: new IssueRepository(sql) }),
                githubApp: null,
                connections: null,
+            })
+         );
+         // Workstream G: the plugin admin mount and the public API.
+         const pluginRepo = new PluginRepository({
+            sql,
+            sealer: sealerFromKey(Buffer.alloc(32, 7).toString('base64')),
+         });
+         const pluginRuntime = new PluginRuntimeStore({ sql });
+         registry.registerAll(
+            pluginMounts({
+               sessions,
+               sql,
+               plugins: pluginRepo,
+               runtime: pluginRuntime,
+               network: { request: async () => ({ status: 500, body: '' }) },
+               publicUrl: null,
+            })
+         );
+         registry.registerAll(
+            publicApiMounts({
+               personalTokens: personalTokenResolver(sql),
+               sql,
+               issues: new IssueRepository(sql),
+               comments: new CommentRepository(sql),
+               plugins: pluginRuntime,
             })
          );
          app = createApp(registry);
@@ -235,6 +269,40 @@ describe(
             RETURNING id`;
          world.w2RuntimeId = w2Runtime!.id as string;
 
+         // W2's plugin (workstream G), with a sealed secret and a token of its own.
+         const [w2Plugin] = await sql.begin((tx) =>
+            pluginRepo.install(tx, {
+               workspaceId: world.w2Id,
+               installedBy: u2Id,
+               pkg: parsePackage({
+                  manifest: {
+                     schemaVersion: 1,
+                     key: 'leak-probe',
+                     name: 'Leak probe',
+                     version: '1.0.0',
+                     baseUrl: 'https://leak-probe.example.com',
+                     scopes: ['issues:read'],
+                     secrets: [{ name: 'API_KEY' }],
+                     surfaces: [{ key: 'panel', title: 'Panel', path: '/ui' }],
+                  },
+                  files: [],
+               }),
+               source: 'upload',
+               sourceUrl: null,
+               config: {},
+            }).then((installed) => [installed.installation])
+         );
+         plugin.w2InstallationId = w2Plugin!.id;
+         await sql.begin((tx) => pluginRepo.setSecret(tx, world.w2Id, plugin.w2InstallationId, 'API_KEY', 'w2-only'));
+         plugin.w2Token = (
+            await pluginRuntime.mintToken({
+               workspaceId: world.w2Id,
+               installationId: plugin.w2InstallationId,
+               scopes: ['issues:read'],
+               ttlMs: 60_000,
+            })
+         ).token;
+
          // U1's current workspace is W1, which is what a mount that scopes
          // to the session's workspace (/api/v1/runtimes) reads.
          await sql`UPDATE users SET last_workspace_id = ${world.w1Id} WHERE id = ${u1Id}`;
@@ -324,6 +392,60 @@ describe(
          assert.equal(foreign.status, 404);
          assert.equal(await foreign.text(), await absent.text());
       });
+
+      // ------------------------------------------- plugins and /v1 (workstream G)
+
+      test(
+         'plugins and /v1: a W1 member never sees, reads or changes W2’s plugin, and a W2 plugin token stays in W2',
+         async () => {
+            // (a) W1's installation list never carries W2's plugin.
+            const listed = await getAsU1(`/api/v1/plugins/${world.w1Id}/installations`);
+            assert.equal(listed.status, 200);
+            assert.equal((await listed.text()).includes(plugin.w2InstallationId), false);
+
+            // (b) Every plugin read under W2 is the byte-identical 404 of a
+            // workspace that does not exist; a W2 id under W1 is a missing plugin.
+            for (const tail of ['installations', `installations/${plugin.w2InstallationId}`]) {
+               const foreign = await getAsU1(`/api/v1/plugins/${world.w2Id}/${tail}`);
+               const missing = await getAsU1(`/api/v1/plugins/${RANDOM_WORKSPACE}/${tail}`);
+               assert.equal(foreign.status, 404, tail);
+               assert.equal(await foreign.text(), await missing.text(), tail);
+            }
+            const crossed = await getAsU1(`/api/v1/plugins/${world.w1Id}/installations/${plugin.w2InstallationId}`);
+            const random = await getAsU1(`/api/v1/plugins/${world.w1Id}/installations/${randomUUID()}`);
+            assert.equal(crossed.status, 404);
+            assert.equal(await crossed.text(), await random.text());
+
+            // (c) Disabling W2's plugin from either scope is 404, and W2 is unchanged.
+            assert.equal(
+               (await patchAsU1(`/api/v1/plugins/${world.w1Id}/installations/${plugin.w2InstallationId}`, { enabled: false })).status,
+               404
+            );
+            assert.equal(
+               (await patchAsU1(`/api/v1/plugins/${world.w2Id}/installations/${plugin.w2InstallationId}`, { enabled: false })).status,
+               404
+            );
+            const [row] = await sql`SELECT enabled FROM plugin_installations WHERE id = ${plugin.w2InstallationId}`;
+            assert.equal(row?.enabled, true, 'W2 plugin is still enabled');
+
+            // /v1: U1's key sees only W1; W2's plugin token sees only W2 and no W1 issue.
+            const u1Context = (await (await getAsU1('/v1/context')).json()) as { workspaces: { id: string }[] };
+            assert.deepEqual(u1Context.workspaces.map((w) => w.id), [world.w1Id]);
+            const pluginContext = (await (
+               await app.request('/v1/context', {
+                  headers: { authorization: `Bearer ${plugin.w2Token}`, 'x-request-id': REQUEST_ID },
+               })
+            ).json()) as { workspaces: { id: string }[] };
+            assert.deepEqual(pluginContext.workspaces.map((w) => w.id), [world.w2Id]);
+
+            // (d) No credential is 401 on both mounts.
+            const anonymous = await app.request(`/api/v1/plugins/${world.w1Id}/installations`, {
+               headers: { 'x-request-id': REQUEST_ID },
+            });
+            assert.equal(anonymous.status, 401);
+            assert.equal((await app.request('/v1/context', { headers: { 'x-request-id': REQUEST_ID } })).status, 401);
+         }
+      );
 
       // -------------------------------------------------------- guarantee (a)
 

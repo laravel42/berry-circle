@@ -108,6 +108,9 @@ import { SessionService } from './auth/sessions.ts';
 import { personalTokenResolver } from './auth/credentials.ts';
 import { PluginRuntimeStore } from './plugins/runtime-store.ts';
 import { publicApiMounts } from './mounts/public-api.ts';
+import { PluginRepository } from './plugins/repository.ts';
+import { createPluginNetwork } from './plugins/net.ts';
+import { pluginMounts } from './mounts/plugins.ts';
 import pg from 'pg';
 import { createBerryAuth, devSessionCookies } from './auth/better-auth.ts';
 import { betterAuthMounts } from './mounts/better-auth.ts';
@@ -280,6 +283,12 @@ const squadRepository = new SquadRepository(sql);
 
 // The App's own credentials are sealed with the same key, for the same reason:
 // a deployment that cannot seal cannot hold a private key either.
+// Plugins hold sealed secrets and a sealed signing key, so they need the same
+// key integrations do. Without it the mount answers PLUGINS_NOT_CONFIGURED.
+const pluginRepository = config.integrationKey
+   ? new PluginRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
+   : null;
+const pluginNetwork = createPluginNetwork({ allowPrivate: config.pluginsAllowPrivateNetwork });
 const githubApp = config.integrationKey
    ? new GitHubAppRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
@@ -582,6 +591,16 @@ registry.registerAll(
       comments,
       plugins: pluginRuntime,
       broadcaster,
+   })
+);
+registry.registerAll(
+   pluginMounts({
+      sessions,
+      sql,
+      plugins: pluginRepository,
+      runtime: pluginRuntime,
+      network: pluginNetwork,
+      publicUrl: config.integrations.publicUrl,
    })
 );
 
