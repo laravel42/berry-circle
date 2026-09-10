@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { MessageData, Tool } from '@strands-agents/sdk';
-import type { TaskEnvelope, TranscriptMessage } from '../../../runtime/envelope.ts';
+import type { Tool } from '@strands-agents/sdk';
+import type { TaskEnvelope } from '../../../runtime/envelope.ts';
 import type { TaskDelivery } from '../../../runtime/lifecycle.ts';
 import type { ExecutionSession } from '../../../execution/driver.ts';
 import { runCommandTool, WORKDIR_KEY } from '../../command-tool.ts';
@@ -15,6 +15,8 @@ import { PermissionPlugin, TOOL_PERMISSIONS } from '../plugins/permissions.ts';
 import { ToolOutcomePlugin } from '../plugins/tool-outcome.ts';
 import { MAX_SUMMARY_BYTES } from '../result-text.ts';
 import { truncateUtf8 } from '../utf8.ts';
+import { runCompletionTask } from './completion-task.ts';
+import { toConversation } from './conversation.ts';
 import { emitterSink, type Emit } from './emitter.ts';
 import { LocalSession } from './local-session.ts';
 import {
@@ -64,6 +66,11 @@ export async function handleInvocation(envelope: TaskEnvelope, emit: Emit, deps:
       if (event.type === 'task.completed' || event.type === 'task.failed') ended = true;
       emit(event);
    };
+   if (envelope.kind === 'completion') {
+      // Fresh by construction: no registry, so nothing warm is read or kept.
+      await runCompletionTask(envelope, say, deps);
+      return;
+   }
    await deps.registry.exclusive(envelope.runtimeSessionId, (signal) => runAgentTask(envelope, say, deps, signal));
 }
 
@@ -202,19 +209,4 @@ export function agentFingerprint(envelope: TaskEnvelope): string {
       .digest('hex');
 }
 
-/**
- * The transcript as Bedrock accepts it: alternating turns, user first, and
- * not ending on an unanswered user turn (the new prompt is the next one).
- */
-export function toConversation(transcript: TranscriptMessage[]): MessageData[] {
-   const merged: TranscriptMessage[] = [];
-   for (const message of transcript) {
-      if (message.text.trim() === '') continue;
-      const last = merged.at(-1);
-      if (last && last.role === message.role) last.text = `${last.text}\n\n${message.text}`;
-      else merged.push({ ...message });
-   }
-   while (merged[0]?.role === 'assistant') merged.shift();
-   if (merged.at(-1)?.role === 'user') merged.pop();
-   return merged.map((message) => ({ role: message.role, content: [{ text: message.text }] }));
-}
+export { toConversation } from './conversation.ts';
