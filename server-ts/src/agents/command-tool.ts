@@ -4,6 +4,12 @@ import type { ExecutionSession } from '../execution/driver.ts';
 import { ExecutionUnavailable } from '../execution/driver.ts';
 import type { RunLedger } from '../runs/ledger.ts';
 
+/** The three ledger writes a command makes. The runtime passes an emitter instead. */
+export type CommandLedger = Pick<
+   RunLedger,
+   'appendCommandStarted' | 'appendCommandOutput' | 'appendCommandCompleted'
+>;
+
 /**
  * The tool that makes a run something you can watch.
  *
@@ -36,7 +42,7 @@ import type { RunLedger } from '../runs/ledger.ts';
 export const WORKDIR_KEY = 'workdir';
 
 export interface CommandToolScope {
-   ledger: RunLedger;
+   ledger: CommandLedger;
    runId: string;
    /**
     * The run's workspace, opened on first use.
@@ -187,7 +193,7 @@ export function runCommandTool(scope: CommandToolScope): Tool {
  * from sitting in a buffer while someone watches an empty log.
  */
 class OutputRecorder {
-   readonly #ledger: RunLedger;
+   readonly #ledger: CommandLedger;
    readonly #runId: string;
    readonly #commandId: string;
    readonly #clock: () => Date;
@@ -196,7 +202,7 @@ class OutputRecorder {
    #recorded = 0;
    #truncated = false;
 
-   constructor(ledger: RunLedger, runId: string, commandId: string, clock: () => Date) {
+   constructor(ledger: CommandLedger, runId: string, commandId: string, clock: () => Date) {
       this.#ledger = ledger;
       this.#runId = runId;
       this.#commandId = commandId;

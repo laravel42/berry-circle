@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
+import { RunTerminal } from '../agents/runtime/terminal.ts';
+
+export { RunTerminal };
 
 /**
  * The run ledger.
@@ -30,14 +33,6 @@ export class RunNotFound extends Error {
    constructor() {
       super('run not found');
       this.name = 'RunNotFound';
-   }
-}
-
-/** The run already reached a terminal status; nothing more may be appended. */
-export class RunTerminal extends Error {
-   constructor() {
-      super('run is terminal');
-      this.name = 'RunTerminal';
    }
 }
 

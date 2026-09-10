@@ -1,6 +1,6 @@
 import { DefaultModelRetryStrategy, ExponentialBackoff, ModelThrottledError } from '@strands-agents/sdk';
 import type { Failure } from '../../runs/ledger.ts';
-import { truncateUtf8 } from '../../runs/result-comment.ts';
+import { truncateUtf8 } from './utf8.ts';
 
 /**
  * How a model failure is read, in one place.
