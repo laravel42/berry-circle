@@ -1,1 +1,19 @@
-{}
+{
+   "header": {
+      "title": "Settings"
+   },
+   "preferences": {
+      "title": "Preferences",
+      "general": "General",
+      "language": "Language",
+      "languageDescription": "The language Berry's interface is shown in. Saved to your account.",
+      "timezone": "Time zone",
+      "timezoneDescription": "Dates and times across Berry are shown in this zone.",
+      "interface": "Interface and theme",
+      "sidebar": "App sidebar",
+      "sidebarDescription": "Pin, hide and reorder rail items. Stored in this browser.",
+      "customize": "Customize",
+      "reduceMotion": "Reduce motion",
+      "reduceMotionDescription": "Turn off the animations Berry uses to show work moving."
+   }
+}
