@@ -17,6 +17,7 @@ export type ShellRoute =
    | 'goals'
    | 'members'
    | 'analytics'
+   | 'dashboard'
    | 'usage';
 
 export interface ShellRouteDef {
@@ -104,6 +105,13 @@ const MANAGE: ShellRouteDef[] = [
       label: 'analytics',
       prefsKey: 'analytics',
       icon: '<path d="M4 19V10M10 19V5M16 19v-7" /><path d="M3 19h18" />',
+   },
+   {
+      id: 'dashboard',
+      label: 'dashboard',
+      href: '/dashboard',
+      prefsKey: 'dashboard',
+      icon: '<rect x="4" y="4" width="7" height="9" rx="1" /><rect x="13" y="4" width="7" height="5" rx="1" /><rect x="13" y="11" width="7" height="9" rx="1" /><rect x="4" y="15" width="7" height="5" rx="1" />',
    },
    {
       id: 'usage',

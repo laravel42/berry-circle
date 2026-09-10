@@ -26,6 +26,7 @@ import {
    FolderKanban,
    GitPullRequest,
    GripVertical,
+   LayoutDashboard,
    LucideIcon,
    Sparkles,
    Target,
@@ -51,6 +52,7 @@ export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
+   { key: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
    { key: 'usage', label: 'usage', icon: Coins },
 ];
 
