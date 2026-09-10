@@ -14,10 +14,17 @@ import type { ScmLinkRepository } from './links.ts';
  * repository's issue ends up closing a task.
  */
 
+/** Where GitHub-App events go: pull requests on issues, checks, uninstalls. */
+export interface GitHubEventHandler {
+   handles(event: string): boolean;
+   apply(event: string, payload: Record<string, unknown>): Promise<InboundResult>;
+}
+
 export interface InboundDeps {
    sql: Sql;
    links: ScmLinkRepository;
    logger: Logger;
+   github?: GitHubEventHandler;
 }
 
 export interface InboundResult {
@@ -32,11 +39,13 @@ export class ScmInbound {
    readonly #sql: Sql;
    readonly #links: ScmLinkRepository;
    readonly #logger: Logger;
+   readonly #github: GitHubEventHandler | null;
 
    constructor(deps: InboundDeps) {
       this.#sql = deps.sql;
       this.#links = deps.links;
       this.#logger = deps.logger;
+      this.#github = deps.github ?? null;
    }
 
    /** Routes one event to its handler. */
@@ -44,8 +53,23 @@ export class ScmInbound {
       switch (event) {
          case 'issues':
             return this.#issue(payload);
-         case 'pull_request':
-            return this.#pullRequest(payload);
+         case 'pull_request': {
+            // Both, independently: the review a run opened follows its pull
+            // request by branch, and the issue sidebar follows it by link.
+            const review = await this.#pullRequest(payload);
+            if (!this.#github) return review;
+            const linked = await this.#github.apply(event, payload);
+            return {
+               applied: review.applied || linked.applied,
+               reason: `${review.reason}; ${linked.reason}`,
+            };
+         }
+         case 'check_run':
+         case 'check_suite':
+         case 'installation':
+            return this.#github?.handles(event)
+               ? this.#github.apply(event, payload)
+               : IGNORED(`unhandled event ${event}`);
          case 'pull_request_review':
             return this.#review(payload);
          case 'push':

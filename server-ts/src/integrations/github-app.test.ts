@@ -84,8 +84,25 @@ describe('the manifest', () => {
          pull_requests: 'write',
          issues: 'write',
          metadata: 'read',
+         // Read-only: the issue sidebar shows check results, and nothing
+         // Berry does needs to create or rerun a check.
+         checks: 'read',
       });
       assert.equal(manifest.public, false);
+   });
+
+   test('delivers webhooks to the route that serves them, for the events Berry applies', () => {
+      assert.deepEqual(manifest.hook_attributes, {
+         url: 'http://localhost:3000/api/v1/webhooks/github',
+         active: true,
+      });
+      assert.deepEqual(manifest.default_events, [
+         'pull_request',
+         'pull_request_review',
+         'check_run',
+         'check_suite',
+         'push',
+      ]);
    });
 });
 
@@ -137,6 +154,29 @@ describe('converting the manifest code', () => {
          }),
          GitHubAppUnavailable
       );
+   });
+});
+
+describe('the App’s webhook secret', () => {
+   const sealer = sealerFromKey(randomBytes(32).toString('base64'));
+
+   function repository(row: Record<string, unknown> | null): GitHubAppRepository {
+      const sql = async (strings: TemplateStringsArray) => {
+         const text = strings.join('?');
+         if (text.includes('webhook_secret_encrypted')) return row ? [row] : [];
+         throw new Error(`unexpected query: ${text}`);
+      };
+      return new GitHubAppRepository({ sql: sql as unknown as Sql, sealer });
+   }
+
+   test('is opened from its sealed form, for a signature check', async () => {
+      const sealed = sealer.seal('hook-value');
+      assert.equal(await repository({ webhook_secret_encrypted: sealed }).webhookSecret(), 'hook-value');
+   });
+
+   test('is null for an App GitHub gave no secret, or when there is no App', async () => {
+      assert.equal(await repository({ webhook_secret_encrypted: null }).webhookSecret(), null);
+      assert.equal(await repository(null).webhookSecret(), null);
    });
 });
 
