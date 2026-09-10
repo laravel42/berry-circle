@@ -25,6 +25,7 @@ There are two new mounts. `/v1` (`mounts/public-api.ts`) uses its own bearer mid
 - Migration block for G is **130–139**. This plan uses `130_plugins` and `131_personal_token_scopes`. Migrations are forward-only and immutable, named `NNN_description.up.sql` with a matching `.down.sql` as in the surrounding files.
 - Every new table carries `workspace_id`. Every workspace mount goes through the existing workspace guard (`mountWorkspaceScope` / `ScopedDb`) and is added to the cross-tenant leakage tests.
 - Secrets are stored only through `sealing.ts` (`Sealer.seal` / `Sealer.open`). They are never sent to the browser and never logged. Plugin secret values go only to the plugin's own endpoint in a hook call body.
+- One deliberate, bounded exception: the plugin **signing secret** is Berry-generated and must reach the admin once so they can configure the plugin. It appears only in the `201` install response (`Cache-Control: no-store`). It is never readable again through any route, and it is stored sealed. Short-lived plugin tokens reach the browser only inside a surface launch URL fragment, and are scoped and time-limited.
 - Server: no emitted TS syntax (no enums, namespaces or parameter properties), relative imports with `.ts` extensions, `import type` for types (`verbatimModuleSyntax`), `strict` + `noUncheckedIndexedAccess` + `exactOptionalPropertyTypes`, no `any`, no `!` in new code. Use 3-space indent and single quotes. Zod v4 is imported as `import { z } from 'zod';`.
 - Server errors: throw `ApiError(status, CODE, message, details)` from `src/http/errors.ts`. Codes are stable `SCREAMING_SNAKE_CASE`. New codes: `INSUFFICIENT_SCOPE` (403), `PLUGIN_TOKEN_REQUIRED` (403), `PLUGIN_ALREADY_INSTALLED` (409), `PLUGIN_DISABLED` (409), `PLUGIN_UNREACHABLE` (502), `PLUGINS_NOT_CONFIGURED` (412), `UNSUPPORTED_MEDIA_TYPE` (415), `PAYLOAD_TOO_LARGE` (413). Reused codes: `INVALID_TRANSITION` (409) and `INVALID_PARENT` (422), both already used by issues and comments.
 - **Precondition: workstream J (Better Auth) is merged.** J rewrites `SessionService` so its constructor is `{ sql, auth, bearer?, trustedOrigins? }` and it has no `resolvePersonalToken` method, and J moves PAT resolution into `personalTokenResolver(sql)` in `src/auth/credentials.ts`. G is written against that shape: `/v1` resolves PATs through `personalTokenResolver(sql)`, and tests build sessions with `testSessions(sql)` from the plugin fixture (T4). `requireSession` and `mountWorkspaceScope` keep their signatures under J. Do not start T4 (its fixture imports `auth/credentials.ts`) or any later DB-backed task until J's Task 5 is on the branch. T1–T3 and T11 do not depend on J.
@@ -2528,6 +2529,8 @@ test('wrong media type, bad JSON and schema failures get their own statuses', as
 
 `assertValid` (`src/http/body.ts:26`) throws `ValidationFailed`, whose details are `{ fields: FieldError[] }`, so the assertion reads `error.details.fields`.
 
+Every test in this plan that calls `createPersonalToken` passes `fingerprint: Buffer.alloc(32, …)`. `personal_api_tokens` has `CHECK (octet_length(request_fingerprint) = 32)` (`migrations/004_identity_workspaces.up.sql`), so a shorter buffer fails the insert before the test asserts anything.
+
 `server-ts/src/identity/secrets.scopes.test.ts`:
 
 ```ts
@@ -2557,11 +2560,11 @@ describe('personal token scopes', { skip: url ? false : 'BERRY_TEST_DATABASE_URL
       const secrets = new SecretsRepository(sql);
       const scoped = await secrets.createPersonalToken({
          userId: world.userId, name: 'ci', expiresAt: null, idempotencyKey: 'k'.repeat(20),
-         fingerprint: Buffer.from('a'), scopes: ['issues:read'],
+         fingerprint: Buffer.alloc(32, 'a'), scopes: ['issues:read'],
       });
       const open = await secrets.createPersonalToken({
          userId: world.userId, name: 'all', expiresAt: null, idempotencyKey: 'j'.repeat(20),
-         fingerprint: Buffer.from('b'), scopes: null,
+         fingerprint: Buffer.alloc(32, 'b'), scopes: null,
       });
       assert.deepEqual(scoped.token.scopes, ['issues:read']);
       assert.equal(open.token.scopes, null);
@@ -2781,7 +2784,7 @@ git commit -m "feat(server-ts): authenticate the public API with scoped personal
 
 **Files:**
 - Create: `server-ts/src/mounts/public-api.ts`
-- Modify: `server-ts/src/index.ts` (construct `PluginRuntimeStore` and register the mount), `server-ts/SCOPE.md` (served block), `docs/api/gateway-v1.md` (new section)
+- Modify: `server-ts/src/index.ts` (construct `PluginRuntimeStore` and register the mount), `server-ts/SCOPE.md` (served block), `docs/api/gateway-v1.md` (new section), `frontend/next.config.ts` (proxy `/v1` like `/api`)
 - Test: `server-ts/src/mounts/public-api.test.ts`
 
 **Interfaces:**
@@ -2850,7 +2853,7 @@ describe('/v1 public API', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not
       const make = async (key: string, scopes: ['issues:read'] | null) =>
          (await secrets.createPersonalToken({
             userId: w1.userId, name: key, expiresAt: null, idempotencyKey: key.repeat(16),
-            fingerprint: Buffer.from(key), scopes,
+            fingerprint: Buffer.alloc(32, key), scopes,
          })).secret;
       tokens.full = await make('f', null);
       tokens.readOnly = await make('r', ['issues:read']);
@@ -2863,13 +2866,20 @@ describe('/v1 public API', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not
       await sql`INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES (${w1.workspaceId}, ${viewerId}, 'viewer')`;
       tokens.viewer = (await secrets.createPersonalToken({
          userId: viewerId, name: 'v', expiresAt: null, idempotencyKey: 'v'.repeat(16),
-         fingerprint: Buffer.from('v'), scopes: null,
+         fingerprint: Buffer.alloc(32, 'v'), scopes: null,
       })).secret;
 
       const repo = new PluginRepository({ sql, sealer: testSealer() });
       const { installation } = await sql.begin((tx) =>
          repo.install(tx, {
-            workspaceId: w1.workspaceId, installedBy: w1.userId, pkg: parsePackage(HELLO),
+            workspaceId: w1.workspaceId, installedBy: w1.userId,
+            // HELLO is not granted storage. resolveToken intersects a token's
+            // scopes with the install grant, so without this the storage test
+            // would get INSUFFICIENT_SCOPE instead of exercising storage.
+            pkg: parsePackage({
+               ...HELLO,
+               manifest: { ...HELLO.manifest, scopes: ['issues:read', 'comments:write', 'storage:read', 'storage:write'] },
+            }),
             source: 'upload', sourceUrl: null, config: { greeting: 'hi' },
          })
       );
@@ -3355,6 +3365,15 @@ registry.registerAll(
 );
 ```
 
+In `frontend/next.config.ts` `rewrites()`, add this entry directly after the `/api/:path*` entry. Plugins call `${apiUrl}/v1/...` with `apiUrl = BERRY_PUBLIC_URL`. When that origin is the web app rather than the API, `/v1` would otherwise answer with the Next.js 404.
+
+```ts
+         {
+            source: '/v1/:path*',
+            destination: `${apiOrigin}/v1/:path*`,
+         },
+```
+
 - [ ] **Step 5: Document the contract**
 
 In `server-ts/SCOPE.md`, add `/v1` to the served block, as its own line after the `/health /metrics /ready /readyz` line:
@@ -3388,7 +3407,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add server-ts/src/mounts/public-api.ts server-ts/src/mounts/public-api.test.ts server-ts/src/index.ts server-ts/SCOPE.md docs/api/gateway-v1.md
+git add server-ts/src/mounts/public-api.ts server-ts/src/mounts/public-api.test.ts server-ts/src/index.ts server-ts/SCOPE.md docs/api/gateway-v1.md frontend/next.config.ts
 git commit -m "feat(server-ts): serve the public API v1 for tokens and plugins"
 ```
 
@@ -3476,7 +3495,7 @@ describe('/api/v1/plugins', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is no
       const secrets = new SecretsRepository(sql);
       const pat = async (userId: string, key: string) =>
          (await secrets.createPersonalToken({
-            userId, name: key, expiresAt: null, idempotencyKey: key.repeat(16), fingerprint: Buffer.from(key), scopes: null,
+            userId, name: key, expiresAt: null, idempotencyKey: key.repeat(16), fingerprint: Buffer.alloc(32, key), scopes: null,
          })).secret;
       tokens.owner = await pat(world.userId, 'o');
       tokens.member = await pat(memberId, 'm');
@@ -3652,7 +3671,7 @@ describe('Feature: plugins, cross-tenant leakage', { skip: url ? false : 'BERRY_
       w1 = await seedWorld(sql, 'leak-p1');
       w2 = await seedWorld(sql, 'leak-p2');
       u1Token = (await new SecretsRepository(sql).createPersonalToken({
-         userId: w1.userId, name: 'u1', expiresAt: null, idempotencyKey: 'u'.repeat(20), fingerprint: Buffer.from('u'), scopes: null,
+         userId: w1.userId, name: 'u1', expiresAt: null, idempotencyKey: 'u'.repeat(20), fingerprint: Buffer.alloc(32, 'u'), scopes: null,
       })).secret;
       const { installation } = await sql.begin((tx) =>
          plugins.install(tx, {
@@ -3736,8 +3755,22 @@ describe('Feature: plugins, cross-tenant leakage', { skip: url ? false : 'BERRY_
       assert.equal((await as(`/api/v1/plugins/${w1.workspaceId}/installations`, null)).status, 401);
       assert.equal((await as('/v1/context', null)).status, 401);
    });
+
+   test('(e) U1 cannot read or write a W2 issue through /v1, and W2 is unchanged', async () => {
+      const [before] = await sql`SELECT title FROM issues WHERE id = ${w2.issueId}`;
+      assert.equal((await as(`/v1/issues/${w2.issueId}`, u1Token)).status, 404);
+      assert.equal((await as(`/v1/issues/${w2.identifier}`, u1Token, 'PATCH', { title: 'Leaked' })).status, 404);
+      assert.equal((await as(`/v1/issues/${w2.identifier}/comments`, u1Token)).status, 404);
+      assert.equal((await as(`/v1/issues/${w2.identifier}/comments`, u1Token, 'POST', { body: 'Leaked' })).status, 404);
+      const [after] = await sql`SELECT title FROM issues WHERE id = ${w2.issueId}`;
+      assert.equal(after?.title, before?.title);
+      const comments = await sql`SELECT 1 FROM comments WHERE issue_id = ${w2.issueId}`;
+      assert.equal(comments.length, 0);
+   });
 });
 ```
+
+`IssueRepository.authorize` throws `NotFound` when the caller has no membership row for the issue's workspace (`src/core/issues.ts`, `scopeFrom`). `/v1` maps that to 404, so a foreign issue and a missing one answer the same way.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -4336,7 +4369,10 @@ import { SIGNATURE_HEADER, signPayload } from './signing.ts';
  * batch. The cursor advances before delivery, so delivery is at most once: a
  * plugin that was down misses the event rather than receiving it twice, and
  * the invocation log shows the failure. Events are read with a two-second lag
- * so a transaction that commits slightly out of order is not skipped.
+ * so a transaction that commits slightly out of order is not skipped. Only
+ * subscribed topics are read, and when a batch is not full the cursor jumps
+ * to the lag horizon. A plugin installed later therefore sees only events
+ * from after its install.
  *
  * Schedule hooks claim due rows the same way and move `next_fire_at` forward
  * in the same statement.
@@ -4489,16 +4525,41 @@ export class PluginHookRunner {
          const [cursor] = await tx`
             SELECT occurred_at, event_id FROM plugin_event_cursor WHERE id = 1 FOR UPDATE SKIP LOCKED`;
          if (!cursor) return [];
-         const found = await tx`
-            SELECT id, topic, workspace_id, payload, occurred_at FROM outbox_events
-             WHERE (occurred_at, id) > (${cursor.occurred_at as string}::timestamptz, ${cursor.event_id as string}::uuid)
-               AND occurred_at <= now() - interval '2 seconds'
-             ORDER BY occurred_at, id
-             LIMIT ${this.#batch}`;
+         // Read only topics some enabled plugin subscribes to. outbox_events also
+         // carries high-volume topics (run.output.delta from src/runs/ledger.ts);
+         // without this filter they fill every batch, and the cursor falls
+         // further behind on every tick.
+         const subscribed = await tx`
+            SELECT DISTINCT e.topic
+              FROM plugin_installations AS i,
+                   jsonb_array_elements(i.manifest->'hooks') AS h,
+                   jsonb_array_elements_text(h->'events') AS e(topic)
+             WHERE i.enabled AND h->>'trigger' = 'event'`;
+         const topics = subscribed.map((row) => row.topic as string);
+         const [clock] = await tx`SELECT now() - interval '2 seconds' AS horizon`;
+         const horizon = clock?.horizon as string;
+         const found =
+            topics.length === 0
+               ? []
+               : await tx`
+                  SELECT id, topic, workspace_id, payload, occurred_at FROM outbox_events
+                   WHERE (occurred_at, id) > (${cursor.occurred_at as string}::timestamptz, ${cursor.event_id as string}::uuid)
+                     AND occurred_at <= ${horizon}::timestamptz
+                     AND topic = ANY(${tx.array(topics)}::text[])
+                   ORDER BY occurred_at, id
+                   LIMIT ${this.#batch}`;
          const last = found.at(-1);
-         if (last) {
+         if (last && found.length === this.#batch) {
+            // A full batch: there may be more before the horizon. Resume after the last row.
             await tx`
                UPDATE plugin_event_cursor SET occurred_at = ${last.occurred_at as string}, event_id = ${last.id as string}
+                WHERE id = 1`;
+         } else {
+            // Every subscribed event up to the horizon has been read, so jump there.
+            // The all-f uuid sorts after every id at that instant.
+            await tx`
+               UPDATE plugin_event_cursor
+                  SET occurred_at = ${horizon}::timestamptz, event_id = 'ffffffff-ffff-ffff-ffff-ffffffffffff'
                 WHERE id = 1`;
          }
          return found;
@@ -5240,14 +5301,31 @@ export { definePlugin, type ApiScope, type HookRequest, type PluginManifest, typ
 
 `packages/plugin-sdk/examples/hello/berry-plugin.json` must contain the exact JSON of `HELLO` from `server-ts/src/plugins/fixture.test-support.ts`: `{ "manifest": { … }, "files": [{ "path": "README.md", "content": "# Hello" }] }`.
 
-`packages/plugin-sdk/README.md` gives a short overview:
-1. Write `berry-plugin.json`.
-2. Install it from Settings → Plugins, by URL or upload.
-3. Copy the signing secret shown once into the plugin's environment.
-4. Serve `createHookHandler` at each hook path.
-5. For surfaces, call `readSurfaceLaunch(location.hash)` and use `new BerryClient({ apiUrl, token })`.
+`packages/plugin-sdk/README.md`:
 
-Include a note on the write-back loop.
+````markdown
+# @berry/plugin-sdk
+
+Build a Berry plugin: a web service that Berry calls on events and schedules,
+that can show pages inside Berry, and that calls back through Berry's public API.
+
+1. **Describe it.** Write `berry-plugin.json` (see `examples/hello`). It lists
+   the scopes, settings, secrets, hooks, pages and agent tools the plugin needs.
+2. **Install it.** In Berry, open Settings → Plugins. Paste the URL that serves
+   the file, or upload it, then review the preview and click Install.
+3. **Keep the signing secret.** It is shown once. Put it in your plugin's
+   environment, for example as `BERRY_SIGNING_SECRET`.
+4. **Handle hooks.** Serve `createHookHandler({ signingSecret, onEvent, onSchedule })`
+   at each hook path. It refuses unsigned calls and calls older than five
+   minutes. Each call carries a short-lived token, and `api` is a
+   `BerryClient` already bound to it.
+5. **Show pages.** In the page's script, call `readSurfaceLaunch(location.hash)`,
+   clear `location.hash`, then use `new BerryClient({ apiUrl, token })`.
+
+**Write-back loops.** If a hook writes to Berry, for example by commenting on
+`comment.created`, Berry tells the plugin about that write too. Skip events
+your plugin caused.
+````
 
 - [ ] **Step 4: Pin the example against the server schema**
 
@@ -6478,3 +6556,12 @@ cd server-ts && grep -rhoE "prefix: '/[^']+'" src/mounts/*.ts | sort -u   # incl
 - The MCP transport matches D.
 - `outbox_events (occurred_at, id)` gained an index.
 - Cross-tenant coverage now reaches storage, invocations, tools, secret delete, preview and install on a foreign workspace.
+
+**Review fixes applied (second adversarial pass, 2026-09-10).**
+- Every `createPersonalToken` call in the tests (T6, T7, T8 and the cross-tenant test) passed a fingerprint shorter than 32 bytes, which fails the table's `octet_length(request_fingerprint) = 32` CHECK. They now use `Buffer.alloc(32, …)`.
+- The T7 storage test could never pass. Its plugin token asked for storage scopes, but HELLO was never granted any, and `resolveToken` intersects the two. T7 now installs HELLO with storage scopes granted.
+- The hook runner read every `outbox_events` topic, including `run.output.delta`, 100 rows per 5 s tick. Under run traffic the cursor fell behind without bound. It now reads only subscribed topics and jumps to the lag horizon when a batch is not full.
+- Cross-tenant test (e): U1 reading, patching and commenting on a W2 issue through `/v1` answers 404, and W2 is unchanged.
+- `/v1` is proxied by `frontend/next.config.ts`, so it is reachable whichever origin `BERRY_PUBLIC_URL` names.
+- The signing-secret one-time display is documented as the one bounded exception to "secrets never reach the browser".
+- The SDK README is written out in full.
