@@ -143,19 +143,25 @@ export class Dispatcher {
     * between leaves a run that is reclaimable rather than one that is stuck.
     */
    async #claim(limit: number): Promise<string[]> {
+      // MATERIALIZED, not `WHERE id IN (SELECT … LIMIT … FOR UPDATE)`: the
+      // planner may turn that subquery into a join it re-runs per row, and a
+      // re-run `SKIP LOCKED` finds the next rows, so LIMIT stops bounding the
+      // claim. A materialised CTE picks and locks the rows exactly once.
       const rows = await this.#sql`
+         WITH picked AS MATERIALIZED (
+            SELECT id FROM runs
+             WHERE status = 'queued'
+               AND dispatch_state = 'pending'
+               AND (dispatch_lease_until IS NULL OR dispatch_lease_until < now())
+             ORDER BY created_at ASC
+             LIMIT ${limit}
+             FOR UPDATE SKIP LOCKED
+         )
          UPDATE runs
             SET dispatch_lease_until = now() + ${`${this.#leaseMs} milliseconds`}::interval
-          WHERE id IN (
-             SELECT id FROM runs
-              WHERE status = 'queued'
-                AND dispatch_state = 'pending'
-                AND (dispatch_lease_until IS NULL OR dispatch_lease_until < now())
-              ORDER BY created_at ASC
-              LIMIT ${limit}
-              FOR UPDATE SKIP LOCKED
-          )
-          RETURNING id`;
+           FROM picked
+          WHERE runs.id = picked.id
+          RETURNING runs.id`;
       return rows.map((row) => row.id as string);
    }
 
