@@ -11,6 +11,7 @@ import {
    THEMES,
    boundedLength,
    validAvatar,
+   validLocale,
    validTimezone,
 } from '../http/validation.ts';
 import {
@@ -123,6 +124,7 @@ export function meMounts(options: MeOptions): Mount[] {
          theme: 'string',
          timezone: 'string',
          reducedMotion: 'boolean',
+         locale: 'string',
       });
       const fields: FieldError[] = [];
 
@@ -136,7 +138,17 @@ export function meMounts(options: MeOptions): Mount[] {
             fieldError('/timezone', 'invalid_timezone', 'Timezone must be a valid IANA timezone.')
          );
       }
-      if (value.theme === undefined && value.timezone === undefined && value.reducedMotion === undefined) {
+      if (value.locale !== undefined && !validLocale(value.locale)) {
+         fields.push(
+            fieldError('/locale', 'invalid_enum_value', 'Locale must be en, zh-Hans, ja, or ko.')
+         );
+      }
+      if (
+         value.theme === undefined &&
+         value.timezone === undefined &&
+         value.reducedMotion === undefined &&
+         value.locale === undefined
+      ) {
          fields.push(fieldError('/', 'empty_patch', 'At least one setting is required.'));
       }
       assertValid(fields);
@@ -148,6 +160,7 @@ export function meMounts(options: MeOptions): Mount[] {
          theme: value.theme ?? current.settings.theme,
          timezone: value.timezone ?? current.settings.timezone,
          reducedMotion: value.reducedMotion ?? current.settings.reducedMotion,
+         locale: value.locale ?? current.settings.locale,
       };
       return json(serializeSettings(await notFoundAsUser(() => identity.updateUserSettings(userId, next))));
    });
@@ -243,6 +256,7 @@ interface UserSettingsPatchBody {
    theme?: string;
    timezone?: string;
    reducedMotion?: boolean;
+   locale?: string;
 }
 
 interface OnboardingPatchBody {
@@ -287,6 +301,8 @@ function serializeSettings(settings: UserSettings): Record<string, unknown> {
       theme: settings.theme,
       timezone: settings.timezone,
       reducedMotion: settings.reducedMotion,
+      // Appended, so the fields verified against the Go baselines keep their order.
+      locale: settings.locale,
    };
 }
 

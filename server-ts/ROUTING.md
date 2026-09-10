@@ -39,6 +39,13 @@ have been separated.
 | `/metrics` | answers 404, and `capabilities.metrics` is false to match. Lands with the observability port. |
 | `/api/v1/config` | honest but narrow: `planner`, `workflows` and `valkey` are reported false because this process does not provide them. |
 
+## `/api/v1/me/settings` gained `locale`
+
+The Go baselines predate it. The settings object now ends with `locale`
+(`en` | `zh-Hans` | `ja` | `ko`, default `en`), appended after the verified
+fields so their order is unchanged; `/me` and `/me/bootstrap` carry it inside
+`settings` the same way.
+
 ## Linking a GitHub repository
 
 Berry stores a repository's id beside its name, and resolves that id through
