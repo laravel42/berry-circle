@@ -18,3 +18,8 @@ test('every run event the ledger writes is replayed to the board stream', () => 
    const missing = [...written].filter((topic) => !replayed.has(topic));
    assert.deepEqual(missing, []);
 });
+
+test('recorded usage reaches the workspace stream, not the board stream', () => {
+   assert.ok((WORKSPACE_TOPICS as readonly string[]).includes('usage.recorded'));
+   assert.ok(!(BOARD_TOPICS as readonly string[]).includes('usage.recorded'));
+});

@@ -56,6 +56,9 @@ import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
 import { agentMounts } from './mounts/agents.ts';
+import { usageMounts } from './mounts/usage.ts';
+import { PriceBook } from './agents/pricing.ts';
+import { configureUsagePricing, recordTaskUsage } from './usage/record.ts';
 import { eventMounts } from './mounts/events.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
@@ -278,15 +281,11 @@ const reviewGate = defaultTarget
    : null;
 
 /**
- * Token usage the runtime reports on `task.usage`.
- *
- * Interim: workstream C's `recordTaskUsage` (server-ts/src/usage/record.ts)
- * replaces this at merge. Until then usage is logged, not stored, so it is
- * visible rather than silently dropped.
+ * Token usage the runtime reports on `task.usage`, stored and priced by
+ * workstream C's `recordTaskUsage`. The assignment is the compile-time proof
+ * that the runtime's report and C's input agree.
  */
-const recordUsage: UsageRecorder = async (_sql, usage) => {
-   logger.info('task usage', { ...usage });
-};
+const recordUsage: UsageRecorder = recordTaskUsage;
 
 const transport = routingTransport({
    agentcore: config.agentCore
@@ -347,6 +346,10 @@ const modelCatalog = config.agents
         ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
      })
    : null;
+
+// Usage is priced on write from the same open feed the model picker reads.
+// Not gated on agent config: runs executed elsewhere still report usage here.
+configureUsagePricing(new PriceBook());
 
 // Reading the ledger, and admitting a run. The executor builds its own ledger
 // per run because it writes as the run happens; this one is for the request
@@ -568,6 +571,7 @@ registry.registerAll(
    })
 );
 registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog, logger }));
+registry.registerAll(usageMounts({ sessions, sql }));
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
 );

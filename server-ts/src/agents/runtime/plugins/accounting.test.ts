@@ -57,3 +57,17 @@ test('a turn that is only a tool call leaves the result empty', async () => {
    await agent.invoke('go');
    assert.deepEqual(accounting.snapshot().result.final(), ['', false]);
 });
+
+test('cache reads and writes are counted apart from input', async () => {
+   const model = new ScriptedModel([
+      call('echo', { text: 'a' }, { inputTokens: 100, outputTokens: 10, cacheReadInputTokens: 900, cacheWriteInputTokens: 50 }),
+      say('done', { inputTokens: 20, outputTokens: 5, cacheReadInputTokens: 1000 }),
+   ]);
+   const accounting = new AccountingPlugin();
+   const agent = new Agent({ model, tools: [echo], plugins: [accounting], printer: false });
+   await agent.invoke('go');
+   const snapshot = accounting.snapshot();
+   assert.equal(snapshot.usage.inputTokens, 120);
+   assert.equal(snapshot.cacheReadTokens, 1900);
+   assert.equal(snapshot.cacheWriteTokens, 50);
+});

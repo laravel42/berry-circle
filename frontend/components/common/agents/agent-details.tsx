@@ -43,8 +43,9 @@ import { toast } from 'sonner';
 
 import { AgentConfigField } from '@/components/common/agents/agent-config-field';
 import { AgentModelTab } from '@/components/common/agents/agent-model-tab';
+import { AgentUsageTab } from '@/components/common/usage/agent-usage-tab';
 
-const DETAIL_TABS = ['overview', 'work', 'model', 'settings'] as const;
+const DETAIL_TABS = ['overview', 'work', 'model', 'usage', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 function MetaPill({
@@ -508,6 +509,9 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                      provider={agent.modelProvider ?? null}
                      model={agent.modelName ?? null}
                   />
+               </TabsContent>
+               <TabsContent value="usage" className="mt-0 px-8 py-6">
+                  <AgentUsageTab agentId={agentId} />
                </TabsContent>
                <TabsContent value="settings" className="mt-0 flex flex-col gap-6 px-8 py-6">
                   <AgentConfigField

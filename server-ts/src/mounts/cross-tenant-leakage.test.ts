@@ -35,6 +35,7 @@ import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { runtimeMounts } from './runtimes.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { usageMounts } from './usage.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -87,6 +88,7 @@ describe(
          const registry = new Registry();
          registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
          registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
+         registry.registerAll(usageMounts({ sessions, sql }));
          app = createApp(registry);
 
          const suffix = randomUUID().slice(0, 8);
@@ -262,6 +264,19 @@ describe(
          assert.equal((await patchAsU1(`/api/v1/runtimes/${world.w2RuntimeId}`, { name: 'mine' })).status, 404);
          const [row] = await sql`SELECT name FROM agent_runtimes WHERE id = ${world.w2RuntimeId}`;
          assert.equal(row!.name, 'W2 runtime');
+      });
+
+      test('usage and dashboard reads under a foreign workspace are the same 404 as an absent one', async () => {
+         for (const tail of ['/summary', '/runtimes/default', `/agents/${randomUUID()}`, `/issues/${randomUUID()}`]) {
+            const foreign = await getAsU1(`/api/v1/usage/${world.w2Id}${tail}`);
+            const absent = await getAsU1(`/api/v1/usage/${RANDOM_WORKSPACE}${tail}`);
+            assert.equal(foreign.status, 404, tail);
+            assert.equal(await foreign.text(), await absent.text(), tail);
+         }
+         const foreign = await getAsU1(`/api/v1/dashboard/${world.w2Id}/overview`);
+         const absent = await getAsU1(`/api/v1/dashboard/${RANDOM_WORKSPACE}/overview`);
+         assert.equal(foreign.status, 404);
+         assert.equal(await foreign.text(), await absent.text());
       });
 
       // -------------------------------------------------------- guarantee (a)

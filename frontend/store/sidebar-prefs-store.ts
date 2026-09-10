@@ -18,7 +18,9 @@ export type SidebarItemKey =
    | 'initiatives'
    | 'projects'
    | 'views'
-   | 'agents';
+   | 'agents'
+   | 'dashboard'
+   | 'usage';
 
 export type SidebarSection = 'personal' | 'workspace' | 'automate' | 'configure';
 
@@ -52,6 +54,8 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
    'projects': 'always',
    'views': 'always',
    'agents': 'always',
+   'dashboard': 'always',
+   'usage': 'always',
 };
 
 /**
@@ -65,7 +69,7 @@ const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
    // groups the tasks one plan compiled inside a project.
    workspace: ['projects', 'goals', 'my-issues', 'reviews'],
    automate: [],
-   configure: ['agent', 'agents', 'analytics'],
+   configure: ['agent', 'agents', 'analytics', 'dashboard', 'usage'],
 };
 
 /** The key the previous shape was persisted under; read once, when v6 has nothing. */

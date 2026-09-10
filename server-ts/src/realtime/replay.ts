@@ -40,6 +40,9 @@ export const WORKSPACE_TOPICS = [
    'issue.created', 'issue.completed', 'issue.deleted',
    'agent.started', 'agent.completed', 'agent.failed',
    'artifact.created',
+   // Workspace-level like goals (boardId null): the Usage page, the Dashboard
+   // and the usage panels refresh on it.
+   'usage.recorded',
 ] as const;
 
 /** `(occurred_at, id)` — the pair that orders both replays. */

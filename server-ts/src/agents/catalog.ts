@@ -5,6 +5,15 @@ import {
    type FoundationModelSummary,
 } from '@aws-sdk/client-bedrock';
 import type { AwsCredentials } from './runtime/model.ts';
+import {
+   DEFAULT_PRICING_URL,
+   fetchPortkeyPricing,
+   priceForModel,
+   stripRoutingPrefix,
+   type ModelPrice,
+} from './pricing.ts';
+
+export { stripRoutingPrefix } from './pricing.ts';
 /**
  * The models an agent can be switched to.
  *
@@ -65,8 +74,6 @@ export interface CatalogOptions {
  * and stays within Berry's "no secret leaves for a third party" boundary.
  * https://github.com/Portkey-AI/models
  */
-const DEFAULT_PRICING_URL = 'https://configs.portkey.ai/pricing/bedrock.json';
-
 /** The provider every model here is served by. */
 export const PROVIDER = 'bedrock';
 
@@ -187,99 +194,16 @@ export class ModelCatalog {
 
    /**
     * Per-token prices from Portkey's open Bedrock dataset, keyed by every id a
-    * profile might resolve to (see {@link priceKeyCandidates}).
+    * profile might resolve to (see `priceKeyCandidates` in `pricing.ts`).
     *
     * Best-effort by contract: a network failure, a non-OK response, or a body
     * that does not parse resolves to an empty map, so prices simply read as
     * unknown rather than emptying or blocking the catalogue. A short timeout
     * keeps a slow feed from holding up the whole refresh.
     */
-   private async fetchPricing(): Promise<Map<string, ModelPricing>> {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), PRICING_TIMEOUT_MS);
-      try {
-         const response = await this.fetch(this.pricingUrl, { signal: controller.signal });
-         if (!response.ok) return new Map();
-         const body: unknown = await response.json();
-         return parsePricing(body);
-      } catch {
-         return new Map();
-      } finally {
-         clearTimeout(timer);
-      }
+   private async fetchPricing(): Promise<Map<string, ModelPrice>> {
+      return fetchPortkeyPricing(this.fetch, this.pricingUrl);
    }
-}
-
-/** How long a slow pricing feed may hold up a catalogue refresh. */
-const PRICING_TIMEOUT_MS = 5000;
-
-/** Input and output price, in USD per million tokens. */
-interface ModelPricing {
-   inputPerM: number;
-   outputPerM: number;
-}
-
-/**
- * Turns Portkey's Bedrock pricing document into a price map.
- *
- * Each entry is keyed by a model id and carries
- * `pricing_config.pay_as_you_go.{request_token,response_token}.price` in cents
- * per token. Berry speaks USD per million, so cents-per-token × 10,000 converts
- * it (a $3/M model is `0.0003` cents/token here). An entry missing either token
- * price is skipped rather than recorded as free.
- */
-function parsePricing(body: unknown): Map<string, ModelPricing> {
-   const prices = new Map<string, ModelPricing>();
-   if (typeof body !== 'object' || body === null) return prices;
-
-   for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
-      const payg = readObject(
-         readObject(readObject(value, 'pricing_config'), 'pay_as_you_go'),
-         'request_token'
-      );
-      const responseToken = readObject(
-         readObject(readObject(value, 'pricing_config'), 'pay_as_you_go'),
-         'response_token'
-      );
-      const inputCents = readNumber(payg, 'price');
-      const outputCents = readNumber(responseToken, 'price');
-      if (inputCents === null || outputCents === null) continue;
-      // Cents per token → USD per million: ×10,000.
-      prices.set(key, { inputPerM: inputCents * 10_000, outputPerM: outputCents * 10_000 });
-   }
-   return prices;
-}
-
-/**
- * The Portkey keys a Bedrock profile's model might be priced under.
- *
- * Portkey keys most Bedrock models by their full id (`meta.llama3-3-70b-…-v1:0`,
- * `deepseek.r1-v1:0`), but Anthropic models by a bare, version-stripped name
- * (`claude-sonnet-4-20250514`). Trying the full id first, then the
- * provider-stripped body, then that body without a trailing `-vN:N`, covers
- * both conventions without guessing which provider a model is.
- */
-function priceKeyCandidates(modelId: string): string[] {
-   const candidates = [modelId];
-   const dot = modelId.indexOf('.');
-   if (dot >= 0) {
-      const body = modelId.slice(dot + 1);
-      candidates.push(body);
-      candidates.push(body.replace(/-v\d+(:\d+)?$/, ''));
-   }
-   return candidates;
-}
-
-/** The first candidate key present in the price map. */
-function priceForModel(
-   pricing: Map<string, ModelPricing>,
-   modelId: string
-): ModelPricing | undefined {
-   for (const candidate of priceKeyCandidates(modelId)) {
-      const found = pricing.get(candidate);
-      if (found) return found;
-   }
-   return undefined;
 }
 
 /**
@@ -340,7 +264,7 @@ function toCatalogModel(
       inferenceProfileName?: string | undefined;
    },
    capability: Map<string, ModelCapability>,
-   pricing: Map<string, ModelPricing>
+   pricing: Map<string, ModelPrice>
 ): CandidateModel {
    const id = entry.inferenceProfileId!;
    // A profile id is a cross-region-routing prefix plus the bare model id
@@ -370,21 +294,6 @@ function toCatalogModel(
       // the model is unusable, and Converse is the run-time backstop.
       supportsText: known ? known.text : true,
    };
-}
-
-/** A nested object at `key`, or undefined when the shape is not an object. */
-function readObject(value: unknown, key: string): Record<string, unknown> | undefined {
-   if (typeof value !== 'object' || value === null) return undefined;
-   const child = (value as Record<string, unknown>)[key];
-   return typeof child === 'object' && child !== null
-      ? (child as Record<string, unknown>)
-      : undefined;
-}
-
-/** A finite number field at `key`, or null. */
-function readNumber(value: Record<string, unknown> | undefined, key: string): number | null {
-   const field = value?.[key];
-   return typeof field === 'number' && Number.isFinite(field) ? field : null;
 }
 
 /**
@@ -421,15 +330,6 @@ export function normalizeModelId(provider: string, id: string): string {
 }
 
 /**
- * The cross-region routing prefixes Bedrock puts on a system inference profile.
- *
- * A profile id is one of these plus the bare foundation-model id, and the
- * foundation-model list keys off the bare id. `global` is the one a naive
- * two-or-three-letter strip misses, which left those profiles unmatched.
- */
-const ROUTING_PREFIXES = ['us-gov', 'us', 'eu', 'apac', 'apne', 'global'];
-
-/**
  * Whether a profile id is on the `global.` cross-region routing family.
  *
  * These duplicate the regional (`us.`, `eu.`, …) profiles for the same models,
@@ -437,12 +337,4 @@ const ROUTING_PREFIXES = ['us-gov', 'us', 'eu', 'apac', 'apne', 'global'];
  */
 export function isGlobalProfile(id: string): boolean {
    return id.startsWith('global.');
-}
-
-/** Strips a known routing prefix (`us.`, `global.`, …) from a profile id. */
-export function stripRoutingPrefix(id: string): string {
-   for (const prefix of ROUTING_PREFIXES) {
-      if (id.startsWith(`${prefix}.`)) return id.slice(prefix.length + 1);
-   }
-   return id;
 }
