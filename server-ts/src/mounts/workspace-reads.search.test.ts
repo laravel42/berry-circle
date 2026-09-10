@@ -77,7 +77,7 @@ describe(
       async function insertProject(workspaceId: string, name: string, deleted = false): Promise<string> {
          const [row] = await sql`
             INSERT INTO projects (workspace_id, name, description, deleted_at)
-            VALUES (${workspaceId}, ${name}, 'search fixture', ${deleted ? new Date() : null})
+            VALUES (${workspaceId}, ${name}, 'search fixture', ${deleted ? new Date().toISOString() : null})
             RETURNING id`;
          return row!.id as string;
       }
@@ -86,7 +86,7 @@ describe(
       async function insertAgent(workspaceId: string, name: string, archived = false): Promise<string> {
          const [row] = await sql`
             INSERT INTO agents (workspace_id, name, description, archived_at)
-            VALUES (${workspaceId}, ${name}, 'search fixture', ${archived ? new Date() : null})
+            VALUES (${workspaceId}, ${name}, 'search fixture', ${archived ? new Date().toISOString() : null})
             RETURNING id`;
          return row!.id as string;
       }
