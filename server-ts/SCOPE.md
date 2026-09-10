@@ -29,6 +29,7 @@ Every prefix `src/index.ts` registers today:
 /api/v1/usage         /api/v1/views         /api/v1/webhooks      /api/v1/workspaces
 /api/webhooks/autopilots/:token   (public: signed autopilot webhook deliveries)
 /health  /metrics  /ready  /readyz
+/v1                   (public API: personal and plugin tokens only)
 ```
 
 `/api/auth` is Better Auth's own route set (GitHub sign-in, callback, session, sign-out), outside `/api/v1` because its shapes are the library's.

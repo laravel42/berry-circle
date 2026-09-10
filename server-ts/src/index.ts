@@ -106,6 +106,8 @@ import { ReplayRepository } from './realtime/replay.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { personalTokenResolver } from './auth/credentials.ts';
+import { PluginRuntimeStore } from './plugins/runtime-store.ts';
+import { publicApiMounts } from './mounts/public-api.ts';
 import pg from 'pg';
 import { createBerryAuth, devSessionCookies } from './auth/better-auth.ts';
 import { betterAuthMounts } from './mounts/better-auth.ts';
@@ -197,6 +199,9 @@ const goals = new GoalRepository(sql);
 const attachments = new AttachmentRepository(sql);
 const projects = new ProjectRepository(sql);
 const agents = new AgentRepository(sql);
+// Plugin tokens, storage and the invocation log. Needs no key: nothing it
+// holds is a secret in the clear (tokens are digests).
+const pluginRuntime = new PluginRuntimeStore({ sql });
 
 // A hub with no relay for now: this process delivers to its own subscribers.
 // The Valkey relay is wired when the SSE endpoints land, so a subscriber
@@ -569,6 +574,16 @@ registry.registerAll(
    })
 );
 registry.registerAll(commentMounts(commentOptions));
+registry.registerAll(
+   publicApiMounts({
+      personalTokens: personalTokenResolver(sql),
+      sql,
+      issues,
+      comments,
+      plugins: pluginRuntime,
+      broadcaster,
+   })
+);
 
 /**
  * Autopilots. Always served: reading and editing them needs no model
