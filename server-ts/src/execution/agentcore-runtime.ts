@@ -12,6 +12,7 @@ import {
    type ExecutionDriver,
    type ExecutionSession,
 } from './driver.ts';
+import { runtimeSessionIdFor } from '../runtime/session-id.ts';
 
 /**
  * Amazon Bedrock AgentCore Runtimes as an execution substrate.
@@ -84,7 +85,7 @@ export function agentCoreRuntimeDriver(options: AgentCoreRuntimeDriverOptions): 
          // property the Docker and Code Interpreter drivers give by addressing
          // their workspaces the same way.
          return Promise.resolve(
-            new AgentCoreRuntimeSession(client, options, runtimeSessionId(input.runId), input)
+            new AgentCoreRuntimeSession(client, options, runtimeSessionId(`run:${input.runId}`), input)
          );
       },
 
@@ -93,7 +94,7 @@ export function agentCoreRuntimeDriver(options: AgentCoreRuntimeDriverOptions): 
          // the credential, the region and the runtime ARN, and a control-plane
          // listing would exercise none of them. The session it opens is stopped
          // straight after so a health check leaves nothing running.
-         const sessionId = runtimeSessionId(`health-${Date.now()}`);
+         const sessionId = runtimeSessionId(`health:${Date.now()}`);
          try {
             const response = await client.send(
                new InvokeAgentRuntimeCommandCommand({
@@ -341,17 +342,15 @@ function runtimeStreamError(item: {
 }
 
 /**
- * A runtime session id derived from Berry's run id.
+ * The runtime session id for a session key (see `runtime/session-id.ts`).
  *
- * AgentCore requires a `runtimeSessionId` of at least 33 characters, and a
- * bare run id (a uuid, or shorter in tests) does not always clear that bar.
- * A fixed prefix plus right-padding with a constant makes a deterministic id
- * that is always long enough, so a retry of the same run still lands on the
- * same session while a short id never trips a ValidationException.
+ * Exported so the invoke transport and this command driver agree on one
+ * derivation. The command driver addresses sessions per run (`run:<id>`),
+ * because it is only used for health checks now that the loop runs inside the
+ * runtime.
  */
-function runtimeSessionId(runId: string): string {
-   const base = `berry-runtime-${runId}`;
-   return base.length >= 33 ? base : base.padEnd(33, '0');
+export function runtimeSessionId(sessionKey: string): string {
+   return runtimeSessionIdFor(sessionKey);
 }
 
 function message(cause: unknown): string {

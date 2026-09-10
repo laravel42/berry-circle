@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { agentCoreRuntimeDriver } from './agentcore-runtime.ts';
+import { agentCoreRuntimeDriver, runtimeSessionId } from './agentcore-runtime.ts';
 import { ExecutionUnavailable } from './driver.ts';
 
 /**
@@ -71,7 +71,7 @@ test('a session is addressed by the run, so a retry reaches the same session', a
    const again = await driver(f).createSession({ runId: 'run-42' });
    // Same run derives the same session id, so a retry lands on the same session.
    assert.equal(first.id, again.id);
-   assert.ok(first.id.includes('run-42'), 'the session id carries the run id');
+   assert.equal(first.id, runtimeSessionId('run:run-42'), 'the session id is derived from the run');
    // Long enough for AgentCore's 33-char minimum even for a short run id.
    assert.ok(first.id.length >= 33, `session id must be >= 33 chars, got ${first.id.length}`);
 });
