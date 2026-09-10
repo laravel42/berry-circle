@@ -1,22 +1,27 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { filterIssuesForView, filterProjectsForView, getViewById } from '@/data/views';
+import { filterIssuesForView, filterProjectsForView } from '@/data/views';
+import { useIssuesStore } from '@/store/issues-store';
+import { useProjectsStore } from '@/store/projects-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
+import { useViewsStore } from '@/store/views-store';
 import { BarChart3, MoreHorizontal, Star } from 'lucide-react';
 import { useParams } from 'next/navigation';
 
 export default function Header() {
    const { viewId } = useParams<{ orgId: string; viewId: string }>();
-   const view = getViewById(viewId);
+   const view = useViewsStore((state) => state.getViewById(viewId));
+   const issues = useIssuesStore((state) => state.issues);
+   const projects = useProjectsStore((state) => state.projects);
    const { openPanel, togglePanel } = useRightPanelStore();
 
    if (!view) return null;
 
    const count =
       view.type === 'issue'
-         ? filterIssuesForView(view).length
-         : filterProjectsForView(view).length;
+         ? filterIssuesForView(view, issues).length
+         : filterProjectsForView(view, projects).length;
 
    return (
       <div className="w-full flex flex-col">

@@ -54,6 +54,36 @@ const FIXTURE_IMPORT_PATHS = [
       name: '@/components/common/cycles/cycle-icon',
       message: 'Cycles have no backend and are hidden from navigation.',
    },
+   {
+      name: '@/data/users',
+      importNames: ['users'],
+      message: 'Members come from useMembersStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/labels',
+      importNames: ['labels'],
+      message: 'Labels come from useLabelsStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/projects',
+      importNames: ['projects', 'getProjectById', 'getProjectsByTeam'],
+      message: 'Projects come from useProjectsStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/issues',
+      importNames: ['issues'],
+      message: 'Issues come from useIssuesStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/inbox',
+      importNames: ['inboxItems'],
+      message: 'Notifications come from the inbox API.',
+   },
+   {
+      name: '@/data/views',
+      importNames: ['views', 'issueViews', 'projectViews', 'getViewsByTeam', 'getViewById'],
+      message: 'Saved views come from useViewsStore, hydrated from the API.',
+   },
 ];
 
 const eslintConfig = [

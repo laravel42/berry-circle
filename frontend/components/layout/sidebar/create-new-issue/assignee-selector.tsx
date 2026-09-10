@@ -10,7 +10,8 @@ import {
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIssuesStore } from '@/store/issues-store';
-import { User, users } from '@/data/users';
+import { User } from '@/data/users';
+import { useMembersStore } from '@/store/members-store';
 import { agentToUser } from '@/lib/agents';
 import { useAgentsStore } from '@/store/agents-store';
 import { CheckIcon, UserCircle } from 'lucide-react';
@@ -28,8 +29,9 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
    const [value, setValue] = useState<string | null>(assignee?.id || null);
 
    const { filterByAssignee } = useIssuesStore();
+   const members = useMembersStore((state) => state.members);
    const agents = useAgentsStore((state) => state.agents);
-   const people: User[] = [...users, ...agents.map(agentToUser)].filter(
+   const people: User[] = [...members, ...agents.map(agentToUser)].filter(
       (person, index, list) => list.findIndex((entry) => entry.id === person.id) === index
    );
 

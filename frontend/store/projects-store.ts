@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { health, Project, projects as seedProjects } from '@/data/projects';
+import { health, Project } from '@/data/projects';
 import type { Priority } from '@/data/priorities';
 import type { Status } from '@/data/status';
 import type { User } from '@/data/users';
@@ -48,7 +48,7 @@ function persistPatch(projectId: string, body: ProjectPatchBody, optimistic: Par
 }
 
 export const useProjectsStore = create<ProjectsState>((set, get) => ({
-   projects: seedProjects,
+   projects: [],
 
    hydrateProjects: (projects) => set({ projects }),
 

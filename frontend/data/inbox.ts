@@ -45,6 +45,3 @@ export interface InboxItem {
    workflowRun?: InboxRef;
    plan?: InboxRef;
 }
-
-/** Inbox items. Empty until the gateway provides notifications. */
-export const inboxItems: InboxItem[] = [];
