@@ -432,11 +432,13 @@ export class RunLedger {
             UPDATE runs
                SET status = 'succeeded',
                    summary = ${params.summary},
-                   input_tokens = ${params.usage.inputTokens},
-                   output_tokens = ${params.usage.outputTokens},
-                   total_tokens = ${params.usage.totalTokens},
-                   cost_micros = ${params.usage.costMicros},
-                   currency = ${params.usage.currency},
+                   -- Usage recorded while the run worked (task_usage) is never
+                   -- lowered or unpriced by the completion write that follows it.
+                   input_tokens = GREATEST(input_tokens, ${params.usage.inputTokens}),
+                   output_tokens = GREATEST(output_tokens, ${params.usage.outputTokens}),
+                   total_tokens = GREATEST(total_tokens, ${params.usage.totalTokens}),
+                   cost_micros = COALESCE(${params.usage.costMicros}, cost_micros),
+                   currency = COALESCE(${params.usage.currency}, currency),
                    failure_code = NULL,
                    failure_message = NULL,
                    failure_retryable = NULL,
