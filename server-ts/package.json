@@ -22,6 +22,7 @@
       "@aws-sdk/s3-request-presigner": "^3.1119.0",
       "@hono/node-server": "^2.1.1",
       "@strands-agents/sdk": "~1.16.0",
+      "croner": "^10.0.1",
       "hono": "^4.13.5",
       "ioredis": "^6.0.0",
       "postgres": "^3.4.9",
