@@ -16,6 +16,7 @@ import {
    IssueDependenciesSection,
    IssueGoalSection,
 } from './issue-relations';
+import { IssueLinkedPullRequests } from './issue-linked-pull-requests';
 import { Section } from './panel-section';
 import { ReviewerProperty } from './reviewer-property';
 
@@ -80,6 +81,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                <IssueApprovalSection issue={issue} />
                <IssueGoalSection issue={issue} />
                <IssueDependenciesSection issue={issue} />
+               <IssueLinkedPullRequests issueRef={issue.identifier} />
 
                {detail.relatedIds && detail.relatedIds.length > 0 && (
                   <Section title="Related">
