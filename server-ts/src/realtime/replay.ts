@@ -23,6 +23,8 @@ export const BOARD_TOPICS = [
    'issue.created', 'issue.updated', 'issue.assigned',
    'issue.started', 'issue.completed', 'issue.deleted',
    'comment.created',
+   // A linked pull request or its checks changed; the issue page refetches.
+   'github.pull_request.updated',
 ] as const;
 
 /**
@@ -40,6 +42,8 @@ export const WORKSPACE_TOPICS = [
    'issue.created', 'issue.completed', 'issue.deleted',
    'agent.started', 'agent.completed', 'agent.failed',
    'artifact.created',
+   'github.settings.updated', 'github.repositories.updated',
+   'github.connection.updated', 'github.pull_request.updated',
 ] as const;
 
 /** `(occurred_at, id)` — the pair that orders both replays. */

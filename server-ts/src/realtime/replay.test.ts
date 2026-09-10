@@ -10,6 +10,25 @@ import { BOARD_TOPICS, WORKSPACE_TOPICS } from './replay.ts';
  * could drift the same way.
  */
 
+test('every GitHub event the integration writes is replayed, and PR updates reach board streams', () => {
+   const sources = [
+      '../scm/github-settings.ts',
+      '../scm/pull-requests.ts',
+      '../mounts/github.ts',
+      '../index.ts',
+   ].map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'));
+   const written = new Set(
+      sources.flatMap((source) => source.match(/'github\.[a-z_.]+'/g) ?? []).map((literal) => literal.slice(1, -1))
+   );
+   assert.ok(written.size >= 4, 'the GitHub writers name their events as literals');
+   const workspace = new Set<string>(WORKSPACE_TOPICS);
+   assert.deepEqual([...written].filter((topic) => !workspace.has(topic)), []);
+   assert.ok(
+      (BOARD_TOPICS as readonly string[]).includes('github.pull_request.updated'),
+      'an open board sees its issues’ pull requests change'
+   );
+});
+
 test('every run event the ledger writes is replayed to the board stream', () => {
    const source = readFileSync(new URL('../runs/ledger.ts', import.meta.url), 'utf8');
    const written = new Set(source.match(/'run\.[a-z_.]+'/g)?.map((literal) => literal.slice(1, -1)));
