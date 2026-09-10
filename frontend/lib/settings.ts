@@ -355,3 +355,45 @@ function parse<T extends z.ZodTypeAny>(schema: T, json: unknown, what: string): 
    if (!parsed.success) throw new Error(`${what} response was not recognized`);
    return parsed.data;
 }
+
+export const STATUS_CATEGORIES = [
+   'backlog',
+   'todo',
+   'in_progress',
+   'in_review',
+   'done',
+   'blocked',
+   'cancelled',
+] as const;
+
+export async function createStatus(
+   workspaceId: string,
+   input: { name: string; category: (typeof STATUS_CATEGORIES)[number]; color: string }
+): Promise<WorkspaceStatus> {
+   return parse(
+      statusSchema,
+      await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses`, {
+         method: 'POST',
+         body: JSON.stringify(input),
+      }),
+      'Status'
+   );
+}
+
+export async function archiveStatus(workspaceId: string, statusId: string): Promise<void> {
+   await apiFetch(
+      `/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses/${encodeURIComponent(statusId)}`,
+      { method: 'DELETE' }
+   );
+}
+
+export async function reorderStatuses(workspaceId: string, ids: string[]): Promise<WorkspaceStatus[]> {
+   return parse(
+      z.object({ nodes: z.array(statusSchema) }),
+      await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses/order`, {
+         method: 'PUT',
+         body: JSON.stringify({ ids }),
+      }),
+      'Statuses'
+   ).nodes;
+}

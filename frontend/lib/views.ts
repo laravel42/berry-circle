@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { apiFetch } from './api';
 import { connectionSchema } from './api-schemas';
 
-const savedViewSchema = z.object({
+export const savedViewSchema = z.object({
    id: z.string(),
    workspaceId: z.string(),
    ownerId: z.string(),
@@ -123,4 +123,78 @@ export async function loadWorkspaceViews(workspaceId: string, owner: User): Prom
    } catch {
       return collected;
    }
+}
+
+export type SavedView = z.infer<typeof savedViewSchema>;
+
+export async function createSavedView(input: {
+   workspaceId: string;
+   name: string;
+   visibility: 'private' | 'workspace';
+   query: Record<string, unknown>;
+   display: Record<string, unknown>;
+}): Promise<SavedView> {
+   const parsed = savedViewSchema.safeParse(await apiFetch('/api/v1/views', { method: 'POST', body: JSON.stringify(input) }));
+   if (!parsed.success) throw new Error('View response was not recognized');
+   return parsed.data;
+}
+
+export async function updateSavedView(
+   viewId: string,
+   patch: { name?: string; visibility?: 'private' | 'workspace'; query?: Record<string, unknown>; display?: Record<string, unknown>; revision: number }
+): Promise<SavedView> {
+   const parsed = savedViewSchema.safeParse(
+      await apiFetch(`/api/v1/views/${encodeURIComponent(viewId)}`, { method: 'PATCH', body: JSON.stringify(patch) })
+   );
+   if (!parsed.success) throw new Error('View response was not recognized');
+   return parsed.data;
+}
+
+export async function deleteSavedView(viewId: string): Promise<void> {
+   await apiFetch(`/api/v1/views/${encodeURIComponent(viewId)}`, { method: 'DELETE' });
+}
+
+const preferencesSchema = z.object({ activeViewId: z.string().nullable(), preferences: z.record(z.unknown()) });
+
+export async function loadViewPreferences(workspaceId: string): Promise<z.infer<typeof preferencesSchema>> {
+   const parsed = preferencesSchema.safeParse(
+      await apiFetch(`/api/v1/views/preferences?workspaceId=${encodeURIComponent(workspaceId)}`)
+   );
+   if (!parsed.success) throw new Error('View preferences response was not recognized');
+   return parsed.data;
+}
+
+export async function saveViewPreferences(
+   workspaceId: string,
+   activeViewId: string | null,
+   preferences: Record<string, unknown>
+): Promise<void> {
+   await apiFetch('/api/v1/views/preferences', {
+      method: 'PUT',
+      body: JSON.stringify({ workspaceId, activeViewId, preferences }),
+   });
+}
+
+const queryResultSchema = z.object({
+   total: z.number(),
+   groups: z.array(z.object({ key: z.string(), count: z.number(), issueIds: z.array(z.string()) })),
+   facets: z.object({
+      status: z.record(z.number()),
+      priority: z.record(z.number()),
+      assignee: z.record(z.number()),
+   }),
+});
+export type IssueQueryResult = z.infer<typeof queryResultSchema>;
+
+export async function queryIssues(input: {
+   workspaceId: string;
+   filter?: Record<string, unknown>;
+   groupBy?: string | { propertyId: string };
+   perGroup?: number;
+}): Promise<IssueQueryResult> {
+   const parsed = queryResultSchema.safeParse(
+      await apiFetch('/api/v1/views/query', { method: 'POST', body: JSON.stringify(input) })
+   );
+   if (!parsed.success) throw new Error('Issue query response was not recognized');
+   return parsed.data;
 }
