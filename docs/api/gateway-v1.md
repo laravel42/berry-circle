@@ -30,7 +30,7 @@ Shipped but not yet specified here — treat the implementation as authoritative
 | Identifiers | UUID strings unless a field is explicitly documented as opaque |
 | Timestamps | UTC RFC 3339 strings, for example `2026-08-22T06:30:00.000Z` |
 | Nullable values | Represented as JSON `null`; omitted fields mean “not requested/not available,” not null |
-| Authentication | Release 1 session bearer token: `Authorization: Bearer <session-token>` |
+| Authentication | Browser: the `berry.session_token` cookie set by GitHub sign-in (`/api/auth/*`, Better Auth). API clients: `Authorization: Bearer berry_pat_<id>_<secret>`. A request with an `Authorization` header is decided by it alone. |
 | Request tracing | Server returns `X-Request-Id`; the same value appears in error envelopes |
 | Idempotency | Mutating create/dispatch endpoints accept `Idempotency-Key`, described below |
 
@@ -150,8 +150,8 @@ Validation failures set `details.fields` to an array of field errors:
 | HTTP status | Default code | Meaning |
 |---:|---|---|
 | 400 | `INVALID_REQUEST` | Malformed JSON, parameters, or cursor |
-| 401 | `UNAUTHENTICATED` | Missing, invalid, or expired session |
-| 403 | `FORBIDDEN` | Authenticated actor lacks permission |
+| 401 | `UNAUTHENTICATED` | Missing, invalid or expired session cookie or bearer token |
+| 403 | `FORBIDDEN` | Authenticated actor lacks permission, or a cookie-authenticated write sent from an origin the server does not trust |
 | 404 | `NOT_FOUND` | Resource does not exist or is not visible to actor |
 | 409 | `CONFLICT` | State transition, active-run, or idempotency conflict |
 | 422 | `VALIDATION_FAILED` | Body is well-formed but fails schema/domain validation |

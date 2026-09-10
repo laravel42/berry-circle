@@ -77,8 +77,9 @@ parameter properties — is allowed; `erasableSyntaxOnly` enforces it.
   SHA-256 per file. Never edit an applied migration; add a new one. The runner
   exits non-zero on checksum or name drift rather than migrating over it.
 - **The wire shape is a contract.** `/api/v1`, the error envelope, cursor
-  pagination, `Idempotency-Key`, opaque session tokens and `berry_pat_` tokens
-  keep their exact shapes. Cursors and idempotency fingerprints already issued
+  pagination, `Idempotency-Key` and `berry_pat_` tokens keep their exact shapes;
+  browser sessions are Better Auth cookies (GitHub is the only sign-in method,
+  workstream J). Cursors and idempotency fingerprints already issued
   must keep decoding, so the canonical JSON form and the cursor envelope are
   not free to change.
 - **Licenses.** Shipped dependencies must be MIT / Apache-2.0 (or equivalently
