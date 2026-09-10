@@ -15,6 +15,7 @@ import {
    Columns3,
    KeyRound,
    LucideIcon,
+   Puzzle,
    Settings,
    Sparkles,
    Tag,
@@ -58,6 +59,7 @@ export const settingsNav: SettingsNavGroup[] = [
          { name: 'task labels', url: '/settings/issue-labels', icon: Tag },
          { name: 'statuses', url: '/settings/project-statuses', icon: Columns3 },
          { name: 'integrations', url: '/settings/integrations', icon: Blocks },
+         { name: 'plugins', url: '/settings/plugins', icon: Puzzle },
       ],
    },
 ];
