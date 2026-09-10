@@ -34,6 +34,8 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { workCatalogRoutes } from './work-catalogs.ts';
+import { savedViewRoutes } from './view-routes.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -83,7 +85,17 @@ describe(
          const sessions = new SessionService({ sql, sessionTtlMs: TTL_MS });
          const boards = new BoardRepository(sql);
          const registry = new Registry();
-         registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+         // With the work-tracking extensions mounted, so their routes sit
+         // behind the same guard these guarantees exercise.
+         registry.registerAll(
+            workspaceReadMounts({
+               sessions,
+               sql,
+               boards,
+               catalogExtensions: workCatalogRoutes(),
+               viewExtensions: savedViewRoutes({ sql }),
+            })
+         );
          app = createApp(registry);
 
          const suffix = randomUUID().slice(0, 8);

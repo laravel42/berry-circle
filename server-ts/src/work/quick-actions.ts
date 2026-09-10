@@ -100,7 +100,7 @@ export async function listQuickActions(q: Queryable, workspaceId: string, viewer
    return rows.map(toAction);
 }
 
-async function findVisible(q: Queryable, workspaceId: string, actionId: string, viewerId: string): Promise<QuickAction> {
+export async function findVisible(q: Queryable, workspaceId: string, actionId: string, viewerId: string): Promise<QuickAction> {
    const [row] = await q`
       SELECT ${q.unsafe(COLUMNS)} FROM quick_action_definitions
        WHERE id = ${actionId} AND workspace_id = ${workspaceId} AND archived_at IS NULL

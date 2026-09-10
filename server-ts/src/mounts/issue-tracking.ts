@@ -33,7 +33,7 @@ import { failureCode, parseJsonBody } from '../work/http.ts';
 import { metadataPatchSchema, patchMetadata, readMetadata } from '../work/metadata.ts';
 import { publishEvents, recordIssueEvent, type WorkEvent } from '../work/outbox.ts';
 import { clearValue, listValues, setValue } from '../work/properties.ts';
-import { runQuickAction, type QuickActionEnqueue } from '../work/quick-actions.ts';
+import { findVisible, runQuickAction, type QuickActionEnqueue } from '../work/quick-actions.ts';
 import { addReaction, emojiSchema, listReactions, removeReaction } from '../work/reactions.ts';
 import { resolveStatus } from '../work/statuses.ts';
 import { isSubscribed, listSubscribers, subscribe, subtreeIssueIds, unsubscribe } from '../work/subscribers.ts';
@@ -410,6 +410,9 @@ export function issueTrackingRoutes(options: IssueTrackingOptions): Hono<{ Varia
       const userId = context.get('user').id;
       const { issue, workspaceId } = await resolve(context.req.param('issueRef'), userId, 'runs.dispatch');
       const actionId = pathId(context.req.param('actionId'), 'Quick action');
+      // The action is found in this workspace first, so an id from another
+      // workspace is the same 404 as a random one even where runs are off.
+      await findVisible(sql, workspaceId, actionId, userId).catch(rethrowWork('Quick action'));
       if (!options.enqueue) {
          throw new ApiError(503, 'QUICK_ACTIONS_UNAVAILABLE', 'Quick actions need the agent runtime, which this server does not have.');
       }
