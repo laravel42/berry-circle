@@ -129,6 +129,9 @@ export async function call(
    body?: unknown
 ): Promise<{ status: number; body: Record<string, unknown> }> {
    const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+   // An idempotent POST fingerprints its body, so a bodiless one sends `{}`,
+   // as the web client does.
+   if (method === 'POST' && body === undefined) body = {};
    if (body !== undefined) headers['content-type'] = 'application/json';
    if (method === 'POST') headers['idempotency-key'] = `agent-layer-${randomUUID()}`;
    const response = await app.request(path, {

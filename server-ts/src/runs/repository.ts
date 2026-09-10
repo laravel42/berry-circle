@@ -101,6 +101,23 @@ export class RunRepository {
       return rows.map(toRun);
    }
 
+   /** One agent's runs across its workspace, newest first — the agent's task list. */
+   async listByAgent(
+      agentId: string,
+      after: RunCursor | null,
+      limit: number,
+      filter: RunFilter = {}
+   ): Promise<Run[]> {
+      const rows = await this.#sql`
+         SELECT ${this.#sql.unsafe(RUN_COLUMNS)} ${this.#sql.unsafe(RUN_SOURCE)}
+          WHERE r.agent_id = ${agentId}
+            AND (${filter.status == null} OR r.status = ${filter.status ?? null}::run_status)
+            AND (${after === null} OR (r.created_at, r.id) < (${after?.createdAt ?? null}::timestamptz, ${after?.id ?? null}::uuid))
+          ORDER BY r.created_at DESC, r.id DESC
+          LIMIT ${limit}`;
+      return rows.map(toRun);
+   }
+
    /**
     * Admits a run: the assignment and the queued run, in one transaction.
     *
