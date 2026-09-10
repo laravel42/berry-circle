@@ -36,6 +36,8 @@
       "test:server": "pnpm --filter @berry/server test",
       "migrate:server": "pnpm --filter @berry/server migrate",
       "seed:server": "pnpm --filter @berry/server seed",
-      "reset:server": "docker compose exec -T berry-api node --experimental-strip-types src/reset/index.ts"
+      "reset:server": "docker compose exec -T berry-api node --experimental-strip-types src/reset/index.ts",
+      "test:plugin-sdk": "pnpm --filter @berry/plugin-sdk test",
+      "typecheck:plugin-sdk": "pnpm --filter @berry/plugin-sdk typecheck"
    }
 }
