@@ -1,4 +1,3 @@
-import { hashPassword } from '../auth/password.ts';
 import type { Sql } from '../db/pool.ts';
 import { withinTx } from '../db/pool.ts';
 import {
@@ -12,7 +11,6 @@ import {
    UserEmail,
    UserID,
    UserName,
-   UserPassword,
    WorkspaceID,
    WorkspaceName,
    WorkspaceSlug,
@@ -43,7 +41,6 @@ export async function apply(
 ): Promise<void> {
    await withinTx(sql, async (tx) => {
       await upsertUser(tx, now);
-      await setUserPassword(tx, now);
       await upsertWorkspace(tx, now);
       await upsertMembership(tx, now);
       await setUserLastWorkspace(tx, now);
@@ -202,6 +199,9 @@ async function assignAgentModels(tx: Sql, now: string): Promise<void> {
    `;
 }
 
+// The seeded user has no credential of its own: locally it signs in through
+// POST /api/v1/auth/dev-login (development only), and anywhere else by
+// linking a GitHub account whose verified email matches UserEmail.
 async function upsertUser(tx: Sql, now: string): Promise<void> {
    // A different user already holding this email would fail the unique index
    // below. Renaming theirs is deliberate: this is a development fixture, and
@@ -227,23 +227,6 @@ async function upsertUser(tx: Sql, now: string): Promise<void> {
          name = EXCLUDED.name,
          role = EXCLUDED.role,
          updated_at = EXCLUDED.updated_at
-   `;
-}
-
-async function setUserPassword(tx: Sql, now: string): Promise<void> {
-   // Set a real scrypt credential so the seeded identity can sign in through the
-   // password flow (passwordless login is off unless APP_ENV is development/test
-   // and the flag is on). Uses the same hashPassword the sign-up path uses, so
-   // the stored salt (16 bytes) and hash (32 bytes) satisfy migration 050's
-   // length constraints. Rewritten on every seed run, which is harmless.
-   const { salt, hash } = await hashPassword(UserPassword);
-   await tx`
-      UPDATE users
-         SET password_hash = ${hash},
-             password_salt = ${salt},
-             password_updated_at = ${now},
-             updated_at = ${now}
-       WHERE id = ${UserID}
    `;
 }
 
