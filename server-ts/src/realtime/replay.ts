@@ -40,6 +40,8 @@ export const WORKSPACE_TOPICS = [
    'issue.created', 'issue.completed', 'issue.deleted',
    'agent.started', 'agent.completed', 'agent.failed',
    'artifact.created',
+   'autopilot.created', 'autopilot.updated', 'autopilot.archived',
+   'autopilot.run.created', 'autopilot.delivery.received',
 ] as const;
 
 /** `(occurred_at, id)` — the pair that orders both replays. */
