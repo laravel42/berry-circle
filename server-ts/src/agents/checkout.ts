@@ -56,7 +56,7 @@ export class CheckoutFailed extends Error {
    }
 }
 
-const TOKEN_VARIABLE = 'BERRY_GIT_TOKEN';
+export const TOKEN_VARIABLE = 'BERRY_GIT_TOKEN';
 const DEFAULT_DEPTH = 1;
 
 /**
@@ -66,7 +66,7 @@ const DEFAULT_DEPTH = 1;
  * would outlive the exec that created it and sit in the workspace where the
  * agent could read it.
  */
-const CREDENTIAL_HELPER = `!f() { echo username=x-access-token; echo "password=$${TOKEN_VARIABLE}"; }; f`;
+export const CREDENTIAL_HELPER = `!f() { echo username=x-access-token; echo "password=$${TOKEN_VARIABLE}"; }; f`;
 
 export async function checkout(options: CheckoutOptions): Promise<Checkout> {
    const repository = parseRepository(options.repository);
