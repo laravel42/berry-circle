@@ -17,6 +17,7 @@ export type ShellRoute =
    | 'goals'
    | 'members'
    | 'skills'
+   | 'squads'
    | 'analytics';
 
 export interface ShellRouteDef {
@@ -106,6 +107,14 @@ const MANAGE: ShellRouteDef[] = [
       match: ['/skills/'],
       prefsKey: 'skills',
       icon: '<path d="M5 4h10a4 4 0 014 4v12H9a4 4 0 01-4-4z" /><path d="M9 8h6M9 12h6" />',
+   },
+   {
+      id: 'squads',
+      label: 'squads',
+      href: '/squads',
+      match: ['/squads/'],
+      prefsKey: 'squads',
+      icon: '<circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M3 20a6 6 0 0112 0M14 20a4.5 4.5 0 017-3.5" />',
    },
    {
       id: 'analytics',
