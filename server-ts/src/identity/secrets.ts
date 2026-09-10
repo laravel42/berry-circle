@@ -10,6 +10,7 @@ import {
 import { allows } from './roles.ts';
 import { generatePersonalToken, generateToken, parseAuthorization } from '../auth/tokens.ts';
 import type { TimeCursor } from '../http/cursor.ts';
+import type { ApiScope } from '../public-api/scopes.ts';
 import type { Membership } from './workspaces.ts';
 
 /**
@@ -22,7 +23,7 @@ import type { Membership } from './workspaces.ts';
  */
 
 const PERSONAL_TOKEN_COLUMNS = `id, name, ('berry_pat_' || public_id) AS prefix,
-                                expires_at, last_used_at, revoked_at, created_at`;
+                                expires_at, last_used_at, revoked_at, created_at, scopes`;
 
 const INVITATION_COLUMNS = `id, workspace_id, email, role::text AS role, invited_by,
                             expires_at, accepted_at, revoked_at, created_at`;
@@ -41,6 +42,7 @@ export interface PersonalToken {
    lastUsedAt: string | null;
    revokedAt: string | null;
    createdAt: string;
+   scopes: string[] | null;
 }
 
 export interface Invitation {
@@ -108,6 +110,7 @@ export class SecretsRepository {
       expiresAt: string | null;
       idempotencyKey: string;
       fingerprint: Buffer;
+      scopes: ApiScope[] | null;
    }): Promise<{ token: PersonalToken; secret: string; replayed: boolean }> {
       const generated = generatePersonalToken(this.random);
       const keyHash = createHash('sha256').update(params.idempotencyKey).digest();
@@ -117,11 +120,11 @@ export class SecretsRepository {
          const inserted = await tx`
             INSERT INTO personal_api_tokens (
                id, user_id, name, public_id, secret_hash,
-               idempotency_key_hash, request_fingerprint, expires_at, created_at
+               idempotency_key_hash, request_fingerprint, expires_at, scopes, created_at
             ) VALUES (
                ${id}, ${params.userId}, ${params.name}, ${generated.publicId},
                ${generated.secretHash}, ${keyHash}, ${params.fingerprint},
-               ${params.expiresAt}, ${this.now()}
+               ${params.expiresAt}, ${params.scopes === null ? null : tx.array(params.scopes)}, ${this.now()}
             )
             ON CONFLICT (user_id, idempotency_key_hash) DO NOTHING
             RETURNING ${tx.unsafe(PERSONAL_TOKEN_COLUMNS)}`.catch(classifyWrite);
@@ -457,6 +460,7 @@ function toPersonalToken(row: Record<string, unknown>): PersonalToken {
       lastUsedAt: optionalTime(row.last_used_at),
       revokedAt: optionalTime(row.revoked_at),
       createdAt: toRFC3339(row.created_at as string) ?? '',
+      scopes: (row.scopes as string[] | null) ?? null,
    };
 }
 

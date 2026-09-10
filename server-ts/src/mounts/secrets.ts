@@ -18,6 +18,7 @@ import {
    serializeMember,
 } from './shared.ts';
 import type { Mount } from '../http/registry.ts';
+import { API_SCOPES, parseScopes, type ApiScope } from '../public-api/scopes.ts';
 
 /**
  * `/api/v1/tokens` and `/api/v1/invitations`, plus the invitation routes that
@@ -72,10 +73,14 @@ function tokenRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariables }
 
    route.post('/', async (context) => {
       const userId = context.get('user').id;
-      const { value, raw } = await decodeBody<{ name?: string; expiresAt?: string }>(context, {
-         name: 'string',
-         expiresAt: 'string',
-      });
+      const { value, raw } = await decodeBody<{ name?: string; expiresAt?: string; scopes?: unknown }>(
+         context,
+         {
+            name: 'string',
+            expiresAt: 'string',
+            scopes: 'raw',
+         }
+      );
       const idempotencyKey = requireIdempotencyKey(context.req.raw.headers);
 
       const fields: FieldError[] = [];
@@ -95,6 +100,15 @@ function tokenRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariables }
          'out_of_range',
          'Expiry must be an RFC 3339 time within the next 365 days.',
       ]);
+      let scopes: ApiScope[] | null = null;
+      if (value.scopes !== undefined && value.scopes !== null) {
+         scopes = parseScopes(value.scopes);
+         if (scopes === null) {
+            fields.push(
+               fieldError('/scopes', 'invalid_enum_value', `Scopes must be a list of: ${API_SCOPES.join(', ')}.`)
+            );
+         }
+      }
       assertValid(fields);
 
       // Set before the call, as Go does: a 409 from the store is still a
@@ -108,6 +122,7 @@ function tokenRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariables }
             expiresAt,
             idempotencyKey,
             fingerprint: fingerprintJSON(raw),
+            scopes,
          })
       ));
 
@@ -353,6 +368,7 @@ function serializePersonalToken(token: PersonalToken): Record<string, unknown> {
       lastUsedAt: token.lastUsedAt,
       revokedAt: token.revokedAt,
       createdAt: token.createdAt,
+      scopes: token.scopes,
    };
 }
 
