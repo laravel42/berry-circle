@@ -108,12 +108,19 @@ export async function dropAgentLayerWorld(sql: Sql, world: AgentLayerWorld): Pro
    await sql`DELETE FROM runs WHERE board_id IN (SELECT id FROM boards WHERE workspace_id IN ${sql(ids)})`;
    await sql`DELETE FROM issues WHERE board_id IN (SELECT id FROM boards WHERE workspace_id IN ${sql(ids)})`;
    await sql`DELETE FROM conversations WHERE workspace_id IN ${sql(ids)}`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id IN ${sql(ids)}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   // Ordinary agents first, so their foreign-key cascades (skill bindings, MCP
+   // servers, access lists, avatars, pinned agents) fire as usual.
+   await sql`DELETE FROM agents WHERE workspace_id IN ${sql(ids)} AND NOT protected`;
+   // Then the protected orchestrators, which refuse deletion by trigger. The
+   // trigger is bypassed for this one transaction only (replica mode), never
+   // with a table-wide ALTER TABLE ... DISABLE TRIGGER: test files run in
+   // parallel, and one file re-enabling the trigger between another's disable
+   // and delete made unrelated suites fail with "agent is protected".
+   await sql.begin(async (transaction) => {
+      const tx = transaction as unknown as Sql;
+      await tx`SET LOCAL session_replication_role = replica`;
+      await tx`DELETE FROM agents WHERE workspace_id IN ${tx(ids)} AND protected`;
+   });
    await sql`DELETE FROM boards WHERE workspace_id IN ${sql(ids)}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id IN ${sql(ids)}`;
    await sql`DELETE FROM workspaces WHERE id IN ${sql(ids)}`;
