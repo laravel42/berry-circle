@@ -23,6 +23,8 @@ export interface Capabilities {
    storage: boolean;
    valkey: boolean;
    planner: boolean;
+   /** GitHub sign-in is configured, so the sign-in page can offer it. */
+   githubSignIn: boolean;
 }
 
 export interface PlatformOptions {
@@ -125,6 +127,7 @@ function configRoute(capabilities: Capabilities): Hono {
             storage: capabilities.storage,
             valkey: capabilities.valkey,
             planner: capabilities.planner,
+            githubSignIn: capabilities.githubSignIn,
          },
       })
    );
