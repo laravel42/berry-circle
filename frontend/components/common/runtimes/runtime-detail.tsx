@@ -9,6 +9,7 @@ import {
    SettingsShell,
 } from '@/components/common/settings/shared';
 import { useSettingsResource } from '@/components/common/settings/use-settings-resource';
+import { RuntimeUsagePanel } from '@/components/common/usage/runtime-usage-panel';
 import {
    checkRuntimeHealth,
    createProfile,
@@ -150,6 +151,14 @@ export default function RuntimeDetail({ runtimeId }: { runtimeId: string }) {
                            ))}
                         </div>
                      )}
+                  </SettingsCard>
+               </SettingsSection>
+               <SettingsSection
+                  title="Usage"
+                  description="Tokens and cost on this runtime in the last 30 days."
+               >
+                  <SettingsCard className="p-4">
+                     <RuntimeUsagePanel runtimeId={runtimeId} days={30} />
                   </SettingsCard>
                </SettingsSection>
             </>
