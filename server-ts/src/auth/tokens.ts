@@ -136,6 +136,28 @@ export function parseAuthorization(header: string | undefined | null): string {
    return token;
 }
 
+/** The token characters a bearer may carry: RFC 6750's b64token, bounded. */
+const BEARER_TOKEN = /^[A-Za-z0-9._~+/=-]{1,512}$/;
+
+/**
+ * Accepts exactly one strict bearer credential of any registered kind.
+ *
+ * Unlike {@link parseAuthorization} it does not insist on a session-shaped
+ * token: sessions are cookies now, and a bearer is a personal token or
+ * whatever another resolver registers (a task token). The scheme rules are
+ * the same and just as strict, so every malformed header is refused alike;
+ * which resolver owns the token is decided by the caller.
+ */
+export function parseBearer(header: string | undefined | null): string {
+   if (!header || !header.startsWith('Bearer ') || countSpaces(header) !== 1) {
+      throw new Unauthenticated();
+   }
+   const token = header.slice('Bearer '.length);
+   if (!BEARER_TOKEN.test(token)) throw new Unauthenticated();
+   if (isPersonalToken(token)) parsePersonalToken(token);
+   return token;
+}
+
 /** Constant-time digest comparison, for verifying a presented PAT secret. */
 export function secretMatches(secret: string, expected: Buffer): boolean {
    const actual = digestToken(secret);
