@@ -18,7 +18,6 @@ import {
 } from '@/store/sidebar-prefs-store';
 import {
    Activity,
-   BarChart3,
    Box,
    Check,
    ChevronDown,
@@ -26,6 +25,7 @@ import {
    GitPullRequest,
    GripVertical,
    LucideIcon,
+   MessageSquare,
    Sparkles,
    Target,
 } from 'lucide-react';
@@ -42,6 +42,7 @@ interface ItemConfig {
 export const WORKSPACE_ITEMS: ItemConfig[] = [
    { key: 'my-issues', label: 'tasks', icon: FolderKanban },
    { key: 'reviews', label: 'reviews', icon: GitPullRequest },
+   { key: 'chat', label: 'chat', icon: MessageSquare },
    { key: 'goals', label: 'goals', icon: Target },
    { key: 'projects', label: 'projects', icon: Box },
 ];
@@ -49,7 +50,6 @@ export const WORKSPACE_ITEMS: ItemConfig[] = [
 export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
-   { key: 'analytics', label: 'analytics', icon: BarChart3 },
 ];
 
 const VISIBILITY_LABELS: Record<SidebarVisibility, string> = {

@@ -12,11 +12,11 @@ export type ShellRoute =
    | 'issues'
    | 'runs'
    | 'reviews'
+   | 'chat'
    | 'inbox'
    | 'projects'
    | 'goals'
-   | 'members'
-   | 'analytics';
+   | 'members';
 
 export interface ShellRouteDef {
    /** Stable identifier, also the tab key. */
@@ -25,10 +25,7 @@ export interface ShellRouteDef {
    label: string;
    /** Inner SVG markup, drawn on a 24x24 viewBox with currentColor stroke. */
    icon: string;
-   /**
-    * Route this navigates to, relative to the workspace. Omitted for rail
-    * placeholders that have no page yet.
-    */
+   /** Route this navigates to, relative to the workspace. Every rail item has a page. */
    href?: string;
    /**
     * Extra pathname fragments that count as this route being active, for the
@@ -65,6 +62,13 @@ const WORK: ShellRouteDef[] = [
       icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
    },
    {
+      id: 'chat',
+      label: 'chat',
+      href: '/chat',
+      prefsKey: 'chat',
+      icon: '<path d="M4 5h16v11H9l-5 4z" />',
+   },
+   {
       id: 'goals',
       label: 'goals',
       href: '/goals',
@@ -97,12 +101,6 @@ const MANAGE: ShellRouteDef[] = [
       href: '/agents',
       prefsKey: 'agents',
       icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" /><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9z" />',
-   },
-   {
-      id: 'analytics',
-      label: 'analytics',
-      prefsKey: 'analytics',
-      icon: '<path d="M4 19V10M10 19V5M16 19v-7" /><path d="M3 19h18" />',
    },
 ];
 

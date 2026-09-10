@@ -523,6 +523,9 @@ export function CommandPalette() {
                            <CommandItem onSelect={() => go('/reviews')}>
                               <GitBranch className="text-muted-foreground" /> Reviews
                            </CommandItem>
+                           <CommandItem onSelect={() => go('/chat')}>
+                              <MessageSquare className="text-muted-foreground" /> Chat
+                           </CommandItem>
                            <CommandItem onSelect={() => go('/initiatives')}>
                               <Compass className="text-muted-foreground" /> Initiatives
                            </CommandItem>

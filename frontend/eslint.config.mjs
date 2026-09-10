@@ -25,11 +25,31 @@ const FONT_SIZE_UTILITY = String.raw`(^|\s)([^\s]*:)?text-(xs|sm|base|lg|xl|[2-9
 const TYPE_SCALE_MESSAGE =
    'Font sizes come from the element (h1-h4, else text-xs) via the base layer in app/globals.css. Use the right element, or add the exception to globals.css -- do not set a text-* size utility here.';
 
+/* Fixture collections and surfaces with no backend. The frontend talks to
+   Berry only; an import from this list would render an empty fake instead of
+   real data, or bring a hidden surface back into navigation. Each workstream
+   task that removes a fixture adds its entry here so it cannot return. */
+const FIXTURE_IMPORT_PATHS = [
+   {
+      name: '@/data/side-bar-nav',
+      message: 'The legacy sidebar is gone; navigation lives in shell-routes.ts and nav-settings.tsx.',
+   },
+   {
+      name: '@/data/documents',
+      message: 'Documents have no backend and are hidden from navigation.',
+   },
+   {
+      name: '@/components/common/settings/settings-placeholder',
+      message: 'Placeholder settings pages are hidden, not faked. Build a real settings page instead.',
+   },
+];
+
 const eslintConfig = [
    ...compat.extends('next/core-web-vitals', 'next/typescript'),
    {
       files: ['**/*.{ts,tsx}'],
       rules: {
+         'no-restricted-imports': ['error', { paths: FIXTURE_IMPORT_PATHS }],
          'no-restricted-syntax': [
             'error',
             {
