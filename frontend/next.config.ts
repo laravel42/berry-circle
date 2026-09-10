@@ -44,6 +44,10 @@ const nextConfig: NextConfig = {
             destination: `${apiOrigin}/api/:path*`,
          },
          {
+            source: '/v1/:path*',
+            destination: `${apiOrigin}/v1/:path*`,
+         },
+         {
             source: '/health',
             destination: `${apiOrigin}/health`,
          },

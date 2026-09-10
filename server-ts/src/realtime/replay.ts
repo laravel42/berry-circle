@@ -42,6 +42,7 @@ export const WORKSPACE_TOPICS = [
    'issue.created', 'issue.completed', 'issue.deleted',
    'agent.started', 'agent.completed', 'agent.failed',
    'artifact.created',
+   'plugin.installed', 'plugin.updated', 'plugin.uninstalled',
    'github.settings.updated', 'github.repositories.updated',
    'github.connection.updated', 'github.pull_request.updated',
    // Workspace-level like goals (boardId null): the Usage page, the Dashboard

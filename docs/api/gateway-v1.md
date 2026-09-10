@@ -960,3 +960,16 @@ These do not weaken the wire contract above, but require a product decision befo
 - Errors: one stable envelope, validation details, HTTP mappings, and domain codes are defined.
 - SSE: endpoints (run, board and workspace scopes), reconnection/replay behavior, envelope, ordering/deduplication, redaction rules, event types, payload shapes, and examples are defined.
 - Versioning, authentication, authorization, idempotency, status codes, and implementation gaps are explicit.
+
+## Public API v1 (`/v1`)
+
+A small, stable API for scripts and plugins, separate from the product API.
+
+- **Credentials.** `Authorization: Bearer berry_pat_…` (a personal access token) or `Bearer berry_plg_…` (a plugin token Berry hands a plugin on each call). A session token is refused with 401.
+- **Scopes.** `issues:read`, `issues:write`, `comments:read`, `comments:write`, `storage:read`, `storage:write`. A personal token created without `scopes` holds all of them. A missing scope is `403 INSUFFICIENT_SCOPE` with `details.required`.
+- **Tenancy.** A personal token acts as its user, through the same membership checks as `/api/v1`. A plugin token acts as the member who installed the plugin, and only inside that plugin's workspace. An issue in another workspace is `404`, the same as a missing one.
+- `GET /v1/context` — `{ principal, scopes, workspaces[] }`.
+- `GET /v1/issues/{ref}` and `PATCH /v1/issues/{ref}` — `ref` is a UUID or an identifier such as `BER-12`. PATCH accepts `title`, `description`, `status` (`backlog`, `todo`, `inProgress`, `inReview`, `done`, `blocked`, `cancelled`) and `priority` (`none`, `urgent`, `high`, `medium`, `low`). Status moves follow the board's rules (`409 INVALID_TRANSITION`).
+- `GET /v1/issues/{ref}/comments?first=1..100` — `{ nodes[] }`, oldest first. `POST` accepts `{ body, parentId? }` and returns `201`.
+- `GET /v1/storage?prefix=&after=&first=`, `GET|PUT|DELETE /v1/storage/{key}` — plugin tokens only (`403 PLUGIN_TOKEN_REQUIRED` otherwise). Keys are 1–200 of `A–Z a–z 0–9 . _ : / -`. `PUT` takes `{ value }`, any JSON of at most 64 KB.
+- `POST /api/v1/tokens` accepts an optional `scopes` array. Token responses end with `scopes` (`null` = every scope).
