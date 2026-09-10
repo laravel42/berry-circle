@@ -1,8 +1,13 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
+import { assertValid, fieldError } from '../http/body.ts';
 import { ApiError } from '../http/errors.ts';
+import { SealingUnavailable } from '../integrations/sealing.ts';
+import type { AgentProfileRepository } from '../agents/profile.ts';
+import { readJson } from './zod-body.ts';
 import { decodeNameCursor, decodeTimeCursor, encodeCursor } from '../http/cursor.ts';
 import { idempotent } from '../http/idempotent.ts';
 import type { IdempotencyStore } from '../http/idempotency.ts';
@@ -40,6 +45,21 @@ import {
  */
 
 const STATUSES = new Set(['available', 'busy', 'offline', 'unknown']);
+const SCOPE = z.enum(['everyone', 'admins', 'listed']);
+const permissionsSchema = z.strictObject({
+   permissions: z.array(z.string()).optional(),
+   access: z
+      .strictObject({ assign: SCOPE, mention: SCOPE, members: z.array(z.string().uuid()).max(200) })
+      .optional(),
+});
+const labelsSchema = z.strictObject({ labels: z.array(z.string().trim().min(1).max(40)).max(20) });
+const envSchema = z.strictObject({
+   env: z
+      .record(z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/), z.string().max(8000))
+      .refine((env) => Object.keys(env).length <= 50, 'At most 50 variables.'),
+});
+const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const MAX_AVATAR_BYTES = 524_288;
 const RUN_STATUSES = new Set(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
 const MAX_NAME = 100;
 const MAX_DESCRIPTION = 5_000;
@@ -76,6 +96,8 @@ export interface AgentOptions {
    /** The agent's task list and "cancel all"; both 503 when absent. */
    runs?: RunRepository;
    ledger?: Pick<RunLedger, 'markCancelled'>;
+   /** Labels, sealed env, avatar and access scopes; their routes 503 when absent. */
+   profile?: AgentProfileRepository;
 }
 
 export function agentMounts(options: AgentOptions): Mount[] {
@@ -84,6 +106,12 @@ export function agentMounts(options: AgentOptions): Mount[] {
 
    const { agents, catalog, logger } = options;
    const clock = options.clock ?? (() => new Date());
+   const requireProfile = (): AgentProfileRepository => {
+      if (!options.profile) {
+         throw new ApiError(503, 'AGENT_PROFILE_UNAVAILABLE', 'Agent profiles are not served here.');
+      }
+      return options.profile;
+   };
 
    route.get('/', async (context) => {
       const url = new URL(context.req.url);
@@ -275,12 +303,18 @@ export function agentMounts(options: AgentOptions): Mount[] {
          .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
          .catch(rethrowAgent);
 
-      const body = await readBody(context.req.raw, new Set(['permissions']));
-      const given = body.permissions;
-      if (!Array.isArray(given) || given.some((entry) => typeof entry !== 'string')) {
-         throw new ApiError(400, 'INVALID_REQUEST', 'permissions is a list of permission names.');
+      const body = await readJson(context, permissionsSchema).catch((error: unknown) => {
+         // A malformed permissions list keeps the error it always had.
+         if (error instanceof ApiError && error.status === 422) {
+            throw new ApiError(400, 'INVALID_REQUEST', 'permissions is a list of permission names.');
+         }
+         throw error;
+      });
+      if (!body.permissions && !body.access) {
+         throw new ApiError(400, 'NO_FIELDS', 'No permission fields were provided.');
       }
-      const unknown = (given as string[]).filter(
+      const given = body.permissions ?? [];
+      const unknown = given.filter(
          (name) => !(PERMISSIONS as readonly string[]).includes(name)
       );
       if (unknown.length > 0) {
@@ -290,10 +324,90 @@ export function agentMounts(options: AgentOptions): Mount[] {
          throw new ApiError(400, 'INVALID_REQUEST', `Unknown permission: ${unknown[0]}.`);
       }
 
-      const updated = await agents
-         .setPermissions(agentId, scope.workspaceId, [...new Set(given as string[])])
+      if (body.access) {
+         const ok = await requireProfile()
+            .setAccess(scope.workspaceId, agentId, body.access)
+            .catch(rethrowAgent);
+         if (!ok) {
+            assertValid([
+               fieldError('/access/members', 'invalid_member', 'Every listed member must belong to this workspace.'),
+            ]);
+         }
+      }
+      if (body.permissions) {
+         await agents
+            .setPermissions(agentId, scope.workspaceId, [...new Set(given)])
+            .catch(rethrowAgent);
+      }
+      return json(serializeAgent(await agents.get(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   route.put('/:agentId/labels', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.write')
          .catch(rethrowAgent);
-      return json(serializeAgent(updated));
+      const { labels } = await readJson(context, labelsSchema);
+      await requireProfile().setLabels(scope.workspaceId, agentId, labels).catch(rethrowAgent);
+      return json(serializeAgent(await agents.get(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   /** Admin-only: env usually carries credentials the agent acts with. */
+   route.put('/:agentId/env', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+      const { env } = await readJson(context, envSchema);
+      const envNames = await requireProfile()
+         .setEnv(scope.workspaceId, agentId, env)
+         .catch((error: unknown) => {
+            if (error instanceof SealingUnavailable) {
+               throw new ApiError(412, 'INTEGRATIONS_NOT_CONFIGURED', 'This server cannot store credentials.');
+            }
+            return rethrowAgent(error);
+         });
+      return json({ envNames });
+   });
+
+   route.put('/:agentId/avatar', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.write')
+         .catch(rethrowAgent);
+      const type = (context.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+      if (!AVATAR_TYPES.has(type)) {
+         throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Upload a PNG, JPEG, WebP or GIF image.');
+      }
+      const bytes = Buffer.from(await context.req.arrayBuffer());
+      if (bytes.length === 0 || bytes.length > MAX_AVATAR_BYTES) {
+         throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'An avatar is at most 512 KiB.');
+      }
+      await requireProfile().putAvatar(scope.workspaceId, agentId, type, bytes).catch(rethrowAgent);
+      return json(serializeAgent(await agents.get(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   route.get('/:agentId/avatar', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.read')
+         .catch(rethrowAgent);
+      const avatar = await requireProfile().getAvatar(scope.workspaceId, agentId).catch(rethrowAgent);
+      return new Response(new Uint8Array(avatar.bytes), {
+         headers: {
+            'content-type': avatar.contentType,
+            'cache-control': 'private, max-age=31536000, immutable',
+            'x-content-type-options': 'nosniff',
+         },
+      });
+   });
+
+   route.get('/:agentId/access', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.read')
+         .catch(rethrowAgent);
+      return json(await requireProfile().getAccess(scope.workspaceId, agentId).catch(rethrowAgent));
    });
 
    route.delete('/:agentId', async (context) => {
@@ -398,6 +512,9 @@ function serializeAgent(agent: Agent): Record<string, unknown> {
       modelName: agent.modelName,
       systemRole: agent.systemRole,
       archivedAt: agent.archivedAt,
+      labels: agent.labels,
+      envNames: agent.envNames,
+      access: agent.access,
       createdAt: agent.createdAt,
       updatedAt: agent.updatedAt,
    };

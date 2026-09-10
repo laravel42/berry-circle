@@ -48,6 +48,10 @@ export interface Agent {
    /** A seeded role such as 'guide'; null for an ordinary agent. */
    systemRole: string | null;
    archivedAt: string | null;
+   labels: string[];
+   /** Names only: the values are sealed and never leave the server but in an envelope. */
+   envNames: string[];
+   access: { assign: string; mention: string };
    createdAt: string;
    updatedAt: string;
 }
@@ -97,6 +101,7 @@ const AGENT_COLUMNS = `
    agent.status, agent.capabilities, agent.skills, agent.instructions,
    agent.model_provider, agent.model_name, agent.model_tier,
    agent.manifest_limits, agent.permissions, agent.protected, agent.system_role, agent.archived_at,
+   agent.labels, agent.env_names, agent.assign_scope, agent.mention_scope,
    agent.created_at, agent.updated_at`;
 
 /**
@@ -320,7 +325,8 @@ export class AgentRepository {
    /**
     * A new agent with the same configuration, skills and MCP servers.
     *
-    * Runs, history and the protected flag stay with the original.
+    * Sealed env travels too (same workspace, same key). Runs, history and the
+    * protected flag stay with the original.
     */
    async copy(agentId: string, workspaceId: string): Promise<Agent> {
       const id = this.newId();
@@ -328,9 +334,14 @@ export class AgentRepository {
          const tx = transaction as unknown as Sql;
          const inserted = await tx`
             INSERT INTO agents (id, workspace_id, board_id, name, description, avatar_url, status,
-                                capabilities, skills, instructions, model_provider, model_name, permissions)
-            SELECT ${id}, workspace_id, NULL, left(name, 93) || ' (copy)', description, avatar_url,
-                   'available', capabilities, skills, instructions, model_provider, model_name, permissions
+                                capabilities, skills, instructions, model_provider, model_name, permissions,
+                                labels, env_sealed, env_names, assign_scope, mention_scope)
+            SELECT ${id}, workspace_id, NULL, left(name, 93) || ' (copy)', description,
+                   -- An uploaded avatar is served from the original's id, so it
+                   -- does not travel; an external URL does.
+                   CASE WHEN avatar_url ~ '^https?://' THEN avatar_url ELSE NULL END,
+                   'available', capabilities, skills, instructions, model_provider, model_name, permissions,
+                   labels, env_sealed, env_names, assign_scope, mention_scope
               FROM agents WHERE id = ${agentId} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
          if (inserted.count !== 1) throw new NotFound();
          await SkillRepository.copyBindings(tx, agentId, id);
@@ -368,6 +379,12 @@ function toAgent(row: Record<string, unknown>): Agent {
       protected: row.protected === true,
       systemRole: (row.system_role as string | null) ?? null,
       archivedAt: toRFC3339(row.archived_at as string | null),
+      labels: (row.labels as string[] | null) ?? [],
+      envNames: (row.env_names as string[] | null) ?? [],
+      access: {
+         assign: (row.assign_scope as string | null) ?? 'everyone',
+         mention: (row.mention_scope as string | null) ?? 'everyone',
+      },
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
    };

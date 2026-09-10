@@ -1,3 +1,4 @@
+import type { AgentAccess } from '../agents/access.ts';
 import type { ScmSync } from '../scm/sync.ts';
 import { Hono } from 'hono';
 import { autoDispatch } from '../runs/auto-dispatch.ts';
@@ -75,6 +76,8 @@ export interface IssueOptions {
    scm?: ScmSync | null;
    /** Absent in a deployment with no relay; mutations then reach only this node. */
    broadcaster?: Broadcaster | undefined;
+   /** Who may assign work to which agent. Absent: every member may. */
+   agentAccess?: AgentAccess | undefined;
    /** Sub-routes owned by other domains, such as comments. */
    nested?: Hono<{ Variables: AuthVariables }> | undefined;
    /** An issue's dependencies and its AutoGate verdicts. */
@@ -171,6 +174,13 @@ export function issueMounts(options: IssueOptions): Mount[] {
          .authorize(user.id, input.boardId, 'product.write')
          .catch(rethrow(true));
       if (input.assignee) await assertAssignee(issues, scope.workspaceId, input.assignee);
+      if (options.agentAccess && input.assignee?.type === 'agent') {
+         await options.agentAccess.assertCanAssign({
+            workspaceId: scope.workspaceId,
+            agentId: input.assignee.id,
+            userId: user.id,
+         });
+      }
 
       const created = await issues
          .create({
@@ -220,6 +230,13 @@ export function issueMounts(options: IssueOptions): Mount[] {
       const { patch, goal, goalSet } = parsePatch(await readBody(context.req.raw));
       if (patch.assigneeSet && patch.assignee) {
          await assertAssignee(issues, scope.workspaceId, patch.assignee);
+         if (options.agentAccess && patch.assignee.type === 'agent') {
+            await options.agentAccess.assertCanAssign({
+               workspaceId: scope.workspaceId,
+               agentId: patch.assignee.id,
+               userId: user.id,
+            });
+         }
       }
 
       let updated = found;
