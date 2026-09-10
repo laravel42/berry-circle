@@ -18,6 +18,7 @@ import {
 } from './issue-relations';
 import { Section } from './panel-section';
 import { ReviewerProperty } from './reviewer-property';
+import { IssueUsageSection } from '@/components/common/usage/issue-usage-section';
 
 interface IssuePropertiesPanelProps {
    issue: Issue;
@@ -78,6 +79,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                )}
 
                <IssueApprovalSection issue={issue} />
+               <IssueUsageSection issueId={issue.id} />
                <IssueGoalSection issue={issue} />
                <IssueDependenciesSection issue={issue} />
 
