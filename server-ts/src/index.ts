@@ -271,13 +271,17 @@ const scmSync = scm.sync;
  */
 const githubSettings = new GitHubSettingsRepository(sql);
 const pullRequests = new PullRequestStore({ sql, issues });
+const workspaceForInstallation = async (installationId: number): Promise<string | null> =>
+   githubApp ? githubApp.claimedBy(installationId) : null;
 const scmInbound = new ScmInbound({
    sql,
    links: scm.links,
    logger,
+   // Reviews and runs are matched by branch, which only one workspace's
+   // installation may reach.
+   workspaceForInstallation,
    github: new GitHubEvents({
-      workspaceForInstallation: async (installationId) =>
-         githubApp ? githubApp.claimedBy(installationId) : null,
+      workspaceForInstallation,
       settings: githubSettings,
       pullRequests,
       removeInstallation: async (installationId) =>
