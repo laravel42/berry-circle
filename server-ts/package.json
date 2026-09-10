@@ -22,13 +22,16 @@
       "@aws-sdk/s3-request-presigner": "^3.1119.0",
       "@hono/node-server": "^2.1.1",
       "@strands-agents/sdk": "~1.16.0",
+      "better-auth": "1.7.4",
       "hono": "^4.13.5",
       "ioredis": "^6.0.0",
+      "pg": "^8.23.0",
       "postgres": "^3.4.9",
       "zod": "^4.2.1"
    },
    "devDependencies": {
       "@types/node": "^26.4.0",
+      "@types/pg": "^8.23.1",
       "fast-check": "^4.9.0",
       "typescript": "^7.0.2"
    },

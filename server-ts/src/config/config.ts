@@ -13,6 +13,8 @@ export interface Config {
    metricsEnabled: boolean;
    sessionTtlMs: number;
    allowPasswordlessLogin: boolean;
+   /** Better Auth: GitHub-only sign-in. See AuthConfig. */
+   auth: AuthConfig;
    /** Per-subscriber realtime event buffer, before a slow client is dropped. */
    realtimeBuffer: number;
    storage: StorageConfig | null;
@@ -171,6 +173,20 @@ export interface IntegrationsConfig {
    appUrl: string | null;
 }
 
+/** Sign-in: Better Auth with GitHub as the only provider. */
+export interface AuthConfig {
+   /** >= 32 chars. Null disables cookie sessions (bearer tokens still work). */
+   secret: string | null;
+   /** The browser-facing origin Better Auth builds callback URLs on. */
+   baseUrl: string | null;
+   /** Origins allowed to send cookie-authenticated unsafe requests. */
+   trustedOrigins: string[];
+   /** The sign-in OAuth App. Separate from integrations.github. */
+   github: { clientId: string; clientSecret: string } | null;
+   /** Development-only known-email login (dev-login route + testUtils plugin). */
+   devLogin: boolean;
+}
+
 /** What agents run on. Null when no model credential is configured. */
 export interface AgentConfig {
    /**
@@ -252,17 +268,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
    // Read before the check below, so a misconfigured substrate is reported
    // with everything else rather than collected into a list nobody throws.
    const executionConfig = execution(env, problems);
+   const appEnv = (env.APP_ENV ?? 'development').trim();
+   const authConfig = auth(env, appEnv, problems);
 
    if (problems.length > 0) throw new ConfigError(problems);
 
    return {
-      appEnv: (env.APP_ENV ?? 'development').trim(),
+      appEnv,
       serviceName: (env.SERVICE_NAME ?? 'berry-server').trim(),
       apiAddr: { host, port },
       databaseUrl,
       metricsEnabled: boolean(env.METRICS_ENABLED, true),
       sessionTtlMs: duration(env.SESSION_TTL, 30 * 24 * 60 * 60 * 1000),
       allowPasswordlessLogin: boolean(env.AUTH_ALLOW_PASSWORDLESS_LOGIN, true),
+      auth: authConfig,
       // Per-subscriber event buffer, before a slow client is dropped.
       realtimeBuffer: positiveInt(env.REALTIME_BUFFER, 64),
       storage: storage(env),
@@ -486,6 +505,65 @@ function integrations(env: NodeJS.ProcessEnv): IntegrationsConfig {
       github: clientId && clientSecret ? { clientId, clientSecret } : null,
       publicUrl: origin(env.BERRY_PUBLIC_URL),
       appUrl: origin(env.BERRY_APP_URL),
+   };
+}
+
+/**
+ * A development-only secret, fixed rather than generated.
+ *
+ * Generated would differ between restarts and sign everyone out on every
+ * reload; fixed and public is acceptable only because it is never used outside
+ * development and test, which is checked below.
+ */
+const DEVELOPMENT_AUTH_SECRET = 'berry-development-only-auth-secret-do-not-deploy';
+
+/**
+ * Sign-in, which is Better Auth with GitHub and nothing else.
+ *
+ * Its GitHub credential has its own names on purpose: GITHUB_CLIENT_ID belongs
+ * to the repository connection, and one OAuth App serving both would give
+ * sign-in the repository scopes and repositories the sign-in callback.
+ */
+function auth(env: NodeJS.ProcessEnv, _appEnv: string, problems: string[]): AuthConfig {
+   // Explicit APP_ENV only. `appEnv` defaults to 'development' when unset, and
+   // a production host that forgot APP_ENV must not get the public fixed secret
+   // or dev-login. Compose sets APP_ENV (default development), so local stacks
+   // are unaffected.
+   const development = ['development', 'test'].includes(
+      (env.APP_ENV ?? '').trim().toLowerCase()
+   );
+   const explicit = (env.BERRY_AUTH_SECRET ?? '').trim();
+   if (explicit && explicit.length < 32) {
+      problems.push('BERRY_AUTH_SECRET must be at least 32 characters');
+   }
+   const secret = explicit.length >= 32 ? explicit : development ? DEVELOPMENT_AUTH_SECRET : null;
+
+   const clientId = (env.BERRY_AUTH_GITHUB_CLIENT_ID ?? '').trim();
+   const clientSecret = (env.BERRY_AUTH_GITHUB_CLIENT_SECRET ?? '').trim();
+   if (clientId && !clientSecret) {
+      problems.push('BERRY_AUTH_GITHUB_CLIENT_SECRET is required with BERRY_AUTH_GITHUB_CLIENT_ID');
+   }
+   if (clientSecret && !clientId) {
+      problems.push('BERRY_AUTH_GITHUB_CLIENT_ID is required with BERRY_AUTH_GITHUB_CLIENT_SECRET');
+   }
+   const github = clientId && clientSecret ? { clientId, clientSecret } : null;
+   if (github && !explicit && !development) {
+      problems.push('BERRY_AUTH_SECRET is required when GitHub sign-in is configured');
+   }
+
+   const appUrl = origin(env.BERRY_APP_URL);
+   const publicUrl = origin(env.BERRY_PUBLIC_URL);
+   const baseUrl = appUrl ?? publicUrl ?? (development ? 'http://localhost:3000' : null);
+   const trustedOrigins = [
+      ...new Set([appUrl, publicUrl, baseUrl].filter((value): value is string => value !== null)),
+   ];
+
+   return {
+      secret,
+      baseUrl,
+      trustedOrigins,
+      github,
+      devLogin: development && boolean(env.AUTH_ALLOW_PASSWORDLESS_LOGIN, true),
    };
 }
 

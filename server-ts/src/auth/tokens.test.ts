@@ -8,6 +8,7 @@ import {
    hashToken,
    isPersonalToken,
    parseAuthorization,
+   parseBearer,
    parsePersonalToken,
    secretMatches,
 } from './tokens.ts';
@@ -17,6 +18,32 @@ import {
  * every malformed credential indistinguishable, and the sessions already in
  * the database were issued under exactly these rules.
  */
+
+test('parseBearer accepts any single well-formed bearer, not only session-shaped ones', () => {
+   assert.equal(parseBearer('Bearer abc.DEF-123_~+/='), 'abc.DEF-123_~+/=');
+   const { token } = generatePersonalToken();
+   assert.equal(parseBearer(`Bearer ${token}`), token);
+});
+
+test('parseBearer refuses every malformed header the same way', () => {
+   for (const header of [
+      undefined,
+      null,
+      '',
+      'Bearer',
+      'Bearer ',
+      'bearer abc',
+      'Basic abc',
+      'Bearer  abc',
+      'Bearer abc def',
+      'Bearer abc, Bearer def',
+      `Bearer ${'a'.repeat(513)}`,
+      'Bearer ab"c',
+      'Bearer berry_pat_malformed',
+   ]) {
+      assert.throws(() => parseBearer(header), Unauthenticated, String(header));
+   }
+});
 
 test('a generated token is 256 bits of unpadded base64url', () => {
    const token = generateToken();
