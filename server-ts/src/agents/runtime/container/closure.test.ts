@@ -25,6 +25,7 @@ export const CONTAINER_ALLOWED_FILES = [
    'src/execution/bytes.ts',
    'src/runtime/envelope.ts',
    'src/runtime/lifecycle.ts',
+   'src/scm/commit-trailer.ts',
 ];
 const ALLOWED_PACKAGES = new Set([
    '@strands-agents/sdk',

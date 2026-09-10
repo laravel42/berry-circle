@@ -35,6 +35,8 @@ COPY tsconfig.json ./
 COPY src/agents ./src/agents
 COPY src/execution ./src/execution
 COPY src/runtime/envelope.ts src/runtime/lifecycle.ts ./src/runtime/
+# Delivery signs its commits with the co-author trailer (GitHub parity).
+COPY src/scm/commit-trailer.ts ./src/scm/
 
 # Session workspaces. A persistent filesystem can be mounted here through the
 # runtime's filesystemConfigurations so a checkout survives a session stop.
