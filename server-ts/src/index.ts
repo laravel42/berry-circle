@@ -63,6 +63,7 @@ import { OAuthStateStore } from './integrations/oauth.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
+import { quickActionEnqueue } from './runtime/wiring.ts';
 import { agentMounts } from './mounts/agents.ts';
 import { usageMounts } from './mounts/usage.ts';
 import { PriceBook } from './agents/pricing.ts';
@@ -410,8 +411,7 @@ registry.registerAll(
       ...(executor ? { dispatch: runOptions.runs } : {}),
       stages: stageGate(sql),
       hooks: workHooks,
-      // Quick actions stay unavailable (503) until workstream A's enqueueTask
-      // lands in runs/queue.ts and is passed here as `enqueue`.
+      // Quick actions queue through the runtime's task queue.
       tracking: issueTrackingRoutes({
          sql,
          issues,
@@ -420,6 +420,7 @@ registry.registerAll(
          broadcaster,
          dispatch: workDispatch,
          hooks: workHooks,
+         enqueue: quickActionEnqueue,
       }),
       artifacts: issueArtifactRoutes({ artifacts: runArtifacts, issues }),
       attachments: issueAttachmentRoutes({
