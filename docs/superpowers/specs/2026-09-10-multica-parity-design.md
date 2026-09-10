@@ -53,10 +53,12 @@ Berry server (control plane)                     AgentCore Runtime (container)
 ### 2.2 The task envelope and lifecycle stream
 
 The dispatcher claims a run exactly as today (lease, heartbeat, sweep are
-unchanged), then calls `InvokeAgentRuntime` with the run id as
-`runtimeSessionId` and a JSON envelope:
+unchanged), then calls `InvokeAgentRuntime` with the `(agent, issue)` session
+id (section 2.2a) as `runtimeSessionId` and a JSON envelope:
 
-`{ kind: 'agent' | 'completion', runId, agent: { instructions, model, skills[], mcpServers[], permissions }, task: { issue, comments, dependencies, project resources, priorWork }, repo?, berry: { apiUrl, token } }`
+`{ kind: 'agent' | 'completion', runId, sessionKey, agent: { instructions, model, skills[], mcpServers[], permissions }, task: { issue, comments, dependencies, project resources, priorWork }, transcript, repo?, berry: { apiUrl, token } }`
+
+Completion tasks use a fresh session per run.
 
 The container answers with an SSE stream. Each event is one line of the
 lifecycle contract, modelled on the multica task lifecycle but in Berry's own
@@ -74,6 +76,38 @@ The ledger stays the only writer of run state. A stream that ends without
 `completed` or `failed` is recorded as `RUNTIME_STREAM_ENDED`, retryable.
 Cancel still flows through the heartbeat: when it sees `cancelled`, it aborts
 the stream and calls `StopRuntimeSession`.
+
+### 2.2a Persistent sessions (multica's resumable agent sessions)
+
+- **Session identity is `(agent, issue)`, not the run.**
+  `runtimeSessionId = "berry-" + sha256(agentId + ":" + issueId)`, padded to 33
+  or more characters. Chat tasks use `(agent, chatSessionId)`. Follow-up runs on
+  the same issue reach the same warm microVM while it is alive: same process,
+  same repo checkout, same in-memory Strands conversation.
+- **Warm case.** The container keeps a map from session to agent state. A new
+  envelope for a live session appends the new prompt to the existing
+  conversation, and does not rebuild it.
+- **Cold case.** The microVM was reaped (idle timeout or `maxLifetime`). The
+  envelope always carries `transcript`, the prior conversation for this
+  `(agent, issue)` rebuilt from `run_events`, trimmed by the
+  `SlidingWindowConversationManager` budget. The container restores the Strands
+  messages from it. AgentCore Memory recall (`priorWork`) stays as the summary
+  layer. The same envelope therefore works warm or cold, and only speed differs.
+- **Workspace.** The repo stays checked out while the session is warm. On a cold
+  start the container re-clones shallowly and checks out the issue's branch.
+  Every run ends with its work committed to the branch or stored as S3
+  artifacts, so a reaped VM loses no delivered work.
+- **Lifecycle config.** Runtime `idleRuntimeSessionTimeout` defaults to 3600 s
+  (configurable per runtime profile, maximum 28800) and `maxLifetime` to 28800 s.
+  While the loop is working after the invoke stream has closed, `/ping` returns
+  `HealthyBusy`.
+- **Concurrency.** `issues.active_run_id` already allows one active run per
+  issue, so two runs never share a session concurrently. A chat session gets the
+  same guard with `chat_sessions.active_run_id`.
+- **Cancel.** `StopRuntimeSession` now ends a session that later runs may have
+  reused. This is acceptable, because the cold path restores the conversation.
+- **Past 8 hours.** A task that outlives `maxLifetime` loses its lease and is
+  re-queued as retryable. The retry resumes cold from the transcript.
 
 ### 2.3 Berry tools (agent → Berry)
 
@@ -109,6 +143,28 @@ The `http`/docker driver runs the **same image** locally, with the same
 `/invocations` contract. Tests use the existing `ScriptedModel` inside the
 container module and an in-process fake driver on the server side.
 
+## 3a. Authentication: Better Auth with GitHub only (workstream J)
+
+- Replace the login code in `server-ts/src/auth/` and the auth, me and account
+  mounts with **Better Auth**.
+- **GitHub is the only sign-in method.** No Google, no email and password, no
+  magic link. The frontend has a single "Continue with GitHub" page. The sign-up
+  and password forms are removed.
+- **Existing users keep their ids.** Better Auth maps onto the existing `users`
+  table, and a GitHub account links to an existing user by verified email.
+  Existing sessions may be invalidated at cutover.
+- **Tokens keep working.** Personal API tokens and task-scoped tokens stay valid
+  as bearer auth alongside Better Auth sessions. The SSE stream still
+  authenticates with the session cookie.
+- **Nothing else about access changes.** Workspace membership, invitations and
+  the cross-tenant guards stay as they are.
+- **Secrets stay on the server.** The GitHub OAuth client id and secret are
+  server config and never `NEXT_PUBLIC_`.
+- **Sign-in is separate from repository access.** The GitHub App used for
+  repositories is kept apart from the OAuth app used for sign-in.
+- Migrations use block 150–159. J merges **first**, since every other
+  workstream runs behind login.
+
 ## 3. Work tracking (workstream B)
 
 This workstream reuses the unused tables where they exist (`issue_reactions`,
@@ -143,7 +199,8 @@ This workstream reuses the unused tables where they exist (`issue_reactions`,
   **assignee frequency**.
 - **Share links.** Workspace join links with create, list and revoke, plus a
   public lookup and a join page.
-- **Google OAuth login**, alongside the existing password and code login.
+- **No Google OAuth.** GitHub is the only OAuth provider (see the auth
+  decision).
 
 ## 4. Usage and cost (workstream C)
 
@@ -203,11 +260,37 @@ This workstream reuses the unused tables where they exist (`issue_reactions`,
 - Public ingress: `POST /api/webhooks/autopilots/:token` with HMAC verification.
 - UI: Autopilots list and detail with triggers, runs, deliveries and replay.
 
-## 7. Integrations: out of scope
+## 7. Integrations: GitHub only (workstream K)
 
-No new integrations are built. That covers other SCM providers (GitLab, Gitea,
-Forgejo), chat channels (Slack, Telegram, Lark, DingTalk, WeCom) and Composio.
-Berry's existing GitHub App and OAuth integration stays as it is.
+**GitHub stays and reaches parity.** It builds on the existing GitHub App in
+`server-ts/src/integrations/` and `server-ts/src/scm/`. Migrations use block
+110–119.
+
+- **Integration settings.** A master on/off switch for all GitHub features in
+  the workspace. Connect and disconnect the GitHub App, with who connected it.
+  Three feature toggles:
+  1. Show linked pull requests in the issue sidebar.
+  2. Add a `Co-authored-by` trailer to agent commits.
+  3. Auto-link a pull request to an issue by the issue key in the branch name,
+     title or a closing keyword.
+
+  Only admins can manage these; everyone else sees them read-only.
+- **Repositories settings tab.**
+  - A workspace list of repository URLs (https or ssh) with descriptions.
+    Changes auto-save.
+  - A GitHub import picker: choose the account, search, load more, multi-select,
+    with archived and already-added repositories disabled. After the app is
+    installed, the picker opens automatically.
+- **Pull requests on issues.** A PR is linked to an issue from webhook events.
+  Its state (open, draft, merged, closed) and its check runs and check suites
+  show in the issue sidebar. A merged PR with close intent moves the issue to
+  done. These publish realtime events.
+- **Agent commits.** The `Co-authored-by` trailer is applied in the delivery
+  path when the toggle is on.
+
+**Still out of scope:** other SCM providers (GitLab, Gitea, Forgejo), chat
+channels (Slack, Telegram, Lark, DingTalk, WeCom) and Composio. GitHub sign-in
+is workstream J, and it is kept separate from this GitHub App integration.
 
 ## 8. Plugins and public API (workstream G)
 
@@ -223,13 +306,10 @@ Berry's existing GitHub App and OAuth integration stays as it is.
   tool-approval list. There is a minimal TypeScript plugin SDK package in
   `packages/plugin-sdk`.
 
-## 9. Billing and locales (workstream H)
+## 9. Locales (workstream H)
 
-- **Billing.** Stripe checkout and portal, seat subscriptions, and a credit
-  balance with transactions and top-ups, drawn down by `task_usage` cost.
-  Includes the Stripe webhook, entitlements (seat capacity, issue limit,
-  autopilot quota) and a billing page. Gated by config, so it is off for
-  self-hosted installs.
+- **Billing and payments are out of scope.** That means no Stripe, no seats, no
+  credits, no entitlements and no billing page.
 - **Locales.** en, zh-Hans, ja and ko via `next-intl` message catalogues. There
   is a locale preference in settings.
 
@@ -268,7 +348,7 @@ Berry's existing GitHub App and OAuth integration stays as it is.
 |---|---|---|
 | 1 | A: envelope, lifecycle stream, container loop, task tokens, runtimes, ADR-0014, no-model-in-server check | B (backend + UI), C (backend + UI) |
 | 2 | D: skills, MCP/Gateway, agent CRUD, builder, squads, mentions, chat on tasks | E autopilots, G public API |
-| 3 | Live AgentCore end-to-end run, security review | G plugins, H billing + locales, I fixture removal, fixes |
+| 3 | Live AgentCore end-to-end run, security review | G plugins, H locales, I fixture removal, fixes |
 
 Each workstream runs in its own git worktree with its own implementation plan.
 Migrations are numbered in blocks per workstream to avoid collisions: A 053–059,
@@ -278,8 +358,6 @@ B 060–079, C 080–084, D 085–099, E 100–109, G 130–139, H 140–149.
 - A slipping delays D and E.
 - Every image change needs a redeploy.
 - Live verification needs AWS credentials and a reachable `BERRY_PUBLIC_URL`.
-- Stripe needs sandbox credentials for live tests. Without them, billing ships
-  as unit-tested only, and that is reported as such.
 
 ## 13. Acceptance
 
