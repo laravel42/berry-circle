@@ -24,6 +24,18 @@ describe('skills mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
             sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
             sql,
             skills: new SkillRepository(sql),
+            importer: {
+               fromGitHub: async (u) => ({
+                  name: 'imported-skill',
+                  description: 'd',
+                  content: 'c',
+                  labels: [],
+                  files: [],
+                  sourceKind: 'github',
+                  sourceUrl: u,
+                  sourceRef: 'main',
+               }),
+            },
          })
       );
       app = createApp(registry);
@@ -104,5 +116,22 @@ describe('skills mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       const res = await call(app, world.outsiderToken, 'GET', '/api/v1/skills');
       assert.equal(res.status, 200);
       assert.deepEqual(res.body.nodes, []);
+   });
+
+   test('a GitHub import creates a refreshable skill', async () => {
+      const created = await call(app, world.ownerToken, 'POST', '/api/v1/skills/import', {
+         url: 'https://github.com/acme/skills/tree/main/imported',
+      });
+      assert.equal(created.status, 201);
+      assert.equal((created.body.source as { kind: string }).kind, 'github');
+      const refreshed = await call(app, world.ownerToken, 'POST', `/api/v1/skills/${created.body.id as string}/refresh`);
+      assert.equal(refreshed.status, 200);
+   });
+
+   test('a manual skill cannot be refreshed', async () => {
+      const list = await call(app, world.ownerToken, 'GET', '/api/v1/skills?q=pdf-tools');
+      const id = (list.body.nodes as { id: string }[])[0]?.id as string;
+      const res = await call(app, world.ownerToken, 'POST', `/api/v1/skills/${id}/refresh`);
+      assert.equal(res.status, 409);
    });
 });
