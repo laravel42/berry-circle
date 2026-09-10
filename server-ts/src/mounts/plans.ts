@@ -410,6 +410,7 @@ async function generate(
    const started = Date.now();
    try {
       const generated = await options.generator!.generate({
+         workspaceId: record.workspaceId,
          prompt,
          // Written as each stage begins, so a person watching sees where the
          // plan is rather than a spinner. Failing to write it must not fail
@@ -478,6 +479,7 @@ async function regenerate(options: PlanOptions, record: PlanRecord, userId: stri
    try {
       const answers = await options.answers.forPrompt(record.id);
       const generated = await options.generator!.generate({
+         workspaceId: record.workspaceId,
          prompt: record.sourcePrompt ?? '',
          answers,
          onStage: (stage) => {

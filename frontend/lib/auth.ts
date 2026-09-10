@@ -34,6 +34,7 @@ const bootstrapSchema = z.object({
          theme: z.string(),
          timezone: z.string(),
          reducedMotion: z.boolean(),
+         locale: z.string().default('en'),
       }),
    }),
    workspaces: z.array(workspaceSchema),

@@ -1,4 +1,12 @@
-import { Agent, SlidingWindowConversationManager, type Plugin, type Tool } from '@strands-agents/sdk';
+import {
+   Agent,
+   SlidingWindowConversationManager,
+   type Message,
+   type MessageData,
+   type Plugin,
+   type ToolList,
+} from '@strands-agents/sdk';
+import { toAgentName } from './agent-name.ts';
 import { BerryRetryStrategy } from './failure.ts';
 import { bedrockModel, type AwsCredentials, type ModelFactory } from './model.ts';
 
@@ -17,11 +25,17 @@ export interface RunAgentSpec {
    region: string;
    credentials: AwsCredentials | null;
    systemPrompt: string;
-   tools: Tool[];
+   /** Berry's tools, the shell, and the agent's MCP clients. */
+   tools: ToolList;
    plugins: Plugin[];
    maxTokens?: number | undefined;
    temperature?: number | undefined;
    traceAttributes: Record<string, string>;
+   /**
+    * The conversation so far: the live messages of a warm session, or the
+    * transcript a cold one was restored from. Absent is a fresh conversation.
+    */
+   messages?: Message[] | MessageData[] | undefined;
 }
 
 /** Messages kept in the model's view of the conversation. */
@@ -40,6 +54,7 @@ export function buildRunAgent(spec: RunAgentSpec, modelFactory: ModelFactory = b
       systemPrompt: spec.systemPrompt,
       tools: spec.tools,
       plugins: spec.plugins,
+      ...(spec.messages ? { messages: spec.messages } : {}),
       // Replacing the SDK's default rather than joining it, so a throttled
       // call is retried on Berry's idea of transient and nothing else.
       retryStrategy: new BerryRetryStrategy(),
@@ -55,17 +70,4 @@ export function buildRunAgent(spec: RunAgentSpec, modelFactory: ModelFactory = b
    });
 }
 
-/**
- * A model-safe agent name.
- *
- * Berry's names are free text — "Prototype Writer" — so they are normalised
- * rather than rejected: the name is a label the model sees, and refusing to
- * run an agent because its name has a space in it would be absurd.
- */
-export function toAgentName(name: string): string {
-   const normalized = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '');
-   return normalized === '' ? 'agent' : normalized;
-}
+export { toAgentName } from './agent-name.ts';

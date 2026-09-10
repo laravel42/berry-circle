@@ -11,9 +11,7 @@ import {
    Calendar,
    CalendarPlus,
    ChevronRight,
-   Compass,
    Plus,
-   Slack,
    Star,
    Tag,
    UserPlus,
@@ -182,22 +180,6 @@ export function ProjectPeekPanel({ projectId, onClose }: ProjectPeekPanelProps) 
                   <span className="inline-flex items-center gap-1.5">
                      🫐 {workspace?.name ?? 'Workspace'}
                   </span>
-               </PropertyRow>
-               <PropertyRow label="Slack">
-                  <button className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
-                     <Slack className="size-3.5" />
-                     Connect channel
-                  </button>
-               </PropertyRow>
-               <PropertyRow label="Initiatives">
-                  {project.initiative ? (
-                     <span className="truncate max-w-44">{project.initiative}</span>
-                  ) : (
-                     <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                        <Compass className="size-3.5" />
-                        No initiative
-                     </span>
-                  )}
                </PropertyRow>
                <PropertyRow label="Labels">
                   <div className="flex items-center gap-1.5">

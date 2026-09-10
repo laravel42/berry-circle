@@ -10,19 +10,21 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, PanelRight } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { DisplayOptions } from '../display-options';
 
 function HeaderNav() {
+   const t = useTranslations('tasks.header');
+   const common = useTranslations('common');
    return (
       <div className="flex h-auto w-full flex-col gap-2 border-b px-6 py-3">
          <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-               <span className="font-medium">Tasks</span>
+               <span className="font-medium">{t('title')}</span>
                <p className="mt-1 max-w-2xl text-muted-foreground">
-                  Work starts here. Assign to a human or an agent, then track it through
-                  review.{' '}
+                  {t('description')}{' '}
                   <a href="" className="text-foreground underline-offset-2 hover:underline">
-                     Learn more
+                     {common('learnMore')}
                   </a>
                </p>
             </div>
@@ -32,6 +34,7 @@ function HeaderNav() {
 }
 
 function HeaderOptions() {
+   const t = useTranslations('tasks');
    const [tab, setTab] = useMyIssuesTab();
    const { openPanel, togglePanel } = useRightPanelStore();
 
@@ -56,7 +59,7 @@ function HeaderOptions() {
                               : 'border-border/40 text-muted-foreground hover:border-border/60 hover:bg-accent/50 hover:text-foreground'
                         )}
                      >
-                        {item.label}
+                        {t(`tabs.${item.value}`)}
                      </button>
                   );
                })}
@@ -68,7 +71,7 @@ function HeaderOptions() {
                size="xs"
                variant={openPanel === 'insights' ? 'secondary' : 'ghost'}
                onClick={() => togglePanel('insights')}
-               aria-label="Toggle insights panel"
+               aria-label={t('header.toggleInsights')}
             >
                <BarChart3 className="size-4" />
             </Button>
@@ -76,7 +79,7 @@ function HeaderOptions() {
                size="xs"
                variant={openPanel === 'breakdown' ? 'secondary' : 'ghost'}
                onClick={() => togglePanel('breakdown')}
-               aria-label="Toggle breakdown panel"
+               aria-label={t('header.toggleBreakdown')}
             >
                <PanelRight className="size-4" />
             </Button>

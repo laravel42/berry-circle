@@ -12,13 +12,17 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { View } from '@/data/views';
+import { PinToggle } from '@/components/common/issues/details/issue-pin-button';
+import { deleteSavedView, loadWorkspaceViews } from '@/lib/views';
+import { useSessionStore } from '@/store/session-store';
 import { useViewsStore } from '@/store/views-store';
 import { useViewsDisplayStore, ViewsOrdering } from '@/store/views-display-store';
-import { ArrowDown, Plus, SlidersHorizontal } from 'lucide-react';
+import { ArrowDown, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import { toast } from 'sonner';
 
 const TABS = ['issues', 'projects'] as const;
 
@@ -98,40 +102,46 @@ function DisplayOptions() {
    );
 }
 
-function ViewRow({ view, orgId }: { view: View; orgId: string }) {
+function ViewRow({ view, orgId, onDelete }: { view: View; orgId: string; onDelete: () => void }) {
    const { displayProperties } = useViewsDisplayStore();
    return (
-      <Link
-         href={`/${orgId}/view/${view.id}`}
-         className="flex items-center gap-3 px-6 py-2.5 border-b border-border/50 hover:bg-sidebar/50 transition-colors"
-      >
-         <span className="inline-flex size-6 items-center justify-center rounded bg-muted/50 shrink-0">
-            {view.icon}
-         </span>
-         <span className="flex flex-col min-w-0 flex-1">
-            <span className="font-medium truncate">{view.name}</span>
-            <span className="text-muted-foreground truncate">{view.description}</span>
-         </span>
-         {displayProperties.created && (
-            <span className="hidden sm:block text-muted-foreground w-24 shrink-0">
-               {formatDate(view.createdAt)}
+      <div className="flex items-center gap-1 pr-4 border-b border-border/50 hover:bg-sidebar/50 transition-colors">
+         <Link
+            href={`/${orgId}/view/${view.id}`}
+            className="flex flex-1 min-w-0 items-center gap-3 px-6 py-2.5"
+         >
+            <span className="inline-flex size-6 items-center justify-center rounded bg-muted/50 shrink-0">
+               {view.icon}
             </span>
-         )}
-         {displayProperties.updated && (
-            <span className="hidden sm:block text-muted-foreground w-24 shrink-0">
-               {formatDate(view.updatedAt)}
+            <span className="flex flex-col min-w-0 flex-1">
+               <span className="font-medium truncate">{view.name}</span>
+               <span className="text-muted-foreground truncate">{view.description}</span>
             </span>
-         )}
-         {displayProperties.owner && (
-            <span className="flex items-center gap-1.5 w-32 shrink-0 justify-end">
-               <Avatar className="size-5">
-                  <AvatarImage src={view.owner.avatarUrl} alt={view.owner.name} />
-                  <AvatarFallback>{view.owner.name[0]}</AvatarFallback>
-               </Avatar>
-               <span className="text-muted-foreground truncate max-w-24">{view.owner.name}</span>
-            </span>
-         )}
-      </Link>
+            {displayProperties.created && (
+               <span className="hidden sm:block text-muted-foreground w-24 shrink-0">
+                  {formatDate(view.createdAt)}
+               </span>
+            )}
+            {displayProperties.updated && (
+               <span className="hidden sm:block text-muted-foreground w-24 shrink-0">
+                  {formatDate(view.updatedAt)}
+               </span>
+            )}
+            {displayProperties.owner && (
+               <span className="flex items-center gap-1.5 w-32 shrink-0 justify-end">
+                  <Avatar className="size-5">
+                     <AvatarImage src={view.owner.avatarUrl} alt={view.owner.name} />
+                     <AvatarFallback>{view.owner.name[0]}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-muted-foreground truncate max-w-24">{view.owner.name}</span>
+               </span>
+            )}
+         </Link>
+         <PinToggle targetType="view" targetId={view.id} />
+         <Button size="xs" variant="ghost" aria-label="Delete view" onClick={onDelete}>
+            <Trash2 className="size-3.5" />
+         </Button>
+      </div>
    );
 }
 
@@ -141,6 +151,19 @@ export default function Views() {
    const [tab, setTab] = useQueryState('tab', parseAsStringLiteral(TABS).withDefault('issues'));
    const { ordering } = useViewsDisplayStore();
    const savedViews = useViewsStore((state) => state.views);
+   const workspaceId = useSessionStore((state) => state.workspace?.id ?? '');
+   const user = useSessionStore((state) => state.user);
+   const hydrateViews = useViewsStore((state) => state.hydrateViews);
+
+   useEffect(() => {
+      if (!workspaceId || !user) return;
+      void loadWorkspaceViews(workspaceId, user).then(hydrateViews);
+   }, [workspaceId, user, hydrateViews]);
+
+   const remove = (viewId: string) =>
+      void deleteSavedView(viewId)
+         .then(() => hydrateViews(savedViews.filter((view) => view.id !== viewId)))
+         .catch(() => toast.error('You cannot delete this view.'));
 
    const list = useMemo(() => {
       const source = savedViews.filter((view) =>
@@ -194,7 +217,7 @@ export default function Views() {
          </div>
 
          {list.map((view) => (
-            <ViewRow key={view.id} view={view} orgId={orgId} />
+            <ViewRow key={view.id} view={view} orgId={orgId} onDelete={() => remove(view.id)} />
          ))}
          {list.length === 0 && (
             <div className="flex items-center justify-center py-16 text-muted-foreground">

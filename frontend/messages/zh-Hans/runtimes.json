@@ -1,0 +1,16 @@
+{
+   "header": {
+      "title": "运行",
+      "description": "智能体工作的执行台账——每次运行的状态、事件、用量和成本。"
+   },
+   "overview": {
+      "label": "运行",
+      "caption": "已委派的运行",
+      "agentFallback": "智能体",
+      "cancel": "取消运行",
+      "cancelling": "正在取消…",
+      "cancelled": "运行已取消",
+      "cancelFailed": "无法取消运行",
+      "waiting": "等待输出…"
+   }
+}

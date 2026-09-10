@@ -33,10 +33,50 @@ import {
 
 const MAX_QUERY = 200;
 
+/**
+ * What the palette may ask for. `board` stays for API callers even though the
+ * palette no longer requests it: a board has no page of its own to open.
+ */
+export const SEARCH_TYPES = ['issue', 'board', 'project', 'agent', 'chat', 'skill'] as const;
+
+export type SearchType = (typeof SEARCH_TYPES)[number];
+
+function isSearchType(value: string): value is SearchType {
+   return (SEARCH_TYPES as readonly string[]).includes(value);
+}
+
+/**
+ * The `types` query parameter, as a set. Absent means issues, which is what
+ * the parameter meant before it grew; an unknown name is a 422 rather than a
+ * silent drop, so a client asking for a type this server lacks finds out.
+ */
+export function parseSearchTypes(raw: string | null): Set<SearchType> {
+   const names = (raw ?? '')
+      .split(',')
+      .map((name) => name.trim())
+      .filter((name) => name !== '');
+   if (names.length === 0) return new Set<SearchType>(['issue']);
+   const types = new Set<SearchType>();
+   for (const name of names) {
+      if (!isSearchType(name)) {
+         assertValid([
+            fieldError('/types', 'invalid_value', `types are ${SEARCH_TYPES.join(', ')}.`),
+         ]);
+      } else {
+         types.add(name);
+      }
+   }
+   return types;
+}
+
 export interface WorkspaceReadOptions {
    sessions: SessionService;
    sql: Sql;
    boards: BoardRepository;
+   /** Extra `/:workspaceId/...` catalog routes (work tracking). */
+   catalogExtensions?: Hono<{ Variables: ScopedVariables }> | undefined;
+   /** Extra `/api/v1/views` routes (saved-view writes, preferences, query). */
+   viewExtensions?: Hono<{ Variables: AuthVariables }> | undefined;
 }
 
 export function workspaceReadMounts(options: WorkspaceReadOptions): Mount[] {
@@ -71,12 +111,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
       if (query.length > MAX_QUERY) {
          assertValid([fieldError('/query', 'too_long', `query is at most ${MAX_QUERY} characters.`)]);
       }
-      const types = new Set((url.searchParams.get('types') ?? 'issue').split(','));
-      for (const type of types) {
-         if (type !== 'issue' && type !== 'board') {
-            assertValid([fieldError('/types', 'invalid_value', 'types are issue and board.')]);
-         }
-      }
+      const types = parseSearchTypes(url.searchParams.get('types'));
 
       // Escaped for LIKE, not for SQL: the value is parameterised, but `%` and
       // `_` inside it would otherwise be wildcards the person did not type.
@@ -105,6 +140,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
                subtitle: (row.board_name as string | null) ?? null,
                identifier: (row.identifier as string | null) ?? null,
                boardId: row.board_id as string,
+               agentId: null,
             });
          }
       }
@@ -125,6 +161,118 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
                subtitle: (row.description as string | null) ?? null,
                identifier: null,
                boardId: row.id as string,
+               agentId: null,
+            });
+         }
+      }
+
+      if (types.has('project')) {
+         // `scope` is the pre-bound `workspace_id = ctx.workspaceId` fragment.
+         const rows = await db.list((q) => q.sql`
+            SELECT id, name, description
+              FROM projects
+             WHERE ${q.scope} AND deleted_at IS NULL AND name ILIKE ${like}
+             ORDER BY updated_at DESC, id DESC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            nodes.push({
+               type: 'project',
+               id: row.id as string,
+               title: row.name as string,
+               subtitle: (row.description as string | null) ?? null,
+               identifier: null,
+               boardId: null,
+               agentId: null,
+            });
+         }
+      }
+
+      if (types.has('agent')) {
+         const rows = await db.list((q) => q.sql`
+            SELECT id, name, description
+              FROM agents
+             WHERE ${q.scope} AND archived_at IS NULL AND name ILIKE ${like}
+             ORDER BY name ASC, id ASC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            nodes.push({
+               type: 'agent',
+               id: row.id as string,
+               title: row.name as string,
+               subtitle: (row.description as string | null) ?? null,
+               identifier: null,
+               boardId: null,
+               agentId: row.id as string,
+            });
+         }
+      }
+
+      if (types.has('chat')) {
+         // Membership is not enough for a conversation: it is private to its
+         // participants, so the caller must be one. The workspace predicate is
+         // still the confirmed scope, so a thread in another workspace the
+         // caller happens to be in never answers a search here.
+         const userId = context.get('user').id;
+         const rows = await db.list((q) => q.sql`
+            SELECT conversation.id, conversation.topic,
+                   agent.id AS agent_id, agent.name AS agent_name
+              FROM conversations AS conversation
+              JOIN conversation_participants AS me
+                ON me.conversation_id = conversation.id
+               AND me.participant_type = 'user'
+               AND me.participant_id = ${userId}
+               AND me.left_at IS NULL
+              -- One agent per thread (LATERAL + LIMIT 1), so a thread with two
+              -- agents is one row, not two with a duplicate React key. The agent
+              -- is re-scoped to the confirmed workspace: participant_id has no
+              -- FK, so an unscoped join could surface another tenant's agent name.
+              LEFT JOIN LATERAL (
+                 SELECT candidate.id, candidate.name
+                   FROM conversation_participants AS bot
+                   JOIN agents AS candidate
+                     ON candidate.id = bot.participant_id
+                    AND candidate.workspace_id = ${q.workspaceId}
+                  WHERE bot.conversation_id = conversation.id
+                    AND bot.participant_type = 'agent'
+                    AND bot.left_at IS NULL
+                  ORDER BY bot.joined_at ASC, candidate.id ASC
+                  LIMIT 1
+              ) AS agent ON true
+             WHERE conversation.workspace_id = ${q.workspaceId}
+               AND conversation.status = 'open'
+               AND (conversation.topic ILIKE ${like} OR agent.name ILIKE ${like})
+             ORDER BY conversation.updated_at DESC, conversation.id DESC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            const agentName = (row.agent_name as string | null) ?? null;
+            nodes.push({
+               type: 'chat',
+               id: row.id as string,
+               title: (row.topic as string | null) ?? agentName ?? 'Conversation',
+               subtitle: agentName,
+               identifier: null,
+               boardId: null,
+               agentId: (row.agent_id as string | null) ?? null,
+            });
+         }
+      }
+
+      if (types.has('skill') && (await skillsCatalogueExists(options.sql))) {
+         const rows = await db.list((q) => q.sql`
+            SELECT id, name, description
+              FROM skills
+             WHERE ${q.scope} AND name ILIKE ${like}
+             ORDER BY name ASC, id ASC
+             LIMIT ${page.first}`);
+         for (const row of rows) {
+            nodes.push({
+               type: 'skill',
+               id: row.id as string,
+               title: row.name as string,
+               subtitle: (row.description as string | null) ?? null,
+               identifier: null,
+               boardId: null,
+               agentId: null,
             });
          }
       }
@@ -137,6 +285,17 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
 }
 
 /**
+ * Whether the skills catalogue has been migrated in yet. Skills belong to
+ * another workstream's migration; until it lands, a skill search is an empty
+ * answer rather than a 500 from a missing relation. A catalogue probe, not
+ * workspace data, so it runs on the pool rather than through the scope.
+ */
+async function skillsCatalogueExists(sql: Sql): Promise<boolean> {
+   const [row] = await sql`SELECT to_regclass('public.skills') IS NOT NULL AS present`;
+   return row?.present === true;
+}
+
+/**
  * Saved views.
  *
  * A person's own, plus the workspace's shared ones. Someone else's private
@@ -145,6 +304,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
 function viewsRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVariables }> {
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
+   if (options.viewExtensions) route.route('/', options.viewExtensions);
 
    route.get('/', async (context) => {
       const url = new URL(context.req.url);
@@ -200,6 +360,7 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
    // membership-confirmed `ScopedDb` as `scoped` for every `/:workspaceId/...`
    // route below, so a handler never touches the database without a scope.
    mountWorkspaceScope(route, { sessions: options.sessions, sql: options.sql });
+   if (options.catalogExtensions) route.route('/', options.catalogExtensions);
 
    /**
     * Labels are workspace vocabulary and a task can carry any of them, so

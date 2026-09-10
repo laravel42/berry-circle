@@ -13,12 +13,14 @@ export type SidebarItemKey =
    | 'goals'
    | 'autopilot'
    | 'approvals'
-   | 'analytics'
    | 'agent'
-   | 'initiatives'
    | 'projects'
    | 'views'
-   | 'agents';
+   | 'agents'
+   | 'skills'
+   | 'squads'
+   | 'dashboard'
+   | 'usage';
 
 export type SidebarSection = 'personal' | 'workspace' | 'automate' | 'configure';
 
@@ -46,12 +48,14 @@ const DEFAULT_VISIBILITY: Record<SidebarItemKey, SidebarVisibility> = {
    'goals': 'always',
    'autopilot': 'always',
    'approvals': 'always',
-   'analytics': 'always',
    'agent': 'always',
-   'initiatives': 'always',
    'projects': 'always',
    'views': 'always',
    'agents': 'always',
+   'skills': 'always',
+   'squads': 'always',
+   'dashboard': 'always',
+   'usage': 'always',
 };
 
 /**
@@ -63,9 +67,9 @@ const DEFAULT_ORDER: Record<SidebarSection, SidebarItemKey[]> = {
    personal: [],
    // Goals sits under projects because that is where a goal comes from: it
    // groups the tasks one plan compiled inside a project.
-   workspace: ['projects', 'goals', 'my-issues', 'reviews'],
+   workspace: ['projects', 'goals', 'my-issues', 'reviews', 'chat'],
    automate: [],
-   configure: ['agent', 'agents', 'analytics'],
+   configure: ['agent', 'agents', 'skills', 'squads', 'autopilot', 'dashboard', 'usage'],
 };
 
 /** The key the previous shape was persisted under; read once, when v6 has nothing. */

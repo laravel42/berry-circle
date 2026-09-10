@@ -1,4 +1,4 @@
-import { InboxItem, inboxItems as mockNotifications, NotificationType } from '@/data/inbox';
+import { InboxItem, NotificationType } from '@/data/inbox';
 import { bulkUpdateInbox, updateInboxItem } from '@/lib/inbox';
 import { useSessionStore } from '@/store/session-store';
 import { create } from 'zustand';
@@ -68,7 +68,7 @@ async function syncInboxAction(
 }
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
-   notifications: mockNotifications,
+   notifications: [],
    selectedNotification: undefined,
    serverUnreadCount: null,
    arrivals: [],

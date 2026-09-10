@@ -50,11 +50,15 @@ export function editorMounts(options: EditorOptions): Mount[] {
       }
       assertValid(fields);
 
+      // Before the call, so a session with no workspace is a 404 rather than
+      // an assistant failure.
+      const workspaceId = currentWorkspace(context.get('user').currentWorkspaceId);
       const controller = new AbortController();
       context.req.raw.signal.addEventListener('abort', () => controller.abort(), { once: true });
 
       try {
          const rewritten = await options.assist.rewrite({
+            workspaceId,
             text,
             instruction,
             signal: controller.signal,
@@ -73,4 +77,9 @@ export function editorMounts(options: EditorOptions): Mount[] {
    });
 
    return [{ prefix: '/api/v1/editor', handler: route }];
+}
+
+function currentWorkspace(workspaceId: string | null | undefined): string {
+   if (!workspaceId) throw ApiError.notFound('Workspace');
+   return workspaceId;
 }

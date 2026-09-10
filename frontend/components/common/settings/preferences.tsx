@@ -3,7 +3,12 @@
 import { CustomizeSidebarDialog } from '@/components/layout/sidebar/customize-sidebar-dialog';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { writeLocaleCookie } from '@/lib/i18n/client-locale';
+import { LOCALE_NAMES, LOCALES, isLocale } from '@/lib/i18n/locales';
 import { loadUserSettings, saveUserSettings, type UserSettings } from '@/lib/settings';
+import { useSessionStore } from '@/store/session-store';
+import { useLocale, useTranslations } from 'next-intl';
+import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
 import { SelectMenu, SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 import { ThemePreferences } from './theme-preferences';
@@ -12,17 +17,19 @@ import { useSettingsResource } from './use-settings-resource';
 /**
  * Personal "Preferences" settings.
  *
- * Three settings, because three is what the server stores: theme, timezone
- * and reduced motion. This page used to show a dozen more — font size,
- * pointer cursors, first day of the week, auto-assign — none of which were
- * written anywhere. They are gone rather than left inert: a switch that
- * accepts a click and forgets it is worse than one that is not offered, and
- * it teaches people that the settings page does not work.
+ * Four settings, because four is what the server stores: language, theme,
+ * timezone and reduced motion. Anything the server does not store is not
+ * offered — a switch that accepts a click and forgets it teaches people that
+ * the settings page does not work.
  *
  * Sidebar customisation stays because it is real: it is stored in the browser
  * by `sidebar-prefs-store`, and it says so.
  */
 export default function Preferences() {
+   const t = useTranslations('settings.preferences');
+   const rendered = useLocale();
+   const router = useRouter();
+   const setPreferredLocale = useSessionStore((state) => state.setPreferredLocale);
    const [customizeOpen, setCustomizeOpen] = useState(false);
    const settings = useSettingsResource<UserSettings>(loadUserSettings);
 
@@ -41,16 +48,36 @@ export default function Preferences() {
       void settings.mutate({ ...settings.value, ...patch }, () => saveUserSettings(patch));
    };
 
+   const changeLocale = (locale: string) => {
+      if (!isLocale(locale)) return;
+      change({ locale });
+      // The store first, or LocaleSync would see the old account value and
+      // switch straight back.
+      setPreferredLocale(locale);
+      writeLocaleCookie(locale);
+      router.refresh();
+   };
+
    return (
-      <SettingsShell title="Preferences">
-         <SettingsSection
-            title="General"
-            description={settings.error ?? undefined}
-         >
+      <SettingsShell title={t('title')}>
+         <SettingsSection title={t('general')} description={settings.error ?? undefined}>
             <SettingsCard>
                <SettingsRow
-                  title="Time zone"
-                  description="Dates and times across Berry are shown in this zone."
+                  title={t('language')}
+                  description={t('languageDescription')}
+                  trailing={
+                     <SelectMenu
+                        options={[...LOCALES]}
+                        labels={LOCALE_NAMES}
+                        value={settings.value?.locale ?? rendered}
+                        disabled={settings.loading || settings.saving}
+                        onChange={changeLocale}
+                     />
+                  }
+               />
+               <SettingsRow
+                  title={t('timezone')}
+                  description={t('timezoneDescription')}
                   trailing={
                      <SelectMenu
                         options={zones}
@@ -63,20 +90,20 @@ export default function Preferences() {
             </SettingsCard>
          </SettingsSection>
 
-         <SettingsSection title="Interface and theme">
+         <SettingsSection title={t('interface')}>
             <SettingsCard>
                <SettingsRow
-                  title="App sidebar"
-                  description="Pin, hide and reorder rail items. Stored in this browser."
+                  title={t('sidebar')}
+                  description={t('sidebarDescription')}
                   trailing={
                      <Button size="xs" variant="ghost" onClick={() => setCustomizeOpen(true)}>
-                        Customize
+                        {t('customize')}
                      </Button>
                   }
                />
                <SettingsRow
-                  title="Reduce motion"
-                  description="Turn off the animations Berry uses to show work moving."
+                  title={t('reduceMotion')}
+                  description={t('reduceMotionDescription')}
                   trailing={
                      <Switch
                         checked={settings.value?.reducedMotion ?? false}

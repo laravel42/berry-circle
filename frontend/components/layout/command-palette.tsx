@@ -9,7 +9,6 @@ import {
    CommandItem,
    CommandList,
 } from '@/components/ui/command';
-import { cycles, formatCycleDateRange } from '@/data/cycles';
 import { Issue } from '@/data/issues';
 import { useLabelsStore } from '@/store/labels-store';
 import { useMembersStore } from '@/store/members-store';
@@ -24,6 +23,14 @@ import { useCreatePlanStore } from '@/store/create-plan-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import {
+   PALETTE_SEARCH_TYPES,
+   searchResultHref,
+   searchWorkspace,
+   type SearchResult,
+} from '@/lib/search';
+import { useSessionStore } from '@/store/session-store';
+import {
+   Bot,
    Box,
    CalendarPlus,
    Check,
@@ -31,13 +38,12 @@ import {
    Clipboard,
    ClipboardList,
    ClipboardType,
-   Compass,
    FileText,
    GitBranch,
    Bell,
    Layers,
    Link2,
-   PackagePlus,
+   MessageSquare,
    ShieldCheck,
    Sparkles,
    SquarePen,
@@ -46,13 +52,13 @@ import {
    Type,
    UserRoundMinus,
    UserRoundPlus,
+   Wrench,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-type PaletteRoute =
-   'root' | 'assign' | 'status' | 'priority' | 'labels' | 'project' | 'cycle' | 'due-date';
+type PaletteRoute = 'root' | 'assign' | 'status' | 'priority' | 'labels' | 'project' | 'due-date';
 
 /** Small keyboard hint chips on the right of a command row. */
 function Keys({ keys }: { keys: string[] }) {
@@ -96,6 +102,44 @@ export function CommandPalette() {
    const allProjects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const allLabels = useLabelsStore((state) => state.labels);
+   const workspaceId = useSessionStore((state) => state.workspace?.id ?? null);
+   const [results, setResults] = useState<SearchResult[]>([]);
+
+   // Server search only from the root, and only once the query is worth a
+   // round trip. Debounced so typing a word is one request, not five; the
+   // `cancelled` flag drops an answer that arrives after a newer keystroke.
+   useEffect(() => {
+      const trimmed = query.trim();
+      if (!open || route !== 'root' || !workspaceId || trimmed.length < 2) {
+         setResults([]);
+         return;
+      }
+      let cancelled = false;
+      const timer = window.setTimeout(() => {
+         void searchWorkspace(workspaceId, trimmed, PALETTE_SEARCH_TYPES).then((found) => {
+            if (!cancelled) setResults(found);
+         });
+      }, 150);
+      return () => {
+         cancelled = true;
+         window.clearTimeout(timer);
+      };
+   }, [open, route, query, workspaceId]);
+
+   const resultIcon = (type: SearchResult['type']) => {
+      switch (type) {
+         case 'issue':
+            return <CircleDot className="text-muted-foreground" />;
+         case 'project':
+            return <Box className="text-muted-foreground" />;
+         case 'agent':
+            return <Bot className="text-muted-foreground" />;
+         case 'chat':
+            return <MessageSquare className="text-muted-foreground" />;
+         default:
+            return <Wrench className="text-muted-foreground" />;
+      }
+   };
 
    const orgId = pathname.split('/')[1] || WORKSPACE_SLUG;
 
@@ -231,6 +275,39 @@ export function CommandPalette() {
                <CommandList className="max-h-96">
                   <CommandEmpty>No results found.</CommandEmpty>
 
+                  {route === 'root' && results.length > 0 && (
+                     <CommandGroup heading="Search">
+                        {results.map((result) => {
+                           const href = searchResultHref(result);
+                           if (!href) return null;
+                           return (
+                              <CommandItem
+                                 key={`${result.type}-${result.id}`}
+                                 value={`${result.type}-${result.id}`}
+                                 // The server already matched; cmdk's own filter
+                                 // would drop a hit whose title lacks the literal
+                                 // query (an agent-name match on a chat thread).
+                                 forceMount
+                                 onSelect={() => go(href)}
+                              >
+                                 {resultIcon(result.type)}
+                                 {result.identifier ? (
+                                    <span className="text-muted-foreground shrink-0">
+                                       {result.identifier}
+                                    </span>
+                                 ) : null}
+                                 <span className="truncate">{result.title}</span>
+                                 {result.subtitle ? (
+                                    <span className="ml-auto truncate text-muted-foreground">
+                                       {result.subtitle}
+                                    </span>
+                                 ) : null}
+                              </CommandItem>
+                           );
+                        })}
+                     </CommandGroup>
+                  )}
+
                   {route === 'root' && issue && (
                      <>
                         <CommandGroup heading="Task">
@@ -294,26 +371,6 @@ export function CommandPalette() {
                               <Tags className="text-muted-foreground" />
                               Change or add labels…
                               <Keys keys={['L']} />
-                           </CommandItem>
-                           <CommandItem
-                              onSelect={() => {
-                                 setRoute('cycle');
-                                 setQuery('');
-                              }}
-                           >
-                              <CircleDot className="text-muted-foreground" />
-                              Move to cycle…
-                              <Keys keys={['⇧', 'C']} />
-                           </CommandItem>
-                           <CommandItem
-                              onSelect={() => {
-                                 toast.success('Added to the next release');
-                                 close();
-                              }}
-                           >
-                              <PackagePlus className="text-muted-foreground" />
-                              Add to release…
-                              <Keys keys={['⌥', 'R']} />
                            </CommandItem>
                            <CommandItem
                               onSelect={() => {
@@ -442,8 +499,8 @@ export function CommandPalette() {
                            <CommandItem onSelect={() => go('/reviews')}>
                               <GitBranch className="text-muted-foreground" /> Reviews
                            </CommandItem>
-                           <CommandItem onSelect={() => go('/initiatives')}>
-                              <Compass className="text-muted-foreground" /> Initiatives
+                           <CommandItem onSelect={() => go('/chat')}>
+                              <MessageSquare className="text-muted-foreground" /> Chat
                            </CommandItem>
                            <CommandItem onSelect={() => go('/projects')}>
                               <Box className="text-muted-foreground" /> Projects
@@ -586,38 +643,6 @@ export function CommandPalette() {
                               {issue.project?.id === project.id && (
                                  <Check className="ml-auto size-4" />
                               )}
-                           </CommandItem>
-                        ))}
-                     </CommandGroup>
-                  )}
-
-                  {route === 'cycle' && issue && (
-                     <CommandGroup heading="Move to cycle…">
-                        <CommandItem
-                           onSelect={() => {
-                              updateIssue(issue.id, { cycleId: '' });
-                              toast.success('Removed from cycle');
-                              close();
-                           }}
-                        >
-                           <CircleDot className="text-muted-foreground" />
-                           No cycle
-                        </CommandItem>
-                        {cycles.slice(0, 6).map((cycle) => (
-                           <CommandItem
-                              key={cycle.id}
-                              onSelect={() => {
-                                 updateIssue(issue.id, { cycleId: cycle.id });
-                                 toast.success(`Moved to ${cycle.name}`);
-                                 close();
-                              }}
-                           >
-                              <CircleDot className="text-muted-foreground" />
-                              {cycle.name}
-                              <span className="text-muted-foreground ml-2">
-                                 {formatCycleDateRange(cycle)}
-                              </span>
-                              {issue.cycleId === cycle.id && <Check className="ml-auto size-4" />}
                            </CommandItem>
                         ))}
                      </CommandGroup>

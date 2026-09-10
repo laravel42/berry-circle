@@ -201,7 +201,9 @@ export function scopedDb(sql: Sql, ctx: WorkspaceContext): ScopedDb {
          // nothing and reveal nothing about the data. A read permission is not
          // a valid `mutate` gate — every write permission the role lacks is a
          // genuine 403 here, since membership is already established.
-         if (!allows(ctx.role, required)) throw new Forbidden();
+         // Rejected rather than thrown: the signature promises a Promise, so a
+         // caller's `.catch(...)` must see the denial too.
+         if (!allows(ctx.role, required)) return Promise.reject(new Forbidden());
          // One transaction for the whole write. postgres.js rolls back if the
          // callback throws, so a failure mid-write leaves nothing behind. The
          // transaction executor is passed to `work` so the write cannot escape

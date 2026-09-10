@@ -1,66 +1,49 @@
-# Berry's AgentCore Runtime sandbox — the base (Node/TypeScript) template.
+# Berry's AgentCore Runtime image: the agent loop and its tools (ADR-0014).
 #
-# This is where an agent's commands run when BERRY_RUNTIME_DRIVER is
-# `agentcore-runtime`. It is the analogue of `server-ts/sandbox/docker/Dockerfile`
-# (which serves the local `docker` driver), for a managed AgentCore Runtime.
+# Built from the server-ts context so it runs the same sources the server's
+# tests exercise, under --experimental-strip-types, with no build step:
+#   docker build -f sandbox/agentcore/Dockerfile -t berry-agent-runtime server-ts
+# What it copies is pinned by src/agents/runtime/container/closure.test.ts.
 #
-# Why a container at all, rather than the managed Code Interpreter: the managed
-# interpreter ships no `git` and has no route to github.com, both verified
-# against the live service. A run clones and pushes through its session, so
-# neither is optional. Owning the image is what makes those possible.
+# Session lifecycle (spec 2.2a): apply once per deploy, not at every boot —
+# UpdateAgentRuntime creates a new runtime version each time it runs:
+#   aws bedrock-agentcore-control update-agent-runtime --agent-runtime-id <id> \
+#     --lifecycle-configuration idleRuntimeSessionTimeout=3600,maxLifetime=28800 \
+#     --agent-runtime-artifact file://artifact.json --role-arn <role> \
+#     --network-configuration networkMode=PUBLIC
+# A profile's idle timeout on a registered runtime is applied by Berry when the
+# profile is saved (src/runtime/runtime-control.ts).
 #
-# Why a *family* of these: the repository a run works in decides the toolchain.
-# This template carries Node and pnpm because that is Berry's own stack; a PHP
-# or Python repository wants its own image. Keep `server.mjs` shared and vary
-# only the toolchain layer, so a new language is a new Dockerfile and not a new
-# contract to re-learn.
-#
-# Platform is ARM64 — required by AgentCore Runtime, and native on Apple
-# Silicon, so this builds without emulation.
-FROM --platform=linux/arm64 node:22-slim
+# ARM64 is required by AgentCore Runtime. Local x86 hosts can build with
+# --build-arg BERRY_RUNTIME_PLATFORM=linux/amd64 (Compose does via env).
+ARG BERRY_RUNTIME_PLATFORM=linux/arm64
+FROM --platform=${BERRY_RUNTIME_PLATFORM} node:22-slim
 
-# The toolchain layer. Everything an agent's commands may reach for:
-#   git          — a run clones and pushes through its own session
-#   ca-certificates — TLS to github.com and to a registry
-#   openssh-client  — git over ssh, when a repository is not cloned over https
-#   curl, tar, unzip, gcc/g++/make — what a dependency install commonly needs
-#      to build a native module; absent, `pnpm install` fails deep in a
-#      postinstall script rather than at the top with a clear message.
-#   ffmpeg       — the one media tool: a run that renders a clip and narrates
-#      it has to be able to put the two together, and nothing else here can.
+# The toolchain an agent's commands reach for: git to clone and push, ffmpeg for
+# media, a compiler for native modules, python3 for common scripts.
 RUN apt-get update \
    && apt-get install -y --no-install-recommends \
-      git \
-      ffmpeg \
-      ca-certificates \
-      openssh-client \
-      curl \
-      tar \
-      unzip \
-      gcc \
-      g++ \
-      make \
-      python3 \
+      git ffmpeg ca-certificates openssh-client curl tar unzip gcc g++ make python3 \
    && rm -rf /var/lib/apt/lists/*
 
-# pnpm through corepack, pinned to the version the workspace uses, so a run's
-# install resolves the same lockfile Berry's own CI does.
 RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
 
-# Where a run's working tree lives. A persistent filesystem can be mounted here
-# through the runtime's `filesystemConfigurations`, which is what lets a
-# checkout, its installed packages and its build artifacts survive a session
-# stop rather than being cloned again.
+WORKDIR /opt/berry
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile --ignore-workspace
+COPY tsconfig.json ./
+COPY src/agents ./src/agents
+COPY src/execution ./src/execution
+COPY src/runtime/envelope.ts src/runtime/lifecycle.ts ./src/runtime/
+# Delivery signs its commits with the co-author trailer (GitHub parity).
+COPY src/scm/commit-trailer.ts ./src/scm/
+
+# Session workspaces. A persistent filesystem can be mounted here through the
+# runtime's filesystemConfigurations so a checkout survives a session stop.
 RUN mkdir -p /mnt/workspace
 WORKDIR /mnt/workspace
-
-# The contract server. Copied last because it changes more often than the
-# toolchain above, and this keeps the expensive layer cached.
-COPY server.mjs /opt/berry/server.mjs
 
 ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
-
-# No build step and no dependencies: the server is one dependency-free file.
-CMD ["node", "/opt/berry/server.mjs"]
+CMD ["node", "--experimental-strip-types", "/opt/berry/src/agents/runtime/container/main.ts"]

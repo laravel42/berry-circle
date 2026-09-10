@@ -1,0 +1,21 @@
+/** Shared by the plugin and public API tests. Not a test file itself. */
+
+export const HELLO = {
+   manifest: {
+      schemaVersion: 1,
+      key: 'hello',
+      name: 'Hello',
+      version: '1.0.0',
+      baseUrl: 'https://hello.example.com',
+      scopes: ['issues:read', 'comments:write'],
+      config: [{ key: 'greeting', label: 'Greeting', type: 'string', required: true }],
+      secrets: [{ name: 'API_KEY' }],
+      hooks: [
+         { key: 'on-comment', trigger: 'event', events: ['comment.created'], path: '/hooks/comment' },
+         { key: 'nightly', trigger: 'schedule', everyMinutes: 1440, path: '/hooks/nightly' },
+      ],
+      surfaces: [{ key: 'panel', title: 'Hello panel', path: '/ui' }],
+      mcp: { path: '/mcp', tools: [{ name: 'say_hello' }] },
+   },
+   files: [{ path: 'README.md', content: '# Hello' }],
+};

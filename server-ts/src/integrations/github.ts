@@ -33,6 +33,12 @@ export interface RepositoryChoice {
    private: boolean;
    defaultBranch: string;
    description?: string;
+   /** The account login the repository lives under. */
+   owner?: string;
+   /** Archived repositories are read-only on GitHub; the picker offers them disabled. */
+   archived?: boolean;
+   htmlUrl?: string;
+   sshUrl?: string;
 }
 
 interface RepositoryRow {
@@ -43,6 +49,10 @@ interface RepositoryRow {
    default_branch?: string;
    description?: string | null;
    permissions?: { push?: boolean };
+   archived?: boolean;
+   html_url?: string;
+   ssh_url?: string;
+   owner?: { login?: string };
 }
 
 export class GitHubError extends Error {
@@ -183,15 +193,22 @@ export class GitHubClient {
             // not per repository, so every granted repository is listed and the
             // capability is reported alongside the list instead.
             if (!installation && row.permissions?.push !== true) continue;
+            const fullName = String(row.full_name);
             collected.push({
                id: Number(row.id),
-               fullName: String(row.full_name),
+               fullName,
                name: String(row.name),
                private: Boolean(row.private),
                defaultBranch: String(row.default_branch ?? 'main'),
                ...(typeof row.description === 'string' && row.description !== ''
                   ? { description: row.description }
                   : {}),
+               owner: typeof row.owner?.login === 'string' ? row.owner.login : (fullName.split('/')[0] ?? ''),
+               archived: row.archived === true,
+               // GitHub always sends both; built from the name only if a
+               // stubbed or older answer leaves them out.
+               htmlUrl: typeof row.html_url === 'string' ? row.html_url : `https://github.com/${fullName}`,
+               ...(typeof row.ssh_url === 'string' ? { sshUrl: row.ssh_url } : {}),
             });
          }
          if (rows.length < 100) break;

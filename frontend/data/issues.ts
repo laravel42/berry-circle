@@ -48,6 +48,13 @@ export interface Issue {
    dependsOn?: IssueDependencyRef[];
    /** Tasks waiting on this one. */
    blocks?: IssueDependencyRef[];
+   /** The task this one is a sub-task of. */
+   parentId?: string | null;
+   /** Ordered barrier among siblings: stage N+1 waits for stage N. */
+   stage?: number | null;
+   /** A workspace status refining `status`. */
+   statusId?: string | null;
+   childProgress?: { total: number; done: number };
 }
 
 /**
@@ -73,12 +80,6 @@ const generateIssuesRanks = () => {
    }
 };
 generateIssuesRanks();
-
-/* -------------------------------------------------------------------------- */
-/*                                   Issues                                   */
-/* -------------------------------------------------------------------------- */
-
-export const issues: Issue[] = [];
 
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */

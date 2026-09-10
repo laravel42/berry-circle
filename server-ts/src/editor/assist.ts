@@ -1,5 +1,4 @@
-import { Completion } from '../llm/completion.ts';
-import type { AwsCredentials } from '../agents/runtime/model.ts';
+import type { RuntimeCompletion } from '../runtime/completion.ts';
 const SYSTEM = `You rewrite Markdown for a product editor.
 
 The input may already be Markdown. Return only Markdown — keep headings, lists,
@@ -11,39 +10,25 @@ export class EditorAssistUnavailable extends Error {
 }
 
 export interface EditorAssistOptions {
-   /** The AWS region Bedrock is called in. */
-   region: string;
-   /**
-    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
-    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
-    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
-    * security token.
-    */
-   credentials?: AwsCredentials | null;
    defaultModel: string;
-   /** Injected by tests; production builds one from the region. */
-   completion?: Pick<Completion, 'text'>;
+   /** Runs each call as a completion task on the runtime (ADR-0014). */
+   completion: Pick<RuntimeCompletion, 'text'>;
    timeoutMs?: number;
 }
 
 export class EditorAssist {
-   readonly #completion: Pick<Completion, 'text'>;
+   readonly #completion: Pick<RuntimeCompletion, 'text'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
 
    constructor(options: EditorAssistOptions) {
-      this.#completion =
-         options.completion ??
-         new Completion({
-            region: options.region,
-            ...(options.credentials ? { credentials: options.credentials } : {}),
-            ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-         });
+      this.#completion = options.completion;
       this.#defaultModel = options.defaultModel;
       this.#timeoutMs = options.timeoutMs ?? 60_000;
    }
 
    async rewrite(input: {
+      workspaceId: string;
       text: string;
       instruction: string;
       signal?: AbortSignal;
@@ -56,6 +41,8 @@ export class EditorAssist {
 
       const result = await this.#completion
          .text({
+            workspaceId: input.workspaceId,
+            purpose: 'editor_assist',
             model: this.#defaultModel,
             system: SYSTEM,
             user: `Instruction: ${instruction}\n\nText:\n${text}`,

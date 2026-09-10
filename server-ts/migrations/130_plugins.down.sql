@@ -1,0 +1,10 @@
+DROP INDEX IF EXISTS outbox_events_occurred_order_idx;
+DROP TABLE IF EXISTS plugin_tool_approvals;
+DROP TABLE IF EXISTS plugin_event_cursor;
+DROP TABLE IF EXISTS plugin_hook_state;
+DROP TABLE IF EXISTS plugin_tokens;
+DROP TABLE IF EXISTS plugin_invocations;
+DROP TABLE IF EXISTS plugin_storage;
+DROP TABLE IF EXISTS plugin_secrets;
+DROP TABLE IF EXISTS plugin_files;
+DROP TABLE IF EXISTS plugin_installations;

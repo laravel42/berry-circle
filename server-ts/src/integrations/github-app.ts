@@ -265,6 +265,30 @@ export class GitHubAppRepository {
       if (existing) this.#tokens.delete(existing.installationId);
    }
 
+   /**
+    * Forgets an installation GitHub reports as removed, answering with the
+    * workspace it served. Addressed by GitHub's id because that is all an
+    * uninstall webhook carries.
+    */
+   async removeInstallationById(installationId: number): Promise<string | null> {
+      const rows = await this.#sql<Array<{ workspace_id: string }>>`
+         DELETE FROM github_installations WHERE installation_id = ${installationId}
+         RETURNING workspace_id`;
+      this.#tokens.delete(installationId);
+      return rows[0]?.workspace_id ?? null;
+   }
+
+   /**
+    * The webhook secret GitHub issued with the App, opened only to check a
+    * delivery's signature. Never returned by a route, never logged.
+    */
+   async webhookSecret(): Promise<string | null> {
+      const [row] = await this.#sql<Array<Pick<AppRow, 'webhook_secret_encrypted'>>>`
+         SELECT webhook_secret_encrypted FROM github_apps LIMIT 1`;
+      if (!row?.webhook_secret_encrypted) return null;
+      return this.#sealer.open(Buffer.from(row.webhook_secret_encrypted));
+   }
+
    /** The OAuth half, for the flows that still sign a person in. */
    async clientCredentials(): Promise<{ clientId: string; clientSecret: string } | null> {
       const [row] = await this.#sql<Array<Pick<AppRow, 'client_id' | 'client_secret_encrypted'>>>`
@@ -449,15 +473,18 @@ export function buildManifest(input: {
       callback_urls: callbacks,
       setup_url: api('/api/v1/integrations/github/installation/callback'),
       setup_on_update: true,
-      hook_attributes: { url: api('/api/v1/integrations/github/webhook'), active: false },
+      // Active, and at the route that serves it: the linked pull requests on
+      // an issue, their checks and a merge closing the issue all arrive here.
+      hook_attributes: { url: api('/api/v1/webhooks/github'), active: true },
       public: false,
       default_permissions: {
          contents: 'write',
          pull_requests: 'write',
          issues: 'write',
          metadata: 'read',
+         checks: 'read',
       },
-      default_events: ['pull_request', 'push'],
+      default_events: ['pull_request', 'pull_request_review', 'check_run', 'check_suite', 'push'],
    };
 }
 

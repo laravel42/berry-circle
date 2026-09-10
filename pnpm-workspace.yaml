@@ -1,3 +1,4 @@
 packages:
    - frontend
    - server-ts
+   - packages/plugin-sdk

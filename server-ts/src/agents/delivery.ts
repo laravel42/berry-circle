@@ -1,4 +1,5 @@
 import type { ExecutionSession } from '../execution/driver.ts';
+import { withTrailers } from '../scm/commit-trailer.ts';
 import { CheckoutFailed, shellQuote } from './checkout.ts';
 
 /**
@@ -24,6 +25,8 @@ export interface DeliveryOptions {
    /** The commit subject. A body is appended after a blank line when given. */
    message: string;
    body?: string;
+   /** Trailer lines (`Key: value`) appended after the body. */
+   trailers?: string[];
 }
 
 export interface Delivery {
@@ -57,7 +60,10 @@ export async function commitAndPush(options: DeliveryOptions): Promise<Delivery>
       return { committed: false, commit: null, ...stat };
    }
 
-   const message = options.body ? `${options.message}\n\n${options.body}` : options.message;
+   const message = withTrailers(
+      options.body ? `${options.message}\n\n${options.body}` : options.message,
+      options.trailers ?? []
+   );
    await run(
       options.session,
       // Single-quoted, which sh preserves newlines inside — so a message with

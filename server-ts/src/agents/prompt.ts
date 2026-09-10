@@ -1,6 +1,6 @@
 import type { Sql } from '../db/pool.ts';
 import type { Dispatch } from '../runs/ledger.ts';
-import { truncateUtf8 } from '../runs/result-comment.ts';
+import { truncateUtf8 } from './runtime/utf8.ts';
 
 /**
  * The message a run sends its agent.

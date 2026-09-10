@@ -1,9 +1,7 @@
 'use client';
 
 import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
-import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
 import { Button } from '@/components/ui/button';
-import { getCycleById } from '@/data/cycles';
 import { IssueDetail } from '@/data/issue-details';
 import { Issue } from '@/data/issues';
 import { GitPullRequestArrow, Trash2 } from 'lucide-react';
@@ -16,8 +14,12 @@ import {
    IssueDependenciesSection,
    IssueGoalSection,
 } from './issue-relations';
+import { IssueLinkedPullRequests } from './issue-linked-pull-requests';
 import { Section } from './panel-section';
 import { ReviewerProperty } from './reviewer-property';
+import { IssueUsageSection } from '@/components/common/usage/issue-usage-section';
+import { CustomStatusSelect } from './custom-status-select';
+import { IssueCustomProperties } from './issue-custom-properties';
 
 interface IssuePropertiesPanelProps {
    issue: Issue;
@@ -31,7 +33,6 @@ interface IssuePropertiesPanelProps {
  * the tasks it waits on and blocks, project, related tasks and linked PRs.
  */
 export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssuePropertiesPanelProps) {
-   const cycle = issue.cycleId ? getCycleById(issue.cycleId) : undefined;
    const deletion = useIssueDeletion(onDeleted);
 
    return (
@@ -44,6 +45,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                         <StatusSelector status={issue.status} issueId={issue.id} />
                         <span>{issue.status.name}</span>
                      </div>
+                     <CustomStatusSelect issue={issue} />
                      <div className="flex items-center gap-1.5 -ml-1.5">
                         <PrioritySelector priority={issue.priority} issueId={issue.id} />
                         <span>{issue.priority.name}</span>
@@ -53,14 +55,9 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                         <span>{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                      </div>
                      <ReviewerProperty issueRef={issue.identifier} />
-                     {cycle && (
-                        <div className="flex items-center gap-2 mt-0.5">
-                           <CyclePlayIcon className="size-4" />
-                           <span>{cycle.name}</span>
-                        </div>
-                     )}
                   </div>
                </Section>
+               <IssueCustomProperties issueRef={issue.identifier} />
 
                {issue.project && (
                   <Section title="Project">
@@ -78,8 +75,10 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                )}
 
                <IssueApprovalSection issue={issue} />
+               <IssueUsageSection issueId={issue.id} />
                <IssueGoalSection issue={issue} />
                <IssueDependenciesSection issue={issue} />
+               <IssueLinkedPullRequests issueRef={issue.identifier} />
 
                {detail.relatedIds && detail.relatedIds.length > 0 && (
                   <Section title="Related">

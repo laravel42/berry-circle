@@ -1,7 +1,6 @@
 'use client';
 
 import { Issue } from '@/data/issues';
-import { getCycleById } from '@/data/cycles';
 import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -21,7 +20,6 @@ import { WORKSPACE_SLUG } from '@/lib/config';
 export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?: boolean }) {
    const { orgId } = useParams<{ orgId: string }>();
    const { displayProperties } = useDisplaySettingsStore();
-   const cycle = displayProperties.cycle && issue.cycleId ? getCycleById(issue.cycleId) : undefined;
 
    return (
       <ContextMenu>
@@ -63,11 +61,6 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                         <ProjectBadge project={issue.project} />
                      )}
                   </div>
-                  {cycle && (
-                     <span className="text-muted-foreground border border-border rounded-md px-1.5 py-0.5 shrink-0 hidden lg:inline-block">
-                        {cycle.name}
-                     </span>
-                  )}
                   {displayProperties.dueDate && issue.dueDate && (
                      <span className="hidden shrink-0 text-status-warning sm:inline-block">
                         due {format(new Date(issue.dueDate), 'MMM dd')}

@@ -35,28 +35,58 @@ import { createScm } from './scm/provider-factory.ts';
 import { ScmInbound } from './scm/inbound.ts';
 import { WebhookDeliveries } from './scm/webhook.ts';
 import { webhookMounts } from './mounts/webhooks.ts';
+import { githubMounts } from './mounts/github.ts';
+import { GitHubEvents } from './scm/github-events.ts';
+import { GitHubSettingsRepository, writeWorkspaceEvent } from './scm/github-settings.ts';
+import { PullRequestStore } from './scm/pull-requests.ts';
 import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
 import { workspaceReadMounts } from './mounts/workspace-reads.ts';
+import { issueTrackingRoutes } from './mounts/issue-tracking.ts';
+import { commentTrackingRoutes } from './mounts/comment-tracking.ts';
+import { workCatalogRoutes } from './mounts/work-catalogs.ts';
+import { savedViewRoutes } from './mounts/view-routes.ts';
+import { pinMounts } from './mounts/pins.ts';
+import { joinLinkMounts } from './mounts/join-links.ts';
+import { workTrackingHooks } from './work/hooks.ts';
+import { stageGate } from './work/hierarchy.ts';
 import { accountRoutes } from './mounts/account.ts';
 import { conversationMounts } from './mounts/conversations.ts';
 import { editorMounts } from './mounts/editor.ts';
 import { EditorAssist } from './editor/assist.ts';
-import { Completion } from './llm/completion.ts';
-import { setupTelemetry } from './observability/telemetry.ts';
+import { RuntimeCompletion } from './runtime/completion.ts';
 import { planMounts } from './mounts/plans.ts';
 import { PlanAnswerRepository } from './plans/answers.ts';
 import { PlanRepository } from './plans/repository.ts';
 import { PlanGenerator } from './plans/generator.ts';
 import { ConversationRepository } from './conversations/repository.ts';
-import { ConversationResponder } from './conversations/responder.ts';
 import { InboxRepository } from './inbox/repository.ts';
 import { ApprovalRepository } from './approvals/repository.ts';
 import { OAuthStateStore } from './integrations/oauth.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
+import {
+   agentCompletion,
+   agentEnqueue,
+   autopilotEnqueue,
+   quickActionEnqueue,
+   registerDelegateTool,
+} from './runtime/wiring.ts';
+import { AutopilotRepository } from './autopilots/repository.ts';
+import { fireAutopilot, type FireInput } from './autopilots/fire.ts';
+import { resolveSquadLeader } from './autopilots/squads.ts';
+import { autopilotMounts } from './mounts/autopilots.ts';
+import { autopilotWebhookMounts } from './mounts/autopilot-webhooks.ts';
+import { AutopilotScheduler } from './runs/scheduler.ts';
+import { commentTriggers } from './agents/triggers.ts';
+import { registerChatReplies } from './conversations/chat-tasks.ts';
+import { registerSquadRetrigger } from './squads/retrigger.ts';
+import { AgentCoreIdentity } from './agentcore/identity.ts';
 import { agentMounts } from './mounts/agents.ts';
+import { usageMounts } from './mounts/usage.ts';
+import { PriceBook } from './agents/pricing.ts';
+import { configureUsagePricing, recordTaskUsage } from './usage/record.ts';
 import { eventMounts } from './mounts/events.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
@@ -77,7 +107,6 @@ import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
 import { personalTokenResolver } from './auth/credentials.ts';
 import { Storage } from './storage/storage.ts';
-import { RunExecutor } from './agents/executor.ts';
 import { ReviewGate } from './agents/review-gate.ts';
 import { ReviewQueue } from './core/review-queue.ts';
 import { reviewMounts } from './mounts/reviews.ts';
@@ -85,11 +114,32 @@ import { GitHubClient } from './integrations/github.ts';
 import { AgentRepository } from './agents/repository.ts';
 import { ModelCatalog } from './agents/catalog.ts';
 import { createLogger } from './observability/log.ts';
-import { createExecutionDriver } from './execution/factory.ts';
-import { AgentCoreRunMemory } from './agentcore/memory.ts';
+import { AgentCoreRunMemory, nullRunMemory } from './agentcore/memory.ts';
+import { agentToolMounts } from './runtime/agent-tools/mount.ts';
+import { agentCoreTransport } from './runtime/agentcore-transport.ts';
+import { EnvelopeBuilder } from './runtime/envelope-builder.ts';
+import { httpTransport } from './runtime/http-transport.ts';
+import { RuntimeTaskExecutor, type UsageRecorder } from './runtime/task-executor.ts';
+import { routingTransport, type RuntimeTarget } from './runtime/transport.ts';
+import { runtimeMounts } from './mounts/runtimes.ts';
+import { syncPlatformRuntime } from './runtime/runtimes.ts';
+import { applyLifecycle } from './runtime/runtime-control.ts';
+import { agentCoreRuntimeDriver } from './execution/agentcore-runtime.ts';
+import { BedrockAgentCoreControlClient } from '@aws-sdk/client-bedrock-agentcore-control';
 import { ConnectionRepository } from './integrations/connections.ts';
 import { GitHubAppRepository } from './integrations/github-app.ts';
-import { sealerFromKey } from './integrations/sealing.ts';
+import { sealerFromKey, unavailableSealer } from './integrations/sealing.ts';
+import { agentAccessGuard } from './agents/access.ts';
+import { AgentBuilder } from './agents/builder.ts';
+import { AgentProfileRepository } from './agents/profile.ts';
+import { McpServerRepository } from './mcp/repository.ts';
+import { agentBuilderMounts } from './mounts/agent-builder.ts';
+import { mcpServerMounts } from './mounts/mcp-servers.ts';
+import { skillMounts } from './mounts/skills.ts';
+import { squadMounts } from './mounts/squads.ts';
+import { importFromGitHub } from './skills/github-import.ts';
+import { SkillRepository } from './skills/repository.ts';
+import { SquadRepository } from './squads/repository.ts';
 
 /**
  * The composition root.
@@ -131,12 +181,8 @@ const broadcaster = new Distributed(new Hub(config.realtimeBuffer), null);
 const idempotency = new IdempotencyStore(sql);
 
 /**
- * The agent runtime, present only when this server can actually run one.
- *
- * Both halves are required and neither has a safe default: without a model
- * credential there is nothing to call, and without object storage an agent's
- * files would have nowhere to land — a run that produced work and dropped it
- * is worse than one that never started.
+ * Object storage, where an agent's files land. Null when none is configured:
+ * the tool API then refuses file writes rather than dropping them.
  */
 const storage = config.storage
    ? new Storage({
@@ -152,15 +198,6 @@ const storage = config.storage
         maxBytes: config.storage.maxBytes,
      })
    : null;
-
-/**
- * Where an agent's commands run.
- *
- * Constructed even when nothing is configured — the unconfigured driver
- * refuses every call with a message naming what is missing, which is a better
- * failure than a null that reaches a call site expecting a driver.
- */
-const execution = createExecutionDriver(config.execution, config.agentCore);
 
 /**
  * Run recall, when a Memory store is configured.
@@ -202,6 +239,16 @@ const connections = config.integrationKey
    ? new ConnectionRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
 
+// One sealer for agent-layer secrets (MCP headers, agent env). Without the key
+// it refuses every seal, so nothing can be stored in the clear by accident.
+const agentSealer = config.integrationKey
+   ? sealerFromKey(config.integrationKey)
+   : unavailableSealer('INTEGRATION_ENCRYPTION_KEY is not set');
+const skillRepository = new SkillRepository(sql);
+const mcpRepository = new McpServerRepository({ sql, sealer: agentSealer });
+const agentProfiles = new AgentProfileRepository({ sql, sealer: agentSealer });
+const squadRepository = new SquadRepository(sql);
+
 // The App's own credentials are sealed with the same key, for the same reason:
 // a deployment that cannot seal cannot hold a private key either.
 const githubApp = config.integrationKey
@@ -221,25 +268,74 @@ const githubApp = config.integrationKey
 const scm = await createScm({ sql, config, logger, githubApp });
 const scmWorkspaces = scm.workspaces;
 const scmSync = scm.sync;
-const scmInbound = new ScmInbound({ sql, links: scm.links, logger });
+/**
+ * GitHub parity (workstream K): the workspace's switches, the pull requests
+ * linked to its issues, and the webhook handler that feeds them. A webhook is
+ * routed to the workspace that claimed its installation, and to no other.
+ */
+const githubSettings = new GitHubSettingsRepository(sql);
+const pullRequests = new PullRequestStore({ sql, issues });
+const workspaceForInstallation = async (installationId: number): Promise<string | null> =>
+   githubApp ? githubApp.claimedBy(installationId) : null;
+const scmInbound = new ScmInbound({
+   sql,
+   links: scm.links,
+   logger,
+   // Reviews and runs are matched by branch, which only one workspace's
+   // installation may reach.
+   workspaceForInstallation,
+   github: new GitHubEvents({
+      workspaceForInstallation,
+      settings: githubSettings,
+      pullRequests,
+      removeInstallation: async (installationId) =>
+         githubApp ? githubApp.removeInstallationById(installationId) : null,
+      publishConnection: (workspaceId) =>
+         writeWorkspaceEvent(sql, {
+            workspaceId,
+            type: 'github.connection.updated',
+            aggregateType: 'github_installation',
+            aggregateId: workspaceId,
+            payload: { installed: false },
+         }),
+   }),
+});
 
 /**
- * The one client the single-completion callers share.
- *
- * Credentials are plumbed here once. Each caller used to build its own
- * Bedrock client from the same three fields, and each was a place for them
- * to go missing (BERR-67).
+ * The one completion client the single-call callers share. Each call is a
+ * `kind: 'completion'` task on the runtime (ADR-0014): the server holds no
+ * model client, so there is no credential to plumb here.
  */
-const completion = config.agents
-   ? new Completion({
-        region: config.agents.region,
-        ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
-     })
-   : null;
+const completion = new RuntimeCompletion({
+   sql,
+   // Declared further down; called only at request time, after boot.
+   nudge: () => dispatcher?.nudge(),
+   defaultModel: config.runtime.defaultModel,
+});
 
-// Traces, only when an OTLP endpoint is configured. Before the executor so
-// the first run is traced.
-await setupTelemetry(logger);
+/** The agent layer's single model calls, as completion tasks on the runtime. */
+const complete = agentCompletion({
+   sql,
+   nudge: () => dispatcher?.nudge(),
+   defaultModel: config.runtime.defaultModel,
+});
+
+/**
+ * Where an agent's gateway-routed MCP servers go: the AgentCore Gateway, with
+ * the workload identity's headers. Null without a gateway, and such servers
+ * are then left out of the task rather than sent direct.
+ */
+const gatewayRoute = config.agentCoreGateway
+   ? (() => {
+        const gateway = config.agentCoreGateway;
+        const identity = new AgentCoreIdentity({
+           region: gateway.region,
+           providerName: gateway.githubProviderName,
+           workloadName: gateway.workloadName,
+        });
+        return { url: gateway.gatewayUrl, headers: () => identity.gatewayHeaders() };
+     })()
+   : null;
 
 /**
  * AutoGate: a peer agent reviews what a run delivered, for tasks whose plan
@@ -247,50 +343,109 @@ await setupTelemetry(logger);
  * credential runs do (to read the diff) and the same completion the planner
  * uses (to decide).
  */
-const reviewGate =
-   config.agents && completion
-      ? new ReviewGate({
-           sql,
-           issues,
-           runs: new RunRepository(sql),
-           completion,
-           defaultModel: config.agents.defaultModel,
-           maxAttempts: config.agents.autoGateMaxAttempts,
-           github: async (workspaceId) =>
-              new GitHubClient({ token: (await scm.gitCredential(workspaceId)).password }),
-           onError: (message, error) =>
-              logger.error(message, { error: error instanceof Error ? error.message : String(error) }),
-        })
-      : null;
+/**
+ * Where tasks run (ADR-0014). The configured AgentCore Runtime by ARN when
+ * there is one, else the same image on a URL (the local agent-runtime
+ * service). A workspace's registered runtimes override it per agent.
+ */
+const defaultTarget: RuntimeTarget | null = config.agentCore?.runtimeArn
+   ? {
+        id: null,
+        driver: 'agentcore',
+        arn: config.agentCore.runtimeArn,
+        qualifier: 'DEFAULT',
+        region: config.agentCore.region,
+        endpointUrl: null,
+     }
+   : config.runtime.agentRuntimeUrl
+     ? {
+          id: null,
+          driver: 'http',
+          arn: null,
+          qualifier: 'DEFAULT',
+          region: null,
+          endpointUrl: config.runtime.agentRuntimeUrl,
+       }
+     : null;
 
-const executor =
-   config.agents && storage
-      ? new RunExecutor({
-           sql,
-           storage,
-           region: config.agents.region,
-           ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
-           defaultModel: config.agents.defaultModel,
-           ...(config.agents.maxTokens ? { maxTokens: config.agents.maxTokens } : {}),
-           media: {
-              ...(config.agents.mediaVideoS3Uri ? { video: { s3Uri: config.agents.mediaVideoS3Uri } } : {}),
-           },
-           // Only when one is actually configured. Handing over the
-           // unconfigured driver would give agents a `run_command` that
-           // refuses every call, and an agent cannot work around a tool it was
-           // told it has.
-           ...(config.execution ? { execution } : {}),
-           ...(connections ? { connections } : {}),
-           ...(githubApp ? { githubApp } : {}),
-           ...(runMemory ? { memory: runMemory } : {}),
-           gitCredential: scm.gitCredential,
-           ...(reviewGate ? { reviewGate } : {}),
-           onGateError: (error) =>
-              logger.error('peer review failed', {
-                 error: error instanceof Error ? error.message : String(error),
-              }),
+/**
+ * AutoGate: a peer agent reviews what a run delivered, for tasks whose plan
+ * opted in — and on request for any task with a pull request. Its decision is
+ * a completion task, so it exists wherever tasks can run.
+ */
+const reviewGate = defaultTarget
+   ? new ReviewGate({
+        sql,
+        issues,
+        runs: new RunRepository(sql),
+        completion,
+        defaultModel: config.runtime.defaultModel,
+        maxAttempts: config.agents?.autoGateMaxAttempts ?? 2,
+        github: async (workspaceId) =>
+           new GitHubClient({ token: (await scm.gitCredential(workspaceId)).password }),
+        onError: (message, error) =>
+           logger.error(message, { error: error instanceof Error ? error.message : String(error) }),
+     })
+   : null;
+
+/**
+ * Token usage the runtime reports on `task.usage`, stored and priced by
+ * workstream C's `recordTaskUsage`. The assignment is the compile-time proof
+ * that the runtime's report and C's input agree.
+ */
+const recordUsage: UsageRecorder = recordTaskUsage;
+
+const transport = routingTransport({
+   agentcore: config.agentCore
+      ? agentCoreTransport({
+           region: config.agentCore.region,
+           ...(config.agentCore.credentials ? { credentials: config.agentCore.credentials } : {}),
         })
-      : null;
+      : null,
+   http: httpTransport(),
+});
+
+const executor = defaultTarget
+   ? new RuntimeTaskExecutor({
+        sql,
+        transport,
+        defaultTarget,
+        recordUsage,
+        builder: new EnvelopeBuilder({
+           sql,
+           publicUrl:
+              config.integrations.publicUrl ?? `http://${config.apiAddr.host}:${config.apiAddr.port}`,
+           defaultModel: config.runtime.defaultModel,
+           memory: runMemory ?? nullRunMemory(),
+           sealer: config.integrationKey ? sealerFromKey(config.integrationKey) : null,
+           ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
+           github: (token) => new GitHubClient({ token }),
+           extensions: { skills: skillRepository, mcp: mcpRepository, profile: agentProfiles, gateway: gatewayRoute },
+           onSkipped: (names) => logger.warn('mcp server skipped: no gateway', { names }),
+        }),
+        memory: runMemory ?? nullRunMemory(),
+        ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
+        github: (token) => new GitHubClient({ token }),
+        ...(reviewGate ? { reviewGate } : {}),
+        onGateError: (error) =>
+           logger.error('peer review failed', {
+              error: error instanceof Error ? error.message : String(error),
+           }),
+        onUsageError: (error) =>
+           logger.error('usage was not recorded', {
+              error: error instanceof Error ? error.message : String(error),
+           }),
+        tokenTtlSeconds: config.runtime.tokenTtlSeconds,
+     })
+   : null;
+
+// Every workspace sees the deployment's own runtime as a row it can bind
+// agents to and probe. A failure here costs the listing, never the boot.
+await syncPlatformRuntime(sql, defaultTarget).catch((error: unknown) =>
+   logger.error('could not sync the platform runtime', {
+      error: error instanceof Error ? error.message : String(error),
+   })
+);
 
 // The model picker's catalogue. Null without a credential rather than an
 // empty list: "no models exist" and "this server cannot ask" are different
@@ -301,6 +456,10 @@ const modelCatalog = config.agents
         ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
      })
    : null;
+
+// Usage is priced on write from the same open feed the model picker reads.
+// Not gated on agent config: runs executed elsewhere still report usage here.
+configureUsagePricing(new PriceBook());
 
 // Reading the ledger, and admitting a run. The executor builds its own ledger
 // per run because it writes as the run happens; this one is for the request
@@ -321,7 +480,27 @@ registry.registerAll(secretsMounts({ sessions, secrets }));
 registry.registerAll(
    boardMounts({ sessions, boards, idempotency, nested: boardRunRoutes(runOptions) })
 );
-const commentOptions = { sessions, comments, issues, idempotency, broadcaster };
+// Work tracking: subscriptions and inbox rows after writes, and the stage
+// barrier on sub-issues. Dispatch only where runs can execute, as below.
+const workDispatch = executor ? runOptions.runs : undefined;
+const workHooks = workTrackingHooks({ sql, issues, dispatch: workDispatch });
+const commentOptions = {
+   sessions,
+   comments,
+   issues,
+   idempotency,
+   broadcaster,
+   hooks: workHooks,
+   extensions: commentTrackingRoutes({ sql, comments, broadcaster }),
+   // A person's comment that mentions an agent (or a squad, or replies to the
+   // assignee) queues a task for it.
+   triggers: commentTriggers({
+      sql,
+      enqueue: agentEnqueue,
+      report: (error: unknown) =>
+         logger.error('comment trigger failed', { error: error instanceof Error ? error.message : String(error) }),
+   }),
+};
 registry.registerAll(
    issueMounts({
       scm: scmSync,
@@ -333,12 +512,27 @@ registry.registerAll(
       boards,
       idempotency,
       broadcaster,
+      // Who may hand work to which agent (an agent's assign scope).
+      agentAccess: agentAccessGuard(sql),
       nested: issueCommentRoutes(commentOptions),
       relations: issueRelationRoutes({ issues, dependencies, reviews, gate: reviewGate }),
       runs: issueRunRoutes(runOptions),
       // A task handed to an agent starts on its own. Only where runs can
       // execute: without an executor a queued run would sit forever.
       ...(executor ? { dispatch: runOptions.runs } : {}),
+      stages: stageGate(sql),
+      hooks: workHooks,
+      // Quick actions queue through the runtime's task queue.
+      tracking: issueTrackingRoutes({
+         sql,
+         issues,
+         boards,
+         comments,
+         broadcaster,
+         dispatch: workDispatch,
+         hooks: workHooks,
+         enqueue: quickActionEnqueue,
+      }),
       artifacts: issueArtifactRoutes({ artifacts: runArtifacts, issues }),
       attachments: issueAttachmentRoutes({
          attachments,
@@ -351,11 +545,31 @@ registry.registerAll(
    })
 );
 registry.registerAll(commentMounts(commentOptions));
+
+/**
+ * Autopilots. Always served: reading and editing them needs no model
+ * credential. A webhook trigger needs the encryption key for its signing
+ * secret, and without one the create answers 412 rather than storing a
+ * secret in the clear.
+ */
+const autopilots = new AutopilotRepository({
+   sql,
+   sealer: config.integrationKey
+      ? sealerFromKey(config.integrationKey)
+      : unavailableSealer('INTEGRATION_ENCRYPTION_KEY is not set'),
+});
+const fireAutopilotNow = (input: FireInput) =>
+   fireAutopilot({ sql, issues, enqueue: autopilotEnqueue, resolveSquadLeader }, input);
+registry.registerAll(autopilotMounts({ sessions, sql, autopilots, fire: fireAutopilotNow, idempotency }));
+registry.registerAll(autopilotWebhookMounts({ autopilots, fire: fireAutopilotNow, logger }));
 registry.registerAll(
    webhookMounts({
       inbound: scmInbound,
       deliveries: new WebhookDeliveries(sql),
       secret: config.git?.webhookSecret ?? null,
+      // The secret GitHub issued with the App, so a manifest-created App's
+      // deliveries verify without an operator copying it into the environment.
+      secrets: async () => [githubApp ? await githubApp.webhookSecret() : null],
       logger,
    })
 );
@@ -377,6 +591,47 @@ registry.registerAll(
    })
 );
 registry.registerAll(runMounts(runOptions));
+// Berry's tools for a running task, behind its task token (not a session).
+registry.registerAll(agentToolMounts({ sql, storage, issues }));
+const agentCore = config.agentCore;
+registry.registerAll(
+   runtimeMounts({
+      sessions,
+      sql,
+      sealer: config.integrationKey ? sealerFromKey(config.integrationKey) : null,
+      defaultTarget,
+      health: async (target) => {
+         if (target.driver === 'http') {
+            const response = await fetch(`${(target.endpointUrl ?? '').replace(/\/+$/, '')}/ping`, {
+               signal: AbortSignal.timeout(10_000),
+            });
+            if (!response.ok) throw new Error(`the runtime answered ${response.status}`);
+            return;
+         }
+         if (!target.arn || !agentCore) throw new Error('AgentCore is not configured');
+         await agentCoreRuntimeDriver({
+            region: target.region ?? agentCore.region,
+            runtimeArn: target.arn,
+            qualifier: target.qualifier,
+            ...(agentCore.credentials ? { credentials: agentCore.credentials } : {}),
+         }).health();
+      },
+      // Only with AgentCore: a profile's idle timeout is a runtime setting.
+      ...(agentCore
+         ? {
+              applyLifecycle: (arn: string, lifecycle: { idleRuntimeSessionTimeout: number; maxLifetime: number }) =>
+                 applyLifecycle(
+                    new BedrockAgentCoreControlClient({
+                       region: agentCore.region,
+                       ...(agentCore.credentials ? { credentials: agentCore.credentials } : {}),
+                    }),
+                    arn,
+                    lifecycle
+                 ),
+           }
+         : {}),
+   })
+);
 registry.registerAll(
    reviewMounts({
       sessions,
@@ -388,7 +643,17 @@ registry.registerAll(
    })
 );
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
-registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+registry.registerAll(
+   workspaceReadMounts({
+      sessions,
+      sql,
+      boards,
+      catalogExtensions: workCatalogRoutes(),
+      viewExtensions: savedViewRoutes({ sql }),
+   })
+);
+registry.registerAll(pinMounts({ sessions, sql }));
+registry.registerAll(joinLinkMounts({ sessions, sql }));
 registry.registerAll(
    planMounts({
       sessions,
@@ -398,25 +663,23 @@ registry.registerAll(
       // needs it, and a null generator answers PLANNER_UNAVAILABLE rather
       // than opening a plan nothing will ever fill in.
       generator:
-         config.agents && completion
+         executor
          ? new PlanGenerator({
               sql,
-              region: config.agents.region,
               completion,
-              defaultModel: config.agents.defaultModel,
-              maxRepairs: config.agents.maxRepairs,
-              maxCriticRounds: config.agents.maxCriticRounds,
+              defaultModel: config.runtime.defaultModel,
+              maxRepairs: config.agents?.maxRepairs ?? 2,
+              maxCriticRounds: config.agents?.maxCriticRounds ?? 1,
            })
          : null,
       // Routing needs the same credential planning does: it is the
       // orchestrator reading the roster and deciding, not a lookup table.
       triage:
-         config.agents && completion
+         executor
          ? new PlanTriage({
               sql,
-              region: config.agents.region,
               completion,
-              defaultModel: config.agents.defaultModel,
+              defaultModel: config.runtime.defaultModel,
            })
          : null,
       // Its own repository rather than the request path's: a routed task is
@@ -428,34 +691,35 @@ registry.registerAll(
       logger,
    })
 );
+const conversationRepository = new ConversationRepository(sql);
+// Once per process: a finished chat task posts its reply into the session,
+// and a member finishing delegated work wakes its squad leader. Both hook the
+// ledger's terminal notification.
+registerChatReplies({ sql, conversations: conversationRepository });
+registerSquadRetrigger({ sql, enqueue: agentEnqueue });
+registerDelegateTool({ sql, issues });
 registry.registerAll(
    conversationMounts({
       sessions,
-      conversations: new ConversationRepository(sql),
+      conversations: conversationRepository,
       boards,
       sql,
-      // Reading a thread works without a model credential; only answering
-      // needs one, and a null responder says so rather than failing the turn.
-      responder:
-         config.agents && completion
-         ? new ConversationResponder({
-              sql,
-              region: config.agents.region,
-              completion,
-              defaultModel: config.agents.defaultModel,
-           })
-         : null,
+      // Chat runs as agent tasks through the runtime's queue.
+      enqueue: agentEnqueue,
+      complete,
+      ledger: runOptions.ledger,
+      runs: runOptions.runs,
+      logger,
    })
 );
 registry.registerAll(
    editorMounts({
       sessions,
       assist:
-         config.agents && completion
+         executor
          ? new EditorAssist({
-              region: config.agents.region,
               completion,
-              defaultModel: config.agents.defaultModel,
+              defaultModel: config.runtime.defaultModel,
            })
          : null,
    })
@@ -484,7 +748,49 @@ registry.registerAll(
       appUrl: config.integrations.appUrl,
    })
 );
-registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog, logger }));
+registry.registerAll(
+   agentMounts({
+      sessions,
+      agents,
+      idempotency,
+      catalog: modelCatalog,
+      logger,
+      runs: runOptions.runs,
+      ledger: runOptions.ledger,
+      profile: agentProfiles,
+   })
+);
+registry.registerAll(
+   skillMounts({
+      sessions,
+      sql,
+      skills: skillRepository,
+      idempotency,
+      importer: { fromGitHub: (url) => importFromGitHub(url) },
+   })
+);
+registry.registerAll(mcpServerMounts({ sessions, sql, servers: mcpRepository }));
+registry.registerAll(
+   squadMounts({
+      sessions,
+      sql,
+      squads: squadRepository,
+      issues,
+      enqueue: agentEnqueue,
+      agentAccess: agentAccessGuard(sql),
+   })
+);
+registry.registerAll(
+   agentBuilderMounts({
+      sessions,
+      sql,
+      builder: new AgentBuilder({ sql, complete, skills: skillRepository, agents, mcp: mcpRepository }),
+   })
+);
+registry.registerAll(
+   githubMounts({ sessions, sql, settings: githubSettings, pullRequests, githubApp, connections })
+);
+registry.registerAll(usageMounts({ sessions, sql }));
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
 );
@@ -524,7 +830,8 @@ registry.registerAll(
          storage: storage !== null,
          valkey: false,
          // The planner runs when there is a model credential to run it with.
-         planner: config.agents !== null,
+         // Planning is a completion task, so it runs wherever tasks do.
+         planner: executor !== null,
       },
    })
 );
@@ -536,16 +843,16 @@ registry.registerAll(
  * the ledger and admit runs, and a dispatcher there would claim work it cannot
  * do and fail every run it touched.
  */
-const dispatcher =
-   executor && config.agents
-      ? new Dispatcher({
-           sql,
-           executor,
-           logger,
-           concurrency: config.agents.concurrency,
-        })
-      : null;
+const dispatcher = executor
+   ? new Dispatcher({ sql, executor, logger, concurrency: config.runtime.concurrency })
+   : null;
 dispatcher?.start();
+
+// Schedules fire only where tasks can run: a schedule on a server with no
+// dispatcher would queue work nothing takes. Several servers may run this;
+// sys_cron_executions lets exactly one fire each slot.
+const autopilotScheduler = dispatcher ? new AutopilotScheduler({ sql, fire: fireAutopilotNow, logger }) : null;
+autopilotScheduler?.start();
 
 const app = createApp(registry);
 
@@ -553,12 +860,18 @@ const server = serve({ fetch: app.fetch, hostname: config.apiAddr.host, port: co
 logger.info('Berry server listening', {
    apiAddr: `${config.apiAddr.host}:${config.apiAddr.port}`,
    environment: config.appEnv,
-   // Named at boot so an operator can see which substrate this process would
-   // run an agent's commands on, without reading the environment back.
-   executionDriver: execution.name,
+   // Named at boot so an operator can see where tasks are sent, without
+   // reading the environment back.
+   agentRuntime: defaultTarget
+      ? defaultTarget.driver === 'agentcore'
+         ? defaultTarget.arn
+         : defaultTarget.endpointUrl
+      : 'none',
    // Named at boot because a server that admits runs but does not execute them
    // looks identical from outside until the first one sits queued forever.
-   runDispatch: dispatcher ? `${config.agents!.concurrency} at a time` : 'off',
+   runDispatch: dispatcher ? `${config.runtime.concurrency} at a time` : 'off',
+   // Schedules fire beside the dispatcher and nowhere else.
+   autopilotSchedules: autopilotScheduler ? 'on' : 'off',
    // Named at boot because recall is invisible from outside: an agent with no
    // memory and an agent whose store is misconfigured both just start fresh.
    runMemory: runMemory ? 'agentcore' : 'off',
@@ -581,7 +894,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
          // The dispatcher first: it aborts what it is running, and a run left
          // mid-flight is reclaimed from its lease rather than recorded from a
          // process that is on its way out.
-         void (dispatcher ? dispatcher.stop() : Promise.resolve())
+         void Promise.all([
+            dispatcher ? dispatcher.stop() : Promise.resolve(),
+            autopilotScheduler ? autopilotScheduler.stop() : Promise.resolve(),
+         ])
             .then(() => closeDatabase(sql))
             .then(() => process.exit(0));
       });

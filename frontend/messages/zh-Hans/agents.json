@@ -1,0 +1,30 @@
+{
+   "header": {
+      "title": "智能体",
+      "description": "能领取任务、发表评论并更新状态的 AI 队友。",
+      "newAgent": "新建智能体"
+   },
+   "options": {
+      "searchPlaceholder": "搜索智能体…",
+      "searchLabel": "搜索智能体",
+      "filter": "筛选",
+      "sortLastActive": "最近活跃",
+      "sortName": "名称",
+      "showArchived": "显示已归档",
+      "showingArchived": "正在显示已归档"
+   },
+   "list": {
+      "agent": "智能体",
+      "status": "状态",
+      "access": "访问权限",
+      "model": "模型",
+      "price": "价格",
+      "priceHint": "输入 / 输出，每百万 token",
+      "runtimes": "运行",
+      "loading": "正在加载智能体…",
+      "noMatch": "没有符合搜索条件的智能体。",
+      "none": "此工作区还没有注册任何智能体。",
+      "noArchived": "没有已归档的智能体。",
+      "archivedLoadFailed": "无法加载已归档的智能体。"
+   }
+}

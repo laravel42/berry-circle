@@ -10,26 +10,35 @@ import {
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useIssuesStore } from '@/store/issues-store';
-import { User, users } from '@/data/users';
+import { User } from '@/data/users';
+import { useMembersStore } from '@/store/members-store';
 import { agentToUser } from '@/lib/agents';
+import { listSquads, type Squad } from '@/lib/squads';
 import { useAgentsStore } from '@/store/agents-store';
-import { CheckIcon, UserCircle } from 'lucide-react';
+import { CheckIcon, UserCircle, UsersRound } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 interface AssigneeSelectorProps {
    assignee: User | null;
    onChange: (assignee: User | null) => void;
+   /**
+    * Offer squads too. Choosing one assigns its leader through `onChange`, as
+    * before, and reports the squad here so the caller can give it the issue
+    * once the issue exists. Any other choice reports null.
+    */
+   onSquadChange?: (squad: Squad | null) => void;
 }
 
-export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) {
+export function AssigneeSelector({ assignee, onChange, onSquadChange }: AssigneeSelectorProps) {
    const id = useId();
    const [open, setOpen] = useState<boolean>(false);
    const [value, setValue] = useState<string | null>(assignee?.id || null);
 
    const { filterByAssignee } = useIssuesStore();
+   const members = useMembersStore((state) => state.members);
    const agents = useAgentsStore((state) => state.agents);
-   const people: User[] = [...users, ...agents.map(agentToUser)].filter(
+   const people: User[] = [...members, ...agents.map(agentToUser)].filter(
       (person, index, list) => list.findIndex((entry) => entry.id === person.id) === index
    );
 
@@ -37,7 +46,36 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
       setValue(assignee?.id || null);
    }, [assignee]);
 
+   const [squads, setSquads] = useState<Squad[]>([]);
+   const [squadId, setSquadId] = useState<string | null>(null);
+   // Loaded when the popover opens: squads change rarely, and most people
+   // never open the picker at all.
+   useEffect(() => {
+      if (!open || !onSquadChange) return;
+      let cancelled = false;
+      listSquads().then(
+         (found) => {
+            if (!cancelled) setSquads(found);
+         },
+         () => undefined
+      );
+      return () => {
+         cancelled = true;
+      };
+   }, [open, onSquadChange]);
+
+   const handleSquadChange = (squad: Squad) => {
+      const leader = people.find((person) => person.id === squad.leaderAgentId);
+      setSquadId(squad.id);
+      setValue(squad.leaderAgentId);
+      if (leader) onChange(leader);
+      onSquadChange?.(squad);
+      setOpen(false);
+   };
+
    const handleAssigneeChange = (userId: string) => {
+      setSquadId(null);
+      onSquadChange?.(null);
       if (userId === 'unassigned') {
          setValue(null);
          onChange(null);
@@ -83,7 +121,11 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                      <UserCircle className="size-5" />
                   )}
                   <span>
-                     {value ? people.find((user) => user.id === value)?.name : 'Unassigned'}
+                     {squadId
+                        ? (squads.find((squad) => squad.id === squadId)?.name ?? 'Squad')
+                        : value
+                          ? people.find((user) => user.id === value)?.name
+                          : 'Unassigned'}
                   </span>
                </Button>
             </PopoverTrigger>
@@ -130,6 +172,24 @@ export function AssigneeSelector({ assignee, onChange }: AssigneeSelectorProps) 
                            </CommandItem>
                         ))}
                      </CommandGroup>
+                     {onSquadChange && squads.length > 0 ? (
+                        <CommandGroup heading="Squads">
+                           {squads.map((squad) => (
+                              <CommandItem
+                                 key={squad.id}
+                                 value={`squad:${squad.id}`}
+                                 onSelect={() => handleSquadChange(squad)}
+                                 className="flex items-center justify-between"
+                              >
+                                 <div className="flex items-center gap-2">
+                                    <UsersRound className="size-5" />
+                                    {squad.name}
+                                 </div>
+                                 {squadId === squad.id && <CheckIcon size={16} className="ml-auto" />}
+                              </CommandItem>
+                           ))}
+                        </CommandGroup>
+                     ) : null}
                   </CommandList>
                </Command>
             </PopoverContent>

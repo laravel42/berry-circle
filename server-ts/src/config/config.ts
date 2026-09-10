@@ -19,6 +19,8 @@ export interface Config {
    realtimeBuffer: number;
    storage: StorageConfig | null;
    agents: AgentConfig | null;
+   /** Where tasks run and how they are bounded (ADR-0014). */
+   runtime: RuntimeConfig;
    /**
     * Where an agent's commands run. Null when no substrate is configured, in
     * which case the composition root installs a driver that refuses every
@@ -34,6 +36,11 @@ export interface Config {
     * deployment without a key stores nothing rather than storing it in clear.
     */
    integrationKey: string | null;
+   /**
+    * Lets plugin calls reach http and private addresses. Development only: in
+    * production a plugin must be a public https endpoint.
+    */
+   pluginsAllowPrivateNetwork: boolean;
    /**
     * What this deployment can connect to, and where a provider sends the
     * browser back.
@@ -286,6 +293,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       realtimeBuffer: positiveInt(env.REALTIME_BUFFER, 64),
       storage: storage(env),
       agents: agents(env),
+      runtime: runtime(env),
       // Trimmed and required to be non-empty: a variable set to whitespace is
       // an operator who meant to set it, and treating that as "configured"
       // would accept a token nothing can present.
@@ -296,6 +304,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // No generated fallback: a key that appeared on its own would differ
       // between restarts and strand every credential already stored.
       integrationKey: (env.INTEGRATION_ENCRYPTION_KEY ?? '').trim() || null,
+      pluginsAllowPrivateNetwork: (env.BERRY_PLUGINS_ALLOW_PRIVATE_NETWORK ?? '').trim() === '1',
       integrations: integrations(env),
       git: git(env),
    };
@@ -579,6 +588,28 @@ function origin(value: string | undefined): string | null {
 }
 
 /** A count, when the value given is one. Anything else keeps the default. */
+/** Where tasks run and how they are bounded. Independent of Bedrock: the server calls no model. */
+export interface RuntimeConfig {
+   /** The runtime image on a URL (local Compose), used when no AgentCore runtime ARN is set. */
+   agentRuntimeUrl: string | null;
+   /** Used when an agent row and its profile name no model. */
+   defaultModel: string;
+   /** How many tasks this process dispatches at once. */
+   concurrency: number;
+   /** A task token's lifetime: the runtime's maxLifetime. */
+   tokenTtlSeconds: number;
+}
+
+function runtime(env: NodeJS.ProcessEnv): RuntimeConfig {
+   const url = (env.BERRY_AGENT_RUNTIME_URL ?? '').trim().replace(/\/+$/, '');
+   return {
+      agentRuntimeUrl: /^https?:\/\//.test(url) ? url : null,
+      defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? '').trim() || 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
+      tokenTtlSeconds: Math.min(positive(env.BERRY_TASK_TOKEN_TTL_SECONDS, 28_800), 28_800),
+   };
+}
+
 function positive(value: string | undefined, fallback: number): number {
    const parsed = /^\d+$/.test((value ?? '').trim()) ? Number(value) : Number.NaN;
    return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;

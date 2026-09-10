@@ -1,6 +1,7 @@
 import type { User } from '@/data/users';
+import { useEffect, useState } from 'react';
 import { z } from 'zod';
-import { apiFetch } from './api';
+import { apiBlob, apiFetch, BerryApiError } from './api';
 import { connectionSchema } from './api-schemas';
 import { toUiUser } from './catalog';
 
@@ -20,6 +21,13 @@ const agentSchema = z.object({
     * that can be assigned work and cannot act on it.
     */
    permissions: z.array(z.string()).default([]),
+   labels: z.array(z.string()).default([]),
+   /** Names only: env values are sealed on the server and never sent back. */
+   envNames: z.array(z.string()).default([]),
+   access: z.object({ assign: z.string(), mention: z.string() }).optional(),
+   /** A seeded role such as 'guide'. */
+   systemRole: z.string().nullish(),
+   archivedAt: z.string().nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -325,4 +333,169 @@ export async function setAgentPermissions(
    const parsed = agentSchema.safeParse(json);
    if (!parsed.success) throw new Error('Agent response was not recognized');
    return parsed.data;
+}
+
+// ------------------------------------------------------------ agent layer
+
+const runNodeSchema = z.object({
+   id: z.string(),
+   status: z.string(),
+   issueId: z.string().nullish(),
+   createdAt: z.string(),
+   completedAt: z.string().nullish(),
+});
+export type AgentTask = z.infer<typeof runNodeSchema>;
+
+const parseAgent = (json: unknown): Agent => {
+   const parsed = agentSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Agent response was not recognized');
+   return parsed.data;
+};
+const agentPath = (id: string, rest = '') => `/api/v1/agents/${encodeURIComponent(id)}${rest}`;
+
+export async function loadArchivedAgents(): Promise<Agent[]> {
+   const json: unknown = await apiFetch('/api/v1/agents?archived=true&first=100');
+   const parsed = agentConnectionSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Agent list was not recognized');
+   return parsed.data.nodes;
+}
+
+export const restoreAgent = async (id: string) =>
+   parseAgent(await apiFetch(agentPath(id, '/restore'), { method: 'POST', body: '{}' }));
+
+export const copyAgent = async (id: string) =>
+   parseAgent(
+      await apiFetch(agentPath(id, '/copy'), {
+         method: 'POST',
+         headers: { 'idempotency-key': crypto.randomUUID() },
+         body: '{}',
+      })
+   );
+
+export async function archiveAgent(id: string): Promise<void> {
+   await apiFetch(agentPath(id), { method: 'DELETE' });
+}
+
+export async function cancelAgentTasks(id: string): Promise<number> {
+   const json: unknown = await apiFetch(agentPath(id, '/cancel-tasks'), { method: 'POST', body: '{}' });
+   return z.object({ cancelled: z.number() }).parse(json).cancelled;
+}
+
+export async function listAgentTasks(id: string, after?: string) {
+   const query = `/tasks?first=50${after ? `&after=${encodeURIComponent(after)}` : ''}`;
+   const json: unknown = await apiFetch(agentPath(id, query));
+   return connectionSchema(runNodeSchema).parse(json);
+}
+
+export const setAgentLabels = async (id: string, labels: string[]) =>
+   parseAgent(await apiFetch(agentPath(id, '/labels'), { method: 'PUT', body: JSON.stringify({ labels }) }));
+
+/** Replaces every variable; the response carries names only. */
+export async function setAgentEnv(id: string, env: Record<string, string>): Promise<string[]> {
+   const json: unknown = await apiFetch(agentPath(id, '/env'), {
+      method: 'PUT',
+      body: JSON.stringify({ env }),
+   });
+   return z.object({ envNames: z.array(z.string()) }).parse(json).envNames;
+}
+
+export const uploadAgentAvatar = async (id: string, file: File) =>
+   parseAgent(
+      await apiFetch(agentPath(id, '/avatar'), {
+         method: 'PUT',
+         headers: { 'content-type': file.type },
+         body: file,
+      })
+   );
+
+export const agentAccessSchema = z.object({
+   assign: z.enum(['everyone', 'admins', 'listed']),
+   mention: z.enum(['everyone', 'admins', 'listed']),
+   members: z.array(z.string()),
+});
+export type AgentAccess = z.infer<typeof agentAccessSchema>;
+
+export const getAgentAccess = async (id: string) =>
+   agentAccessSchema.parse(await apiFetch(agentPath(id, '/access')));
+
+export const setAgentAccess = async (id: string, access: AgentAccess) =>
+   parseAgent(await apiFetch(agentPath(id, '/permissions'), { method: 'PUT', body: JSON.stringify({ access }) }));
+
+/** The workspace's guide agent, or null when it has none (archived, say). */
+export async function getGuideAgent(): Promise<Agent | null> {
+   try {
+      return parseAgent(await apiFetch('/api/v1/agents/guide'));
+   } catch (error) {
+      if (error instanceof BerryApiError && error.status === 404) return null;
+      throw error;
+   }
+}
+
+const avatarCache = new Map<string, Promise<string>>();
+
+/**
+ * A usable `src` for an agent avatar.
+ *
+ * An external `https://` URL is used as is. An avatar Berry serves lives behind
+ * the API's bearer authentication, which an `<img>` cannot send, so it is
+ * fetched once through the API client and shown from a blob URL. The `?v=` in
+ * the path changes on every upload, so the cache never serves a stale picture.
+ */
+export function useAgentAvatarSrc(avatarUrl: string | null | undefined): string | null {
+   const external = avatarUrl && /^https?:\/\//.test(avatarUrl) ? avatarUrl : null;
+   const [src, setSrc] = useState<string | null>(external);
+
+   useEffect(() => {
+      if (!avatarUrl) {
+         setSrc(null);
+         return;
+      }
+      if (/^https?:\/\//.test(avatarUrl)) {
+         setSrc(avatarUrl);
+         return;
+      }
+      if (!avatarUrl.startsWith('/api/v1/agents/')) {
+         setSrc(null);
+         return;
+      }
+      let cancelled = false;
+      let pending = avatarCache.get(avatarUrl);
+      if (!pending) {
+         pending = apiBlob(avatarUrl, { headers: { accept: 'image/*' } }).then((blob) =>
+            URL.createObjectURL(blob)
+         );
+         avatarCache.set(avatarUrl, pending);
+         pending.catch(() => avatarCache.delete(avatarUrl));
+      }
+      pending.then(
+         (url) => {
+            if (!cancelled) setSrc(url);
+         },
+         () => {
+            if (!cancelled) setSrc(null);
+         }
+      );
+      return () => {
+         cancelled = true;
+      };
+   }, [avatarUrl]);
+
+   return src;
+}
+
+/** Creates an agent by hand. Idempotent per call, so a retried click makes one agent. */
+export async function createAgent(input: {
+   name: string;
+   description?: string;
+   instructions?: string;
+   provider?: string;
+   model?: string;
+}): Promise<Agent> {
+   return parseAgent(
+      await apiFetch('/api/v1/agents', {
+         method: 'POST',
+         headers: { 'idempotency-key': crypto.randomUUID() },
+         body: JSON.stringify(input),
+      })
+   );
 }

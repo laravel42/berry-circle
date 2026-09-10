@@ -1,9 +1,14 @@
 import { Hono } from 'hono';
+import { z } from 'zod';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
+import { assertValid, fieldError } from '../http/body.ts';
 import { ApiError } from '../http/errors.ts';
-import { decodeNameCursor, encodeCursor } from '../http/cursor.ts';
+import { SealingUnavailable } from '../integrations/sealing.ts';
+import type { AgentProfileRepository } from '../agents/profile.ts';
+import { readJson } from './zod-body.ts';
+import { decodeNameCursor, decodeTimeCursor, encodeCursor } from '../http/cursor.ts';
 import { idempotent } from '../http/idempotent.ts';
 import type { IdempotencyStore } from '../http/idempotency.ts';
 import { Conflict, Forbidden, NotFound } from '../identity/errors.ts';
@@ -15,6 +20,9 @@ import {
 } from '../agents/repository.ts';
 import { PERMISSIONS } from '../agents/permissions.ts';
 import type { Logger } from '../observability/log.ts';
+import type { RunLedger } from '../runs/ledger.ts';
+import type { RunRepository } from '../runs/repository.ts';
+import { serializeRun } from './runs.ts';
 import {
    CatalogUnavailable,
    normalizeModelId,
@@ -37,6 +45,22 @@ import {
  */
 
 const STATUSES = new Set(['available', 'busy', 'offline', 'unknown']);
+const SCOPE = z.enum(['everyone', 'admins', 'listed']);
+const permissionsSchema = z.strictObject({
+   permissions: z.array(z.string()).optional(),
+   access: z
+      .strictObject({ assign: SCOPE, mention: SCOPE, members: z.array(z.string().uuid()).max(200) })
+      .optional(),
+});
+const labelsSchema = z.strictObject({ labels: z.array(z.string().trim().min(1).max(40)).max(20) });
+const envSchema = z.strictObject({
+   env: z
+      .record(z.string().regex(/^[A-Z_][A-Z0-9_]{0,63}$/), z.string().max(8000))
+      .refine((env) => Object.keys(env).length <= 50, 'At most 50 variables.'),
+});
+const AVATAR_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+const MAX_AVATAR_BYTES = 524_288;
+const RUN_STATUSES = new Set(['queued', 'running', 'succeeded', 'failed', 'cancelled']);
 const MAX_NAME = 100;
 const MAX_DESCRIPTION = 5_000;
 const MAX_INSTRUCTIONS = 20_000;
@@ -69,6 +93,11 @@ export interface AgentOptions {
     */
    logger?: Logger;
    clock?: () => Date;
+   /** The agent's task list and "cancel all"; both 503 when absent. */
+   runs?: RunRepository;
+   ledger?: Pick<RunLedger, 'markCancelled'>;
+   /** Labels, sealed env, avatar and access scopes; their routes 503 when absent. */
+   profile?: AgentProfileRepository;
 }
 
 export function agentMounts(options: AgentOptions): Mount[] {
@@ -77,6 +106,12 @@ export function agentMounts(options: AgentOptions): Mount[] {
 
    const { agents, catalog, logger } = options;
    const clock = options.clock ?? (() => new Date());
+   const requireProfile = (): AgentProfileRepository => {
+      if (!options.profile) {
+         throw new ApiError(503, 'AGENT_PROFILE_UNAVAILABLE', 'Agent profiles are not served here.');
+      }
+      return options.profile;
+   };
 
    route.get('/', async (context) => {
       const url = new URL(context.req.url);
@@ -85,10 +120,11 @@ export function agentMounts(options: AgentOptions): Mount[] {
       await agents.authorizeWorkspace(context.get('user').id, workspaceId, 'product.read')
          .catch(rethrowWorkspace);
 
-      const scope = query.status === '' ? 'agents.list.all' : `agents.list.${query.status}`;
+      const base = query.status === '' ? 'agents.list.all' : `agents.list.${query.status}`;
+      const scope = query.archived ? `archived.${base}` : base;
       const after = query.after === '' ? null : decodeNameCursor(query.after, scope);
 
-      const rows = await agents.list(workspaceId, query.status, after, query.first + 1);
+      const rows = await agents.list(workspaceId, query.status, after, query.first + 1, query.archived);
       const hasNextPage = rows.length > query.first;
       const nodes = hasNextPage ? rows.slice(0, query.first) : rows;
       const last = nodes.at(-1);
@@ -138,6 +174,16 @@ export function agentMounts(options: AgentOptions): Mount[] {
             updatedAt: agent.updatedAt,
          })),
       });
+   });
+
+   /** The workspace's guide agent, found by role. Before `/:agentId`, like the rest. */
+   route.get('/guide', async (context) => {
+      const workspaceId = currentWorkspace(context.get('user').currentWorkspaceId);
+      await agents.authorizeWorkspace(context.get('user').id, workspaceId, 'product.read')
+         .catch(rethrowWorkspace);
+      const guide = await agents.guide(workspaceId);
+      if (!guide) throw ApiError.notFound('Agent');
+      return json(serializeAgent(guide));
    });
 
    route.get('/models', async (context) => {
@@ -257,12 +303,18 @@ export function agentMounts(options: AgentOptions): Mount[] {
          .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
          .catch(rethrowAgent);
 
-      const body = await readBody(context.req.raw, new Set(['permissions']));
-      const given = body.permissions;
-      if (!Array.isArray(given) || given.some((entry) => typeof entry !== 'string')) {
-         throw new ApiError(400, 'INVALID_REQUEST', 'permissions is a list of permission names.');
+      const body = await readJson(context, permissionsSchema).catch((error: unknown) => {
+         // A malformed permissions list keeps the error it always had.
+         if (error instanceof ApiError && error.status === 422) {
+            throw new ApiError(400, 'INVALID_REQUEST', 'permissions is a list of permission names.');
+         }
+         throw error;
+      });
+      if (!body.permissions && !body.access) {
+         throw new ApiError(400, 'NO_FIELDS', 'No permission fields were provided.');
       }
-      const unknown = (given as string[]).filter(
+      const given = body.permissions ?? [];
+      const unknown = given.filter(
          (name) => !(PERMISSIONS as readonly string[]).includes(name)
       );
       if (unknown.length > 0) {
@@ -272,10 +324,90 @@ export function agentMounts(options: AgentOptions): Mount[] {
          throw new ApiError(400, 'INVALID_REQUEST', `Unknown permission: ${unknown[0]}.`);
       }
 
-      const updated = await agents
-         .setPermissions(agentId, scope.workspaceId, [...new Set(given as string[])])
+      if (body.access) {
+         const ok = await requireProfile()
+            .setAccess(scope.workspaceId, agentId, body.access)
+            .catch(rethrowAgent);
+         if (!ok) {
+            assertValid([
+               fieldError('/access/members', 'invalid_member', 'Every listed member must belong to this workspace.'),
+            ]);
+         }
+      }
+      if (body.permissions) {
+         await agents
+            .setPermissions(agentId, scope.workspaceId, [...new Set(given)])
+            .catch(rethrowAgent);
+      }
+      return json(serializeAgent(await agents.get(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   route.put('/:agentId/labels', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.write')
          .catch(rethrowAgent);
-      return json(serializeAgent(updated));
+      const { labels } = await readJson(context, labelsSchema);
+      await requireProfile().setLabels(scope.workspaceId, agentId, labels).catch(rethrowAgent);
+      return json(serializeAgent(await agents.get(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   /** Admin-only: env usually carries credentials the agent acts with. */
+   route.put('/:agentId/env', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+      const { env } = await readJson(context, envSchema);
+      const envNames = await requireProfile()
+         .setEnv(scope.workspaceId, agentId, env)
+         .catch((error: unknown) => {
+            if (error instanceof SealingUnavailable) {
+               throw new ApiError(412, 'INTEGRATIONS_NOT_CONFIGURED', 'This server cannot store credentials.');
+            }
+            return rethrowAgent(error);
+         });
+      return json({ envNames });
+   });
+
+   route.put('/:agentId/avatar', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.write')
+         .catch(rethrowAgent);
+      const type = (context.req.header('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+      if (!AVATAR_TYPES.has(type)) {
+         throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Upload a PNG, JPEG, WebP or GIF image.');
+      }
+      const bytes = Buffer.from(await context.req.arrayBuffer());
+      if (bytes.length === 0 || bytes.length > MAX_AVATAR_BYTES) {
+         throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'An avatar is at most 512 KiB.');
+      }
+      await requireProfile().putAvatar(scope.workspaceId, agentId, type, bytes).catch(rethrowAgent);
+      return json(serializeAgent(await agents.get(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   route.get('/:agentId/avatar', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.read')
+         .catch(rethrowAgent);
+      const avatar = await requireProfile().getAvatar(scope.workspaceId, agentId).catch(rethrowAgent);
+      return new Response(new Uint8Array(avatar.bytes), {
+         headers: {
+            'content-type': avatar.contentType,
+            'cache-control': 'private, max-age=31536000, immutable',
+            'x-content-type-options': 'nosniff',
+         },
+      });
+   });
+
+   route.get('/:agentId/access', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.read')
+         .catch(rethrowAgent);
+      return json(await requireProfile().getAccess(scope.workspaceId, agentId).catch(rethrowAgent));
    });
 
    route.delete('/:agentId', async (context) => {
@@ -298,6 +430,68 @@ export function agentMounts(options: AgentOptions): Mount[] {
       return new Response(null, { status: 204 });
    });
 
+   route.post('/:agentId/restore', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      // authorizeAgent does not filter archived agents, so this reaches them.
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.write')
+         .catch(rethrowAgent);
+      return json(serializeAgent(await agents.restore(agentId, scope.workspaceId).catch(rethrowAgent)));
+   });
+
+   route.post('/:agentId/copy', idempotent(options.idempotency), async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const scope = await agents
+         .authorizeAgent(context.get('user').id, agentId, 'product.write')
+         .catch(rethrowAgent);
+      return json(serializeAgent(await agents.copy(agentId, scope.workspaceId).catch(rethrowAgent)), 201);
+   });
+
+   route.post('/:agentId/cancel-tasks', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      await agents.authorizeAgent(context.get('user').id, agentId, 'product.write').catch(rethrowAgent);
+      const { runs, ledger } = options;
+      if (!runs || !ledger) throw new ApiError(503, 'RUNS_UNAVAILABLE', 'Runs are not served here.');
+      let cancelled = 0;
+      for (const status of ['queued', 'running'] as const) {
+         for (const run of await runs.listByAgent(agentId, null, 100, { status })) {
+            // A run that finished meanwhile is not an error; it simply is not counted.
+            const done = await ledger.markCancelled(run.id).then(
+               () => true,
+               () => false
+            );
+            if (done) cancelled += 1;
+         }
+      }
+      return json({ cancelled });
+   });
+
+   route.get('/:agentId/tasks', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      await agents.authorizeAgent(context.get('user').id, agentId, 'product.read').catch(rethrowAgent);
+      const { runs } = options;
+      if (!runs) throw new ApiError(503, 'RUNS_UNAVAILABLE', 'Runs are not served here.');
+      const url = new URL(context.req.url);
+      const first = Math.min(Math.max(Number(url.searchParams.get('first') ?? '50') || 50, 1), 100);
+      const status = url.searchParams.get('status') ?? undefined;
+      if (status !== undefined && !RUN_STATUSES.has(status)) {
+         throw ApiError.badRequest('status is not supported.');
+      }
+      const scope = `agents.tasks.${agentId}`;
+      const rawAfter = url.searchParams.get('after');
+      const after = rawAfter ? decodeTimeCursor(rawAfter, scope) : null;
+      const rows = await runs.listByAgent(agentId, after, first + 1, { status });
+      const nodes = rows.slice(0, first);
+      const last = nodes.at(-1);
+      return json({
+         nodes: nodes.map(serializeRun),
+         pageInfo: {
+            hasNextPage: rows.length > first,
+            endCursor: last ? encodeCursor(scope, { createdAt: last.createdAt, id: last.id }) : null,
+         },
+      });
+   });
+
    return [{ prefix: '/api/v1/agents', handler: route }];
 }
 
@@ -316,6 +510,11 @@ function serializeAgent(agent: Agent): Record<string, unknown> {
       permissions: agent.permissions,
       modelProvider: agent.modelProvider,
       modelName: agent.modelName,
+      systemRole: agent.systemRole,
+      archivedAt: agent.archivedAt,
+      labels: agent.labels,
+      envNames: agent.envNames,
+      access: agent.access,
       createdAt: agent.createdAt,
       updatedAt: agent.updatedAt,
    };
@@ -338,9 +537,14 @@ function pathId(raw: string | undefined): string {
    return raw.toLowerCase();
 }
 
-function parseListQuery(url: URL): { first: number; after: string; status: string } {
+function parseListQuery(url: URL): {
+   first: number;
+   after: string;
+   status: string;
+   archived: boolean;
+} {
    for (const name of url.searchParams.keys()) {
-      if (!['first', 'after', 'status'].includes(name)) {
+      if (!['first', 'after', 'status', 'archived'].includes(name)) {
          throw ApiError.badRequest('Unknown query parameter.');
       }
       if (url.searchParams.getAll(name).length !== 1) {
@@ -359,7 +563,11 @@ function parseListQuery(url: URL): { first: number; after: string; status: strin
    if (status !== '' && !STATUSES.has(status)) {
       throw ApiError.badRequest('status is not supported.');
    }
-   return { first, after: url.searchParams.get('after') ?? '', status };
+   const archived = url.searchParams.get('archived') ?? 'false';
+   if (archived !== 'true' && archived !== 'false') {
+      throw ApiError.badRequest('archived must be true or false.');
+   }
+   return { first, after: url.searchParams.get('after') ?? '', status, archived: archived === 'true' };
 }
 
 async function readBody(

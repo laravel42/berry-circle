@@ -18,12 +18,6 @@ export const statusUserColors = {
 };
 
 /**
- * Workspace members. Empty until the gateway provides them — the board
- * boots with no people and fills up as real data arrives.
- */
-export const users: User[] = [];
-
-/**
  * Placeholder for the signed-in user.
  *
  * A few UI flows (comment composer, issue creation, "My issues") need a

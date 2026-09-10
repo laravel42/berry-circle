@@ -223,6 +223,16 @@ export async function apiText(
    return response.text();
 }
 
+/** Binary fetch against Berry, for a body that is a file — an uploaded avatar. */
+export async function apiBlob(
+   path: string,
+   init?: RequestInit,
+   options: ApiFetchOptions = {}
+): Promise<Blob> {
+   const response = await berryResponse(path, init, options);
+   return response.blob();
+}
+
 /** Authenticated streaming fetch for SSE endpoints. */
 export async function apiStream(
    path: string,

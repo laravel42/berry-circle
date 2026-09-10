@@ -1,7 +1,6 @@
 import type { Sql } from '../db/pool.ts';
 import { z } from 'zod';
-import { Completion, CompletionInvalid } from '../llm/completion.ts';
-import type { AwsCredentials } from '../agents/runtime/model.ts';
+import { CompletionInvalid, type RuntimeCompletion } from '../runtime/completion.ts';
 
 /**
  * Who does the work a plan just created, and starting it.
@@ -72,18 +71,9 @@ task that is not on the lists.`;
 
 export interface PlanTriageOptions {
    sql: Sql;
-   /** The AWS region Bedrock is called in. */
-   region: string;
-   /**
-    * Explicit Bedrock credentials. Omitted means the AWS default chain, which
-    * is wrong wherever `AWS_ACCESS_KEY_ID` belongs to something else — in the
-    * Compose stack it is MinIO's, and Bedrock rejects it as an invalid
-    * security token.
-    */
-   credentials?: AwsCredentials | null;
    defaultModel: string;
-   /** Injected by tests; production builds one from the region. */
-   completion?: Pick<Completion, 'structured'>;
+   /** Runs each call as a completion task on the runtime (ADR-0014). */
+   completion: Pick<RuntimeCompletion, 'structured'>;
    timeoutMs?: number;
 }
 
@@ -94,19 +84,13 @@ const ASSIGNMENTS = z.object({
 
 export class PlanTriage {
    readonly #sql: Sql;
-   readonly #completion: Pick<Completion, 'structured'>;
+   readonly #completion: Pick<RuntimeCompletion, 'structured'>;
    readonly #defaultModel: string;
    readonly #timeoutMs: number;
 
    constructor(options: PlanTriageOptions) {
       this.#sql = options.sql;
-      this.#completion =
-         options.completion ??
-         new Completion({
-            region: options.region,
-            ...(options.credentials ? { credentials: options.credentials } : {}),
-            ...(options.timeoutMs ? { timeoutMs: options.timeoutMs } : {}),
-         });
+      this.#completion = options.completion;
       this.#defaultModel = options.defaultModel;
       this.#timeoutMs = options.timeoutMs ?? 60_000;
    }
@@ -188,6 +172,8 @@ export class PlanTriage {
 
       const result = await this.#completion
          .structured({
+            workspaceId,
+            purpose: 'triage',
             model: await this.#model(workspaceId),
             system: SYSTEM,
             user,

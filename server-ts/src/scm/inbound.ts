@@ -14,10 +14,23 @@ import type { ScmLinkRepository } from './links.ts';
  * repository's issue ends up closing a task.
  */
 
+/** Where GitHub-App events go: pull requests on issues, checks, uninstalls. */
+export interface GitHubEventHandler {
+   handles(event: string): boolean;
+   apply(event: string, payload: Record<string, unknown>): Promise<InboundResult>;
+}
+
 export interface InboundDeps {
    sql: Sql;
    links: ScmLinkRepository;
    logger: Logger;
+   github?: GitHubEventHandler;
+   /**
+    * The workspace that claimed a GitHub App installation, or null. Pull
+    * request and review events are applied only inside that workspace: the
+    * branch name they match on is not unique across workspaces.
+    */
+   workspaceForInstallation?: (installationId: number) => Promise<string | null>;
 }
 
 export interface InboundResult {
@@ -32,11 +45,28 @@ export class ScmInbound {
    readonly #sql: Sql;
    readonly #links: ScmLinkRepository;
    readonly #logger: Logger;
+   readonly #github: GitHubEventHandler | null;
+   readonly #workspaceForInstallation: (installationId: number) => Promise<string | null>;
 
    constructor(deps: InboundDeps) {
       this.#sql = deps.sql;
       this.#links = deps.links;
       this.#logger = deps.logger;
+      this.#github = deps.github ?? null;
+      this.#workspaceForInstallation = deps.workspaceForInstallation ?? (async () => null);
+   }
+
+   /**
+    * The workspace a pull-request event belongs to: the one that claimed the
+    * installation the payload names, looked up by GitHub's id and nothing
+    * else. A delivery with no installation, or one no workspace claimed, has
+    * no workspace, and is applied nowhere.
+    */
+   async #workspaceOf(payload: Record<string, unknown>): Promise<string | null> {
+      const installation = payload.installation as Record<string, unknown> | undefined;
+      const installationId = Number(installation?.id ?? 0);
+      if (!Number.isSafeInteger(installationId) || installationId <= 0) return null;
+      return this.#workspaceForInstallation(installationId);
    }
 
    /** Routes one event to its handler. */
@@ -44,8 +74,23 @@ export class ScmInbound {
       switch (event) {
          case 'issues':
             return this.#issue(payload);
-         case 'pull_request':
-            return this.#pullRequest(payload);
+         case 'pull_request': {
+            // Both, independently: the review a run opened follows its pull
+            // request by branch, and the issue sidebar follows it by link.
+            const review = await this.#pullRequest(payload);
+            if (!this.#github) return review;
+            const linked = await this.#github.apply(event, payload);
+            return {
+               applied: review.applied || linked.applied,
+               reason: `${review.reason}; ${linked.reason}`,
+            };
+         }
+         case 'check_run':
+         case 'check_suite':
+         case 'installation':
+            return this.#github?.handles(event)
+               ? this.#github.apply(event, payload)
+               : IGNORED(`unhandled event ${event}`);
          case 'pull_request_review':
             return this.#review(payload);
          case 'push':
@@ -114,6 +159,8 @@ export class ScmInbound {
       const number = Number(pull?.number ?? 0);
       const head = (pull?.head as Record<string, unknown> | undefined)?.ref;
       if (!number || typeof head !== 'string') return IGNORED('no pull request number or branch');
+      const workspaceId = await this.#workspaceOf(payload);
+      if (!workspaceId) return IGNORED('installation is not claimed by a workspace');
 
       const merged = pull?.merged === true;
       const state = merged ? 'merged' : String(pull?.state ?? '') === 'closed' ? 'closed' : 'open';
@@ -127,12 +174,13 @@ export class ScmInbound {
                 pull_request_number = ${number},
                 decided_at = CASE WHEN ${state} = 'open' THEN NULL ELSE now() END,
                 updated_at = now()
-          WHERE kind = 'code' AND branch = ${head}
+          WHERE kind = 'code' AND branch = ${head} AND workspace_id = ${workspaceId}
           RETURNING id`;
 
       await this.#sql`
          UPDATE runs SET pull_request_number = ${number}, updated_at = now()
-          WHERE branch = ${head} AND pull_request_number IS DISTINCT FROM ${number}`;
+          WHERE branch = ${head} AND workspace_id = ${workspaceId}
+            AND pull_request_number IS DISTINCT FROM ${number}`;
 
       if (updated.length === 0) return IGNORED('no Berry review for this branch');
       this.#logger.info('scm inbound applied', { event: 'pull_request', number, state });
@@ -156,11 +204,13 @@ export class ScmInbound {
               ? 'changes_requested'
               : null;
       if (!state) return IGNORED('review is a comment, not a verdict');
+      const workspaceId = await this.#workspaceOf(payload);
+      if (!workspaceId) return IGNORED('installation is not claimed by a workspace');
 
       const updated = await this.#sql`
          UPDATE reviews
             SET state = ${state}, decided_at = now(), updated_at = now()
-          WHERE kind = 'code' AND branch = ${head} AND state = 'open'
+          WHERE kind = 'code' AND branch = ${head} AND state = 'open' AND workspace_id = ${workspaceId}
           RETURNING id`;
       if (updated.length === 0) return IGNORED('no open Berry review for this branch');
       this.#logger.info('scm inbound applied', { event: 'pull_request_review', state });

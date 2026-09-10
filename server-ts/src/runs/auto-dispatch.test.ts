@@ -46,3 +46,32 @@ test('a run that got there first is not an error', async () => {
    const runs = { admit: async () => { throw new ActiveRunExists('other'); } } as unknown as Pick<RunRepository, 'admit'>;
    assert.equal(await autoDispatch(runs, base, { workspaceId: 'ws', requestedBy: 'user' }), null);
 });
+
+test('a task behind an unfinished earlier stage is not ready', () => {
+   const base = {
+      id: 'i',
+      boardId: 'b',
+      status: 'todo',
+      assignee: { type: 'agent', id: 'a' },
+      activeRunId: null,
+   };
+   assert.equal(readyForAgent(base, false), false);
+   assert.equal(readyForAgent(base, true), true);
+});
+
+test('autoDispatch asks the stage gate and admits nothing while it is closed', async () => {
+   let admitted = 0;
+   const runs = {
+      admit: async () => {
+         admitted += 1;
+         return {} as never;
+      },
+   };
+   const issue = { id: 'i', boardId: 'b', status: 'todo', assignee: { type: 'agent', id: 'a' }, activeRunId: null };
+   const closed = { blockedByEarlierStage: async () => true };
+   assert.equal(await autoDispatch(runs, issue, { workspaceId: 'w', requestedBy: 'u' }, closed), null);
+   assert.equal(admitted, 0);
+   const open = { blockedByEarlierStage: async () => false };
+   await autoDispatch(runs, issue, { workspaceId: 'w', requestedBy: 'u' }, open);
+   assert.equal(admitted, 1);
+});

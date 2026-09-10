@@ -5,6 +5,7 @@ import { WORKSPACE_SLUG } from '@/lib/config';
 import { useSessionStore } from '@/store/session-store';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
+import { LocaleSync } from './locale-sync';
 
 // Routes that must render for an anonymous visitor. `/login` is the legacy
 // entry that now forwards to `/sign-in`; keep it here so a 'ready' user landing
@@ -60,5 +61,10 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
       return <BootScreen />;
    }
 
-   return children;
+   return (
+      <>
+         <LocaleSync />
+         {children}
+      </>
+   );
 }

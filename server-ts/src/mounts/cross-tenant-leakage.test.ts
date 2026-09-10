@@ -36,7 +36,15 @@ import { BoardRepository } from '../core/boards.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
+import { runtimeMounts } from './runtimes.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { IssueRepository } from '../core/issues.ts';
+import { GitHubSettingsRepository } from '../scm/github-settings.ts';
+import { PullRequestStore } from '../scm/pull-requests.ts';
+import { githubMounts } from './github.ts';
+import { usageMounts } from './usage.ts';
+import { workCatalogRoutes } from './work-catalogs.ts';
+import { savedViewRoutes } from './view-routes.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -52,6 +60,7 @@ interface World {
    u1Token: string;
    w1Id: string;
    w2Id: string;
+   w2RuntimeId: string;
    w1LabelId: string;
    w2LabelId: string;
    w1LabelName: string;
@@ -66,6 +75,9 @@ interface World {
    w2BoardName: string;
    userIds: string[];
    workspaceIds: string[];
+   w1RepoUrl: string;
+   w2RepoUrl: string;
+   w2RepoId: string;
 }
 
 describe(
@@ -86,7 +98,29 @@ describe(
          });
          const boards = new BoardRepository(sql);
          const registry = new Registry();
-         registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+         // With the work-tracking extensions mounted, so their routes sit
+         // behind the same guard these guarantees exercise.
+         registry.registerAll(
+            workspaceReadMounts({
+               sessions,
+               sql,
+               boards,
+               catalogExtensions: workCatalogRoutes(),
+               viewExtensions: savedViewRoutes({ sql }),
+            })
+         );
+         registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
+         registry.registerAll(usageMounts({ sessions, sql }));
+         registry.registerAll(
+            githubMounts({
+               sessions,
+               sql,
+               settings: new GitHubSettingsRepository(sql),
+               pullRequests: new PullRequestStore({ sql, issues: new IssueRepository(sql) }),
+               githubApp: null,
+               connections: null,
+            })
+         );
          app = createApp(registry);
 
          const suffix = randomUUID().slice(0, 8);
@@ -177,6 +211,33 @@ describe(
          world.w1BoardId = w1Board!.id as string;
          world.w2BoardId = w2Board!.id as string;
 
+         // GitHub rows in each workspace: W2 has switched GitHub off, so a
+         // write that reached it would be visible as the flag flipping back.
+         world.w1RepoUrl = `https://github.com/w1-${suffix}/api`;
+         world.w2RepoUrl = `https://github.com/w2-${suffix}/secret`;
+         await sql`
+            INSERT INTO workspace_repositories (workspace_id, url, created_by)
+            VALUES (${world.w1Id}, ${world.w1RepoUrl}, ${u1Id})`;
+         const [w2Repo] = await sql`
+            INSERT INTO workspace_repositories (workspace_id, url, created_by)
+            VALUES (${world.w2Id}, ${world.w2RepoUrl}, ${u2Id})
+            RETURNING id`;
+         world.w2RepoId = w2Repo!.id as string;
+         await sql`
+            INSERT INTO github_workspace_settings (workspace_id, enabled, updated_by)
+            VALUES (${world.w2Id}, false, ${u2Id})`;
+
+         // W2's runtime. Rows cascade with the workspace, so the teardown
+         // needs nothing new.
+         const [w2Runtime] = await sql`
+            INSERT INTO agent_runtimes (workspace_id, name, kind, driver, endpoint_url)
+            VALUES (${world.w2Id}, 'W2 runtime', 'custom', 'http', 'http://w2-runtime:8080')
+            RETURNING id`;
+         world.w2RuntimeId = w2Runtime!.id as string;
+
+         // U1's current workspace is W1, which is what a mount that scopes
+         // to the session's workspace (/api/v1/runtimes) reads.
+         await sql`UPDATE users SET last_workspace_id = ${world.w1Id} WHERE id = ${u1Id}`;
          // A real personal access token for U1 (the same bearer path an API
          // client uses); every authenticated request below carries it.
          world.u1Token = await issueTestToken(sql, u1Id);
@@ -240,6 +301,29 @@ describe(
             })
          );
       }
+
+      test('runtimes: W1 lists none of W2 and cannot open or change W2 runtime', async () => {
+         const list = await getAsU1('/api/v1/runtimes');
+         assert.equal(list.status, 200);
+         assert.equal((await list.text()).includes(world.w2RuntimeId), false);
+         assert.equal((await getAsU1(`/api/v1/runtimes/${world.w2RuntimeId}`)).status, 404);
+         assert.equal((await patchAsU1(`/api/v1/runtimes/${world.w2RuntimeId}`, { name: 'mine' })).status, 404);
+         const [row] = await sql`SELECT name FROM agent_runtimes WHERE id = ${world.w2RuntimeId}`;
+         assert.equal(row!.name, 'W2 runtime');
+      });
+
+      test('usage and dashboard reads under a foreign workspace are the same 404 as an absent one', async () => {
+         for (const tail of ['/summary', '/runtimes/default', `/agents/${randomUUID()}`, `/issues/${randomUUID()}`]) {
+            const foreign = await getAsU1(`/api/v1/usage/${world.w2Id}${tail}`);
+            const absent = await getAsU1(`/api/v1/usage/${RANDOM_WORKSPACE}${tail}`);
+            assert.equal(foreign.status, 404, tail);
+            assert.equal(await foreign.text(), await absent.text(), tail);
+         }
+         const foreign = await getAsU1(`/api/v1/dashboard/${world.w2Id}/overview`);
+         const absent = await getAsU1(`/api/v1/dashboard/${RANDOM_WORKSPACE}/overview`);
+         assert.equal(foreign.status, 404);
+         assert.equal(await foreign.text(), await absent.text());
+      });
 
       // -------------------------------------------------------- guarantee (a)
 
@@ -410,6 +494,62 @@ describe(
                String(beforeRow.updated_at),
                'W2 label updated_at is unchanged (no write occurred)'
             );
+         }
+      );
+
+      // ------------------------------------------------ GitHub (workstream K)
+
+      test(
+         'GitHub: a W1 member never sees, reads or changes W2’s GitHub settings or repositories',
+         async () => {
+            // (a) W1's repository list carries W1's row and never W2's.
+            const listed = (await (
+               await getAsU1(`/api/v1/github/${world.w1Id}/repositories`)
+            ).json()) as { repositories: Array<{ id: string; url: string }> };
+            assert.ok(listed.repositories.some((row) => row.url === world.w1RepoUrl));
+            assert.ok(
+               !listed.repositories.some((row) => row.id === world.w2RepoId || row.url === world.w2RepoUrl),
+               'a W2 repository must not appear under W1'
+            );
+
+            // (b) Every GitHub read under W2 is the byte-identical 404 of a
+            // workspace that does not exist.
+            for (const path of ['settings', 'repositories', `issues/${randomUUID()}/pull-requests`]) {
+               const foreign = await getAsU1(`/api/v1/github/${world.w2Id}/${path}`);
+               const missing = await getAsU1(`/api/v1/github/${RANDOM_WORKSPACE}/${path}`);
+               assert.equal(foreign.status, 404, `${path} under W2 is 404`);
+               assert.equal(await foreign.text(), await missing.text(), `${path}: 404s match`);
+            }
+
+            // (c) Writing W2's settings is 404 and W2 keeps GitHub off.
+            const flipped = await patchAsU1(`/api/v1/github/${world.w2Id}/settings`, { enabled: true });
+            assert.equal(flipped.status, 404);
+            const [w2Settings] = await sql`
+               SELECT enabled FROM github_workspace_settings WHERE workspace_id = ${world.w2Id}`;
+            assert.equal(w2Settings?.enabled, false, 'W2 settings are unchanged');
+
+            // A W2 repository id under W1's own scope is as absent as a random id.
+            const crossed = await patchAsU1(
+               `/api/v1/github/${world.w1Id}/repositories/${world.w2RepoId}`,
+               { description: 'hijacked' }
+            );
+            const random = await patchAsU1(
+               `/api/v1/github/${world.w1Id}/repositories/${randomUUID()}`,
+               { description: 'hijacked' }
+            );
+            assert.equal(crossed.status, 404);
+            assert.equal(await crossed.text(), await random.text());
+            const [w2Repo] = await sql`
+               SELECT description FROM workspace_repositories WHERE id = ${world.w2RepoId}`;
+            assert.equal(w2Repo?.description, '', 'W2 repository is unchanged');
+
+            // (d) No session, no GitHub route.
+            const anonymous = await Promise.resolve(
+               app.request(`/api/v1/github/${world.w1Id}/settings`, {
+                  headers: { 'x-request-id': REQUEST_ID },
+               })
+            );
+            assert.equal(anonymous.status, 401);
          }
       );
 

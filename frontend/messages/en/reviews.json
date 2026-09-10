@@ -1,0 +1,21 @@
+{
+   "title": "Reviews",
+   "tabs": {
+      "waiting": "Waiting",
+      "decided": "Decided"
+   },
+   "groups": {
+      "waiting": "Waiting for a decision",
+      "approved": "Approved",
+      "sentBack": "Sent back"
+   },
+   "loading": "Loading reviews…",
+   "empty": {
+      "open": "Nothing is waiting for review.",
+      "decided": "Nothing has been decided yet."
+   },
+   "count": {
+      "open": "{count} waiting",
+      "decided": "{count} decided"
+   }
+}

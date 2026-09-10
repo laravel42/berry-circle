@@ -1,0 +1,19 @@
+{
+   "header": {
+      "title": "设置"
+   },
+   "preferences": {
+      "title": "偏好设置",
+      "general": "通用",
+      "language": "语言",
+      "languageDescription": "Berry 界面使用的语言，会保存到你的账户。",
+      "timezone": "时区",
+      "timezoneDescription": "Berry 中的日期和时间按此时区显示。",
+      "interface": "界面与主题",
+      "sidebar": "应用侧边栏",
+      "sidebarDescription": "固定、隐藏和排列侧边栏项目。保存在此浏览器中。",
+      "customize": "自定义",
+      "reduceMotion": "减少动态效果",
+      "reduceMotionDescription": "关闭 Berry 用来展示工作进展的动画。"
+   }
+}

@@ -31,6 +31,9 @@ export type ScriptedTurn =
 interface Usage {
    inputTokens: number;
    outputTokens: number;
+   /** Named as the SDK names them, so the metadata event carries them as-is. */
+   cacheReadInputTokens?: number;
+   cacheWriteInputTokens?: number;
 }
 
 const DEFAULT_USAGE: Usage = { inputTokens: 10, outputTokens: 5 };

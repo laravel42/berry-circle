@@ -488,11 +488,13 @@ psql 'postgres://berry:berry@127.0.0.1:5432/berry' -c '\d auth_sessions' -c '\d 
 ```
 Expected: the migrate command logs `150_better_auth` applied; all three tables are described; `live` is `0`. If port 5432 is shadowed by a host Postgres, use the socat bridge from `server-ts/ROUTING.md` ("Running the database-backed tests").
 
-Then apply it to the test database so Task 3's gated tests can run:
+Then apply it to the test database through the runner, so the ledger records it (a bare `psql -f` would leave the ledger behind and make the next runner pass re-apply it):
 ```bash
-psql "$BERRY_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f server-ts/migrations/150_better_auth.up.sql
+DATABASE_URL="$BERRY_TEST_DATABASE_URL" pnpm migrate:server
 ```
-Expected: no error.
+Expected: `150_better_auth` applied, no error.
+
+Note on ordering with other workstreams: the runner applies every file not in the ledger in ascending order and does not refuse a lower number after a higher one (`src/migrate/migrations.ts`), so A's 053+ can land after J's 150 and still apply.
 
 - [ ] **Step 3: Commit**
 
@@ -525,7 +527,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
      testUtils?: boolean;
   }
   export function createBerryAuth(options: BerryAuthOptions): BerryAuth;
-  export type BerryAuth = ReturnType<typeof betterAuth>;
+  export type BerryAuth = ReturnType<typeof createBerryAuth>;
   export const AUTH_BASE_PATH = '/api/auth';
   export const SESSION_COOKIE_PREFIX = 'berry';
   /** Set-Cookie header values for a fresh session; requires testUtils: true. */
@@ -747,6 +749,28 @@ describe('Better Auth on the users table', { skip: !url }, () => {
       );
       assert.ok(response.status >= 400, `expected a refusal, got ${response.status}`);
    });
+
+   test('routes that bypass Berry or expose the GitHub token are not served', async () => {
+      const id = await existingUser(`paths-${randomUUID()}@berry.test`);
+      const cookie = (await devSessionCookies(auth, id)).map((c) => c.split(';')[0]).join('; ');
+      for (const [method, path] of [
+         ['POST', '/update-user'],
+         ['POST', '/get-access-token'],
+         ['POST', '/refresh-token'],
+         ['GET', '/account-info'],
+      ] as const) {
+         const response = await auth.handler(
+            new Request(`${BASE}/api/auth${path}`, {
+               method,
+               headers: { 'content-type': 'application/json', origin: BASE, cookie },
+               body: method === 'POST' ? JSON.stringify({ providerId: 'github', name: 'x' }) : undefined,
+            })
+         );
+         assert.equal(response.status, 404, `${method} ${path}`);
+      }
+      const [row] = await sql`SELECT name FROM users WHERE id = ${id}`;
+      assert.equal(row?.name, 'Existing', 'update-user did not write the users row');
+   });
 });
 ```
 
@@ -800,6 +824,11 @@ export function createBerryAuth(options: BerryAuthOptions) {
       // GitHub is the only way in. Stated rather than left to the default so
       // a future default cannot quietly open a second door.
       emailAndPassword: { enabled: false },
+      // Better Auth routes that would bypass Berry: /update-user writes
+      // users.name and users.avatar_url without the profile validation in
+      // mounts/me.ts, and the token routes hand the stored GitHub OAuth token
+      // (or GitHub's profile) to browser JavaScript. Sign-in needs none of them.
+      disabledPaths: ['/update-user', '/get-access-token', '/refresh-token', '/account-info'],
       socialProviders: options.github
          ? {
               github: {
@@ -921,7 +950,7 @@ If `tsc` reports that a field in `cookies` has a different name or type in `bett
 - [ ] **Step 4: Run the tests to confirm they pass**
 
 Run: `cd server-ts && BERRY_TEST_DATABASE_URL="$BERRY_TEST_DATABASE_URL" node --test --experimental-strip-types src/auth/better-auth.test.ts`
-Expected: 5 passing. Then run `pnpm typecheck:server`; expected PASS.
+Expected: 6 passing. Then run `pnpm typecheck:server`; expected PASS. (`disabledPaths` is in the installed `BetterAuthOptions`; if the disabled-routes test gets anything but 404, stop and report rather than loosening it.)
 
 If either unverified-email test gets a 302 to `/` with a session, the verified-email guard (account linking for an existing user, the `databaseHooks.user.create.before` refusal for a new one) is not being honoured. Stop and report it rather than weakening the test.
 
@@ -1861,7 +1890,7 @@ In each of `server-ts/src/mounts/cross-tenant-leakage.test.ts`, `workspace-reads
    ```
 3. Replace every `(await sessions.issueForUser(userId)).token` form with `await issueTestToken(sql, userId)`:
    - `cross-tenant-leakage.test.ts:180-181` becomes `world.u1Token = await issueTestToken(sql, u1Id);`
-   - `workspace-reads.absent.property.test.ts:155` becomes `const token = await issueTestToken(sql, fixture.userId);`. Keep any later `issued.token` reference as `token`, and use the `sql` handle that file already has in scope.
+   - `workspace-reads.absent.property.test.ts:155-156` (`const issued = await built.sessions.issueForUser(fixture.userId); token = issued.token;`) become the single assignment `token = await issueTestToken(sql, fixture.userId);`. Do NOT write `const token`: `token` is the suite-level variable every request reads, and shadowing it leaves the suite sending an empty bearer, so every read is a 401 and the "absent and cross-workspace reads are indistinguishable" property passes vacuously. In the same `before`, add a positive control right after the assignment: issue one of the suite's own-workspace reads (a resource in the caller's own workspace, with the `Authorization: Bearer <token>` header the suite already uses) and assert it is 200, so a broken credential fails loudly instead of turning every read into an indistinguishable 401. (`buildApp` mounts only `workspaceReadMounts`, so there is no `/api/v1/me` to probe.) Also update `buildApp` so it no longer returns `sessions` if nothing else uses it.
    - `workspace-reads.cross-read.property.test.ts:202,210` become `const token = await issueTestToken(sql, userId);`.
 4. Delete the now-unused `TTL_MS` constants.
 5. Update any comment that says "session token" to "personal access token (the same bearer path an API client uses)".
@@ -1881,7 +1910,7 @@ git rm server-ts/src/auth/middleware.faults.test.ts server-ts/src/auth/middlewar
 - [ ] **Step 10: Run everything**
 
 Run: `pnpm typecheck:server && pnpm test:server`
-Expected: PASS. If `tsc` reports `schemas.ts` or `password.ts` as unused, that is fine; Task 7 deletes them. If a remaining file still calls `sessions.issue*` or `resolveCredential`, grep for it with `grep -rnE "issueForUser|issueKnownEmail|issuePassword|resolveCredential|sessionTtlMs" server-ts/src` and move it to the new API. Expected grep output after the fix: only `config/config.ts`, `index.ts`, `auth/better-auth.ts` and `auth/better-auth.test.ts` mention `sessionTtlMs` (the last two are Better Auth's `BerryAuthOptions.sessionTtlMs` from Task 3).
+Expected: PASS. If `tsc` reports `schemas.ts` or `password.ts` as unused, that is fine; Task 7 deletes them. If a remaining file still calls `sessions.issue*` or `resolveCredential`, grep for it with `grep -rnE "issueForUser|issueKnownEmail|issuePassword|resolveCredential|sessionTtlMs" server-ts/src` and move it to the new API. Expected grep output after the fix: only `config/config.ts`, `auth/better-auth.ts` and `auth/better-auth.test.ts` mention `sessionTtlMs` (the last two are Better Auth's `BerryAuthOptions.sessionTtlMs` from Task 3; `index.ts` passes it again from Task 6).
 
 Then, with the database: `BERRY_TEST_DATABASE_URL=... pnpm test:server`. Expected: PASS, including the cross-tenant and workspace-reads suites.
 
@@ -2220,7 +2249,7 @@ If `json()` from `http/app.ts` returns a `Response` with immutable headers, buil
 
 - [ ] **Step 5: Point the sessions settings at `auth_sessions`**
 
-In `server-ts/src/mounts/account.ts`, replace the two session routes (lines 65-109) with:
+Write the test first: create `server-ts/src/mounts/account.sessions.test.ts` (shown below this code block), run it, and confirm it FAILS against the current routes (the list reads the legacy `sessions` table and returns no nodes). Then, in `server-ts/src/mounts/account.ts`, replace the two session routes (lines 65-109) with:
 
 ```ts
    /**
@@ -2267,7 +2296,7 @@ In `server-ts/src/mounts/account.ts`, replace the two session routes (lines 65-1
 ```
 The wire shape (`nodes[].{id,userAgent,ip,createdAt,lastUsedAt,expiresAt}`) is unchanged.
 
-Then create `server-ts/src/mounts/account.sessions.test.ts` (database-gated; needs migration 150 on the test database). It pins that the sessions settings are the caller's own, now that they read a new table:
+The test file `server-ts/src/mounts/account.sessions.test.ts` (database-gated; needs migration 150 on the test database; write it before the route change above). It pins that the sessions settings are the caller's own, now that they read a new table:
 
 ```ts
 import assert from 'node:assert/strict';
@@ -2544,7 +2573,7 @@ Run:
 ```bash
 pnpm typecheck:server && pnpm test:server
 DATABASE_URL=... pnpm migrate:server && DATABASE_URL=... pnpm seed:server
-psql "$BERRY_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f server-ts/migrations/151_drop_password_credentials.up.sql
+DATABASE_URL="$BERRY_TEST_DATABASE_URL" pnpm migrate:server
 BERRY_TEST_DATABASE_URL=... pnpm test:server
 ```
 Expected: all PASS. `migrate` applies `151_drop_password_credentials`, the seed completes, and `\d users` shows no `password_*` or `creation_*` columns.
@@ -3015,7 +3044,7 @@ pnpm typecheck:server && pnpm test:server
 BERRY_TEST_DATABASE_URL=... pnpm test:server
 python3 scripts/check-compose-config.py
 cd frontend && pnpm lint && pnpm build:check
-grep -rn "NEXT_PUBLIC_.*AUTH\|NEXT_PUBLIC_.*GITHUB" frontend server-ts docker-compose.yml .env.example --include='*' -I | grep -v node_modules
+grep -rnI --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.next-verify "NEXT_PUBLIC_.*AUTH\|NEXT_PUBLIC_.*GITHUB" frontend server-ts docker-compose.yml .env.example
 ```
 Expected: every command passes, and the last grep prints nothing. The OAuth secret is never browser-public.
 
@@ -3038,6 +3067,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 | GitHub only; no Google, email and password, or magic link | 3 (`emailAndPassword.enabled: false`, only `socialProviders.github`, test that `/sign-up/email` is refused), 7 (password code and columns removed, with a guard test) |
 | Single "Continue with GitHub" page; sign-up and password forms removed | 9 |
 | Existing users keep ids; Better Auth maps onto `users`; links by verified email | 2, 3 (tests: same `users.id`, linked account, no second user; unverified refused for an existing user and for a new one) |
+| Better Auth adds no side door around Berry (profile writes, GitHub token read-back) | 3 (`disabledPaths` for `/update-user`, `/get-access-token`, `/refresh-token`, `/account-info`, with a test); the `testUtils` plugin registers no HTTP routes and is installed only when `devLogin` is on |
 | Account sessions settings stay per-user | 6 (`account.sessions.test.ts`: list and delete are scoped to the caller) |
 | Existing sessions may be invalidated | 2 (revokes all legacy `sessions`), 5 (old bearers no longer resolve) |
 | PATs and task-scoped tokens work as bearer auth beside sessions | 4 (`BearerResolver`, PAT resolver), 5 (tests: bearer never falls back to the cookie); A plugs task tokens into `bearer` |
