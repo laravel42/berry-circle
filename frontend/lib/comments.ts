@@ -76,3 +76,58 @@ export async function createIssueComment(issueRef: string, body: string): Promis
    }
    return parsed.data;
 }
+
+// ------------------------------------------------------------ mentions
+
+/**
+ * A mention is an explicit token the composer writes — `@[Name](agent:<id>)` or
+ * `@[Name](squad:<id>)` — never a guess from "@name" text, so it cannot start a
+ * run nobody asked for and it survives a rename.
+ */
+const MENTION = /@\[([^\]\n]{1,100})\]\((agent|squad):([0-9a-fA-F-]{36})\)/g;
+
+export function mentionToken(kind: 'agent' | 'squad', id: string, name: string): string {
+   return `@[${name.replace(/[\]\n]/g, '').slice(0, 100)}](${kind}:${id})`;
+}
+
+export type MentionPart =
+   | { text: string }
+   | { mention: { kind: 'agent' | 'squad'; id: string; name: string } };
+
+export function splitMentions(body: string): MentionPart[] {
+   const parts: MentionPart[] = [];
+   let last = 0;
+   for (const match of body.matchAll(MENTION)) {
+      const index = match.index ?? 0;
+      if (index > last) parts.push({ text: body.slice(last, index) });
+      parts.push({
+         mention: { kind: match[2] as 'agent' | 'squad', id: match[3] ?? '', name: match[1] ?? '' },
+      });
+      last = index + match[0].length;
+   }
+   if (last < body.length) parts.push({ text: body.slice(last) });
+   return parts;
+}
+
+const triggerPlanSchema = z.object({
+   targets: z.array(
+      z.object({
+         agentId: z.string(),
+         agentName: z.string(),
+         reason: z.enum(['mention', 'squad_leader', 'reply_to_assignee']),
+      })
+   ),
+   refused: z.array(
+      z.object({ agentId: z.string(), agentName: z.string(), reason: z.literal('no_access') })
+   ),
+});
+export type TriggerPlan = z.infer<typeof triggerPlanSchema>;
+
+/** Which agents this comment would start if sent now. Writes nothing. */
+export async function previewCommentTriggers(issueRef: string, body: string): Promise<TriggerPlan> {
+   const json: unknown = await apiFetch(
+      `/api/v1/issues/${encodeURIComponent(issueRef)}/comments/trigger-preview`,
+      { method: 'POST', body: JSON.stringify({ body }) }
+   );
+   return triggerPlanSchema.parse(json);
+}

@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button';
 import { ActivityItem } from '@/data/issue-details';
 import type { User } from '@/data/users';
 import { BerryApiError } from '@/lib/api';
-import { commentToActivityItem, createIssueComment, loadIssueComments } from '@/lib/comments';
+import {
+   commentToActivityItem,
+   createIssueComment,
+   loadIssueComments,
+   previewCommentTriggers,
+   splitMentions,
+   type TriggerPlan,
+} from '@/lib/comments';
 import { listIssueRuns, runToActivityItems, runTimestamp } from '@/lib/runs';
 import { loadWorkspaceAgents } from '@/lib/agents';
 import { useAgentsStore } from '@/store/agents-store';
@@ -25,8 +32,11 @@ import {
    Tag,
    Unlock,
 } from 'lucide-react';
-import { ReactNode, useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { useParams } from 'next/navigation';
+import { ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { ContentBlocks } from './content-blocks';
+import { useMentionPicker } from './mention-picker';
 
 const EVENT_ICONS: Record<string, ReactNode> = {
    created: <PenLine className="size-3.5" />,
@@ -59,8 +69,39 @@ function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) 
    );
 }
 
+/** A comment paragraph with its mention tokens shown as links to the agent or squad. */
+function MentionText({ text }: { text: string }) {
+   const { orgId } = useParams<{ orgId: string }>();
+   return (
+      <p className="whitespace-pre-wrap break-words">
+         {splitMentions(text).map((part, index) =>
+            'text' in part ? (
+               <span key={index}>{part.text}</span>
+            ) : (
+               <Link
+                  key={index}
+                  href={`/${orgId}/${part.mention.kind === 'agent' ? 'agents' : 'squads'}/${part.mention.id}`}
+                  className="rounded bg-accent px-1 text-foreground hover:underline"
+               >
+                  @{part.mention.name}
+               </Link>
+            )
+         )}
+      </p>
+   );
+}
+
+/** The comment's single paragraph, when it carries mentions; otherwise null. */
+function mentionParagraph(item: Extract<ActivityItem, { kind: 'comment' }>): string | null {
+   const [first] = item.body;
+   if (item.body.length !== 1 || !first || first.type !== 'paragraph') return null;
+   const text = (first as { text?: string }).text ?? '';
+   return splitMentions(text).some((part) => 'mention' in part) ? text : null;
+}
+
 function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }> }) {
    const isAgent = item.actor.role === 'Application';
+   const mentioned = mentionParagraph(item);
 
    return (
       <div
@@ -89,7 +130,7 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
             </span>
          </div>
          <div className={cn('[&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}>
-            <ContentBlocks blocks={item.body} />
+            {mentioned !== null ? <MentionText text={mentioned} /> : <ContentBlocks blocks={item.body} />}
          </div>
          {item.reactions && item.reactions.length > 0 ? (
             <div className="mt-1 flex items-center gap-1.5">
@@ -312,23 +353,84 @@ export function ActivityFeedList({
    );
 }
 
+/** What the preview line says about the agents a comment would start. */
+function describePlan(plan: TriggerPlan): { starts: string | null; refused: string | null } {
+   const reply = plan.targets.find((target) => target.reason === 'reply_to_assignee');
+   const others = plan.targets.filter((target) => target.reason !== 'reply_to_assignee');
+   const starts = reply
+      ? `${reply.agentName} will pick up this reply`
+      : others.length > 0
+        ? `Will start: ${others
+             .map((target) => `${target.agentName} (${target.reason === 'squad_leader' ? 'squad lead' : 'mention'})`)
+             .join(', ')}`
+        : null;
+   const refused =
+      plan.refused.length > 0
+         ? `Not allowed to mention: ${plan.refused.map((entry) => entry.agentName).join(', ')}`
+         : null;
+   return { starts, refused };
+}
+
 export function ActivityCommentComposer({
    draft,
    setDraft,
    submitComment,
    className,
+   issueRef,
 }: {
    draft: string;
    setDraft: (value: string) => void;
    submitComment: () => void;
    className?: string;
+   /** With an issue, the composer offers mentions and previews which agents a comment starts. */
+   issueRef?: string;
 }) {
+   const textareaRef = useRef<HTMLTextAreaElement>(null);
+   const picker = useMentionPicker(textareaRef, draft, setDraft);
+   const [plan, setPlan] = useState<TriggerPlan | null>(null);
+
+   // Debounced: the preview is advice, and a request per keystroke is not.
+   useEffect(() => {
+      if (!issueRef || !draft.trim()) {
+         setPlan(null);
+         return;
+      }
+      let cancelled = false;
+      const timer = setTimeout(() => {
+         previewCommentTriggers(issueRef, draft).then(
+            (next) => {
+               if (!cancelled) setPlan(next);
+            },
+            () => {
+               if (!cancelled) setPlan(null);
+            }
+         );
+      }, 400);
+      return () => {
+         cancelled = true;
+         clearTimeout(timer);
+      };
+   }, [issueRef, draft]);
+
+   const preview = plan ? describePlan(plan) : null;
+
    return (
       <div className={cn('flex flex-col border-t border-border/60 bg-container p-3', className)}>
          <textarea
+            ref={textareaRef}
             value={draft}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+               setDraft(event.target.value);
+               if (issueRef) requestAnimationFrame(picker.sync);
+            }}
+            onKeyUp={(event) => {
+               if (issueRef && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) picker.sync();
+            }}
+            onClick={() => {
+               if (issueRef) picker.sync();
+            }}
             onKeyDown={(event) => {
+               if (issueRef && picker.handleKeyDown(event)) return;
                if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
                   submitComment();
                }
@@ -338,6 +440,9 @@ export function ActivityCommentComposer({
             rows={2}
             className="w-full resize-none bg-transparent text-foreground outline-none placeholder:text-foreground/40"
          />
+         {issueRef ? picker.list : null}
+         {preview?.starts ? <p className="mt-1 text-muted-foreground">{preview.starts}</p> : null}
+         {preview?.refused ? <p className="mt-1 text-destructive/80">{preview.refused}</p> : null}
          <div className="flex items-center justify-between" style={{ marginTop: 28 }}>
             <Plus className="size-4 text-muted-foreground" />
             <Button size="xs" onClick={submitComment} disabled={!draft.trim()}>

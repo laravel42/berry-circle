@@ -6,6 +6,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { AuthCard } from '@/components/auth/auth-card';
 import { CreateOrJoin } from '@/components/onboarding/create-or-join';
 import { BerryMark } from '@/components/brand/berry-mark';
+import { Button } from '@/components/ui/button';
+import { getGuideAgent } from '@/lib/agents';
 import { fetchBootstrap } from '@/lib/auth';
 import { selectWorkspace } from '@/lib/workspaces';
 import { useSessionStore } from '@/store/session-store';
@@ -104,17 +106,42 @@ export default function OnboardingPage() {
       };
    }, [status, router, addIntent]);
 
+   // After a create or join: the workspace, and its Guide agent if it has one.
+   const [ready, setReady] = useState<{ slug: string; guideId: string } | null>(null);
+
    // Shared by create and join: make the workspace the selected one, refresh
-   // the store from the server, and route into it.
+   // the store from the server, and route into it — or, when the workspace has
+   // a Guide, offer it first, since a new member is who it is for.
    const enterWorkspace = useCallback(
       async (workspaceId: string) => {
          setError(null);
          const selected = await selectWorkspace(workspaceId);
          await refreshWorkspaces();
+         const guide = await getGuideAgent().catch(() => null);
+         if (guide) {
+            setReady({ slug: selected.slug, guideId: guide.id });
+            return;
+         }
          router.replace(workspacePath(selected.slug));
       },
       [refreshWorkspaces, router]
    );
+
+   if (ready) {
+      return (
+         <AuthCard title="Your workspace is ready" description="Start with your tasks, or ask the Guide how Berry works.">
+            <div className="flex flex-col gap-2">
+               <Button onClick={() => router.replace(workspacePath(ready.slug))}>Go to my tasks</Button>
+               <Button
+                  variant="secondary"
+                  onClick={() => router.push(`/${ready.slug}/chat?agent=${encodeURIComponent(ready.guideId)}`)}
+               >
+                  Questions? Ask the Guide
+               </Button>
+            </div>
+         </AuthCard>
+      );
+   }
 
    if (phase === 'choose') {
       return (
