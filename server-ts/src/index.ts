@@ -49,7 +49,6 @@ import { PlanAnswerRepository } from './plans/answers.ts';
 import { PlanRepository } from './plans/repository.ts';
 import { PlanGenerator } from './plans/generator.ts';
 import { ConversationRepository } from './conversations/repository.ts';
-import { ConversationResponder } from './conversations/responder.ts';
 import { InboxRepository } from './inbox/repository.ts';
 import { ApprovalRepository } from './approvals/repository.ts';
 import { OAuthStateStore } from './integrations/oauth.ts';
@@ -430,17 +429,13 @@ registry.registerAll(
       conversations: new ConversationRepository(sql),
       boards,
       sql,
-      // Reading a thread works without a model credential; only answering
-      // needs one, and a null responder says so rather than failing the turn.
-      responder:
-         config.agents && completion
-         ? new ConversationResponder({
-              sql,
-              region: config.agents.region,
-              completion,
-              defaultModel: config.agents.defaultModel,
-           })
-         : null,
+      // Chat runs as agent tasks through workstream A's queue. Until A is
+      // wired in (Task 13) a message is kept and the send answers 503.
+      enqueue: null,
+      complete: null,
+      ledger: runOptions.ledger,
+      runs: runOptions.runs,
+      logger,
    })
 );
 registry.registerAll(

@@ -4,7 +4,6 @@ import { RunExecutor } from '../agents/executor.ts';
 import { Completion } from './completion.ts';
 import { PlanGenerator } from '../plans/generator.ts';
 import { PlanTriage } from '../plans/triage.ts';
-import { ConversationResponder } from '../conversations/responder.ts';
 import { EditorAssist } from '../editor/assist.ts';
 import type { Sql } from '../db/pool.ts';
 import type { Storage } from '../storage/storage.ts';
@@ -36,6 +35,9 @@ import type { AwsCredentials } from '../agents/runtime/model.ts';
  * reachable by reflection. The executor is the exception and is asserted
  * properly, so the honest summary is: the declaration is pinned for all five,
  * the retention for one.
+ *
+ * The conversation responder that was a sixth caller is gone: chat now runs as
+ * an agent task (conversations/chat-tasks.ts), so it builds no Bedrock client.
  */
 
 const CREDENTIALS: AwsCredentials = {
@@ -53,12 +55,6 @@ test('every Bedrock caller declares a credentials option', () => {
    assert.doesNotThrow(() => {
       new PlanGenerator({ sql, region: 'us-east-1', credentials: CREDENTIALS, defaultModel: MODEL });
       new PlanTriage({ sql, region: 'us-east-1', credentials: CREDENTIALS, defaultModel: MODEL });
-      new ConversationResponder({
-         sql,
-         region: 'us-east-1',
-         credentials: CREDENTIALS,
-         defaultModel: MODEL,
-      });
       new EditorAssist({ region: 'us-east-1', credentials: CREDENTIALS, defaultModel: MODEL });
    });
 });
@@ -101,7 +97,6 @@ test('the root builds one Completion and every single-shot caller accepts it', (
    assert.doesNotThrow(() => {
       new PlanGenerator({ sql, region: 'us-east-1', defaultModel: MODEL, completion });
       new PlanTriage({ sql, region: 'us-east-1', defaultModel: MODEL, completion });
-      new ConversationResponder({ sql, region: 'us-east-1', defaultModel: MODEL, completion });
       new EditorAssist({ region: 'us-east-1', defaultModel: MODEL, completion });
    });
 });
