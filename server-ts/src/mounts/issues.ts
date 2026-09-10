@@ -406,7 +406,7 @@ function rethrow(boardScoped: boolean): (error: unknown) => never {
 }
 
 /** Field order follows Go's struct declaration, which is what goes on the wire. */
-function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Record<string, unknown> {
+export function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Record<string, unknown> {
    return {
       id: issue.id,
       boardId: issue.boardId,
@@ -428,6 +428,10 @@ function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Re
       // Always arrays: the frontend maps over them without a guard.
       dependsOn: relations?.dependsOn ?? [],
       blocks: relations?.blocks ?? [],
+      parentId: issue.parentId,
+      stage: issue.stage,
+      statusId: issue.statusId,
+      childProgress: issue.childProgress,
    };
 }
 
