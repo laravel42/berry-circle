@@ -18,6 +18,7 @@ export type ShellRoute =
    | 'members'
    | 'skills'
    | 'squads'
+   | 'autopilots'
    | 'analytics'
    | 'dashboard'
    | 'usage';
@@ -117,6 +118,14 @@ const MANAGE: ShellRouteDef[] = [
       match: ['/squads/'],
       prefsKey: 'squads',
       icon: '<circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M3 20a6 6 0 0112 0M14 20a4.5 4.5 0 017-3.5" />',
+   },
+   {
+      id: 'autopilots',
+      label: 'autopilots',
+      href: '/autopilots',
+      match: ['/autopilot/'],
+      prefsKey: 'autopilot',
+      icon: '<circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2.5" /><path d="M9.5 3h5" />',
    },
    {
       id: 'analytics',

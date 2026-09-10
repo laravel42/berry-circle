@@ -31,6 +31,7 @@ import {
    LucideIcon,
    Sparkles,
    Target,
+   Timer,
    UsersRound,
 } from 'lucide-react';
 import { Fragment, useRef, useState, type PointerEvent } from 'react';
@@ -55,6 +56,7 @@ export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agents', label: 'agents', icon: Sparkles },
    { key: 'skills', label: 'skills', icon: BookOpen },
    { key: 'squads', label: 'squads', icon: UsersRound },
+   { key: 'autopilot', label: 'autopilots', icon: Timer },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
    { key: 'usage', label: 'usage', icon: Coins },
