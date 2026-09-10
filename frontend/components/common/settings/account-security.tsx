@@ -1,8 +1,10 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import {
+   API_SCOPES,
    createToken,
    describeDevice,
    loadSessions,
@@ -31,6 +33,8 @@ export default function AccountSecurity() {
    const tokens = useSettingsResource<PersonalToken[]>(loadTokens);
    const [creating, setCreating] = useState(false);
    const [name, setName] = useState('');
+   /** Public API scopes for the next key; null means full access. */
+   const [scopes, setScopes] = useState<string[] | null>(null);
    /** Shown once. The server keeps a hash, so this is the only time it exists. */
    const [secret, setSecret] = useState<string | null>(null);
 
@@ -44,9 +48,10 @@ export default function AccountSecurity() {
       if (trimmed === '') return;
       setCreating(true);
       try {
-         const { secret: issued, record } = await createToken(trimmed);
+         const { secret: issued, record } = await createToken(trimmed, scopes);
          tokens.set([record, ...(tokens.value ?? [])]);
          setName('');
+         setScopes(null);
          setSecret(issued);
          if (!issued) toast.error('That key already existed; its secret cannot be shown again.');
       } catch (cause) {
@@ -78,7 +83,10 @@ export default function AccountSecurity() {
                         key={session.id}
                         icon={<Monitor className="size-4" />}
                         title={describeDevice(session.userAgent)}
-                        description={[session.ip, `last used ${when(session.lastUsedAt ?? session.createdAt)}`]
+                        description={[
+                           session.ip,
+                           `last used ${when(session.lastUsedAt ?? session.createdAt)}`,
+                        ]
                            .filter(Boolean)
                            .join(' · ')}
                         trailing={
@@ -108,8 +116,8 @@ export default function AccountSecurity() {
                      icon={<KeyRound className="size-4" />}
                      title={token.name}
                      description={`${token.prefix}… · ${
-                        token.lastUsedAt ? `last used ${when(token.lastUsedAt)}` : 'never used'
-                     }`}
+                        token.scopes ? token.scopes.join(', ') : 'full access'
+                     } · ${token.lastUsedAt ? `last used ${when(token.lastUsedAt)}` : 'never used'}`}
                      trailing={
                         <Button
                            size="xs"
@@ -144,6 +152,42 @@ export default function AccountSecurity() {
                         >
                            {creating ? <Loader2 className="size-3.5 animate-spin" /> : 'Create'}
                         </Button>
+                     </span>
+                  }
+               />
+               <SettingsRow
+                  title="Access"
+                  description={
+                     scopes === null
+                        ? 'Full access, like signing in as you'
+                        : 'Only the public API scopes ticked here'
+                  }
+                  trailing={
+                     <span className="flex flex-wrap items-center gap-3">
+                        <label className="flex items-center gap-1.5">
+                           <Checkbox
+                              checked={scopes === null}
+                              onCheckedChange={(checked) => setScopes(checked === true ? null : [])}
+                           />
+                           full
+                        </label>
+                        {API_SCOPES.map((scope) => (
+                           <label key={scope} className="flex items-center gap-1.5">
+                              <Checkbox
+                                 disabled={scopes === null}
+                                 checked={scopes?.includes(scope) ?? false}
+                                 onCheckedChange={(checked) =>
+                                    setScopes((current) => {
+                                       const list = (current ?? []).filter(
+                                          (entry) => entry !== scope
+                                       );
+                                       return checked === true ? [...list, scope] : list;
+                                    })
+                                 }
+                              />
+                              {scope}
+                           </label>
+                        ))}
                      </span>
                   }
                />
