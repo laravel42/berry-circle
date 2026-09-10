@@ -6,7 +6,13 @@ import { Button } from '@/components/ui/button';
 import { ActivityItem } from '@/data/issue-details';
 import type { User } from '@/data/users';
 import { BerryApiError } from '@/lib/api';
-import { commentToActivityItem, createIssueComment, loadIssueComments } from '@/lib/comments';
+import {
+   commentToActivityItem,
+   createIssueComment,
+   loadIssueComments,
+   type ApiComment,
+} from '@/lib/comments';
+import { describeActivity, loadIssueActivity } from '@/lib/activity';
 import { listIssueRuns, runToActivityItems, runTimestamp } from '@/lib/runs';
 import { loadWorkspaceAgents } from '@/lib/agents';
 import { useAgentsStore } from '@/store/agents-store';
@@ -25,8 +31,11 @@ import {
    Tag,
    Unlock,
 } from 'lucide-react';
+import { formatDistanceToNow, parseISO } from 'date-fns';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
+import { CommentActions } from './comment-actions';
 import { ContentBlocks } from './content-blocks';
+import { ReactionBar } from './issue-reactions';
 
 const EVENT_ICONS: Record<string, ReactNode> = {
    created: <PenLine className="size-3.5" />,
@@ -59,7 +68,17 @@ function EventRow({ item }: { item: Extract<ActivityItem, { kind: 'event' }> }) 
    );
 }
 
-function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }> }) {
+function CommentCard({
+   item,
+   issueRef,
+   onChanged,
+   onDeleted,
+}: {
+   item: Extract<ActivityItem, { kind: 'comment' }>;
+   issueRef?: string;
+   onChanged?: (comment: ApiComment) => void;
+   onDeleted?: (commentId: string) => void;
+}) {
    const isAgent = item.actor.role === 'Application';
 
    return (
@@ -87,23 +106,24 @@ function CommentCard({ item }: { item: Extract<ActivityItem, { kind: 'comment' }
             <span className={cn('text-muted-foreground', isAgent && 'text-ash')}>
                {item.timeAgo}
             </span>
+            {item.comment?.resolvedAt ? (
+               <span className="rounded bg-accent px-1.5 text-muted-foreground">resolved</span>
+            ) : null}
+            {item.comment && issueRef && onChanged && onDeleted ? (
+               <CommentActions
+                  comment={item.comment}
+                  issueRef={issueRef}
+                  onChanged={onChanged}
+                  onDeleted={onDeleted}
+               />
+            ) : null}
          </div>
          <div className={cn('[&_p]:my-1.5', isAgent && '[&_.text-muted-foreground]:text-ash')}>
             <ContentBlocks blocks={item.body} />
          </div>
-         {item.reactions && item.reactions.length > 0 ? (
-            <div className="mt-1 flex items-center gap-1.5">
-               {item.reactions.map((reaction) => (
-                  <span
-                     key={reaction.emoji}
-                     className={cn(
-                        'inline-flex items-center gap-1 rounded-full border border-border/60 bg-accent/60 px-2 py-0.5',
-                        isAgent && 'border-white/10 bg-white/5 text-ash'
-                     )}
-                  >
-                     {reaction.emoji} {reaction.count}
-                  </span>
-               ))}
+         {item.comment ? (
+            <div className="mt-1">
+               <ReactionBar target="comment" id={item.comment.id} />
             </div>
          ) : null}
       </div>
@@ -178,7 +198,8 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
             return [];
          }),
          listIssueRuns(issueId ?? issueRef).catch(() => []),
-      ]).then(([comments, runs]) => {
+         loadIssueActivity(issueRef).catch(() => []),
+      ]).then(([comments, runs, activity]) => {
          if (cancelled) return;
          const commentItems = comments.map((comment) => ({
             item: commentToActivityItem(comment),
@@ -190,7 +211,29 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
                at: runTimestamp(run),
             }))
          );
-         const merged = [...commentItems, ...runItems].sort((left, right) =>
+         const eventItems = activity.flatMap((entry) => {
+            const described = describeActivity(entry);
+            if (!described || !entry.actor) return [];
+            return [
+               {
+                  item: {
+                     kind: 'event' as const,
+                     id: entry.id,
+                     actor: toUiUser({
+                        id: entry.actor.id,
+                        name: entry.actor.name ?? 'Someone',
+                        avatarUrl: entry.actor.avatarUrl ?? '',
+                        type: entry.actor.type === 'agent' ? 'agent' : 'user',
+                     }),
+                     event: described.event,
+                     text: described.text,
+                     timeAgo: formatDistanceToNow(parseISO(entry.occurredAt), { addSuffix: true }),
+                  },
+                  at: entry.occurredAt,
+               },
+            ];
+         });
+         const merged = [...commentItems, ...runItems, ...eventItems].sort((left, right) =>
             left.at.localeCompare(right.at)
          );
          setItems(merged.map((entry) => entry.item));
@@ -239,7 +282,27 @@ export function useIssueActivity(issueRef: string, issueId?: string) {
          .finally(() => setSubmitting(false));
    }, [draft, issueRef, sessionUser, submitting]);
 
-   return { items, error, draft, setDraft, submitComment, submitting };
+   const replaceComment = useCallback((comment: ApiComment) => {
+      setItems((previous) =>
+         previous.map((item) =>
+            item.kind === 'comment' && item.id === comment.id ? commentToActivityItem(comment) : item
+         )
+      );
+   }, []);
+   const removeComment = useCallback((commentId: string) => {
+      setItems((previous) => previous.filter((item) => item.id !== commentId));
+   }, []);
+
+   return {
+      items,
+      error,
+      draft,
+      setDraft,
+      submitComment,
+      submitting,
+      replaceComment,
+      removeComment,
+   };
 }
 
 /** @deprecated Prefer `useIssueActivity` with an issue identifier. */
@@ -283,9 +346,15 @@ export function useActivityFeed(activity: ActivityItem[]) {
 export function ActivityFeedList({
    items,
    error,
+   issueRef,
+   onCommentChanged,
+   onCommentDeleted,
 }: {
    items: ActivityItem[];
    error?: string | null;
+   issueRef?: string;
+   onCommentChanged?: (comment: ApiComment) => void;
+   onCommentDeleted?: (commentId: string) => void;
 }) {
    return (
       <div className="border-t border-border/60 pt-4">
@@ -304,7 +373,13 @@ export function ActivityFeedList({
                item.kind === 'event' ? (
                   <EventRow key={item.id} item={item} />
                ) : (
-                  <CommentCard key={item.id} item={item} />
+                  <CommentCard
+                     key={item.id}
+                     item={item}
+                     issueRef={issueRef}
+                     onChanged={onCommentChanged}
+                     onDeleted={onCommentDeleted}
+                  />
                )
             )}
          </div>

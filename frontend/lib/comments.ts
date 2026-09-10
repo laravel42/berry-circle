@@ -39,6 +39,7 @@ export function commentToActivityItem(comment: ApiComment): Extract<ActivityItem
       actor,
       timeAgo: timeAgo(comment.createdAt),
       body: [{ type: 'paragraph', text: comment.body }],
+      comment,
    };
 }
 

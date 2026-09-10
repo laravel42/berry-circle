@@ -117,7 +117,13 @@ export default function IssueDetails() {
                               <Paperclip className="size-4" />
                            </Button>
                         </div>
-                        <ActivityFeedList items={activityFeed.items} error={activityFeed.error} />
+                        <ActivityFeedList
+                           items={activityFeed.items}
+                           error={activityFeed.error}
+                           issueRef={issue.identifier}
+                           onCommentChanged={activityFeed.replaceComment}
+                           onCommentDeleted={activityFeed.removeComment}
+                        />
                      </div>
                   </>
                </div>
