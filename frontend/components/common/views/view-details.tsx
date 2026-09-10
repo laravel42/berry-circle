@@ -5,15 +5,13 @@ import { InsightsPanel } from '@/components/common/issues/insights-panel';
 import ProjectsList from '@/components/common/projects/projects-list';
 import { ProjectGroup } from '@/components/common/projects/projects';
 import { status as allStatus } from '@/data/status';
-import {
-   filterIssuesForView,
-   filterProjectsForView,
-} from '@/data/views';
+import { filterIssuesForView, filterProjectsForView } from '@/data/views';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import { useViewsStore } from '@/store/views-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { useMemo } from 'react';
+import { ViewFacets } from './view-facets';
 
 function IssueViewBody({ view }: { view: import('@/data/views').View }) {
    const { openPanel } = useRightPanelStore();
@@ -22,6 +20,7 @@ function IssueViewBody({ view }: { view: import('@/data/views').View }) {
 
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">
+         <ViewFacets view={view} />
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
             <div className="flex-1 min-w-0 h-full overflow-hidden">
                <GroupedIssuesView

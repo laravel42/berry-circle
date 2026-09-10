@@ -15,6 +15,7 @@ import { IssueReviews } from './issue-reviews';
 import { IssueAttachments } from './issue-attachments';
 import { IssueDescriptionEditor } from './issue-description-editor';
 import { IssuePropertiesPanel } from './issue-properties-panel';
+import { IssuePinButton } from './issue-pin-button';
 import { IssueQuickActions } from './issue-quick-actions';
 import { IssueReactions } from './issue-reactions';
 import { IssueSubscription } from './issue-subscription';
@@ -93,6 +94,7 @@ export default function IssueDetails() {
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                      <IssueReactions issueRef={issue.identifier} />
                      <div className="ml-auto flex items-center gap-2">
+                        <IssuePinButton issueId={issue.id} />
                         <IssueQuickActions issueRef={issue.identifier} />
                         <IssueSubscription issueRef={issue.identifier} />
                      </div>
