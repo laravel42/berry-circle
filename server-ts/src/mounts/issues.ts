@@ -2,6 +2,8 @@ import type { ScmSync } from '../scm/sync.ts';
 import { Hono } from 'hono';
 import { autoDispatch } from '../runs/auto-dispatch.ts';
 import type { RunRepository } from '../runs/repository.ts';
+import type { StageGate } from '../runs/auto-dispatch.ts';
+import type { WorkTrackingHooks } from '../work/hooks.ts';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
@@ -92,6 +94,12 @@ export interface IssueOptions {
     * deployment with no execution at all.
     */
    dispatch?: RunRepository | undefined;
+   /** Work-tracking sub-routes (properties, reactions, children, batch...). */
+   tracking?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** Holds a staged sub-issue until its earlier stages finish. */
+   stages?: StageGate | undefined;
+   /** Subscriptions, inbox rows and stage release after a write. */
+   hooks?: WorkTrackingHooks | undefined;
 }
 
 export function issueMounts(options: IssueOptions): Mount[] {
@@ -102,6 +110,9 @@ export function issueMounts(options: IssueOptions): Mount[] {
    // here rather than registered on their own prefix, because the registry
    // refuses two mounts on `/api/v1/issues` — which is the ambiguity it exists
    // to refuse.
+   // First, so its collection routes (`/assignee-frequency`, `/batch`) are
+   // matched before `/:issueRef` reads them as an issue reference.
+   if (options.tracking) route.route('/', options.tracking);
    if (options.nested) route.route('/', options.nested);
    if (options.relations) route.route('/', options.relations);
    if (options.runs) route.route('/', options.runs);
@@ -188,6 +199,17 @@ export function issueMounts(options: IssueOptions): Mount[] {
          .catch(rethrowWrite('created'));
 
       await publish(options, created.events);
+      await options.hooks
+         ?.afterIssueWrite({
+            kind: 'created',
+            issue: created.issue,
+            previousStatus: null,
+            previousAssigneeId: null,
+            actorId: user.id,
+            workspaceId: scope.workspaceId,
+            eventIds: created.events.map((event) => event.id),
+         })
+         .catch(() => undefined);
       if (input.goalSet) {
          await applyGoal(options, scope.workspaceId, created.issue.id, input.goal, user.id);
       }
@@ -195,10 +217,12 @@ export function issueMounts(options: IssueOptions): Mount[] {
       // carries the run the task now has.
       let issueToServe = created.issue;
       if (options.dispatch) {
-         const run = await autoDispatch(options.dispatch, created.issue, {
-            workspaceId: scope.workspaceId,
-            requestedBy: user.id,
-         });
+         const run = await autoDispatch(
+            options.dispatch,
+            created.issue,
+            { workspaceId: scope.workspaceId, requestedBy: user.id },
+            options.stages
+         );
          if (run) issueToServe = await issues.get(created.issue.id);
       }
 
@@ -231,13 +255,26 @@ export function issueMounts(options: IssueOptions): Mount[] {
             .catch(rethrowWrite('updated'));
          updated = result.issue;
          await publish(options, result.events);
+         await options.hooks
+            ?.afterIssueWrite({
+               kind: 'updated',
+               issue: result.issue,
+               previousStatus: found.status,
+               previousAssigneeId: found.assignee?.id ?? null,
+               actorId: user.id,
+               workspaceId: scope.workspaceId,
+               eventIds: result.events.map((event) => event.id),
+            })
+            .catch(() => undefined);
          // Assigned to an agent, or moved to todo while assigned to one: the
          // same rule as creation, checked on every edit that touches the row.
          if (options.dispatch) {
-            const run = await autoDispatch(options.dispatch, updated, {
-               workspaceId: scope.workspaceId,
-               requestedBy: user.id,
-            });
+            const run = await autoDispatch(
+               options.dispatch,
+               updated,
+               { workspaceId: scope.workspaceId, requestedBy: user.id },
+               options.stages
+            );
             if (run) updated = await issues.get(found.id);
          }
       }
