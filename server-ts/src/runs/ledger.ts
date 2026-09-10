@@ -761,7 +761,7 @@ export class RunLedger {
 async function lockRun(tx: Sql, runId: string): Promise<Run> {
    const [row] = await tx`
       SELECT r.id, r.issue_id, r.board_id,
-             (SELECT b.workspace_id FROM boards AS b WHERE b.id = r.board_id) AS workspace_id,
+             COALESCE(r.workspace_id, (SELECT b.workspace_id FROM boards AS b WHERE b.id = r.board_id)) AS workspace_id,
              r.agent_id, r.status::text AS status, r.sequence, r.summary,
              r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros, r.currency,
              r.failure_code, r.failure_message, r.failure_retryable,
