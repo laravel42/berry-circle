@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { agentAccessGuard } from '../agents/access.ts';
 import type { EnqueueInput } from '../agents/seams.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
@@ -27,7 +28,7 @@ describe('squads mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       const registry = new Registry();
       registry.registerAll(
          squadMounts({
-            sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+            sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
             sql,
             squads: new SquadRepository(sql),
             issues: new IssueRepository(sql),

@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -70,7 +72,7 @@ describe(
 
       before(async () => {
          sql = openDatabase({ url: url! });
-         const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+         const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
          const registry = new Registry();
          registry.registerAll(
             githubMounts({
@@ -93,8 +95,8 @@ describe(
          w1Issue = first.issueId;
          w2Issue = second.issueId;
          await sql`INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES (${w1}, ${member}, 'member')`;
-         ownerToken = (await sessions.issueForUser(owner)).token;
-         memberToken = (await sessions.issueForUser(member)).token;
+         ownerToken = await issueTestToken(sql, owner);
+         memberToken = await issueTestToken(sql, member);
       });
 
       after(async () => {

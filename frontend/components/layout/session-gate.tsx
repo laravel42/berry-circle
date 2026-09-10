@@ -8,9 +8,9 @@ import { useEffect } from 'react';
 import { LocaleSync } from './locale-sync';
 
 // Routes that must render for an anonymous visitor. `/login` is the legacy
-// entry that now forwards to `/sign-in`; keep it here so a 'ready' user landing
-// on it is bounced into the app rather than left on a redirect shim.
-const AUTH_ROUTES = new Set(['/sign-in', '/sign-up', '/login']);
+// entry that forwards to `/sign-in`, the one sign-in page; keep it here so a
+// 'ready' user landing on it is bounced into the app rather than left on a shim.
+const AUTH_ROUTES = new Set(['/sign-in', '/login']);
 
 function isAuthRoute(pathname: string): boolean {
    return AUTH_ROUTES.has(pathname);

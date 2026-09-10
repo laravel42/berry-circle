@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { AgentProfileRepository } from '../agents/profile.ts';
 import { AgentRepository } from '../agents/repository.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -25,7 +26,7 @@ describe('agent profile', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
       const registry = new Registry();
       registry.registerAll(
          agentMounts({
-            sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+            sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
             agents: new AgentRepository(sql),
             idempotency: new IdempotencyStore(sql),
             catalog: null,

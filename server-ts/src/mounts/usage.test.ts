@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
@@ -26,7 +28,7 @@ describe('usage mounts', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
 
    before(async () => {
       sql = openDatabase({ url: url! });
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       const registry = new Registry();
       registry.registerAll(usageMounts({ sessions, sql }));
       app = createApp(registry);
@@ -44,7 +46,7 @@ describe('usage mounts', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
             cacheWriteTokens: 0,
          });
       }
-      token = (await sessions.issueForUser(mine.userId)).token;
+      token = await issueTestToken(sql, mine.userId);
    });
 
    after(async () => {

@@ -1,129 +1,96 @@
 'use client';
 
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { useForm } from 'react-hook-form';
-import { z } from 'zod';
+import { RiGithubFill } from '@remixicon/react';
+import { useSearchParams } from 'next/navigation';
+import { Suspense, useEffect, useState } from 'react';
 
 import { AuthCard } from '@/components/auth/auth-card';
 import { Button } from '@/components/ui/button';
-import {
-   Form,
-   FormControl,
-   FormField,
-   FormItem,
-   FormLabel,
-   FormMessage,
-} from '@/components/ui/form';
-import { Input } from '@/components/ui/input';
-import { BerryApiError } from '@/lib/api';
-import { zodFormResolver } from '@/lib/zod-resolver';
-import { useSessionStore } from '@/store/session-store';
+import { fetchGitHubSignInAvailable, signInWithGitHub } from '@/lib/auth';
 
-// The server enforces the real password policy; the client only blocks empty
-// submits so a wrong password reaches the API and returns the uniform 401.
-const signInSchema = z.object({
-   email: z.string().min(1, 'Email is required').email('Enter a valid email address'),
-   password: z.string().min(1, 'Password is required'),
-});
+/**
+ * What a refused GitHub round trip means, in Berry's words. The server sends
+ * the browser back here with `?error=<code>`; anything not listed gets the
+ * general message rather than the raw code.
+ */
+const ERROR_MESSAGES: Record<string, string> = {
+   account_not_linked:
+      'Your GitHub account could not be linked. Make sure its primary email is verified on GitHub.',
+   email_not_verified: 'Verify your primary email on GitHub, then try again.',
+   // Better Auth's code when the create hook refuses an unverified address.
+   unable_to_create_user: 'Verify your primary email on GitHub, then try again.',
+   access_denied: 'GitHub sign-in was cancelled.',
+};
+const GENERIC_ERROR = 'We could not sign you in with GitHub. Please try again.';
 
-type SignInValues = z.infer<typeof signInSchema>;
+function SignInContent() {
+   const params = useSearchParams();
+   const returned = params.get('error');
+   const [available, setAvailable] = useState<boolean | null>(null);
+   const [pending, setPending] = useState(false);
+   const [error, setError] = useState<string | null>(
+      returned ? (ERROR_MESSAGES[returned] ?? GENERIC_ERROR) : null
+   );
 
-const CREDENTIAL_ERROR = 'That email or password is incorrect.';
-const GENERIC_ERROR = 'We could not complete sign-in. Please try again.';
+   useEffect(() => {
+      let cancelled = false;
+      fetchGitHubSignInAvailable()
+         .then((value) => {
+            if (!cancelled) setAvailable(value);
+         })
+         .catch(() => {
+            if (!cancelled) setAvailable(false);
+         });
+      return () => {
+         cancelled = true;
+      };
+   }, []);
 
-export default function SignInPage() {
-   const router = useRouter();
-   const signIn = useSessionStore((state) => state.signIn);
-   const [formError, setFormError] = useState<string | null>(null);
-
-   const form = useForm<SignInValues>({
-      resolver: zodFormResolver(signInSchema),
-      defaultValues: { email: '', password: '' },
-   });
-
-   const onSubmit = async (values: SignInValues) => {
-      setFormError(null);
+   const start = async () => {
+      setError(null);
+      setPending(true);
       try {
-         await signIn(values.email, values.password);
-         // The store is now 'ready'. Route to the app root and let the
-         // SessionGate send the user to their workspace — one deterministic
-         // place decides the destination.
-         router.replace('/');
-      } catch (error) {
-         if (error instanceof BerryApiError && error.status === 401) {
-            // Neutral message: never reveal whether the email is registered.
-            setFormError(CREDENTIAL_ERROR);
-         } else {
-            setFormError(GENERIC_ERROR);
-         }
-         // Keep the entered email; only clear the password for a fresh attempt.
-         form.resetField('password');
+         // On success the browser navigates to GitHub; nothing after this runs.
+         await signInWithGitHub();
+      } catch {
+         setError(GENERIC_ERROR);
+         setPending(false);
       }
    };
 
    return (
-      <AuthCard
-         title="Sign in to Berry"
-         description="Enter your email and password to continue."
-         footer={
-            <span>
-               New to Berry?{' '}
-               <Link href="/sign-up" className="font-medium text-foreground hover:underline">
-                  Create an account
-               </Link>
-            </span>
-         }
-      >
-         <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4" noValidate>
-               <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                     <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl>
-                           <Input
-                              type="email"
-                              autoComplete="email"
-                              placeholder="you@example.com"
-                              {...field}
-                           />
-                        </FormControl>
-                        <FormMessage />
-                     </FormItem>
-                  )}
-               />
-               <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                     <FormItem>
-                        <FormLabel>Password</FormLabel>
-                        <FormControl>
-                           <Input
-                              type="password"
-                              autoComplete="current-password"
-                              placeholder="Your password"
-                              {...field}
-                           />
-                        </FormControl>
-                        <FormMessage />
-                     </FormItem>
-                  )}
-               />
-               {formError ? (
-                  <p role="alert" className="text-destructive-foreground">
-                     {formError}
-                  </p>
-               ) : null}
-               <Button type="submit" className="w-full" disabled={form.formState.isSubmitting}>
-                  {form.formState.isSubmitting ? 'Signing in…' : 'Sign in'}
-               </Button>
-            </form>
-         </Form>
+      <AuthCard title="Sign in to Berry" description="Berry uses your GitHub account to sign you in.">
+         <div className="grid gap-4">
+            <Button
+               type="button"
+               className="w-full"
+               onClick={() => void start()}
+               disabled={pending || available !== true}
+            >
+               <RiGithubFill aria-hidden className="size-4" />
+               {pending ? 'Opening GitHub…' : 'Continue with GitHub'}
+            </Button>
+            {available === false ? (
+               <p role="status" className="text-muted-foreground">
+                  GitHub sign-in is not configured on this server. An administrator needs to set
+                  BERRY_AUTH_GITHUB_CLIENT_ID and BERRY_AUTH_GITHUB_CLIENT_SECRET.
+               </p>
+            ) : null}
+            {error ? (
+               <p role="alert" className="text-destructive-foreground">
+                  {error}
+               </p>
+            ) : null}
+         </div>
       </AuthCard>
+   );
+}
+
+/** `useSearchParams` needs a Suspense boundary for the page to prerender. */
+export default function SignInPage() {
+   return (
+      <Suspense fallback={null}>
+         <SignInContent />
+      </Suspense>
    );
 }

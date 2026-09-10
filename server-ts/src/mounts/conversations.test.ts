@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import type { EnqueueInput, EnqueueTask } from '../agents/seams.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { ConversationRepository } from '../conversations/repository.ts';
 import { BoardRepository } from '../core/boards.ts';
@@ -19,7 +20,7 @@ function buildApp(sql: Sql, enqueue: EnqueueTask | null): BerryApp {
    const registry = new Registry();
    registry.registerAll(
       conversationMounts({
-         sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+         sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
          conversations: new ConversationRepository(sql),
          boards: new BoardRepository(sql),
          sql,

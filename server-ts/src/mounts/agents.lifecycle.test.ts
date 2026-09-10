@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { AgentRepository } from '../agents/repository.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -23,7 +24,7 @@ describe('agent lifecycle', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is no
       world = await seedAgentLayerWorld(sql);
       const registry = new Registry();
       registry.registerAll(agentMounts({
-         sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+         sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
          agents: new AgentRepository(sql),
          idempotency: new IdempotencyStore(sql),
          catalog: null,

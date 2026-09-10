@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -21,7 +22,7 @@ describe('skills mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       const registry = new Registry();
       registry.registerAll(
          skillMounts({
-            sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+            sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
             sql,
             skills: new SkillRepository(sql),
             importer: {

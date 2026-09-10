@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, beforeEach, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { AutopilotRepository } from '../autopilots/repository.ts';
 import type { FireInput, FireOutcome } from '../autopilots/fire.ts';
 import { cleanupWorkspace, seedWorkspace, testSealer, type Fixture } from '../autopilots/test-fixture.ts';
@@ -23,7 +25,7 @@ describe('/api/v1/autopilots', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is
 
    before(async () => {
       sql = openDatabase({ url: url as string });
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       repo = new AutopilotRepository({ sql, sealer: testSealer() });
       const registry = new Registry();
       registry.registerAll(
@@ -40,7 +42,7 @@ describe('/api/v1/autopilots', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is
       );
       app = createApp(registry);
       fixture = await seedWorkspace(sql, 'mount');
-      token = (await sessions.issueForUser(fixture.userId)).token;
+      token = await issueTestToken(sql, fixture.userId);
    });
 
    after(async () => {

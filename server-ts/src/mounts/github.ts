@@ -6,7 +6,9 @@ import { json } from '../http/app.ts';
 import { assertValid, decodeBody, fieldError } from '../http/body.ts';
 import { ApiError, type FieldError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
+import { Forbidden, toApiError } from '../identity/errors.ts';
 import { allows } from '../identity/roles.ts';
+import type { ScopedDb } from '../identity/workspace-context.ts';
 import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubAppUnavailable, type GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient, GitHubError, type RepositoryChoice } from '../integrations/github.ts';
@@ -66,6 +68,23 @@ const repositoriesBody = z
    .min(1)
    .max(50);
 
+/**
+ * A scoped write whose permission refusal is a 403, not a 500.
+ *
+ * `ScopedDb.mutate` refuses a role that lacks the permission with the identity
+ * layer's `Forbidden`, which the app shell does not know how to answer. Only
+ * that error is translated: the handlers' own ApiErrors (an unknown
+ * installation, say) keep their status.
+ */
+function mutateScoped<T>(
+   db: ScopedDb,
+   ...args: Parameters<ScopedDb['mutate']>
+): Promise<T> {
+   return (db.mutate(...args) as Promise<T>).catch((error: unknown) => {
+      throw error instanceof Forbidden ? toApiError(error, 'Workspace') : error;
+   });
+}
+
 export function githubMounts(options: GitHubMountOptions): Mount[] {
    const route = new Hono<{ Variables: ScopedVariables }>();
    mountWorkspaceScope(route, { sessions: options.sessions, sql: options.sql });
@@ -94,7 +113,7 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
       if (Object.keys(value).length === 0) {
          assertValid([fieldError('/', 'required', 'Name at least one setting to change.')]);
       }
-      const settings = await db.mutate('settings.write', (tx, ctx) =>
+      const settings = await mutateScoped(db, 'settings.write', (tx, ctx) =>
          options.settings.update(ctx.workspaceId, value, userId, tx)
       );
       return json({ settings });
@@ -109,7 +128,7 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
     */
    route.delete('/:workspaceId/installation', async (context) => {
       const db = context.get('scoped');
-      await db.mutate('settings.write', async (tx, ctx) => {
+      await mutateScoped(db, 'settings.write', async (tx, ctx) => {
          const rows = await tx`
             DELETE FROM github_installations WHERE workspace_id = ${ctx.workspaceId}
             RETURNING installation_id`;
@@ -154,7 +173,7 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
          };
       });
       assertValid(problems);
-      const added = await db.mutate('settings.write', (tx, ctx) =>
+      const added = await mutateScoped(db, 'settings.write', (tx, ctx) =>
          options.settings.addRepositories(ctx.workspaceId, items, userId, tx)
       );
       return json({ repositories: added }, 201);
@@ -181,7 +200,7 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
       }
       assertValid(problems);
 
-      const updated = await db.mutate('settings.write', async (tx, ctx) => {
+      const updated = await mutateScoped(db, 'settings.write', async (tx, ctx) => {
          try {
             return await options.settings.updateRepository(
                ctx.workspaceId,
@@ -206,7 +225,7 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
    route.delete('/:workspaceId/repositories/:repositoryId', async (context) => {
       const db = context.get('scoped');
       const repositoryId = pathId(context.req.param('repositoryId'), 'Repository');
-      const removed = await db.mutate('settings.write', (tx, ctx) =>
+      const removed = await mutateScoped(db, 'settings.write', (tx, ctx) =>
          options.settings.removeRepository(ctx.workspaceId, repositoryId, tx)
       );
       if (!removed) throw ApiError.notFound('Repository');

@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 
-import { clearSessionToken } from '@/lib/session';
 import { useSessionStore } from '@/store/session-store';
 
 const LOCAL_SIGN_OUT_DEADLINE_MS = 5000;
@@ -19,6 +18,7 @@ const LOCAL_SIGN_OUT_DEADLINE_MS = 5000;
 export function useSignOut() {
    const router = useRouter();
    const signOut = useSessionStore((state) => state.signOut);
+   const markAnonymous = useSessionStore((state) => state.markAnonymous);
    const [pending, setPending] = useState(false);
 
    const run = useCallback(async () => {
@@ -34,7 +34,7 @@ export function useSignOut() {
 
       const timer = setTimeout(() => {
          if (claim()) return;
-         clearSessionToken();
+         markAnonymous();
          toast('Your session ended locally.');
          router.replace('/sign-in');
       }, LOCAL_SIGN_OUT_DEADLINE_MS);
@@ -47,13 +47,13 @@ export function useSignOut() {
       } catch {
          if (claim()) return;
          clearTimeout(timer);
-         clearSessionToken();
+         markAnonymous();
          toast('Your session ended locally.');
          router.replace('/sign-in');
       } finally {
          setPending(false);
       }
-   }, [pending, router, signOut]);
+   }, [markAnonymous, pending, router, signOut]);
 
    return { signOut: run, pending };
 }

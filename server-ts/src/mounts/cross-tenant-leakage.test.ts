@@ -10,7 +10,8 @@
 // NOT a member of W2. Each workspace carries identifiable rows — an issue
 // label, a saved view, a board, and (auto-seeded by the workspace-insert
 // trigger) issue statuses. Every request below is driven through the real app
-// shell with U1's session token, so the error envelope, request id, and
+// shell with U1's personal access token (the same bearer path an API client
+// uses), so the error envelope, request id, and
 // standard headers are exactly what a client would receive.
 //
 // The four guarantees:
@@ -28,7 +29,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { BoardRepository } from '../core/boards.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -44,10 +47,6 @@ import { workCatalogRoutes } from './work-catalogs.ts';
 import { savedViewRoutes } from './view-routes.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
-
-// A session TTL comfortably inside the accepted 300..2,592,000s window, so
-// issuance never trips the bounds guard.
-const TTL_MS = 3_600_000;
 
 // A fixed request id, set on every request, so the 404 envelopes compared in
 // guarantee (b) are byte-for-byte comparable rather than carrying a fresh
@@ -92,7 +91,11 @@ describe(
       before(async () => {
          sql = openDatabase({ url: url as string });
 
-         const sessions = new SessionService({ sql, sessionTtlMs: TTL_MS });
+         const sessions = new SessionService({
+            sql,
+            auth: null,
+            bearer: [personalTokenResolver(sql)],
+         });
          const boards = new BoardRepository(sql);
          const registry = new Registry();
          // With the work-tracking extensions mounted, so their routes sit
@@ -232,14 +235,12 @@ describe(
             RETURNING id`;
          world.w2RuntimeId = w2Runtime!.id as string;
 
-         // A real session for U1, issued through the same path production uses.
-         // The raw token is handed back once; we drive every authenticated
-         // request below with it.
          // U1's current workspace is W1, which is what a mount that scopes
          // to the session's workspace (/api/v1/runtimes) reads.
          await sql`UPDATE users SET last_workspace_id = ${world.w1Id} WHERE id = ${u1Id}`;
-         const issued = await sessions.issueForUser(u1Id);
-         world.u1Token = issued.token;
+         // A real personal access token for U1 (the same bearer path an API
+         // client uses); every authenticated request below carries it.
+         world.u1Token = await issueTestToken(sql, u1Id);
       });
 
       after(async () => {

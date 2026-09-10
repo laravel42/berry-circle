@@ -4,7 +4,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { BoardRepository } from '../core/boards.ts';
 import { CommentRepository } from '../core/comments.ts';
 import { IssueRepository } from '../core/issues.ts';
@@ -68,7 +70,7 @@ describe('work tracking: cross-tenant leakage', { skip: url ? false : 'BERRY_TES
          RETURNING id`;
       w2PropertyId = property?.id as string;
 
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       const issues = new IssueRepository(sql);
       const boards = new BoardRepository(sql);
       const comments = new CommentRepository(sql);
@@ -92,7 +94,7 @@ describe('work tracking: cross-tenant leakage', { skip: url ? false : 'BERRY_TES
       registry.registerAll(pinMounts({ sessions, sql }));
       registry.registerAll(joinLinkMounts({ sessions, sql }));
       app = createApp(registry);
-      token = (await sessions.issueForUser(w1.ownerId)).token;
+      token = await issueTestToken(sql, w1.ownerId);
    });
    after(async () => {
       await cleanupWorld(sql, w1);

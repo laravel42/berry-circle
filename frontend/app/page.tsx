@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 /**
- * App root. Sign-in and sign-up both `router.replace('/')` on success, so this
+ * App root. Sign-in returns to `/`, so this
  * is the single hand-off into onboarding — the one place that decides where a
  * signed-in user lands. Onboarding reads `/me/bootstrap` and either routes into
  * the resolved workspace (previously selected if valid, else earliest-joined)

@@ -10,7 +10,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { BoardRepository } from '../core/boards.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -18,7 +20,6 @@ import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
-const TTL_MS = 3_600_000;
 
 interface SearchNode {
    type: string;
@@ -93,7 +94,7 @@ describe(
 
       before(async () => {
          sql = openDatabase({ url: url as string });
-         const sessions = new SessionService({ sql, sessionTtlMs: TTL_MS });
+         const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
          const boards = new BoardRepository(sql);
          const registry = new Registry();
          registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
@@ -157,7 +158,7 @@ describe(
             VALUES (${world.crossTenantThreadId}, 'user', ${world.u1Id}, 'owner'),
                    (${world.crossTenantThreadId}, 'agent', ${world.w2AgentId}, 'member')`;
 
-         world.u1Token = (await sessions.issueForUser(world.u1Id)).token;
+         world.u1Token = await issueTestToken(sql, world.u1Id);
       });
 
       after(async () => {

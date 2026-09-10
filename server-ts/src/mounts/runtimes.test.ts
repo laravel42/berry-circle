@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
@@ -25,10 +27,10 @@ describe('/api/v1/runtimes', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
       sql = openDatabase({ url: url as string });
       mine = await seedFixture(sql, 'rt-a');
       theirs = await seedFixture(sql, 'rt-b');
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       // The session's current workspace is the user's last one.
       await sql`UPDATE users SET last_workspace_id = ${mine.workspaceId} WHERE id = ${mine.userId}`;
-      ({ token } = await sessions.issueForUser(mine.userId));
+      token = await issueTestToken(sql, mine.userId);
       const [row] = await sql`
          INSERT INTO agent_runtimes (workspace_id, name, kind, driver, endpoint_url)
          VALUES (${theirs.workspaceId}, 'theirs', 'custom', 'http', 'http://x') RETURNING id`;

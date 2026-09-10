@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
@@ -41,9 +43,9 @@ describe(
             RETURNING id`;
          userId = (row as { id: string }).id;
          otherUserId = (other as { id: string }).id;
-         const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
-         token = (await sessions.issueForUser(userId)).token;
-         otherToken = (await sessions.issueForUser(otherUserId)).token;
+         const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
+         token = await issueTestToken(sql, userId);
+         otherToken = await issueTestToken(sql, otherUserId);
          const registry = new Registry();
          registry.registerAll(meMounts({ sessions, identity: new IdentityRepository(sql) }));
          app = createApp(registry);

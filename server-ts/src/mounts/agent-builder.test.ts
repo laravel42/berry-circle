@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { AgentBuilder } from '../agents/builder.ts';
 import { AgentRepository } from '../agents/repository.ts';
 import type { CompleteFn, CompletionRequest } from '../agents/seams.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -20,7 +21,7 @@ function buildApp(sql: Sql, complete: CompleteFn | null): BerryApp {
    const registry = new Registry();
    registry.registerAll(
       agentBuilderMounts({
-         sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+         sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
          sql,
          builder: new AgentBuilder({
             sql,

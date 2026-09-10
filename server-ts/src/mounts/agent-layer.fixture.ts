@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import type { Sql } from '../db/pool.ts';
 import type { BerryApp } from '../http/app.ts';
 
@@ -25,7 +27,7 @@ export interface AgentLayerWorld {
 }
 
 export async function seedAgentLayerWorld(sql: Sql): Promise<AgentLayerWorld> {
-   const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+   const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
    const suffix = randomUUID().slice(0, 8);
 
    const user = async (handle: string): Promise<string> => {
@@ -86,11 +88,11 @@ export async function seedAgentLayerWorld(sql: Sql): Promise<AgentLayerWorld> {
       issueId,
       agentId: await agent(workspaceId, `Coder ${suffix}`),
       ownerId,
-      ownerToken: (await sessions.issueForUser(ownerId)).token,
+      ownerToken: await issueTestToken(sql, ownerId),
       memberId,
-      memberToken: (await sessions.issueForUser(memberId)).token,
+      memberToken: await issueTestToken(sql, memberId),
       outsiderId,
-      outsiderToken: (await sessions.issueForUser(outsiderId)).token,
+      outsiderToken: await issueTestToken(sql, outsiderId),
       otherWorkspaceId,
       otherAgentId: await agent(otherWorkspaceId, `Foreign ${suffix}`),
    };

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
@@ -23,7 +24,7 @@ describe('mcp servers mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is 
       const registry = new Registry();
       registry.registerAll(
          mcpServerMounts({
-            sessions: new SessionService({ sql, sessionTtlMs: 3_600_000 }),
+            sessions: new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] }),
             sql,
             servers: new McpServerRepository({
                sql,

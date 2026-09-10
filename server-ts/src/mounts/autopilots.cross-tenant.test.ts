@@ -7,7 +7,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import fc from 'fast-check';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import type { FireInput } from '../autopilots/fire.ts';
 import { AutopilotRepository } from '../autopilots/repository.ts';
 import { cleanupWorkspace, seedWorkspace, testSealer, type Fixture } from '../autopilots/test-fixture.ts';
@@ -33,7 +35,7 @@ describe('autopilots: cross-tenant leakage', { skip: url ? false : 'BERRY_TEST_D
 
    before(async () => {
       sql = openDatabase({ url: url as string });
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       const repo = new AutopilotRepository({ sql, sealer: testSealer() });
       const registry = new Registry();
       registry.registerAll(
@@ -48,7 +50,7 @@ describe('autopilots: cross-tenant leakage', { skip: url ? false : 'BERRY_TEST_D
       app = createApp(registry);
       w1 = await seedWorkspace(sql, 'leak-1');
       w2 = await seedWorkspace(sql, 'leak-2');
-      u1Token = (await sessions.issueForUser(w1.userId)).token;
+      u1Token = await issueTestToken(sql, w1.userId);
       const draft = (fixture: Fixture) => ({
          name: `Pilot ${fixture.workspaceId.slice(0, 4)}`, description: null, assigneeType: 'agent' as const,
          assigneeId: fixture.agentId, promptTemplate: 'Go.', executionMode: 'create_issue' as const,

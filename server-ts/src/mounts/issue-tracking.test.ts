@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { BoardRepository } from '../core/boards.ts';
 import { CommentRepository } from '../core/comments.ts';
 import { IssueRepository } from '../core/issues.ts';
@@ -31,7 +33,7 @@ describe('issue-tracking routes', { skip: url ? false : 'BERRY_TEST_DATABASE_URL
       sql = openDatabase({ url: url as string });
       world = await seedWorld(sql, 'track');
       other = await seedWorld(sql, 'track-other');
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       const issues = new IssueRepository(sql);
       const boards = new BoardRepository(sql);
       const comments = new CommentRepository(sql);
@@ -59,9 +61,9 @@ describe('issue-tracking routes', { skip: url ? false : 'BERRY_TEST_DATABASE_URL
          })
       );
       app = createApp(registry);
-      tokens.owner = (await sessions.issueForUser(world.ownerId)).token;
-      tokens.viewer = (await sessions.issueForUser(world.viewerId)).token;
-      tokens.outsider = (await sessions.issueForUser(other.ownerId)).token;
+      tokens.owner = await issueTestToken(sql, world.ownerId);
+      tokens.viewer = await issueTestToken(sql, world.viewerId);
+      tokens.outsider = await issueTestToken(sql, other.ownerId);
    });
    after(async () => {
       await cleanupWorld(sql, world);

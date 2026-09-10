@@ -7,7 +7,9 @@ import { after, before, describe, test } from 'node:test';
 import fc from 'fast-check';
 
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { BoardRepository } from '../core/boards.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
@@ -48,9 +50,6 @@ const url = process.env.BERRY_TEST_DATABASE_URL;
 // hold the run at the ≥100 floor the property suite requires.
 const RUNS = 100;
 
-// A fixed in-range TTL (300..2,592,000 seconds), well inside the window.
-const TTL_MS = 172_800_000;
-
 // A client-supplied correlation id is echoed verbatim by the app when it is
 // safe (isValidRequestId), and it is the one per-request-random field in the
 // error envelope (`requestId`) and the `x-request-id` header. Pinning it to the
@@ -62,11 +61,11 @@ const FIXED_REQUEST_ID = 'req_property3indistinguishability';
 
 /** Build the real app with just the workspace-read mounts on the live database. */
 function buildApp(sql: Sql) {
-   const sessions = new SessionService({ sql, sessionTtlMs: TTL_MS });
+   const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
    const boards = new BoardRepository(sql);
    const registry = new Registry();
    registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
-   return { app: createApp(registry), sessions };
+   return { app: createApp(registry) };
 }
 
 /** The response facets Property 3 compares: status, exact body bytes, headers. */
@@ -101,7 +100,8 @@ describe(
       // The seeded truth. The caller is a member of `w1Id` (which owns
       // `w1LabelId`), and is NOT a member of `w2Id` (which owns `w2LabelId`).
       const fixture: Record<string, string> = {};
-      // A live session token for the caller, sent as `Authorization: Bearer`.
+      // A personal access token for the caller (the same bearer path an API
+      // client uses), sent as `Authorization: Bearer`.
       let token: string;
 
       before(async () => {
@@ -151,9 +151,17 @@ describe(
 
          const built = buildApp(sql);
          app = built.app;
-         // Mint the caller's session through the real issuance path.
-         const issued = await built.sessions.issueForUser(fixture.userId);
-         token = issued.token;
+         // Mint the caller's credential. Assigned to the suite-level `token`
+         // every request reads, never shadowed.
+         token = await issueTestToken(sql, fixture.userId);
+
+         // Positive control: the caller can read its own workspace. Without it
+         // a broken credential would turn every probe into the same 401 and
+         // the indistinguishability property would pass vacuously.
+         const own = await app.request(`/api/v1/catalogs/${fixture.w1Id}/issue-labels`, {
+            headers: { authorization: `Bearer ${token}`, 'x-request-id': FIXED_REQUEST_ID },
+         });
+         assert.equal(own.status, 200, 'the caller reads its own workspace');
       });
 
       after(async () => {

@@ -7,6 +7,7 @@ import { AgentRepository } from '../agents/repository.ts';
 import { agentAccessGuard } from '../agents/access.ts';
 import type { CompleteFn, CompletionRequest, EnqueueTask } from '../agents/seams.ts';
 import { commentTriggers } from '../agents/triggers.ts';
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import { ConversationRepository } from '../conversations/repository.ts';
 import { BoardRepository } from '../core/boards.ts';
@@ -51,7 +52,7 @@ describe('agent layer tenant isolation', { skip: url ? false : 'BERRY_TEST_DATAB
    before(async () => {
       sql = openDatabase({ url: url as string });
       world = await seedAgentLayerWorld(sql);
-      const sessions = new SessionService({ sql, sessionTtlMs: 3_600_000 });
+      const sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
       const idempotency = new IdempotencyStore(sql);
       const sealer = sealerFromKey(randomBytes(32).toString('base64'));
       const skills = new SkillRepository(sql);

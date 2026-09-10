@@ -16,6 +16,7 @@ For how the server is laid out, see [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 Every prefix `src/index.ts` registers today:
 
 ```
+/api/auth             (Better Auth: GitHub sign-in, callback, session, sign-out)
 /api/v1/agent-tools   (task-token auth only: the runtime calling Berry's tools)
 /api/v1/agent-builder /api/v1/agents        /api/v1/approvals     /api/v1/attachments
 /api/v1/auth          /api/v1/autopilots    /api/v1/boards        /api/v1/catalogs
@@ -29,6 +30,8 @@ Every prefix `src/index.ts` registers today:
 /api/webhooks/autopilots/:token   (public: signed autopilot webhook deliveries)
 /health  /metrics  /ready  /readyz
 ```
+
+`/api/auth` is Better Auth's own route set (GitHub sign-in, callback, session, sign-out), outside `/api/v1` because its shapes are the library's.
 
 If a prefix in this block stops answering, that is a bug, not a scope decision.
 

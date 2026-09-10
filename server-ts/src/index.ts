@@ -105,6 +105,10 @@ import { Distributed } from './realtime/distributed.ts';
 import { ReplayRepository } from './realtime/replay.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
+import { personalTokenResolver } from './auth/credentials.ts';
+import pg from 'pg';
+import { createBerryAuth, devSessionCookies } from './auth/better-auth.ts';
+import { betterAuthMounts } from './mounts/better-auth.ts';
 import { Storage } from './storage/storage.ts';
 import { ReviewGate } from './agents/review-gate.ts';
 import { ReviewQueue } from './core/review-queue.ts';
@@ -151,9 +155,33 @@ const config = loadConfig();
 const logger = createLogger(config.serviceName);
 const sql = openDatabase({ url: config.databaseUrl });
 
+/**
+ * Sign-in, when this deployment has a secret to sign cookies with and an
+ * origin to send the browser back to. Without them the server still serves
+ * API clients on personal access tokens; the browser just cannot sign in.
+ */
+const authPool =
+   config.auth.secret && config.auth.baseUrl
+      ? new pg.Pool({ connectionString: config.databaseUrl, max: 5 })
+      : null;
+const auth =
+   authPool && config.auth.secret && config.auth.baseUrl
+      ? createBerryAuth({
+           pool: authPool,
+           secret: config.auth.secret,
+           baseUrl: config.auth.baseUrl,
+           trustedOrigins: config.auth.trustedOrigins,
+           github: config.auth.github,
+           sessionTtlMs: config.sessionTtlMs,
+           testUtils: config.auth.devLogin,
+        })
+      : null;
+
 const sessions = new SessionService({
    sql,
-   sessionTtlMs: config.sessionTtlMs,
+   auth: auth ? { getSession: ({ headers }) => auth.api.getSession({ headers }) } : null,
+   bearer: [personalTokenResolver(sql)],
+   trustedOrigins: config.auth.trustedOrigins,
 });
 
 const identity = new IdentityRepository(sql);
@@ -793,14 +821,12 @@ registry.registerAll(
 registry.registerAll(
    authMounts({
       sessions,
-      identity,
       sql,
-      login: {
-         allowKnownEmail: config.allowPasswordlessLogin,
-         environment: config.appEnv,
-      },
+      devSession:
+         auth && config.auth.devLogin ? (userId) => devSessionCookies(auth, userId) : null,
    })
 );
+if (auth) registry.registerAll(betterAuthMounts(auth));
 registry.registerAll(
    platformMounts({
       database: () => checkDatabase(sql),
@@ -836,6 +862,9 @@ registry.registerAll(
          // The planner runs when there is a model credential to run it with.
          // Planning is a completion task, so it runs wherever tasks do.
          planner: executor !== null,
+         // True only when a GitHub OAuth App is configured for sign-in and
+         // Better Auth is running — not when only the repository App exists.
+         githubSignIn: auth !== null && config.auth.github !== null,
       },
    })
 );
@@ -886,6 +915,7 @@ logger.info('Berry server listening', {
          ? 'github'
          : 'no provider credentials'
       : 'no encryption key',
+   signIn: auth ? (config.auth.github ? 'github' : 'no GitHub OAuth App') : 'off',
    mounts: registry.prefixes,
 });
 
@@ -903,6 +933,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
             autopilotScheduler ? autopilotScheduler.stop() : Promise.resolve(),
          ])
             .then(() => closeDatabase(sql))
+            .then(() => authPool?.end())
             .then(() => process.exit(0));
       });
    });

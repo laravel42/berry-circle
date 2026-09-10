@@ -70,6 +70,17 @@ The status codes are meaningful and distinct:
 None of these writes a half-link, so a project never ends up in a broken state.
 Clearing the link (`githubRepo: null`) needs no resolver and always succeeds.
 
+## Sign-in
+
+GitHub is the only way in, through Better Auth at `/api/auth/*`. It uses a
+GitHub **OAuth App** of its own (`BERRY_AUTH_GITHUB_CLIENT_ID`/`_SECRET`,
+scopes `read:user user:email`, callback `<BERRY_APP_URL>/api/auth/callback/github`),
+separate from the repository GitHub App so sign-in never holds repository
+access. A GitHub account links to an existing Berry user only through a
+GitHub-verified email. Sessions are the `berry.session_token` cookie; personal
+access tokens remain the bearer credential for API clients. Sessions issued
+before migration 150 were revoked at cutover.
+
 ## Agents: rows, not a projection
 
 `GET /api/v1/agents` used to reconcile against an external runtime on **every**

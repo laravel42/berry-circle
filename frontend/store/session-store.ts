@@ -1,19 +1,11 @@
 import { create } from 'zustand';
 import type { User } from '@/data/users';
 import { BerryApiError } from '@/lib/api';
-import {
-   fetchBootstrap,
-   loginWithEmail,
-   logoutSession,
-   signInWithPassword,
-   signUpWithPassword,
-   type BootstrapWorkspace,
-} from '@/lib/auth';
+import { devLogin, fetchBootstrap, logoutSession, type BootstrapWorkspace } from '@/lib/auth';
 import { AUTO_LOGIN_EMAIL } from '@/lib/config';
 import { listBoards, selectBoardId } from '@/lib/boards';
 import { toUiUser } from '@/lib/catalog';
 import { isLocale, type Locale } from '@/lib/i18n/locales';
-import { clearSessionToken, restoreSessionToken } from '@/lib/session';
 import { selectWorkspace } from '@/lib/workspaces';
 
 export type SessionStatus = 'booting' | 'anonymous' | 'ready';
@@ -38,9 +30,9 @@ interface SessionState {
    setPreferredLocale: (locale: Locale) => void;
    error: string | null;
    hydrateFromStorage: () => Promise<void>;
-   signIn: (email: string, password: string) => Promise<void>;
-   signUp: (email: string, password: string) => Promise<void>;
    signOut: () => Promise<void>;
+   /** Drops to anonymous locally, without a server round trip (sign-out fallback). */
+   markAnonymous: () => void;
    /**
     * Re-read `/me/bootstrap` and re-derive the ready state. Onboarding calls
     * this after creating or joining a workspace so the store reflects the new
@@ -124,61 +116,43 @@ export const useSessionStore = create<SessionState>((set, get) => ({
    setPreferredLocale: (locale) => set({ preferredLocale: locale }),
 
    hydrateFromStorage: async () => {
-      // A tab-stored token is the normal way in. When none exists and a
-      // development AUTO_LOGIN_EMAIL is configured, sign in as that account
-      // through the passwordless route before falling back to anonymous. The
-      // route is server-gated to development/test and 404s in production, so a
-      // stray value cannot establish a session against a production API — a
-      // failed auto-login simply lands on the sign-in screen.
-      if (restoreSessionToken()) {
-         try {
-            const ready = await loadReadyState();
-            set({ status: 'ready', error: null, ...ready });
-         } catch (error) {
-            clearSessionToken();
-            set({
-               ...ANONYMOUS,
-               error: error instanceof BerryApiError ? error.message : null,
-            });
-         }
+      // The session is a cookie the browser sends on its own, so "is anyone
+      // signed in" is simply whether bootstrap answers. A 401 is the normal
+      // anonymous answer, not an error worth showing.
+      try {
+         const ready = await loadReadyState();
+         set({ status: 'ready', error: null, ...ready });
          return;
+      } catch (error) {
+         if (!(error instanceof BerryApiError) || error.status !== 401) {
+            set({ ...ANONYMOUS, error: error instanceof BerryApiError ? error.message : null });
+            return;
+         }
       }
 
+      // Development only: sign in as a configured account through dev-login.
+      // The server serves that route only in development and test, so a stray
+      // value cannot sign anyone in against a production API.
       if (AUTO_LOGIN_EMAIL) {
          try {
-            await loginWithEmail(AUTO_LOGIN_EMAIL);
+            await devLogin(AUTO_LOGIN_EMAIL);
             const ready = await loadReadyState();
             set({ status: 'ready', error: null, ...ready });
             return;
          } catch {
-            // Auto-login is a convenience, not a guarantee: on any failure
-            // (route disabled, unknown account, network) clear any partial
-            // token and present the sign-in screen rather than an error.
-            clearSessionToken();
-            set({ ...ANONYMOUS });
-            return;
+            // A convenience, not a guarantee: fall through to the sign-in page.
          }
       }
 
       set({ ...ANONYMOUS });
-   },
-
-   signIn: async (email: string, password: string) => {
-      await signInWithPassword(email, password);
-      const ready = await loadReadyState();
-      set({ status: 'ready', error: null, ...ready });
-   },
-
-   signUp: async (email: string, password: string) => {
-      await signUpWithPassword(email, password);
-      const ready = await loadReadyState();
-      set({ status: 'ready', error: null, ...ready });
    },
 
    signOut: async () => {
       await logoutSession();
       set({ ...ANONYMOUS });
    },
+
+   markAnonymous: () => set({ ...ANONYMOUS }),
 
    refreshWorkspaces: async () => {
       const ready = await loadReadyState();
