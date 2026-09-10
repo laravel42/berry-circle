@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
 import { Conflict, Forbidden, NotFound } from '../identity/errors.ts';
+import { McpServerRepository } from '../mcp/repository.ts';
+import { SkillRepository } from '../skills/repository.ts';
 
 /**
  * Agents as Berry rows.
@@ -43,6 +45,13 @@ export interface Agent {
     */
    permissions: string[];
    protected: boolean;
+   /** A seeded role such as 'guide'; null for an ordinary agent. */
+   systemRole: string | null;
+   archivedAt: string | null;
+   labels: string[];
+   /** Names only: the values are sealed and never leave the server but in an envelope. */
+   envNames: string[];
+   access: { assign: string; mention: string };
    createdAt: string;
    updatedAt: string;
 }
@@ -91,7 +100,9 @@ const AGENT_COLUMNS = `
    agent.id, agent.board_id, agent.name, agent.description, agent.avatar_url,
    agent.status, agent.capabilities, agent.skills, agent.instructions,
    agent.model_provider, agent.model_name, agent.model_tier,
-   agent.manifest_limits, agent.permissions, agent.protected, agent.created_at, agent.updated_at`;
+   agent.manifest_limits, agent.permissions, agent.protected, agent.system_role, agent.archived_at,
+   agent.labels, agent.env_names, agent.assign_scope, agent.mention_scope,
+   agent.created_at, agent.updated_at`;
 
 /**
  * One agent works one issue at a time.
@@ -152,12 +163,13 @@ export class AgentRepository {
       workspaceId: string,
       status: string,
       after: AgentCursor | null,
-      limit: number
+      limit: number,
+      archived = false
    ): Promise<Agent[]> {
       const rows = await this.sql`
          SELECT ${this.sql.unsafe(AGENT_COLUMNS)}
            FROM agents AS agent
-          WHERE agent.archived_at IS NULL
+          WHERE (agent.archived_at IS NULL) = ${!archived}
             AND agent.workspace_id = ${workspaceId}
             AND (${status} = '' OR agent.status = ${status})
             AND (${after === null} OR (agent.name, agent.id) > (${after?.name ?? ''}::text, ${after?.id ?? null}::uuid))
@@ -300,6 +312,52 @@ export class AgentRepository {
          UPDATE agents SET archived_at = ${now.toISOString()}, updated_at = ${now.toISOString()}
           WHERE id = ${agentId} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
    }
+
+   async restore(agentId: string, workspaceId: string): Promise<Agent> {
+      // Restoring a live agent is what the caller wanted, so no row updated is
+      // not an error; `get` then answers NotFound only for a missing agent.
+      await this.sql`
+         UPDATE agents SET archived_at = NULL, updated_at = now()
+          WHERE id = ${agentId} AND workspace_id = ${workspaceId} AND archived_at IS NOT NULL`;
+      return this.get(agentId, workspaceId);
+   }
+
+   /**
+    * A new agent with the same configuration, skills and MCP servers.
+    *
+    * Sealed env travels too (same workspace, same key). Runs, history and the
+    * protected flag stay with the original.
+    */
+   async copy(agentId: string, workspaceId: string): Promise<Agent> {
+      const id = this.newId();
+      await this.sql.begin(async (transaction) => {
+         const tx = transaction as unknown as Sql;
+         const inserted = await tx`
+            INSERT INTO agents (id, workspace_id, board_id, name, description, avatar_url, status,
+                                capabilities, skills, instructions, model_provider, model_name, permissions,
+                                labels, env_sealed, env_names, assign_scope, mention_scope)
+            SELECT ${id}, workspace_id, NULL, left(name, 93) || ' (copy)', description,
+                   -- An uploaded avatar is served from the original's id, so it
+                   -- does not travel; an external URL does.
+                   CASE WHEN avatar_url ~ '^https?://' THEN avatar_url ELSE NULL END,
+                   'available', capabilities, skills, instructions, model_provider, model_name, permissions,
+                   labels, env_sealed, env_names, assign_scope, mention_scope
+              FROM agents WHERE id = ${agentId} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
+         if (inserted.count !== 1) throw new NotFound();
+         await SkillRepository.copyBindings(tx, agentId, id);
+         await McpServerRepository.copyForAgent(tx, agentId, id);
+      });
+      return this.get(id, workspaceId);
+   }
+
+   /** The workspace's live guide agent, if it has one. */
+   async guide(workspaceId: string): Promise<Agent | null> {
+      const [row] = await this.sql`
+         SELECT ${this.sql.unsafe(AGENT_COLUMNS)} FROM agents AS agent
+          WHERE agent.workspace_id = ${workspaceId} AND agent.system_role = 'guide'
+            AND agent.archived_at IS NULL`;
+      return row ? toAgent(row) : null;
+   }
 }
 
 function toAgent(row: Record<string, unknown>): Agent {
@@ -319,6 +377,14 @@ function toAgent(row: Record<string, unknown>): Agent {
       limits: row.manifest_limits ?? null,
       permissions: (row.permissions as string[] | null) ?? [],
       protected: row.protected === true,
+      systemRole: (row.system_role as string | null) ?? null,
+      archivedAt: toRFC3339(row.archived_at as string | null),
+      labels: (row.labels as string[] | null) ?? [],
+      envNames: (row.env_names as string[] | null) ?? [],
+      access: {
+         assign: (row.assign_scope as string | null) ?? 'everyone',
+         mention: (row.mention_scope as string | null) ?? 'everyone',
+      },
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
    };

@@ -19,6 +19,7 @@ import {
 import {
    Activity,
    BarChart3,
+   BookOpen,
    Box,
    Check,
    ChevronDown,
@@ -30,6 +31,7 @@ import {
    LucideIcon,
    Sparkles,
    Target,
+   UsersRound,
 } from 'lucide-react';
 import { Fragment, useRef, useState, type PointerEvent } from 'react';
 
@@ -51,6 +53,8 @@ export const WORKSPACE_ITEMS: ItemConfig[] = [
 export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
+   { key: 'skills', label: 'skills', icon: BookOpen },
+   { key: 'squads', label: 'squads', icon: UsersRound },
    { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
    { key: 'usage', label: 'usage', icon: Coins },

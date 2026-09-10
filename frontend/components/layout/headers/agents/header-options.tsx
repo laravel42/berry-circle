@@ -1,13 +1,14 @@
 'use client';
 
-import { ArrowDown, SlidersHorizontal } from 'lucide-react';
+import { Archive, ArrowDown, SlidersHorizontal } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAgentsListStore, type AgentsSort } from '@/store/agents-list-store';
 
 export default function HeaderOptions() {
-   const { search, sort, setSearch, setSort } = useAgentsListStore();
+   const { search, sort, showArchived, setSearch, setSort, setShowArchived } =
+      useAgentsListStore();
 
    const toggleSort = () => {
       const next: AgentsSort = sort === 'last-active-desc' ? 'name-asc' : 'last-active-desc';
@@ -29,6 +30,15 @@ export default function HeaderOptions() {
             <Button size="xs" variant="secondary" disabled>
                <SlidersHorizontal className="mr-1 size-4" />
                Filter
+            </Button>
+            <Button
+               size="xs"
+               variant={showArchived ? 'default' : 'secondary'}
+               aria-pressed={showArchived}
+               onClick={() => setShowArchived(!showArchived)}
+            >
+               <Archive className="mr-1 size-4" />
+               {showArchived ? 'Showing archived' : 'Show archived'}
             </Button>
             <Button size="xs" variant="secondary" onClick={toggleSort}>
                {sort === 'last-active-desc' ? 'Last active' : 'Name'}

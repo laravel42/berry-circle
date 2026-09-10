@@ -31,12 +31,16 @@ import { rankFromSortOrder } from '@/lib/issues';
 import { WORKSPACE_NAME } from '@/lib/config';
 import { BerryApiError } from '@/lib/api';
 import { createBoardIssue } from '@/lib/issues';
+import { assignIssueToSquad, type Squad } from '@/lib/squads';
 
 export function CreateNewIssue() {
    const { isOpen, defaultStatus, openModal, closeModal } = useCreateIssueStore();
    const { addIssue, getAllIssues } = useIssuesStore();
    const boardId = useSessionStore((state) => state.boardId);
    const [pending, setPending] = useState(false);
+   // A squad chosen as assignee: its leader is the assignee on create, and the
+   // squad is given the issue once the issue exists.
+   const [squad, setSquad] = useState<Squad | null>(null);
 
 
    const createDefaultData = useCallback(() => {
@@ -101,7 +105,21 @@ export function CreateNewIssue() {
             labels: addIssueForm.labels,
          });
          toast.success('Task created');
+         if (squad) {
+            // Separate from the create: the task exists either way, and a
+            // squad that could not take it is reported rather than undone.
+            await assignIssueToSquad(squad.id, created.id).then(
+               () => toast.success(`Given to ${squad.name}`),
+               (error: unknown) =>
+                  toast.error(
+                     error instanceof BerryApiError
+                        ? error.message
+                        : `The task was created but could not be given to ${squad.name}`
+                  )
+            );
+         }
          closeModal();
+         setSquad(null);
          setAddIssueForm(createDefaultData());
       } catch (error) {
          toast.error(error instanceof BerryApiError ? error.message : 'Could not create task');
@@ -188,6 +206,7 @@ export function CreateNewIssue() {
                      onChange={(newAssignee) =>
                         setAddIssueForm({ ...addIssueForm, assignee: newAssignee })
                      }
+                     onSquadChange={setSquad}
                   />
                   <ProjectSelector
                      project={addIssueForm.project}

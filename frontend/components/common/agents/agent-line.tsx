@@ -11,6 +11,7 @@ import {
    agentStatusDisplay,
    type Agent,
    type AgentModel,
+   useAgentAvatarSrc,
 } from '@/lib/agents';
 
 interface AgentLineProps {
@@ -31,6 +32,7 @@ export default function AgentLine({
    const status = agentStatusDisplay(agent.status);
    const model = agentModelDisplay(agent);
    const price = agentPriceDisplay(agent, prices);
+   const avatarSrc = useAgentAvatarSrc(agent.avatarUrl);
 
    return (
       <Link
@@ -38,8 +40,13 @@ export default function AgentLine({
          className="flex w-full items-center border-b border-muted-foreground/5 px-6 py-3 last:border-b-0 hover:bg-sidebar/50"
       >
          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted/40">
-               <BerryMark size="sm" tone="working" label={agent.name} />
+            <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted/40">
+               {avatarSrc ? (
+                  // eslint-disable-next-line @next/next/no-img-element -- a blob or external URL, not an optimisable asset
+                  <img src={avatarSrc} alt="" className="size-full object-cover" />
+               ) : (
+                  <BerryMark size="sm" tone="working" label={agent.name} />
+               )}
             </span>
             <div className="min-w-0 overflow-hidden">
                <div className="flex min-w-0 items-center gap-2">

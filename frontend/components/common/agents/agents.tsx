@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { BerryApiError } from '@/lib/api';
 import {
    listAgentModels,
+   loadArchivedAgents,
    loadWorkspaceAgents,
    modelKey,
    pickRunnableAgent,
@@ -31,7 +32,32 @@ export default function Agents() {
    const storedError = useAgentsStore((state) => state.error);
    const hydrateAgents = useAgentsStore((state) => state.hydrateAgents);
    const runs = useRunsStore((state) => state.runs);
-   const { search, sort } = useAgentsListStore();
+   const { search, sort, showArchived } = useAgentsListStore();
+   const [archived, setArchived] = useState<Agent[] | null>(null);
+   const [archivedError, setArchivedError] = useState<string | null>(null);
+
+   // Archived agents are loaded on demand: the live roster stays in the store,
+   // and the archive is a view onto it the person asked for.
+   useEffect(() => {
+      if (!showArchived) return;
+      let cancelled = false;
+      setArchived(null);
+      setArchivedError(null);
+      void loadArchivedAgents()
+         .then((agents) => {
+            if (!cancelled) setArchived(agents);
+         })
+         .catch((error: unknown) => {
+            if (!cancelled) {
+               setArchivedError(
+                  error instanceof BerryApiError ? error.message : 'Archived agents could not be loaded.'
+               );
+            }
+         });
+      return () => {
+         cancelled = true;
+      };
+   }, [showArchived]);
 
    const [loading, setLoading] = useState(storedAgents.length === 0 && !storedError);
    const [prices, setPrices] = useState<Map<string, AgentModel>>(new Map());
@@ -93,7 +119,7 @@ export default function Agents() {
    const featuredAgentId = pickRunnableAgent(storedAgents)?.id;
 
    const displayed = useMemo(() => {
-      let list: Agent[] = storedAgents.slice();
+      let list: Agent[] = (showArchived ? (archived ?? []) : storedAgents).slice();
       const query = search.trim().toLowerCase();
 
       if (query) {
@@ -112,7 +138,10 @@ export default function Agents() {
       });
 
       return list;
-   }, [storedAgents, search, sort]);
+   }, [storedAgents, archived, showArchived, search, sort]);
+
+   const listLoading = showArchived ? archived === null && !archivedError : loading;
+   const listError = showArchived ? archivedError : storedError;
 
    return (
       <div className="w-full">
@@ -130,15 +159,17 @@ export default function Agents() {
             <div className="w-14 shrink-0 text-right">Runtimes</div>
          </div>
 
-         {loading ? (
+         {listLoading ? (
             <div className="px-6 py-10 text-muted-foreground">Loading agents…</div>
-         ) : storedError ? (
-            <div className="px-6 py-10 text-muted-foreground">{storedError}</div>
+         ) : listError ? (
+            <div className="px-6 py-10 text-muted-foreground">{listError}</div>
          ) : displayed.length === 0 ? (
             <div className="px-6 py-10 text-muted-foreground">
                {search.trim()
                   ? 'No agents match your search.'
-                  : 'No agents are registered for this workspace yet.'}
+                  : showArchived
+                    ? 'No archived agents.'
+                    : 'No agents are registered for this workspace yet.'}
             </div>
          ) : (
             displayed.map((agent) => (

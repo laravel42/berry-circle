@@ -134,6 +134,7 @@ export default function IssueDetails() {
             <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
                <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
                   <ActivityCommentComposer
+                     issueRef={issue?.identifier ?? issueId ?? ''}
                      draft={activityFeed.draft}
                      setDraft={activityFeed.setDraft}
                      submitComment={activityFeed.submitComment}

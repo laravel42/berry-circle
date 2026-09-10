@@ -58,6 +58,9 @@ describe('agents', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' },
 
    test('a page is ordered by name and resumes exactly where it stopped', async () => {
       const workspaceId = await freshWorkspace(sql, fixture.userId);
+      // Migration 091 seeds a guide into every new workspace; this test is about
+      // paging, so it pages the orchestrator and its own agents only.
+      await sql`DELETE FROM agents WHERE workspace_id = ${workspaceId} AND system_role = 'guide'`;
       for (const name of ['delta', 'alpha', 'charlie', 'bravo']) {
          await agents.create({ workspaceId, name });
       }

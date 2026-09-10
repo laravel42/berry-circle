@@ -42,10 +42,14 @@ import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
 import { AgentConfigField } from '@/components/common/agents/agent-config-field';
+import AgentProfileSettings from '@/components/common/agents/agent-profile-settings';
+import AgentSkillsTab from '@/components/common/agents/agent-skills-tab';
+import AgentTasksTab from '@/components/common/agents/agent-tasks-tab';
+import AgentToolsTab from '@/components/common/agents/agent-tools-tab';
 import { AgentModelTab } from '@/components/common/agents/agent-model-tab';
 import { AgentUsageTab } from '@/components/common/usage/agent-usage-tab';
 
-const DETAIL_TABS = ['overview', 'work', 'model', 'usage', 'settings'] as const;
+const DETAIL_TABS = ['overview', 'work', 'skills', 'tools', 'tasks', 'model', 'usage', 'settings'] as const;
 type DetailTab = (typeof DETAIL_TABS)[number];
 
 function MetaPill({
@@ -503,6 +507,15 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                      </div>
                   )}
                </TabsContent>
+               <TabsContent value="skills" className="mt-0 px-8 py-6">
+                  <AgentSkillsTab agentId={agent.id} />
+               </TabsContent>
+               <TabsContent value="tools" className="mt-0 px-8 py-6">
+                  <AgentToolsTab agentId={agent.id} />
+               </TabsContent>
+               <TabsContent value="tasks" className="mt-0 px-8 py-6">
+                  <AgentTasksTab agentId={agent.id} />
+               </TabsContent>
                <TabsContent value="model" className="mt-0 h-full">
                   <AgentModelTab
                      agentId={agent.id}
@@ -556,6 +569,17 @@ export default function AgentDetails({ agentId }: AgentDetailsProps) {
                         </p>
                      )}
                   </section>
+                  <AgentProfileSettings
+                     agent={agent}
+                     onChange={(next) => {
+                        setAgent(next);
+                        hydrateAgents(
+                           storedAgents.some((entry) => entry.id === next.id)
+                              ? storedAgents.map((entry) => (entry.id === next.id ? next : entry))
+                              : [...storedAgents, next]
+                        );
+                     }}
+                  />
                   <div className="flex flex-col gap-2 border-t border-border/70 pt-4">
                      <p className="text-muted-foreground">
                         Membership and workspace-wide defaults live in workspace settings.

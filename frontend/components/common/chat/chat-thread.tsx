@@ -5,8 +5,11 @@ import type { ChatMessage } from '@/lib/chat';
 
 interface ChatThreadProps {
    messages: ChatMessage[];
-   pending: boolean;
    agentName: string | null;
+   /** Shown at the top when older messages can be loaded. */
+   onLoadEarlier?: (() => void) | null;
+   /** Opens the steps of the task a reply came from. */
+   onViewSteps: (runId: string) => void;
 }
 
 function initial(name: string): string {
@@ -34,20 +37,32 @@ function dayLabel(iso: string): string {
  * Day dividers are emitted on change rather than per message, which is what
  * makes them read as separators instead of decoration.
  */
-export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
+export function ChatThread({ messages, agentName, onLoadEarlier, onViewSteps }: ChatThreadProps) {
    const endRef = useRef<HTMLDivElement>(null);
+   const lastId = messages.at(-1)?.id;
 
-   // A new turn should be visible without scrolling; the agent's answer arrives
-   // after a wait, so the reader is rarely looking at the bottom when it lands.
+   // A new turn should be visible without scrolling; a reply arrives when its
+   // task ends, so the reader is rarely looking at the bottom when it lands.
+   // Keyed on the newest message, so loading earlier history does not jump.
    useEffect(() => {
       endRef.current?.scrollIntoView({ block: 'end' });
-   }, [messages.length, pending]);
+   }, [lastId]);
 
    let lastDay = '';
 
    return (
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-5">
-         {messages.length === 0 && !pending ? (
+         {onLoadEarlier ? (
+            <button
+               type="button"
+               onClick={onLoadEarlier}
+               className="self-center text-[var(--shell-text-dim)] hover:text-[var(--shell-text)]"
+            >
+               Load earlier
+            </button>
+         ) : null}
+
+         {messages.length === 0 ? (
             <p className="text-[var(--shell-text-dim)]">
                {agentName
                   ? `Say something to ${agentName}. Every task it runs uses the instructions on its profile.`
@@ -94,6 +109,15 @@ export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
                            <span className="text-[var(--shell-text-dim)] tabular-nums">
                               {clockTime(message.createdAt)}
                            </span>
+                           {isAgent && message.runId ? (
+                              <button
+                                 type="button"
+                                 onClick={() => onViewSteps(message.runId as string)}
+                                 className="text-[var(--shell-text-dim)] hover:text-[var(--shell-text)]"
+                              >
+                                 View steps
+                              </button>
+                           ) : null}
                         </div>
                         <p className="whitespace-pre-wrap break-words text-[var(--shell-text-muted)]">
                            {message.body}
@@ -103,17 +127,6 @@ export function ChatThread({ messages, pending, agentName }: ChatThreadProps) {
                </div>
             );
          })}
-
-         {pending ? (
-            <div className="flex gap-3" role="status" aria-live="polite">
-               <span className="mt-0.5 flex size-6 flex-none items-center justify-center rounded bg-[color-mix(in_srgb,var(--shell-accent)_28%,transparent)]">
-                  {agentName ? initial(agentName) : '·'}
-               </span>
-               <p className="text-[var(--shell-text-dim)] [animation:berrypulse_1.4s_ease-in-out_infinite] motion-reduce:animate-none">
-                  {agentName ?? 'the agent'} is thinking…
-               </p>
-            </div>
-         ) : null}
 
          <div ref={endRef} />
       </div>
