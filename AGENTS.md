@@ -155,6 +155,7 @@ cp .env.example .env && docker compose up -d --build
 # Repository checks
 python3 scripts/check-compose-config.py
 python3 scripts/check-no-model-in-server.py
+python3 scripts/check-locale-catalogues.py
 
 # Server
 pnpm typecheck:server

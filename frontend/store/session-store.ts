@@ -12,6 +12,7 @@ import {
 import { AUTO_LOGIN_EMAIL } from '@/lib/config';
 import { listBoards, selectBoardId } from '@/lib/boards';
 import { toUiUser } from '@/lib/catalog';
+import { isLocale, type Locale } from '@/lib/i18n/locales';
 import { clearSessionToken, restoreSessionToken } from '@/lib/session';
 import { selectWorkspace } from '@/lib/workspaces';
 
@@ -31,6 +32,10 @@ interface SessionState {
    /** Every workspace the user belongs to, for the switcher menu. */
    workspaces: SessionWorkspace[];
    boardId: string | null;
+   /** The account's interface language, from bootstrap; null when anonymous. */
+   preferredLocale: Locale | null;
+   /** Settings calls this after saving, so LocaleSync does not revert the choice. */
+   setPreferredLocale: (locale: Locale) => void;
    error: string | null;
    hydrateFromStorage: () => Promise<void>;
    signIn: (email: string, password: string) => Promise<void>;
@@ -75,7 +80,7 @@ const toSessionWorkspace = (workspace: BootstrapWorkspace): SessionWorkspace => 
 });
 
 async function loadReadyState(): Promise<
-   Pick<SessionState, 'user' | 'workspace' | 'workspaces' | 'boardId'>
+   Pick<SessionState, 'user' | 'workspace' | 'workspaces' | 'boardId' | 'preferredLocale'>
 > {
    const bootstrap = await fetchBootstrap();
    const workspace = pickWorkspace(bootstrap.workspaces, bootstrap.currentWorkspaceId);
@@ -91,6 +96,9 @@ async function loadReadyState(): Promise<
       workspace: workspace ? toSessionWorkspace(workspace) : null,
       workspaces: bootstrap.workspaces.map(toSessionWorkspace),
       boardId: selectBoardId(boards),
+      preferredLocale: isLocale(bootstrap.user.settings.locale)
+         ? bootstrap.user.settings.locale
+         : null,
    };
 }
 
@@ -100,6 +108,7 @@ const ANONYMOUS = {
    workspace: null,
    workspaces: [] as SessionWorkspace[],
    boardId: null,
+   preferredLocale: null,
    error: null,
 };
 
@@ -109,7 +118,10 @@ export const useSessionStore = create<SessionState>((set, get) => ({
    workspace: null,
    workspaces: [],
    boardId: null,
+   preferredLocale: null,
    error: null,
+
+   setPreferredLocale: (locale) => set({ preferredLocale: locale }),
 
    hydrateFromStorage: async () => {
       // A tab-stored token is the normal way in. When none exists and a

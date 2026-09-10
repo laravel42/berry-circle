@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { RiSettings3Line } from '@remixicon/react';
 import {
    DropdownMenu,
@@ -44,6 +45,7 @@ interface ShellRailProps {
  * removes all three.
  */
 export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailProps) {
+   const t = useTranslations('shell');
    const { visibility, order } = useSidebarPrefsStore();
    const [customizeOpen, setCustomizeOpen] = useState(false);
    // A run that has not reached a terminal status is still going, which is what
@@ -96,7 +98,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
 
    return (
       <nav
-         aria-label="Workspace"
+         aria-label={t('rail.workspace')}
          className="flex w-[218px] flex-none flex-col bg-[var(--shell-rail)]"
       >
          {settingsMode ? (
@@ -113,7 +115,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                      <DropdownMenuTrigger asChild>
                         <button
                            type="button"
-                           aria-label="Workspace menu"
+                           aria-label={t('rail.workspaceMenu')}
                            className="group/ws flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-2.5 py-2.5 text-left transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)] data-[state=open]:bg-[var(--shell-hover)] data-[state=open]:text-[var(--shell-text)]"
                         >
                            <BerryMark size={24} />
@@ -153,7 +155,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                      <div key={section.heading ?? 'primary'}>
                         {section.heading ? (
                            <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
-                              {section.heading}
+                              {section.headingKey ? t(`sections.${section.headingKey}`) : null}
                            </div>
                         ) : null}
                         <ul className="flex flex-col gap-px px-2">
@@ -170,11 +172,11 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                               const inner = (
                                  <>
                                     <ShellIcon path={route.icon} />
-                                    {route.label}
+                                    {t(`nav.${route.labelKey}`)}
                                     {route.live === 'runs' && runsLive ? (
                                        <span
-                                          aria-label="Runs in progress"
-                                          title="Runs in progress"
+                                          aria-label={t('rail.runsInProgress')}
+                                          title={t('rail.runsInProgress')}
                                           className="ml-auto size-[5px] rounded-full bg-[var(--brand-azure)] [animation:berrypulse_2s_ease-in-out_infinite] motion-reduce:animate-none"
                                        />
                                     ) : null}
@@ -211,8 +213,8 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
             <button
                type="button"
                onClick={() => setCustomizeOpen(true)}
-               aria-label="Customize sidebar"
-               title="Customize sidebar"
+               aria-label={t('rail.customizeSidebar')}
+               title={t('rail.customizeSidebar')}
                className={`size-[26px] ${shellIconButton}`}
             >
                <RiSettings3Line className="size-3.5" />
@@ -220,8 +222,8 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
             <button
                type="button"
                onClick={onToggle}
-               aria-label="Collapse sidebar"
-               title="Collapse sidebar"
+               aria-label={t('rail.collapseSidebar')}
+               title={t('rail.collapseSidebar')}
                className={`ml-auto size-[26px] ${shellIconButton}`}
             >
                <svg

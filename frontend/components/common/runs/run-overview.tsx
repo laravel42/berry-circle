@@ -3,6 +3,7 @@
 import { parseISO } from 'date-fns';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { GitBranch, GitPullRequest } from 'lucide-react';
@@ -107,6 +108,7 @@ function DeliveryStrip({ delivery }: { delivery: RunDelivery }) {
 }
 
 export default function RunOverview() {
+   const t = useTranslations('runtimes.overview');
    const { orgId } = useParams<{ orgId: string }>();
    const router = useRouter();
    const searchParams = useSearchParams();
@@ -201,22 +203,22 @@ export default function RunOverview() {
          const updated = await cancelRun(selectedRun.id);
          upsertRun(updated);
          setStreamStatus('cancelled');
-         toast.success('Run cancelled');
+         toast.success(t('cancelled'));
       } catch (error) {
-         toast.error(error instanceof BerryApiError ? error.message : 'Could not cancel run');
+         toast.error(error instanceof BerryApiError ? error.message : t('cancelFailed'));
       } finally {
          setCancelling(false);
       }
    };
 
    return (
-      <section className="flex h-full w-full flex-col" aria-label="Runtimes">
+      <section className="flex h-full w-full flex-col" aria-label={t('label')}>
          {selectedRun ? (
             <div className="border-b bg-muted/20 px-6 py-5 sm:px-8">
                <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-muted-foreground">
                      {issueById.get(selectedRun.issueId)?.identifier ?? selectedRun.issueId} ·{' '}
-                     {getAgentById(selectedRun.agentId)?.name ?? 'agent'} ·{' '}
+                     {getAgentById(selectedRun.agentId)?.name ?? t('agentFallback')} ·{' '}
                      {streamStatus || selectedRun.status}
                   </p>
                   {!isTerminalRunStatus(selectedRun.status) ? (
@@ -227,7 +229,7 @@ export default function RunOverview() {
                         disabled={cancelling}
                         onClick={() => void onCancelSelected()}
                      >
-                        {cancelling ? 'Cancelling…' : 'Cancel run'}
+                        {cancelling ? t('cancelling') : t('cancel')}
                      </Button>
                   ) : null}
                </div>
@@ -235,7 +237,7 @@ export default function RunOverview() {
                   {transcript ||
                      selectedRun.summary ||
                      selectedRun.failure?.message ||
-                     'Waiting for output…'}
+                     t('waiting')}
                </pre>
                {delivery ? <DeliveryStrip delivery={delivery} /> : null}
             </div>
@@ -243,7 +245,7 @@ export default function RunOverview() {
 
          <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full table-fixed text-left">
-               <caption className="sr-only">Delegated runtimes</caption>
+               <caption className="sr-only">{t('caption')}</caption>
                <colgroup>
                   <col />
                   <col className="w-[120px]" />
@@ -328,7 +330,7 @@ export default function RunOverview() {
                                  </button>
                               </td>
                               <td className="w-[120px] truncate px-6 py-2.5 text-muted-foreground sm:px-8">
-                                 {agent?.name ?? 'agent'}
+                                 {agent?.name ?? t('agentFallback')}
                               </td>
                               <td className="w-[200px] px-6 py-2.5 text-muted-foreground sm:px-8">
                                  <span className="inline-flex w-fit items-baseline gap-1.5 whitespace-nowrap">

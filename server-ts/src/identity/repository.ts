@@ -15,6 +15,8 @@ export type UserSettings = {
    theme: string;
    timezone: string;
    reducedMotion: boolean;
+   /** Interface language; one of `LOCALES` in http/validation.ts. */
+   locale: string;
 }
 
 export type OnboardingState = {
@@ -88,6 +90,9 @@ function toSettings(value: unknown): UserSettings {
       theme: raw.theme ?? 'system',
       timezone: raw.timezone ?? 'UTC',
       reducedMotion: raw.reducedMotion ?? false,
+      // Rows written before the preference existed have no key; they read as
+      // the default rather than as a partial object.
+      locale: typeof raw.locale === 'string' ? raw.locale : 'en',
    };
 }
 

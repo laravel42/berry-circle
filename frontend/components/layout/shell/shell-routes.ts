@@ -23,11 +23,31 @@ export type ShellRoute =
    | 'dashboard'
    | 'usage';
 
+/** Key under `shell.nav` in the message catalogues. */
+export type ShellLabelKey =
+   | 'tasks'
+   | 'reviews'
+   | 'goals'
+   | 'projects'
+   | 'runtimes'
+   | 'agents'
+   | 'analytics'
+   | 'skills'
+   | 'squads'
+   | 'autopilots'
+   | 'dashboard'
+   | 'usage';
+
 export interface ShellRouteDef {
    /** Stable identifier, also the tab key. */
    id: ShellRoute;
    /** What the sidebar and tab strip display. */
    label: string;
+   /**
+    * Catalogue key the rail and tabs render. `label` stays as the English
+    * form for the persisted tab model, which runs outside React.
+    */
+   labelKey: ShellLabelKey;
    /** Inner SVG markup, drawn on a 24x24 viewBox with currentColor stroke. */
    icon: string;
    /**
@@ -58,6 +78,7 @@ const WORK: ShellRouteDef[] = [
    {
       id: 'issues',
       label: 'tasks',
+      labelKey: 'tasks',
       href: '/my-issues',
       prefsKey: 'my-issues',
       icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
@@ -65,6 +86,7 @@ const WORK: ShellRouteDef[] = [
    {
       id: 'reviews',
       label: 'reviews',
+      labelKey: 'reviews',
       href: '/reviews',
       prefsKey: 'reviews',
       icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
@@ -72,6 +94,7 @@ const WORK: ShellRouteDef[] = [
    {
       id: 'goals',
       label: 'goals',
+      labelKey: 'goals',
       href: '/goals',
       match: ['/goal/', '/plan/'],
       prefsKey: 'goals',
@@ -80,6 +103,7 @@ const WORK: ShellRouteDef[] = [
    {
       id: 'projects',
       label: 'projects',
+      labelKey: 'projects',
       href: '/projects',
       match: ['/project/'],
       prefsKey: 'projects',
@@ -91,6 +115,7 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'runs',
       label: 'runtimes',
+      labelKey: 'runtimes',
       href: '/runs',
       prefsKey: 'agent',
       live: 'runs',
@@ -99,6 +124,7 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'members',
       label: 'agents',
+      labelKey: 'agents',
       href: '/agents',
       prefsKey: 'agents',
       icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" /><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9z" />',
@@ -106,6 +132,7 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'skills',
       label: 'skills',
+      labelKey: 'skills',
       href: '/skills',
       match: ['/skills/'],
       prefsKey: 'skills',
@@ -114,6 +141,7 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'squads',
       label: 'squads',
+      labelKey: 'squads',
       href: '/squads',
       match: ['/squads/'],
       prefsKey: 'squads',
@@ -122,6 +150,7 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'autopilots',
       label: 'autopilots',
+      labelKey: 'autopilots',
       href: '/autopilots',
       match: ['/autopilot/'],
       prefsKey: 'autopilot',
@@ -130,12 +159,14 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'analytics',
       label: 'analytics',
+      labelKey: 'analytics',
       prefsKey: 'analytics',
       icon: '<path d="M4 19V10M10 19V5M16 19v-7" /><path d="M3 19h18" />',
    },
    {
       id: 'dashboard',
       label: 'dashboard',
+      labelKey: 'dashboard',
       href: '/dashboard',
       prefsKey: 'dashboard',
       icon: '<rect x="4" y="4" width="7" height="9" rx="1" /><rect x="13" y="4" width="7" height="5" rx="1" /><rect x="13" y="11" width="7" height="9" rx="1" /><rect x="4" y="15" width="7" height="5" rx="1" />',
@@ -143,6 +174,7 @@ const MANAGE: ShellRouteDef[] = [
    {
       id: 'usage',
       label: 'usage',
+      labelKey: 'usage',
       href: '/usage',
       prefsKey: 'usage',
       icon: '<circle cx="12" cy="12" r="8.5" /><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7c0 2.6-5 1.3-5 4 0 1.1 1 1.8 2.5 1.8s2.5-.5 2.5-1.5" />',
@@ -154,12 +186,17 @@ export const MORE_ICON =
 
 export const SHELL_SECTIONS: {
    heading: string | null;
+   /** Key under `shell.sections`; null when the section has no heading. */
+   headingKey: 'work' | 'manage' | null;
    routes: ShellRouteDef[];
    prefsSection?: SidebarSection;
 }[] = [
-   { heading: 'Work', routes: WORK, prefsSection: 'workspace' },
-   { heading: 'Manage', routes: MANAGE, prefsSection: 'configure' },
+   { heading: 'Work', headingKey: 'work', routes: WORK, prefsSection: 'workspace' },
+   { heading: 'Manage', headingKey: 'manage', routes: MANAGE, prefsSection: 'configure' },
 ];
+
+/** Every rail destination, for surfaces that label a path by its rail entry. */
+export const SHELL_ROUTES: ShellRouteDef[] = [...WORK, ...MANAGE];
 
 const BY_ID = new Map<string, ShellRouteDef>(
    [...WORK, ...MANAGE].map((route) => [route.id, route])

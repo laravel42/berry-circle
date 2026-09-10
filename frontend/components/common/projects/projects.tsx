@@ -9,6 +9,7 @@ import { useProjectsDisplayStore } from '@/store/projects-display-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { BarChart3, Box } from 'lucide-react';
 import { useMemo } from 'react';
+import { useTranslations } from 'next-intl';
 import { Filter } from '@/components/layout/headers/projects/filter';
 import ProjectsBoard, { type ProjectBoardEntry } from './projects-board';
 import { CreateProjectDialog } from './create-project-dialog';
@@ -101,6 +102,7 @@ function percentCompleteForProject(
 
 /** Projects page: filters, display options, views and insights. */
 export default function Projects() {
+   const t = useTranslations('projects');
    const { filters, sort } = useProjectsFilterStore();
    const { viewType, grouping, ordering, closedProjects, showEmptyGroups } =
       useProjectsDisplayStore();
@@ -181,7 +183,7 @@ export default function Projects() {
                   size="xs"
                   variant={openPanel === 'insights' ? 'secondary' : 'ghost'}
                   onClick={() => togglePanel('insights')}
-                  aria-label="Toggle projects insights panel"
+                  aria-label={t('toggleInsights')}
                >
                   <BarChart3 className="size-4" />
                </Button>

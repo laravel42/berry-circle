@@ -1,0 +1,19 @@
+{
+   "header": {
+      "title": "設定"
+   },
+   "preferences": {
+      "title": "環境設定",
+      "general": "一般",
+      "language": "言語",
+      "languageDescription": "Berry の画面に表示する言語です。アカウントに保存されます。",
+      "timezone": "タイムゾーン",
+      "timezoneDescription": "Berry 全体の日時はこのタイムゾーンで表示されます。",
+      "interface": "インターフェースとテーマ",
+      "sidebar": "アプリのサイドバー",
+      "sidebarDescription": "サイドバー項目の固定・非表示・並べ替え。このブラウザに保存されます。",
+      "customize": "カスタマイズ",
+      "reduceMotion": "動きを減らす",
+      "reduceMotionDescription": "作業の進行を示すアニメーションをオフにします。"
+   }
+}

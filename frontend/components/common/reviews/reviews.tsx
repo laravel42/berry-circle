@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { loadReviews, reviewTimeAgo, type ReviewItem, type ReviewQueueState } from '@/lib/reviews';
 import { useSessionStore } from '@/store/session-store';
 import Link from 'next/link';
+import { useTranslations } from 'next-intl';
 import { useParams } from 'next/navigation';
 import { ReactNode, useCallback, useEffect, useState } from 'react';
 import { ReviewDetail, ReviewSection } from './review-detail';
@@ -103,6 +104,7 @@ interface ReviewsProps {
  * decision on the right refreshes the left.
  */
 export default function Reviews({ listTab = 'for-you', selectedReviewId, section = 'overview' }: ReviewsProps) {
+   const t = useTranslations('reviews');
    const { orgId } = useParams<{ orgId: string }>();
    const workspace = useSessionStore((state) => state.workspace);
    const state: ReviewQueueState = listTab === 'for-you' ? 'open' : 'completed';
@@ -124,8 +126,11 @@ export default function Reviews({ listTab = 'for-you', selectedReviewId, section
    }, [reload]);
 
    const groups = [
-      { label: state === 'open' ? 'Waiting for a decision' : 'Approved', status: state === 'open' ? 'open' : 'merged' },
-      { label: 'Sent back', status: 'closed' },
+      {
+         label: state === 'open' ? t('groups.waiting') : t('groups.approved'),
+         status: state === 'open' ? 'open' : 'merged',
+      },
+      { label: t('groups.sentBack'), status: 'closed' },
    ]
       .map((group) => ({ ...group, items: (items ?? []).filter((item) => reviewStatusOf(item) === group.status) }))
       .filter((group) => group.items.length > 0);
@@ -134,24 +139,24 @@ export default function Reviews({ listTab = 'for-you', selectedReviewId, section
       <div className="w-full h-full flex overflow-hidden">
          <div className="w-[420px] max-w-[45%] shrink-0 border-r h-full flex flex-col bg-container">
             <div className="flex items-center justify-between px-4 py-1.5 h-10 border-b shrink-0">
-               <span className="font-medium">Reviews</span>
+               <span className="font-medium">{t('title')}</span>
             </div>
             <div className="flex items-center gap-1.5 px-4 py-2 shrink-0">
                <Link
                   href={`/${orgId}/reviews`}
                   className={cn('px-2.5 py-1 rounded-md border font-medium transition-colors', listTab === 'for-you' ? 'bg-accent border-transparent' : 'text-muted-foreground hover:bg-accent/50')}
                >
-                  Waiting
+                  {t('tabs.waiting')}
                </Link>
                <Link
                   href={`/${orgId}/reviews/created`}
                   className={cn('px-2.5 py-1 rounded-md border font-medium transition-colors', listTab === 'created' ? 'bg-accent border-transparent' : 'text-muted-foreground hover:bg-accent/50')}
                >
-                  Decided
+                  {t('tabs.decided')}
                </Link>
             </div>
             <div className="flex-1 overflow-y-auto">
-               {items === null && !error && <div className="px-4 py-6 text-muted-foreground">Loading reviews…</div>}
+               {items === null && !error && <div className="px-4 py-6 text-muted-foreground">{t('loading')}</div>}
                {error && <div className="px-4 py-6 text-muted-foreground" role="alert">{error}</div>}
                {groups.map((group) => (
                   <ReviewGroup key={group.label} label={group.label} count={group.items.length}>
@@ -162,7 +167,7 @@ export default function Reviews({ listTab = 'for-you', selectedReviewId, section
                ))}
                {items !== null && items.length === 0 && !error && (
                   <div className="px-6 py-10 text-muted-foreground">
-                     {state === 'open' ? 'Nothing is waiting for review.' : 'Nothing has been decided yet.'}
+                     {state === 'open' ? t('empty.open') : t('empty.decided')}
                   </div>
                )}
             </div>
@@ -176,7 +181,7 @@ export default function Reviews({ listTab = 'for-you', selectedReviewId, section
                   <EmptySketch />
                   <span className="flex items-center gap-2">
                      <BerryMark size="sm" tone="neutral" />
-                     {items ? `${items.length} ${state === 'open' ? 'waiting' : 'decided'}` : ''}
+                     {items ? t(state === 'open' ? 'count.open' : 'count.decided', { count: items.length }) : ''}
                   </span>
                </div>
             )}

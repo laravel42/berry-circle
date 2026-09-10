@@ -1,0 +1,21 @@
+{
+   "title": "评审",
+   "tabs": {
+      "waiting": "待处理",
+      "decided": "已决定"
+   },
+   "groups": {
+      "waiting": "等待决定",
+      "approved": "已批准",
+      "sentBack": "已退回"
+   },
+   "loading": "正在加载评审…",
+   "empty": {
+      "open": "没有等待评审的内容。",
+      "decided": "还没有任何决定。"
+   },
+   "count": {
+      "open": "{count} 项待处理",
+      "decided": "{count} 项已决定"
+   }
+}

@@ -24,6 +24,8 @@ const userSettingsSchema = z.object({
    theme: z.string(),
    timezone: z.string(),
    reducedMotion: z.boolean(),
+   // Defaulted so a server without the field still parses.
+   locale: z.string().default('en'),
 });
 
 export type Profile = z.infer<typeof profileSchema>;
