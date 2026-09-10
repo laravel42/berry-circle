@@ -1,0 +1,19 @@
+{
+   "name": "@berry/plugin-sdk",
+   "private": true,
+   "type": "module",
+   "version": "0.1.0",
+   "description": "Build Berry plugins: verify hook calls, call the public API, read surface launches.",
+   "exports": {
+      ".": "./src/index.ts"
+   },
+   "scripts": {
+      "typecheck": "tsc --noEmit",
+      "test": "node --test --experimental-strip-types 'src/**/*.test.ts'"
+   },
+   "devDependencies": {
+      "@types/node": "^26.4.0",
+      "typescript": "^7.0.2"
+   },
+   "license": "MIT"
+}

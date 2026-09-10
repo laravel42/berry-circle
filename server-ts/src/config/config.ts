@@ -37,6 +37,11 @@ export interface Config {
     */
    integrationKey: string | null;
    /**
+    * Lets plugin calls reach http and private addresses. Development only: in
+    * production a plugin must be a public https endpoint.
+    */
+   pluginsAllowPrivateNetwork: boolean;
+   /**
     * What this deployment can connect to, and where a provider sends the
     * browser back.
     *
@@ -299,6 +304,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       // No generated fallback: a key that appeared on its own would differ
       // between restarts and strand every credential already stored.
       integrationKey: (env.INTEGRATION_ENCRYPTION_KEY ?? '').trim() || null,
+      pluginsAllowPrivateNetwork: (env.BERRY_PLUGINS_ALLOW_PRIVATE_NETWORK ?? '').trim() === '1',
       integrations: integrations(env),
       git: git(env),
    };

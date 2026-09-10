@@ -118,6 +118,8 @@ const tokenSchema = z.object({
    expiresAt: z.string().nullable(),
    revokedAt: z.string().nullable(),
    createdAt: z.string(),
+   /** Public API scopes; null means every scope (keys made before scopes existed). */
+   scopes: z.array(z.string()).nullish(),
 });
 
 export type PersonalToken = z.infer<typeof tokenSchema>;
@@ -133,6 +135,14 @@ export async function loadTokens(): Promise<PersonalToken[]> {
    return found.filter((token) => !token.revokedAt);
 }
 
+/** The public API scopes a personal key can hold. Storage belongs to plugins only. */
+export const API_SCOPES = [
+   'issues:read',
+   'issues:write',
+   'comments:read',
+   'comments:write',
+] as const;
+
 /**
  * Creates a token and returns the secret once.
  *
@@ -141,12 +151,13 @@ export async function loadTokens(): Promise<PersonalToken[]> {
  * the server omits it rather than sending null, and this says so.
  */
 export async function createToken(
-   name: string
+   name: string,
+   scopes: string[] | null = null
 ): Promise<{ secret: string | null; record: PersonalToken }> {
    const json: unknown = await apiFetch('/api/v1/tokens', {
       method: 'POST',
       headers: { 'idempotency-key': crypto.randomUUID() },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(scopes === null ? { name } : { name, scopes }),
    });
    const parsed = parse(
       z.object({ personalToken: tokenSchema, token: z.string().optional() }),

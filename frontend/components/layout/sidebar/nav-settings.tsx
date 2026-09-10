@@ -18,6 +18,7 @@ import {
    ListChecks,
    LucideIcon,
    Plug,
+   Puzzle,
    Settings,
    Sparkles,
    Tag,
@@ -68,6 +69,7 @@ export const settingsNav: SettingsNavGroup[] = [
          { name: 'quick actions', url: '/settings/quick-actions', icon: Zap },
          { name: 'join links', url: '/settings/join-links', icon: Link2 },
          { name: 'MCP servers', url: '/settings/mcp', icon: Plug },
+         { name: 'plugins', url: '/settings/plugins', icon: Puzzle },
       ],
    },
 ];

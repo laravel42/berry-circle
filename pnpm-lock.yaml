@@ -222,6 +222,15 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  packages/plugin-sdk:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.4.0
+        version: 26.5.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
   server-ts:
     dependencies:
       '@aws-sdk/client-bedrock':

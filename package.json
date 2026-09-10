@@ -37,6 +37,8 @@
       "migrate:server": "pnpm --filter @berry/server migrate",
       "seed:server": "pnpm --filter @berry/server seed",
       "check:models": "python3 scripts/test_check_no_model_in_server.py && python3 scripts/check-no-model-in-server.py",
-      "reset:server": "docker compose exec -T berry-api node --experimental-strip-types src/reset/index.ts"
+      "reset:server": "docker compose exec -T berry-api node --experimental-strip-types src/reset/index.ts",
+      "test:plugin-sdk": "pnpm --filter @berry/plugin-sdk test",
+      "typecheck:plugin-sdk": "pnpm --filter @berry/plugin-sdk typecheck"
    }
 }
