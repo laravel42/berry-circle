@@ -35,6 +35,10 @@ import { createScm } from './scm/provider-factory.ts';
 import { ScmInbound } from './scm/inbound.ts';
 import { WebhookDeliveries } from './scm/webhook.ts';
 import { webhookMounts } from './mounts/webhooks.ts';
+import { githubMounts } from './mounts/github.ts';
+import { GitHubEvents } from './scm/github-events.ts';
+import { GitHubSettingsRepository, writeWorkspaceEvent } from './scm/github-settings.ts';
+import { PullRequestStore } from './scm/pull-requests.ts';
 import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
 import { workspaceReadMounts } from './mounts/workspace-reads.ts';
@@ -260,7 +264,34 @@ const githubApp = config.integrationKey
 const scm = await createScm({ sql, config, logger, githubApp });
 const scmWorkspaces = scm.workspaces;
 const scmSync = scm.sync;
-const scmInbound = new ScmInbound({ sql, links: scm.links, logger });
+/**
+ * GitHub parity (workstream K): the workspace's switches, the pull requests
+ * linked to its issues, and the webhook handler that feeds them. A webhook is
+ * routed to the workspace that claimed its installation, and to no other.
+ */
+const githubSettings = new GitHubSettingsRepository(sql);
+const pullRequests = new PullRequestStore({ sql, issues });
+const scmInbound = new ScmInbound({
+   sql,
+   links: scm.links,
+   logger,
+   github: new GitHubEvents({
+      workspaceForInstallation: async (installationId) =>
+         githubApp ? githubApp.claimedBy(installationId) : null,
+      settings: githubSettings,
+      pullRequests,
+      removeInstallation: async (installationId) =>
+         githubApp ? githubApp.removeInstallationById(installationId) : null,
+      publishConnection: (workspaceId) =>
+         writeWorkspaceEvent(sql, {
+            workspaceId,
+            type: 'github.connection.updated',
+            aggregateType: 'github_installation',
+            aggregateId: workspaceId,
+            payload: { installed: false },
+         }),
+   }),
+});
 
 /**
  * The one completion client the single-call callers share. Each call is a
@@ -528,6 +559,9 @@ registry.registerAll(
       inbound: scmInbound,
       deliveries: new WebhookDeliveries(sql),
       secret: config.git?.webhookSecret ?? null,
+      // The secret GitHub issued with the App, so a manifest-created App's
+      // deliveries verify without an operator copying it into the environment.
+      secrets: async () => [githubApp ? await githubApp.webhookSecret() : null],
       logger,
    })
 );
@@ -744,6 +778,9 @@ registry.registerAll(
       sql,
       builder: new AgentBuilder({ sql, complete, skills: skillRepository, agents, mcp: mcpRepository }),
    })
+);
+registry.registerAll(
+   githubMounts({ sessions, sql, settings: githubSettings, pullRequests, githubApp, connections })
 );
 registry.registerAll(usageMounts({ sessions, sql }));
 registry.registerAll(

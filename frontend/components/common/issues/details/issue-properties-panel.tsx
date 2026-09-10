@@ -14,6 +14,7 @@ import {
    IssueDependenciesSection,
    IssueGoalSection,
 } from './issue-relations';
+import { IssueLinkedPullRequests } from './issue-linked-pull-requests';
 import { Section } from './panel-section';
 import { ReviewerProperty } from './reviewer-property';
 import { IssueUsageSection } from '@/components/common/usage/issue-usage-section';
@@ -77,6 +78,7 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                <IssueUsageSection issueId={issue.id} />
                <IssueGoalSection issue={issue} />
                <IssueDependenciesSection issue={issue} />
+               <IssueLinkedPullRequests issueRef={issue.identifier} />
 
                {detail.relatedIds && detail.relatedIds.length > 0 && (
                   <Section title="Related">

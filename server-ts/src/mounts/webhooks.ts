@@ -27,14 +27,28 @@ export interface WebhookOptions {
    deliveries: WebhookDeliveries;
    /** Absent disables the route: an unsigned webhook endpoint is an open door. */
    secret: string | null;
+   /**
+    * Secrets held elsewhere — the one GitHub issued with the App, sealed in the
+    * database. A delivery signed with any of them, or with `secret`, is
+    * accepted. A lookup that fails counts as no secret, which closes the route.
+    */
+   secrets?: () => Promise<Array<string | null>>;
    logger: Logger;
+}
+
+async function acceptedSecrets(options: WebhookOptions): Promise<string[]> {
+   const held = options.secrets ? await options.secrets().catch(() => []) : [];
+   return [options.secret, ...held].filter(
+      (secret): secret is string => typeof secret === 'string' && secret !== ''
+   );
 }
 
 export function webhookMounts(options: WebhookOptions): Mount[] {
    const route = new Hono();
 
    route.post('/github', async (context) => {
-      if (!options.secret) {
+      const secrets = await acceptedSecrets(options);
+      if (secrets.length === 0) {
          throw new ApiError(503, 'WEBHOOKS_DISABLED', 'This deployment accepts no webhooks.');
       }
 
@@ -44,7 +58,7 @@ export function webhookMounts(options: WebhookOptions): Mount[] {
       }
 
       const signature = context.req.header('x-hub-signature-256') ?? '';
-      if (!verifySignature(raw, signature, options.secret)) {
+      if (!secrets.some((secret) => verifySignature(raw, signature, secret))) {
          // Deliberately terse. A detailed reason here is a hint to whoever is
          // guessing, and the operator can see the whole story in the log.
          options.logger.error('webhook signature rejected', {
