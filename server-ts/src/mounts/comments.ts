@@ -12,6 +12,7 @@ import type { Broadcaster } from '../realtime/hub.ts';
 import { Forbidden, NotFound } from '../identity/errors.ts';
 import type { Mount } from '../http/registry.ts';
 import type { IssueRepository } from '../core/issues.ts';
+import type { CommentTriggers } from '../agents/triggers.ts';
 import {
    InvalidParent,
    RevisionConflict,
@@ -40,6 +41,8 @@ export interface CommentOptions {
    idempotency: IdempotencyStore;
    broadcaster?: Broadcaster | undefined;
    clock?: () => Date;
+   /** Mentions and replies that start agent runs. Absent: a comment starts nothing. */
+   triggers?: CommentTriggers | undefined;
 }
 
 export function commentMounts(options: CommentOptions): Mount[] {
@@ -147,9 +150,35 @@ export function issueCommentRoutes(options: CommentOptions) {
       });
    });
 
+   /**
+    * Which agents a comment would start, before it is sent.
+    *
+    * Registered before the collection POST so `trigger-preview` is never read
+    * as part of an issue reference. It writes nothing.
+    */
+   nested.post('/:issueRef/comments/trigger-preview', async (context) => {
+      const issue = await issues.get(context.req.param('issueRef') ?? '').catch(rethrowIssue);
+      const scope = await issues
+         .authorize(context.get('user').id, issue.id, 'comments.write')
+         .catch(rethrowIssue);
+      const body = await readBody(context.req.raw, ['body']);
+      const text = requireBody(body.body);
+      if (!options.triggers) return json({ targets: [], refused: [] });
+      return json(
+         await options.triggers.preview({
+            workspaceId: scope.workspaceId,
+            issueId: issue.id,
+            authorId: context.get('user').id,
+            body: text,
+         })
+      );
+   });
+
    nested.post('/:issueRef/comments', idempotent(options.idempotency), async (context) => {
       const issue = await issues.get(context.req.param('issueRef') ?? '').catch(rethrowIssue);
-      await issues.authorize(context.get('user').id, issue.id, 'comments.write').catch(rethrowIssue);
+      const scope = await issues
+         .authorize(context.get('user').id, issue.id, 'comments.write')
+         .catch(rethrowIssue);
 
       const body = await readBody(context.req.raw, ['body', 'parentId']);
       const text = requireBody(body.body);
@@ -166,6 +195,17 @@ export function issueCommentRoutes(options: CommentOptions) {
          })
          .catch(rethrowCreate);
       await publish(options, [result.event]);
+      // Only a person's comment reaches here (authorType is 'user'), so an
+      // agent's result comment can never start another run.
+      if (options.triggers) {
+         await options.triggers.fire({
+            workspaceId: scope.workspaceId,
+            issueId: issue.id,
+            authorId: context.get('user').id,
+            commentId: result.comment.id,
+            body: text,
+         });
+      }
 
       const response = json(serializeComment(result.comment), 201);
       response.headers.set('Location', `/api/v1/comments/${result.comment.id}`);
