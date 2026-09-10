@@ -23,16 +23,31 @@ export interface DispatchCandidate {
    activeRunId: string | null;
 }
 
-export function readyForAgent(issue: DispatchCandidate): boolean {
-   return issue.assignee?.type === 'agent' && issue.status === 'todo' && issue.activeRunId === null;
+/**
+ * Whether a task's earlier-stage siblings are still open. A sub-issue in stage
+ * N+1 must not start while any stage <= N sibling is unfinished.
+ */
+export interface StageGate {
+   blockedByEarlierStage(issueId: string): Promise<boolean>;
+}
+
+export function readyForAgent(issue: DispatchCandidate, stageOpen = true): boolean {
+   return (
+      stageOpen &&
+      issue.assignee?.type === 'agent' &&
+      issue.status === 'todo' &&
+      issue.activeRunId === null
+   );
 }
 
 export async function autoDispatch(
    runs: Pick<RunRepository, 'admit'>,
    issue: DispatchCandidate,
-   context: { workspaceId: string; requestedBy: string }
+   context: { workspaceId: string; requestedBy: string },
+   stages?: StageGate
 ): Promise<Run | null> {
    if (!readyForAgent(issue)) return null;
+   if (stages && (await stages.blockedByEarlierStage(issue.id))) return null;
    try {
       return await runs.admit({
          issueId: issue.id,
