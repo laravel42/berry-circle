@@ -24,6 +24,14 @@ import { useCreatePlanStore } from '@/store/create-plan-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useProjectsStore } from '@/store/projects-store';
 import {
+   PALETTE_SEARCH_TYPES,
+   searchResultHref,
+   searchWorkspace,
+   type SearchResult,
+} from '@/lib/search';
+import { useSessionStore } from '@/store/session-store';
+import {
+   Bot,
    Box,
    CalendarPlus,
    Check,
@@ -37,6 +45,7 @@ import {
    Bell,
    Layers,
    Link2,
+   MessageSquare,
    PackagePlus,
    ShieldCheck,
    Sparkles,
@@ -46,6 +55,7 @@ import {
    Type,
    UserRoundMinus,
    UserRoundPlus,
+   Wrench,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -96,6 +106,44 @@ export function CommandPalette() {
    const allProjects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const allLabels = useLabelsStore((state) => state.labels);
+   const workspaceId = useSessionStore((state) => state.workspace?.id ?? null);
+   const [results, setResults] = useState<SearchResult[]>([]);
+
+   // Server search only from the root, and only once the query is worth a
+   // round trip. Debounced so typing a word is one request, not five; the
+   // `cancelled` flag drops an answer that arrives after a newer keystroke.
+   useEffect(() => {
+      const trimmed = query.trim();
+      if (!open || route !== 'root' || !workspaceId || trimmed.length < 2) {
+         setResults([]);
+         return;
+      }
+      let cancelled = false;
+      const timer = window.setTimeout(() => {
+         void searchWorkspace(workspaceId, trimmed, PALETTE_SEARCH_TYPES).then((found) => {
+            if (!cancelled) setResults(found);
+         });
+      }, 150);
+      return () => {
+         cancelled = true;
+         window.clearTimeout(timer);
+      };
+   }, [open, route, query, workspaceId]);
+
+   const resultIcon = (type: SearchResult['type']) => {
+      switch (type) {
+         case 'issue':
+            return <CircleDot className="text-muted-foreground" />;
+         case 'project':
+            return <Box className="text-muted-foreground" />;
+         case 'agent':
+            return <Bot className="text-muted-foreground" />;
+         case 'chat':
+            return <MessageSquare className="text-muted-foreground" />;
+         default:
+            return <Wrench className="text-muted-foreground" />;
+      }
+   };
 
    const orgId = pathname.split('/')[1] || WORKSPACE_SLUG;
 
@@ -230,6 +278,39 @@ export function CommandPalette() {
                {input}
                <CommandList className="max-h-96">
                   <CommandEmpty>No results found.</CommandEmpty>
+
+                  {route === 'root' && results.length > 0 && (
+                     <CommandGroup heading="Search">
+                        {results.map((result) => {
+                           const href = searchResultHref(result);
+                           if (!href) return null;
+                           return (
+                              <CommandItem
+                                 key={`${result.type}-${result.id}`}
+                                 value={`${result.type}-${result.id}`}
+                                 // The server already matched; cmdk's own filter
+                                 // would drop a hit whose title lacks the literal
+                                 // query (an agent-name match on a chat thread).
+                                 forceMount
+                                 onSelect={() => go(href)}
+                              >
+                                 {resultIcon(result.type)}
+                                 {result.identifier ? (
+                                    <span className="text-muted-foreground shrink-0">
+                                       {result.identifier}
+                                    </span>
+                                 ) : null}
+                                 <span className="truncate">{result.title}</span>
+                                 {result.subtitle ? (
+                                    <span className="ml-auto truncate text-muted-foreground">
+                                       {result.subtitle}
+                                    </span>
+                                 ) : null}
+                              </CommandItem>
+                           );
+                        })}
+                     </CommandGroup>
+                  )}
 
                   {route === 'root' && issue && (
                      <>

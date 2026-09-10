@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { SendHorizonal } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 
 import { loadWorkspaceAgents, type Agent } from '@/lib/agents';
 import {
@@ -69,6 +70,16 @@ export function Chat() {
          setError(cause instanceof Error ? cause.message : 'Could not open the conversation');
       }
    }, []);
+
+   // A search result or a link can name the agent to open: `/chat?agent=…`.
+   // Waits for the agent list, and only opens an agent that can answer.
+   const searchParams = useSearchParams();
+   const requestedAgentId = searchParams?.get('agent') ?? null;
+   useEffect(() => {
+      if (!requestedAgentId || agent?.id === requestedAgentId) return;
+      const match = agents.find((item) => item.id === requestedAgentId);
+      if (match) void select(match);
+   }, [requestedAgentId, agents, agent?.id, select]);
 
    const send = useCallback(async () => {
       const text = draft.trim();
