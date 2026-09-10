@@ -83,5 +83,16 @@ export function validIssuePrefix(value: string): boolean {
 }
 
 export const THEMES = ['system', 'light', 'dark'] as const;
+
+/**
+ * The interface languages the web app ships catalogues for. Stored verbatim,
+ * because the frontend uses the value as the catalogue directory name.
+ */
+export const LOCALES = ['en', 'zh-Hans', 'ja', 'ko'] as const;
+export type Locale = (typeof LOCALES)[number];
+
+export function validLocale(value: string): value is Locale {
+   return (LOCALES as readonly string[]).includes(value);
+}
 export const ONBOARDING_STEPS = ['welcome', 'aboutYou', 'workspace', 'complete'] as const;
 export const ONBOARDING_ANSWER_KEYS = ['role', 'teamSize', 'goal', 'source'] as const;

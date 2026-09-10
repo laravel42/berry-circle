@@ -5,6 +5,7 @@ import {
    validAvatar,
    validEmail,
    validIssuePrefix,
+   validLocale,
    validTimezone,
    validWorkspaceSlug,
 } from './validation.ts';
@@ -78,4 +79,12 @@ test('a domain without a dot is accepted, because Go accepts it', () => {
    // Not an oversight: mail.ParseAddress("a@b") succeeds, and the two servers
    // have to agree on what an address is while both are answering.
    assert.ok(validEmail('a@b'));
+});
+
+test('a locale must be one Berry ships a catalogue for, spelled exactly', () => {
+   for (const locale of ['en', 'zh-Hans', 'ja', 'ko']) assert.ok(validLocale(locale), locale);
+   // Case and region variants are refused rather than normalised: the stored
+   // value is also the catalogue directory name the frontend loads.
+   for (const locale of ['EN', 'zh', 'zh-hans', 'zh-CN', 'zh-Hant', 'ja-JP', 'fr', '', ' en'])
+      assert.ok(!validLocale(locale), locale);
 });
