@@ -15,6 +15,11 @@ import { IssueReviews } from './issue-reviews';
 import { IssueAttachments } from './issue-attachments';
 import { IssueDescriptionEditor } from './issue-description-editor';
 import { IssuePropertiesPanel } from './issue-properties-panel';
+import { IssuePinButton } from './issue-pin-button';
+import { IssueQuickActions } from './issue-quick-actions';
+import { IssueReactions } from './issue-reactions';
+import { IssueSubscription } from './issue-subscription';
+import { SubIssues } from './sub-issues';
 import { useDetailDrawerClose, useInDetailDrawer } from '@/components/layout/detail-drawer-context';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { cn } from '@/lib/utils';
@@ -86,9 +91,18 @@ export default function IssueDetails() {
                   <h1 className="text-balance font-display leading-[1.08] tracking-[-0.025em]">
                      {issue.title}
                   </h1>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                     <IssueReactions issueRef={issue.identifier} />
+                     <div className="ml-auto flex items-center gap-2">
+                        <IssuePinButton issueId={issue.id} />
+                        <IssueQuickActions issueRef={issue.identifier} />
+                        <IssueSubscription issueRef={issue.identifier} />
+                     </div>
+                  </div>
 
                   <>
                      <IssueDescriptionEditor issueId={issue.id} description={issue.description} />
+                     <SubIssues issue={issue} />
 
                      <IssueAttachments issueRef={issue?.identifier ?? issueId ?? ''} />
                      <IssueArtifacts issueRef={issue?.identifier ?? issueId ?? ''} />
@@ -105,7 +119,13 @@ export default function IssueDetails() {
                               <Paperclip className="size-4" />
                            </Button>
                         </div>
-                        <ActivityFeedList items={activityFeed.items} error={activityFeed.error} />
+                        <ActivityFeedList
+                           items={activityFeed.items}
+                           error={activityFeed.error}
+                           issueRef={issue.identifier}
+                           onCommentChanged={activityFeed.replaceComment}
+                           onCommentDeleted={activityFeed.removeComment}
+                        />
                      </div>
                   </>
                </div>

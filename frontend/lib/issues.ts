@@ -86,6 +86,10 @@ const issueSchema = z.object({
    goal: z.object({ id: z.string(), title: z.string() }).nullish(),
    dependsOn: z.array(dependencyRefSchema).default([]),
    blocks: z.array(dependencyRefSchema).default([]),
+   parentId: z.string().nullish(),
+   stage: z.number().nullish(),
+   statusId: z.string().nullish(),
+   childProgress: z.object({ total: z.number(), done: z.number() }).nullish(),
 });
 
 const issueConnectionSchema = connectionSchema(issueSchema);
@@ -219,8 +223,17 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
    issue.goal = apiIssue.goal ?? null;
    issue.dependsOn = apiIssue.dependsOn;
    issue.blocks = apiIssue.blocks;
+   issue.parentId = apiIssue.parentId ?? null;
+   issue.stage = apiIssue.stage ?? null;
+   issue.statusId = apiIssue.statusId ?? null;
+   issue.childProgress = apiIssue.childProgress ?? { total: 0, done: 0 };
 
    return issue;
+}
+
+export function parseApiIssue(json: unknown): Issue | undefined {
+   const parsed = issueSchema.safeParse(json);
+   return parsed.success ? toUiIssue(parsed.data) : undefined;
 }
 
 const inFlight = new Map<string, Promise<Issue[]>>();

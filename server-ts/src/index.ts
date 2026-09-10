@@ -38,6 +38,14 @@ import { webhookMounts } from './mounts/webhooks.ts';
 import { approvalMounts } from './mounts/approvals.ts';
 import { inboxMounts } from './mounts/inbox.ts';
 import { workspaceReadMounts } from './mounts/workspace-reads.ts';
+import { issueTrackingRoutes } from './mounts/issue-tracking.ts';
+import { commentTrackingRoutes } from './mounts/comment-tracking.ts';
+import { workCatalogRoutes } from './mounts/work-catalogs.ts';
+import { savedViewRoutes } from './mounts/view-routes.ts';
+import { pinMounts } from './mounts/pins.ts';
+import { joinLinkMounts } from './mounts/join-links.ts';
+import { workTrackingHooks } from './work/hooks.ts';
+import { stageGate } from './work/hierarchy.ts';
 import { accountRoutes } from './mounts/account.ts';
 import { conversationMounts } from './mounts/conversations.ts';
 import { editorMounts } from './mounts/editor.ts';
@@ -370,7 +378,19 @@ registry.registerAll(secretsMounts({ sessions, secrets }));
 registry.registerAll(
    boardMounts({ sessions, boards, idempotency, nested: boardRunRoutes(runOptions) })
 );
-const commentOptions = { sessions, comments, issues, idempotency, broadcaster };
+// Work tracking: subscriptions and inbox rows after writes, and the stage
+// barrier on sub-issues. Dispatch only where runs can execute, as below.
+const workDispatch = executor ? runOptions.runs : undefined;
+const workHooks = workTrackingHooks({ sql, issues, dispatch: workDispatch });
+const commentOptions = {
+   sessions,
+   comments,
+   issues,
+   idempotency,
+   broadcaster,
+   hooks: workHooks,
+   extensions: commentTrackingRoutes({ sql, comments, broadcaster }),
+};
 registry.registerAll(
    issueMounts({
       scm: scmSync,
@@ -388,6 +408,19 @@ registry.registerAll(
       // A task handed to an agent starts on its own. Only where runs can
       // execute: without an executor a queued run would sit forever.
       ...(executor ? { dispatch: runOptions.runs } : {}),
+      stages: stageGate(sql),
+      hooks: workHooks,
+      // Quick actions stay unavailable (503) until workstream A's enqueueTask
+      // lands in runs/queue.ts and is passed here as `enqueue`.
+      tracking: issueTrackingRoutes({
+         sql,
+         issues,
+         boards,
+         comments,
+         broadcaster,
+         dispatch: workDispatch,
+         hooks: workHooks,
+      }),
       artifacts: issueArtifactRoutes({ artifacts: runArtifacts, issues }),
       attachments: issueAttachmentRoutes({
          attachments,
@@ -478,7 +511,17 @@ registry.registerAll(
    })
 );
 registry.registerAll(inboxMounts({ sessions, inbox: new InboxRepository(sql), boards }));
-registry.registerAll(workspaceReadMounts({ sessions, sql, boards }));
+registry.registerAll(
+   workspaceReadMounts({
+      sessions,
+      sql,
+      boards,
+      catalogExtensions: workCatalogRoutes(),
+      viewExtensions: savedViewRoutes({ sql }),
+   })
+);
+registry.registerAll(pinMounts({ sessions, sql }));
+registry.registerAll(joinLinkMounts({ sessions, sql }));
 registry.registerAll(
    planMounts({
       sessions,

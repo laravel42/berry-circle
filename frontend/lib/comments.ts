@@ -39,6 +39,7 @@ export function commentToActivityItem(comment: ApiComment): Extract<ActivityItem
       actor,
       timeAgo: timeAgo(comment.createdAt),
       body: [{ type: 'paragraph', text: comment.body }],
+      comment,
    };
 }
 
@@ -74,5 +75,28 @@ export async function createIssueComment(issueRef: string, body: string): Promis
    if (!parsed.success) {
       throw new Error('Create comment response was not recognized');
    }
+   return parsed.data;
+}
+
+export async function updateComment(commentId: string, body: string, revision: number): Promise<ApiComment> {
+   const json: unknown = await apiFetch(`/api/v1/comments/${encodeURIComponent(commentId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ body, revision }),
+   });
+   const parsed = commentSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Edit comment response was not recognized');
+   return parsed.data;
+}
+
+export async function deleteComment(commentId: string): Promise<void> {
+   await apiFetch(`/api/v1/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
+}
+
+export async function setCommentResolved(commentId: string, resolved: boolean): Promise<ApiComment> {
+   const json: unknown = await apiFetch(`/api/v1/comments/${encodeURIComponent(commentId)}/resolution`, {
+      method: resolved ? 'POST' : 'DELETE',
+   });
+   const parsed = commentSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Resolve comment response was not recognized');
    return parsed.data;
 }

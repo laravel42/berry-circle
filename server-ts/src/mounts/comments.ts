@@ -12,6 +12,7 @@ import type { Broadcaster } from '../realtime/hub.ts';
 import { Forbidden, NotFound } from '../identity/errors.ts';
 import type { Mount } from '../http/registry.ts';
 import type { IssueRepository } from '../core/issues.ts';
+import type { WorkTrackingHooks } from '../work/hooks.ts';
 import {
    InvalidParent,
    RevisionConflict,
@@ -40,6 +41,10 @@ export interface CommentOptions {
    idempotency: IdempotencyStore;
    broadcaster?: Broadcaster | undefined;
    clock?: () => Date;
+   /** Extra `/api/v1/comments/:id/...` routes (reactions, resolution). */
+   extensions?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** Subscriptions and inbox rows after a comment is written. */
+   hooks?: Pick<WorkTrackingHooks, 'afterCommentCreate'> | undefined;
 }
 
 export function commentMounts(options: CommentOptions): Mount[] {
@@ -48,6 +53,7 @@ export function commentMounts(options: CommentOptions): Mount[] {
 
    const direct = new Hono<{ Variables: AuthVariables }>();
    direct.use('*', requireSession(options.sessions));
+   if (options.extensions) direct.route('/', options.extensions);
 
    direct.get('/:commentId', async (context) => {
       const commentId = pathId(context.req.param('commentId'));
@@ -166,6 +172,14 @@ export function issueCommentRoutes(options: CommentOptions) {
          })
          .catch(rethrowCreate);
       await publish(options, [result.event]);
+      await options.hooks
+         ?.afterCommentCreate({
+            comment: result.comment,
+            workspaceId: result.event.workspaceId,
+            eventId: result.event.id,
+            actorId: context.get('user').id,
+         })
+         .catch(() => undefined);
 
       const response = json(serializeComment(result.comment), 201);
       response.headers.set('Location', `/api/v1/comments/${result.comment.id}`);

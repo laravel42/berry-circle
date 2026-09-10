@@ -22,6 +22,7 @@ import { SHELL_SECTIONS, type ShellRouteDef, type ShellRoute } from './shell-rou
 import { ShellIcon, BerryMark, shellIconButton } from './shell-icon';
 import { WorkspaceMenuItems } from './workspace-menu';
 import { ShellRailSettings } from './shell-rail-settings';
+import { ShellPins } from './shell-pins';
 
 /** A workspace route the user can pin or hide. */
 type PinnableRoute = ShellRouteDef & { prefsKey: SidebarItemKey };
@@ -205,6 +206,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
             </>
          )}
 
+         <ShellPins orgId={orgId} />
          <div className="mt-auto flex items-center gap-1.5 p-3.5">
             <button
                type="button"

@@ -1,5 +1,6 @@
 import { Issue } from './issues';
 import { User } from './users';
+import type { ApiComment } from '@/lib/comments';
 
 /* -------------------------------------------------------------------------- */
 /*                         Rich content block model                           */
@@ -44,6 +45,8 @@ export type ActivityItem =
         timeAgo: string;
         body: ContentBlock[];
         reactions?: CommentReaction[];
+        /** The server comment, when the item came from the API; enables actions. */
+        comment?: ApiComment;
      };
 
 export interface PrLink {

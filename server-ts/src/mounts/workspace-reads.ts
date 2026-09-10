@@ -37,6 +37,10 @@ export interface WorkspaceReadOptions {
    sessions: SessionService;
    sql: Sql;
    boards: BoardRepository;
+   /** Extra `/:workspaceId/...` catalog routes (work tracking). */
+   catalogExtensions?: Hono<{ Variables: ScopedVariables }> | undefined;
+   /** Extra `/api/v1/views` routes (saved-view writes, preferences, query). */
+   viewExtensions?: Hono<{ Variables: AuthVariables }> | undefined;
 }
 
 export function workspaceReadMounts(options: WorkspaceReadOptions): Mount[] {
@@ -145,6 +149,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
 function viewsRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVariables }> {
    const route = new Hono<{ Variables: AuthVariables }>();
    route.use('*', requireSession(options.sessions));
+   if (options.viewExtensions) route.route('/', options.viewExtensions);
 
    route.get('/', async (context) => {
       const url = new URL(context.req.url);
@@ -200,6 +205,7 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
    // membership-confirmed `ScopedDb` as `scoped` for every `/:workspaceId/...`
    // route below, so a handler never touches the database without a scope.
    mountWorkspaceScope(route, { sessions: options.sessions, sql: options.sql });
+   if (options.catalogExtensions) route.route('/', options.catalogExtensions);
 
    /**
     * Labels are workspace vocabulary and a task can carry any of them, so
