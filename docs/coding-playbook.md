@@ -280,7 +280,7 @@ Before requesting review, confirm the workspace's gates are green:
 - **Server:** `pnpm typecheck:server` **and** `pnpm test:server` pass. If the
   change touches Compose or a deployment pin, `python3
   scripts/check-compose-config.py`
-  pass too.
+  pass too; and python3 scripts/check-no-model-in-server.py passes.
 - **Frontend:** `pnpm lint` **and** `pnpm build` succeed; the changed view
   was exercised manually.
 - The change is scoped to one issue, the branch/commit/PR reference `BERR-NN`,

@@ -27,6 +27,7 @@ changes materially, add a new ADR and mark the old one **Superseded**.
 | [0010](0010-goals-as-derived-task-groups.md) | Goals are derived groups of a project's tasks | Proposed | 2026-09-01 |
 | [0011](0011-refresh-provider-credentials.md) | Refresh provider credentials before they expire | Proposed | 2026-09-01 |
 | [0013](0013-strands-native-agent-runtime.md) | Run agents natively on the Strands Agents SDK | Accepted | 2026-09-09 |
+| [0014](0014-agentcore-runtime-control-plane.md) | Berry is a control plane; the agent loop runs in AgentCore Runtime | Accepted | 2026-09-10 |
 
 ### Withdrawn records
 
