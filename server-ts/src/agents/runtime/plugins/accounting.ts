@@ -23,6 +23,9 @@ import { ResultText } from '../result-text.ts';
 
 export interface AccountingSnapshot {
    usage: Usage;
+   /** Prompt-cache tokens. Kept beside `usage` because the ledger's Usage has no place for them. */
+   cacheReadTokens: number;
+   cacheWriteTokens: number;
    toolCalls: number;
    modelCalls: number;
    result: ResultText;
@@ -40,6 +43,8 @@ export class AccountingPlugin implements Plugin {
    readonly #result = new ResultText();
    #toolCalls = 0;
    #modelCalls = 0;
+   #cacheReadTokens = 0;
+   #cacheWriteTokens = 0;
 
    initAgent(agent: LocalAgent): void {
       agent.addHook(ModelStreamUpdateEvent, (event) => {
@@ -48,6 +53,8 @@ export class AccountingPlugin implements Plugin {
             this.#usage.inputTokens += inner.usage.inputTokens;
             this.#usage.outputTokens += inner.usage.outputTokens;
             this.#usage.totalTokens = this.#usage.inputTokens + this.#usage.outputTokens;
+            this.#cacheReadTokens += inner.usage.cacheReadInputTokens ?? 0;
+            this.#cacheWriteTokens += inner.usage.cacheWriteInputTokens ?? 0;
          }
       });
       agent.addHook(AfterModelCallEvent, () => {
@@ -66,6 +73,8 @@ export class AccountingPlugin implements Plugin {
    snapshot(): AccountingSnapshot {
       return {
          usage: { ...this.#usage },
+         cacheReadTokens: this.#cacheReadTokens,
+         cacheWriteTokens: this.#cacheWriteTokens,
          toolCalls: this.#toolCalls,
          modelCalls: this.#modelCalls,
          result: this.#result,

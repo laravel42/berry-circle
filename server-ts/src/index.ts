@@ -57,6 +57,8 @@ import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
 import { agentMounts } from './mounts/agents.ts';
+import { PriceBook } from './agents/pricing.ts';
+import { configureUsagePricing } from './usage/record.ts';
 import { eventMounts } from './mounts/events.ts';
 import { IdentityRepository } from './identity/repository.ts';
 import { WorkspaceRepository } from './identity/workspaces.ts';
@@ -285,6 +287,10 @@ const executor =
               logger.error('peer review failed', {
                  error: error instanceof Error ? error.message : String(error),
               }),
+           onUsageError: (error: unknown) =>
+              logger.error('usage record failed', {
+                 error: error instanceof Error ? error.message : String(error),
+              }),
         })
       : null;
 
@@ -297,6 +303,10 @@ const modelCatalog = config.agents
         ...(config.agents.credentials ? { credentials: config.agents.credentials } : {}),
      })
    : null;
+
+// Usage is priced on write from the same open feed the model picker reads.
+// Not gated on agent config: runs executed elsewhere still report usage here.
+configureUsagePricing(new PriceBook());
 
 // Reading the ledger, and admitting a run. The executor builds its own ledger
 // per run because it writes as the run happens; this one is for the request

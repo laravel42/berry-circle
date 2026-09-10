@@ -23,7 +23,9 @@ import { classify } from './runtime/failure.ts';
 import { buildRunAgent } from './runtime/agent.ts';
 import { bedrockModel, type AwsCredentials, type ModelFactory } from './runtime/model.ts';
 import { LedgerPlugin } from './runtime/plugins/ledger.ts';
-import { AccountingPlugin } from './runtime/plugins/accounting.ts';
+import { AccountingPlugin, type AccountingSnapshot } from './runtime/plugins/accounting.ts';
+import { recordTaskUsage, type TaskUsageInput } from '../usage/record.ts';
+import { usageRecordFor } from '../usage/in-process.ts';
 import { PermissionPlugin } from './runtime/plugins/permissions.ts';
 import { ToolFailed, ToolOutcomePlugin } from './runtime/plugins/tool-outcome.ts';
 import { WORKDIR_KEY } from './command-tool.ts';
@@ -104,6 +106,13 @@ export interface ExecutorOptions {
    reviewGate?: { review(runId: string): Promise<unknown> };
    /** Where a gate failure is reported. It never fails the run. */
    onGateError?: (error: unknown) => void;
+   /**
+    * Records a finished run's model usage. Defaults to `recordTaskUsage`;
+    * `null` turns it off. A failure is reported through `onUsageError` and
+    * never changes how the run ended.
+    */
+   recordUsage?: ((sql: Sql, input: TaskUsageInput) => Promise<void>) | null;
+   onUsageError?: (error: unknown) => void;
    /** A ceiling on one model reply. Omitted means the factory's default. */
    maxTokens?: number;
    temperature?: number;
@@ -162,6 +171,8 @@ export class RunExecutor {
       | undefined;
    private readonly ledger: RunLedger;
    private readonly defaultModel: string;
+   private readonly recordUsageFn: ((sql: Sql, input: TaskUsageInput) => Promise<void>) | null;
+   private readonly onUsageError: (error: unknown) => void;
    private readonly clock: () => Date;
    private readonly newId: () => string;
    /** Never null, so the recall path has no branch in it. */
@@ -197,6 +208,8 @@ export class RunExecutor {
       // always passes `config.agents.defaultModel`, so this was reachable only
       // by a caller that omitted it, which is why it stayed wrong quietly.
       this.defaultModel = options.defaultModel ?? 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
+      this.recordUsageFn = options.recordUsage === undefined ? recordTaskUsage : options.recordUsage;
+      this.onUsageError = options.onUsageError ?? (() => undefined);
       this.clock = options.clock ?? (() => new Date());
       this.newId = options.newId ?? randomUUID;
       this.memory = options.memory ?? nullRunMemory();
@@ -422,22 +435,29 @@ export class RunExecutor {
             // Whatever was gathered is part of the record even when the run
             // ends badly: it is what the agent had said before it stopped.
             await ledger.flush().catch(() => undefined);
-            const { usage, toolCalls } = accounting.snapshot();
+            const snapshot = accounting.snapshot();
+            const { usage, toolCalls } = snapshot;
             if (error instanceof RunCancelled || signal?.aborted) {
                // Awaited inside the try so the workspace is not torn down
                // while the run is still being recorded.
-               return await this.cancel(dispatch, usage, toolCalls);
+               const ended = await this.cancel(dispatch, usage, toolCalls);
+               await this.recordUsage(dispatch, agent.model, snapshot);
+               return ended;
             }
             // An undelivered run is not done: a run that reports success with
             // nothing pushed sends a reviewer looking for a pull request that
             // was never opened.
-            return await this.fail(dispatch, error, usage, toolCalls);
+            const ended = await this.fail(dispatch, error, usage, toolCalls);
+            await this.recordUsage(dispatch, agent.model, snapshot);
+            return ended;
          }
 
          // Outside the catch on purpose: a failure while *recording* success is
          // not a failed run.
-         const { usage, toolCalls, result } = accounting.snapshot();
-         return await this.succeed(dispatch, result, usage, toolCalls);
+         const snapshot = accounting.snapshot();
+         const ended = await this.succeed(dispatch, snapshot.result, snapshot.usage, snapshot.toolCalls);
+         await this.recordUsage(dispatch, agent.model, snapshot);
+         return ended;
       } finally {
          // Whether the run succeeded, failed or was cancelled: "the workspace
          // is destroyed when the run ends" has no exceptions, and a container
@@ -572,6 +592,25 @@ export class RunExecutor {
          if (!(cause instanceof RunTerminal)) throw cause;
       });
       return { runId: dispatch.runId, status: 'cancelled', summary: null, usage, toolCalls };
+   }
+
+   /** After the terminal write, so the run's own totals are recomputed last. */
+   private async recordUsage(
+      dispatch: Dispatch,
+      model: string,
+      snapshot: AccountingSnapshot
+   ): Promise<void> {
+      if (!this.recordUsageFn) return;
+      const input = usageRecordFor(
+         { runId: dispatch.runId, workspaceId: dispatch.workspaceId, agentId: dispatch.agentId, model },
+         snapshot
+      );
+      if (!input) return;
+      try {
+         await this.recordUsageFn(this.sql, input);
+      } catch (error) {
+         this.onUsageError(error);
+      }
    }
 
    private async loadAgent(agentId: string): Promise<AgentRow> {
