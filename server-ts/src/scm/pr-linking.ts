@@ -64,6 +64,41 @@ export function findLinkIntents(input: {
    return [...found.values()];
 }
 
+/** The statuses a path to done may pass through, in the order ties are broken. */
+const PATH_STATUSES = ['backlog', 'todo', 'in_progress', 'in_review', 'blocked', 'done'] as const;
+
+/**
+ * The legal steps from `from` to `done`, shortest first; empty when there is
+ * nothing to do or no way there.
+ *
+ * A merge is a fact about the code, not a shortcut past the issue's state
+ * machine, so the issue walks the transitions a person could have made rather
+ * than jumping. A cancelled issue stays cancelled: somebody decided that, and
+ * a merge elsewhere does not overrule them.
+ */
+export function statusPathToDone(
+   from: string,
+   allowed: (from: string, to: string) => boolean
+): string[] {
+   if (from === 'done' || from === 'cancelled') return [];
+   const previous = new Map<string, string>([[from, from]]);
+   const queue: string[] = [from];
+   while (queue.length > 0) {
+      const current = queue.shift() as string;
+      for (const next of PATH_STATUSES) {
+         if (previous.has(next) || !allowed(current, next)) continue;
+         previous.set(next, current);
+         if (next === 'done') {
+            const path: string[] = [];
+            for (let step = 'done'; step !== from; step = previous.get(step) as string) path.unshift(step);
+            return path;
+         }
+         queue.push(next);
+      }
+   }
+   return [];
+}
+
 export type PullRequestState = 'open' | 'draft' | 'merged' | 'closed';
 
 export function pullRequestState(pr: {

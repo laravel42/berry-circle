@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { findLinkIntents, pullRequestState, rollupChecks } from './pr-linking.ts';
+import { findLinkIntents, pullRequestState, rollupChecks, statusPathToDone } from './pr-linking.ts';
 
 const base = { prefix: 'ABC', branch: 'main', title: '', body: null };
 
@@ -57,6 +57,35 @@ describe('which issues a pull request names', () => {
 
    test('an empty prefix names nothing', () => {
       assert.deepEqual(findLinkIntents({ ...base, prefix: '', title: '-1' }), []);
+   });
+});
+
+describe('the legal way to done after a merge', () => {
+   const rules: Record<string, string[]> = {
+      backlog: ['todo', 'cancelled'],
+      todo: ['backlog', 'in_progress', 'blocked', 'cancelled'],
+      in_progress: ['todo', 'in_review', 'blocked', 'cancelled'],
+      in_review: ['todo', 'in_progress', 'done', 'blocked', 'cancelled'],
+      done: ['in_review'],
+      blocked: ['todo', 'in_progress', 'cancelled'],
+      cancelled: ['backlog', 'todo'],
+   };
+   const allowed = (from: string, to: string) => from === to || (rules[from]?.includes(to) ?? false);
+
+   test('walks each step the state machine allows, shortest first', () => {
+      assert.deepEqual(statusPathToDone('in_review', allowed), ['done']);
+      assert.deepEqual(statusPathToDone('in_progress', allowed), ['in_review', 'done']);
+      assert.deepEqual(statusPathToDone('backlog', allowed), ['todo', 'in_progress', 'in_review', 'done']);
+      assert.deepEqual(statusPathToDone('blocked', allowed), ['in_progress', 'in_review', 'done']);
+   });
+
+   test('leaves a finished or cancelled issue alone', () => {
+      assert.deepEqual(statusPathToDone('done', allowed), []);
+      assert.deepEqual(statusPathToDone('cancelled', allowed), []);
+   });
+
+   test('an unknown status has no path', () => {
+      assert.deepEqual(statusPathToDone('mystery', allowed), []);
    });
 });
 
