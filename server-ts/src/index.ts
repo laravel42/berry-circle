@@ -87,7 +87,18 @@ import { createExecutionDriver } from './execution/factory.ts';
 import { AgentCoreRunMemory } from './agentcore/memory.ts';
 import { ConnectionRepository } from './integrations/connections.ts';
 import { GitHubAppRepository } from './integrations/github-app.ts';
-import { sealerFromKey } from './integrations/sealing.ts';
+import { sealerFromKey, unavailableSealer } from './integrations/sealing.ts';
+import { agentAccessGuard } from './agents/access.ts';
+import { AgentBuilder } from './agents/builder.ts';
+import { AgentProfileRepository } from './agents/profile.ts';
+import { McpServerRepository } from './mcp/repository.ts';
+import { agentBuilderMounts } from './mounts/agent-builder.ts';
+import { mcpServerMounts } from './mounts/mcp-servers.ts';
+import { skillMounts } from './mounts/skills.ts';
+import { squadMounts } from './mounts/squads.ts';
+import { importFromGitHub } from './skills/github-import.ts';
+import { SkillRepository } from './skills/repository.ts';
+import { SquadRepository } from './squads/repository.ts';
 
 /**
  * The composition root.
@@ -196,6 +207,16 @@ const goalLinker = createGoalLinker(sql, goals);
 const connections = config.integrationKey
    ? new ConnectionRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
+
+// One sealer for agent-layer secrets (MCP headers, agent env). Without the key
+// it refuses every seal, so nothing can be stored in the clear by accident.
+const agentSealer = config.integrationKey
+   ? sealerFromKey(config.integrationKey)
+   : unavailableSealer('INTEGRATION_ENCRYPTION_KEY is not set');
+const skillRepository = new SkillRepository(sql);
+const mcpRepository = new McpServerRepository({ sql, sealer: agentSealer });
+const agentProfiles = new AgentProfileRepository({ sql, sealer: agentSealer });
+const squadRepository = new SquadRepository(sql);
 
 // The App's own credentials are sealed with the same key, for the same reason:
 // a deployment that cannot seal cannot hold a private key either.
@@ -328,6 +349,8 @@ registry.registerAll(
       boards,
       idempotency,
       broadcaster,
+      // Who may hand work to which agent (an agent's assign scope).
+      agentAccess: agentAccessGuard(sql),
       nested: issueCommentRoutes(commentOptions),
       relations: issueRelationRoutes({ issues, dependencies, reviews, gate: reviewGate }),
       runs: issueRunRoutes(runOptions),
@@ -475,7 +498,48 @@ registry.registerAll(
       appUrl: config.integrations.appUrl,
    })
 );
-registry.registerAll(agentMounts({ sessions, agents, idempotency, catalog: modelCatalog, logger }));
+registry.registerAll(
+   agentMounts({
+      sessions,
+      agents,
+      idempotency,
+      catalog: modelCatalog,
+      logger,
+      runs: runOptions.runs,
+      ledger: runOptions.ledger,
+      profile: agentProfiles,
+   })
+);
+registry.registerAll(
+   skillMounts({
+      sessions,
+      sql,
+      skills: skillRepository,
+      idempotency,
+      importer: { fromGitHub: (url) => importFromGitHub(url) },
+   })
+);
+registry.registerAll(mcpServerMounts({ sessions, sql, servers: mcpRepository }));
+// enqueue and complete are workstream A's; they stay null until Task 13 wires
+// them, so an assignment records the squad but queues nothing yet, and the
+// builder answers 503 on a turn.
+registry.registerAll(
+   squadMounts({
+      sessions,
+      sql,
+      squads: squadRepository,
+      issues,
+      enqueue: null,
+      agentAccess: agentAccessGuard(sql),
+   })
+);
+registry.registerAll(
+   agentBuilderMounts({
+      sessions,
+      sql,
+      builder: new AgentBuilder({ sql, complete: null, skills: skillRepository, agents, mcp: mcpRepository }),
+   })
+);
 registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
 );
