@@ -121,12 +121,13 @@ export async function cleanupWorld(sql: Sql, world: World | undefined): Promise<
    await sql`DELETE FROM outbox_events WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM quick_action_definitions WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM issues WHERE board_id = ${world.boardId}`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${world.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   // Replica mode skips the protected-agent trigger for this transaction only.
+   // ALTER TABLE ... DISABLE TRIGGER would take an exclusive lock on agents,
+   // which stalls test files running in parallel against the same database.
+   await sql.begin(async (tx) => {
+      await tx`SET LOCAL session_replication_role = replica`;
+      await tx`DELETE FROM agents WHERE workspace_id = ${world.workspaceId}`;
+   });
    await sql`DELETE FROM boards WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${world.workspaceId}`;
