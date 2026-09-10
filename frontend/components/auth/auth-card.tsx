@@ -14,7 +14,7 @@ interface AuthCardProps {
 }
 
 /**
- * Centered auth scaffold shared by sign-in and sign-up. It matches the boot
+ * Centered auth scaffold shared by sign-in. It matches the boot
  * screen's language — `bg-background`, the Berry mark up top — so moving from
  * "loading" to "sign in" does not feel like a different app. The page keeps its
  * own form logic; this only owns the frame.
