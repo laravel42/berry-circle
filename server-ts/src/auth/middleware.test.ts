@@ -1,26 +1,23 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { createApp } from '../http/app.ts';
-import { Registry } from '../http/registry.ts';
-import { requireSession, type AuthVariables } from './middleware.ts';
-import { SessionUnauthenticated, type SessionService, type User } from './sessions.ts';
-import { generateToken } from './tokens.ts';
+import fc from 'fast-check';
 import { Hono } from 'hono';
 
+import { createApp } from '../http/app.ts';
+import { Registry } from '../http/registry.ts';
+import { requireRole, requireSession, type AuthVariables } from './middleware.ts';
+import { CrossOriginRefused, type SessionService, type User } from './sessions.ts';
+
 /**
- * These assertions pin the five guarantees Berry leans on for `requireSession`:
- * exactly one Bearer credential is admitted, every failure answers with the
- * byte-identical 401 `UNAUTHENTICATED` envelope, the handler never runs on a
- * failure, the resolved `User` is on the context before anything downstream,
- * and a resolution *throw* (a database blip, say) becomes a 401 rather than a
- * 500 that would tell a caller their token was probably real.
- *
- * The suite is deliberately offline: `resolveCredential` is a stub, so it runs
- * on a fresh checkout with no database.
+ * The guarantees Berry leans on for `requireSession`, whatever the credential:
+ * the resolved user is on the context before the handler, every failure is
+ * the byte-identical 401 envelope, a resolution throw of any kind (a database
+ * blip included) is a 401 and never a 500, the handler never runs on a
+ * failure, and a cross-origin cookie write is a 403. Offline: `resolveRequest`
+ * is a stub.
  */
 
-/** A live user the happy path resolves to. */
 const USER: User = {
    id: '11111111-1111-1111-1111-111111111111',
    email: 'ada@berry.test',
@@ -32,139 +29,106 @@ const USER: User = {
    updatedAt: '2024-01-01T00:00:00Z',
 };
 
-/** A well-formed 256-bit session token, so parsing is never the thing failing. */
-const GOOD_TOKEN = generateToken();
-
-/**
- * A `SessionService` whose only behaviour under test is `resolveCredential`.
- * The middleware touches nothing else, so the rest of the class stays absent;
- * the cast is the seam that lets the stub stand in for the real service.
- */
-function fakeSessions(resolve: (token: string) => Promise<User>): SessionService {
-   return { resolveCredential: resolve } as unknown as SessionService;
-}
-
-/**
- * Mounts `requireSession` on the real app shell behind a sentinel handler that
- * records whether it ran. Using `createApp` means the error envelope, request
- * id and standard headers are the real ones, so a byte comparison is a
- * comparison of what a client would actually receive.
- */
-function harness(resolve: (token: string) => Promise<User>): {
-   fetch: (headers: Record<string, string> | Headers) => Promise<Response>;
-   handlerRan: () => boolean;
-   seenUser: () => User | undefined;
-} {
+function harness(resolve: (request: Request) => Promise<User>, roles: string[] = []) {
    let ran = false;
-   let user: User | undefined;
-
+   let seen: User | undefined;
+   const sessions = { resolveRequest: resolve } as unknown as SessionService;
    const route = new Hono<{ Variables: AuthVariables }>();
-   route.use('*', requireSession(fakeSessions(resolve)));
-   route.get('/', (context) => {
+   route.use('*', requireSession(sessions));
+   if (roles.length > 0) route.use('*', requireRole(...roles));
+   route.all('/', (context) => {
       ran = true;
-      user = context.get('user');
+      seen = context.get('user');
       return context.json({ ok: true });
    });
-
    const registry = new Registry();
-   registry.register({ prefix: '/guarded', handler: route });
+   registry.register({ prefix: '/probe', handler: route });
    const app = createApp(registry);
-
    return {
-      fetch: (headers) =>
+      fetch: (init: RequestInit = {}) =>
          Promise.resolve(
-            app.request('/guarded', {
-               headers: headers instanceof Headers ? headers : new Headers(headers),
+            app.request('/probe', {
+               ...init,
+               headers: {
+                  'x-request-id': 'req_fixedfixedfixed',
+                  ...((init.headers as Record<string, string> | undefined) ?? {}),
+               },
             })
          ),
-      handlerRan: () => ran,
-      seenUser: () => user,
+      ran: () => ran,
+      seen: () => seen,
    };
 }
 
-/** The bytes and status a client sees for any failed credential. */
-async function snapshot(response: Response): Promise<{ status: number; body: string }> {
-   return { status: response.status, body: await response.text() };
-}
-
-test('a valid credential resolves and reaches the handler with the user attached', async () => {
-   const app = harness(async () => USER);
-   const response = await app.fetch({ authorization: `Bearer ${GOOD_TOKEN}` });
-
+test('a resolved user is on the context before the handler runs', async () => {
+   const probe = harness(async () => USER);
+   const response = await probe.fetch();
    assert.equal(response.status, 200);
-   assert.equal(app.handlerRan(), true);
-   // The resolved User is on the context before the handler runs — the point
-   // any WorkspaceContext resolver downstream would read it from.
-   assert.deepEqual(app.seenUser(), USER);
+   assert.equal(probe.seen()?.id, USER.id);
 });
 
-test('every failure mode returns the byte-identical 401 UNAUTHENTICATED and never runs the handler', async () => {
-   // One resolver covers absent/malformed (parsing fails first) and, for a
-   // well-formed-but-unknown token, an explicit SessionUnauthenticated — the
-   // shape expired/revoked/unknown all take in the real service.
-   const scenarios: Array<{ name: string; headers: Record<string, string> | Headers }> = [
-      { name: 'absent header', headers: {} },
-      { name: 'wrong scheme', headers: { authorization: `Basic ${GOOD_TOKEN}` } },
-      { name: 'empty value', headers: { authorization: '' } },
-      { name: 'whitespace only', headers: { authorization: '   ' } },
-      { name: 'doubled space', headers: { authorization: `Bearer  ${GOOD_TOKEN}` } },
-      { name: 'second credential', headers: { authorization: `Bearer ${GOOD_TOKEN} extra` } },
-      { name: 'too short', headers: { authorization: 'Bearer short' } },
-      { name: 'too long', headers: { authorization: `Bearer ${'a'.repeat(5000)}` } },
-      { name: 'not base64url', headers: { authorization: `Bearer !${'a'.repeat(42)}` } },
-      { name: 'unknown but well-formed', headers: { authorization: `Bearer ${GOOD_TOKEN}` } },
+test('every kind of resolution failure is the same 401, and the handler never runs', async () => {
+   const failures: Array<() => Promise<User>> = [
+      async () => {
+         throw new Error('unauthenticated');
+      },
+      async () => {
+         throw new Error('connection terminated unexpectedly');
+      },
+      async () => {
+         throw new TypeError('boom');
+      },
    ];
-
-   // A duplicate Authorization header: two values, which the middleware must
-   // refuse rather than silently take the first. Headers keeps both.
-   const duplicate = new Headers();
-   duplicate.append('authorization', `Bearer ${GOOD_TOKEN}`);
-   duplicate.append('authorization', `Bearer ${'b'.repeat(43)}`);
-   scenarios.push({ name: 'duplicate header', headers: duplicate });
-
-   // A fixed request id so the envelope is deterministic and comparable across
-   // scenarios; without it each response carries a fresh random id.
-   const withRequestId = (headers: Record<string, string> | Headers): Headers => {
-      const merged = headers instanceof Headers ? headers : new Headers(headers);
-      merged.set('x-request-id', 'fixed-request-id');
-      return merged;
-   };
-
-   let expected: { status: number; body: string } | undefined;
-   for (const scenario of scenarios) {
-      // The resolver rejects unknown tokens; parsing rejects the rest earlier.
-      const app = harness(async () => {
-         throw new SessionUnauthenticated();
-      });
-      const response = await app.fetch(withRequestId(scenario.headers));
-
-      assert.equal(response.status, 401, scenario.name);
-      assert.equal(app.handlerRan(), false, `handler ran for ${scenario.name}`);
-
-      const current = await snapshot(response);
-      if (expected === undefined) {
-         expected = current;
-      } else {
-         assert.deepEqual(current, expected, `envelope differs for ${scenario.name}`);
-      }
+   const bodies = new Set<string>();
+   for (const fail of failures) {
+      const probe = harness(fail);
+      const response = await probe.fetch();
+      assert.equal(response.status, 401);
+      bodies.add(await response.text());
+      assert.equal(probe.ran(), false);
    }
-
-   assert.ok(expected);
-   const parsed = JSON.parse(expected.body) as { error: { code: string; message: string } };
-   assert.equal(parsed.error.code, 'UNAUTHENTICATED');
-   assert.equal(parsed.error.message, 'Authentication required.');
+   assert.equal(bodies.size, 1, 'the 401 bodies are byte-identical');
+   assert.match([...bodies][0] ?? '', /"code":"UNAUTHENTICATED"/);
 });
 
-test('an unexpected resolution error becomes a 401, never a 500', async () => {
-   // A database failure inside resolveCredential must not surface as a 500 that
-   // signals the token was likely valid. The middleware catches everything.
-   const app = harness(async () => {
-      throw new Error('connection reset by peer');
+test('a cross-origin cookie write is a 403, not a 401', async () => {
+   const probe = harness(async () => {
+      throw new CrossOriginRefused();
    });
-   const response = await app.fetch({ authorization: `Bearer ${GOOD_TOKEN}` });
+   const response = await probe.fetch({ method: 'POST' });
+   assert.equal(response.status, 403);
+   assert.equal(probe.ran(), false);
+});
 
-   assert.equal(response.status, 401);
-   assert.equal(app.handlerRan(), false);
-   const body = JSON.parse(await response.text()) as { error: { code: string } };
-   assert.equal(body.error.code, 'UNAUTHENTICATED');
+test('whatever the headers, a refusing resolver yields the identical 401', async () => {
+   const reference = await (
+      await harness(async () => {
+         throw new Error('x');
+      }).fetch()
+   ).text();
+   await fc.assert(
+      fc.asyncProperty(fc.string({ maxLength: 80 }), async (value) => {
+         const probe = harness(async () => {
+            throw new Error('refused');
+         });
+         const headers: Record<string, string> = {};
+         try {
+            new Headers({ authorization: value });
+            headers.authorization = value;
+         } catch {
+            // Not a legal header value; the client could not have sent it.
+         }
+         const response = await probe.fetch({ headers });
+         assert.equal(response.status, 401);
+         assert.equal(await response.text(), reference);
+      }),
+      { numRuns: 100 }
+   );
+});
+
+test('requireRole refuses a user without the role', async () => {
+   const probe = harness(async () => USER, ['admin']);
+   const response = await probe.fetch();
+   assert.equal(response.status, 403);
+   assert.equal(probe.ran(), false);
 });

@@ -5,7 +5,9 @@ import { after, before, describe, test } from 'node:test';
 
 import fc from 'fast-check';
 
+import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
 import { BoardRepository } from '../core/boards.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp } from '../http/app.ts';
@@ -50,10 +52,6 @@ import { workspaceReadMounts } from './workspace-reads.ts';
  */
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
-
-// A fixed in-range TTL (300..2,592,000 seconds), well inside the window, so
-// issuance never trips the bounds guard.
-const TTL_MS = 172_800_000;
 
 // Each iteration drives real HTTP reads through the app against Postgres over a
 // randomized world, so hold the run at the ≥100 floor the property suite
@@ -185,7 +183,7 @@ describe(
 
       before(() => {
          sql = openDatabase({ url: url as string });
-         sessions = new SessionService({ sql, sessionTtlMs: TTL_MS });
+         sessions = new SessionService({ sql, auth: null, bearer: [personalTokenResolver(sql)] });
          const registry = new Registry();
          registry.registerAll(
             workspaceReadMounts({ sessions, sql, boards: new BoardRepository(sql) })
@@ -197,17 +195,17 @@ describe(
          await closeDatabase(sql);
       });
 
-      /** Issue a real bearer token for a seeded user and read a workspace's labels. */
+      /** Issue a personal access token for a seeded user and read a workspace's labels. */
       async function listLabels(userId: string, workspaceId: string): Promise<Response> {
-         const { token } = await sessions.issueForUser(userId);
+         const token = await issueTestToken(sql, userId);
          return app.request(`/api/v1/catalogs/${workspaceId}/issue-labels`, {
             headers: { authorization: `Bearer ${token}` },
          });
       }
 
-      /** Issue a real bearer token for a seeded user and read views by query param. */
+      /** Issue a personal access token for a seeded user and read views by query param. */
       async function listViews(userId: string, workspaceId: string): Promise<Response> {
-         const { token } = await sessions.issueForUser(userId);
+         const token = await issueTestToken(sql, userId);
          return app.request(`/api/v1/views?workspaceId=${workspaceId}`, {
             headers: { authorization: `Bearer ${token}` },
          });

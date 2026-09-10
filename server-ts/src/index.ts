@@ -75,6 +75,7 @@ import { Distributed } from './realtime/distributed.ts';
 import { ReplayRepository } from './realtime/replay.ts';
 import { IdempotencyStore } from './http/idempotency.ts';
 import { SessionService } from './auth/sessions.ts';
+import { personalTokenResolver } from './auth/credentials.ts';
 import { Storage } from './storage/storage.ts';
 import { RunExecutor } from './agents/executor.ts';
 import { ReviewGate } from './agents/review-gate.ts';
@@ -101,9 +102,12 @@ const config = loadConfig();
 const logger = createLogger(config.serviceName);
 const sql = openDatabase({ url: config.databaseUrl });
 
+// Better Auth is constructed in Task 6; until then only bearer tokens resolve.
 const sessions = new SessionService({
    sql,
-   sessionTtlMs: config.sessionTtlMs,
+   auth: null,
+   bearer: [personalTokenResolver(sql)],
+   trustedOrigins: config.auth.trustedOrigins,
 });
 
 const identity = new IdentityRepository(sql);
@@ -485,15 +489,7 @@ registry.registerAll(
    eventMounts({ sessions, replay: new ReplayRepository(sql), boards, broadcaster })
 );
 registry.registerAll(
-   authMounts({
-      sessions,
-      identity,
-      sql,
-      login: {
-         allowKnownEmail: config.allowPasswordlessLogin,
-         environment: config.appEnv,
-      },
-   })
+   authMounts({ sessions })
 );
 registry.registerAll(
    platformMounts({
