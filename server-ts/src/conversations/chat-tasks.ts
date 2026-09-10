@@ -38,7 +38,6 @@ export async function sendChatMessage(
       chatSessionId: input.conversation.id,
       prompt: input.body,
    });
-   await deps.conversations.setActiveRun(input.conversation.id, runId);
    return { messageId, runId };
 }
 

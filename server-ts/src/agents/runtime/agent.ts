@@ -4,7 +4,7 @@ import {
    type Message,
    type MessageData,
    type Plugin,
-   type Tool,
+   type ToolList,
 } from '@strands-agents/sdk';
 import { toAgentName } from './agent-name.ts';
 import { BerryRetryStrategy } from './failure.ts';
@@ -25,7 +25,8 @@ export interface RunAgentSpec {
    region: string;
    credentials: AwsCredentials | null;
    systemPrompt: string;
-   tools: Tool[];
+   /** Berry's tools, the shell, and the agent's MCP clients. */
+   tools: ToolList;
    plugins: Plugin[];
    maxTokens?: number | undefined;
    temperature?: number | undefined;

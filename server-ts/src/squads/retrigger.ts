@@ -53,6 +53,9 @@ export async function delegateToMember(
       INSERT INTO squad_delegations (child_issue_id, parent_issue_id, squad_id, workspace_id, member_agent_id)
       VALUES (${created.issue.id}, ${input.parentIssueId}, ${parent.squad_id as string}, ${input.workspaceId},
               ${input.memberAgentId})`;
+   // A real sub-issue in the work-tracking tree, so the parent's stage gate
+   // and child progress see the delegated work.
+   await deps.sql`UPDATE issues SET parent_id = ${input.parentIssueId} WHERE id = ${created.issue.id}`;
    return { issueId: created.issue.id, identifier: created.issue.identifier };
 }
 

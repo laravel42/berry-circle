@@ -37,12 +37,13 @@ export class NoAgentAssigned extends Error {
    }
 }
 
-const RUN_COLUMNS = `r.id, r.issue_id, r.board_id, b.workspace_id, r.agent_id, r.status,
+const RUN_COLUMNS = `r.id, r.issue_id, r.board_id, COALESCE(r.workspace_id, b.workspace_id) AS workspace_id, r.agent_id, r.status,
    r.sequence, r.summary, r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros,
    r.currency, r.failure_code, r.failure_message, r.failure_retryable, r.dispatch_state,
    r.created_at, r.started_at, r.completed_at`;
 
-const RUN_SOURCE = `FROM runs r JOIN boards b ON b.id = r.board_id`;
+// LEFT: a chat or completion run has no board.
+const RUN_SOURCE = `FROM runs r LEFT JOIN boards b ON b.id = r.board_id`;
 
 export class RunRepository {
    readonly #sql: Sql;

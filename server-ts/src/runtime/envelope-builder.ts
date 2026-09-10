@@ -12,6 +12,7 @@ import type { Dispatch } from '../runs/ledger.ts';
 import type { RepoPlan, TaskEnvelope, TranscriptMessage } from './envelope.ts';
 import { runtimeSessionIdFor, sessionKeyFor } from './session-id.ts';
 import { buildTranscript } from './transcript.ts';
+import { loadAgentExtensions, type ExtensionDeps } from '../agents/extensions.ts';
 
 export interface CompletionSpec {
    purpose: string;
@@ -65,6 +66,13 @@ export interface EnvelopeDeps {
    sealer: Sealer | null;
    gitCredential?: ((workspaceId: string) => Promise<{ username: string; password: string; canPush?: boolean }>) | undefined;
    github: (token: string) => GitHubClient;
+   /**
+    * The agent's skills, MCP servers, env and squad briefing (workstream D).
+    * Absent: the agent carries none of them.
+    */
+   extensions?: Omit<ExtensionDeps, 'sql'> | undefined;
+   /** Servers left out for want of a gateway, by name only. */
+   onSkipped?: ((names: string[]) => void) | undefined;
 }
 
 export async function loadTask(sql: Sql, runId: string): Promise<TaskRow> {
@@ -105,6 +113,19 @@ export class EnvelopeBuilder {
       const profile = await this.#profile(agent.runtimeProfileId, task.workspaceId);
       const model =
          (task.kind === 'completion' ? task.completionSpec?.model : null) ?? (agent.model || profile.model || this.#deps.defaultModel);
+      // An agent task carries its extensions; a completion is one model call
+      // and carries none.
+      const extensions =
+         task.kind === 'agent' && this.#deps.extensions
+            ? await loadAgentExtensions(
+                 { sql: this.#deps.sql, ...this.#deps.extensions },
+                 { workspaceId: task.workspaceId, agentId: task.agentId, issueId: task.issueId }
+              )
+            : null;
+      if (extensions && extensions.skipped.length > 0) this.#deps.onSkipped?.(extensions.skipped);
+      const instructions = extensions?.squadBriefing
+         ? `${agent.instructions}\n\n<berry_squad_briefing>\n${extensions.squadBriefing}\n</berry_squad_briefing>`
+         : agent.instructions;
       const sessionKey = sessionKeyFor({
          kind: task.kind, runId: task.runId, agentId: task.agentId, issueId: task.issueId, chatSessionId: task.chatSessionId,
       });
@@ -115,15 +136,18 @@ export class EnvelopeBuilder {
          runtimeSessionId: runtimeSessionIdFor(sessionKey),
          agent: {
             name: agent.name,
-            instructions: agent.instructions,
+            instructions,
             model,
-            skills: [],
-            mcpServers: [],
+            // EnvelopeSkill and EnvelopeMcpServer are SkillRef and McpServerRef
+            // field for field: no mapping, and tsc refuses a drift.
+            skills: extensions?.skills ?? [],
+            mcpServers: extensions?.mcpServers ?? [],
             permissions: agent.permissions,
             maxTokens: null,
             temperature: null,
          },
-         env: profile.env,
+         // The runtime profile's env first; the agent's own env wins a clash.
+         env: { ...profile.env, ...(extensions?.env ?? {}) },
          berry: { apiUrl: this.#deps.publicUrl, token: input.token },
       };
 

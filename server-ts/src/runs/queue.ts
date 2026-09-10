@@ -73,8 +73,18 @@ export async function enqueueTask(sql: Sql, input: EnqueueTaskInput): Promise<{ 
             SELECT id FROM runs WHERE issue_id = ${issueId} AND status IN ('queued', 'running') LIMIT 1`;
          if (active) throw new ActiveRunExists(active.id as string);
       }
-      // Chat guard (workstream D): lock chat_sessions row, refuse when
-      // active_run_id is set, and set it after the insert below.
+      // Chat guard (workstream D). A session's tasks are serialized rather
+      // than refused, so chat can queue several: the session row is locked so
+      // two sends cannot both see it idle, a session from another workspace is
+      // not found, and the dispatcher's claim holds a second task back until
+      // the one ahead of it ends.
+      if (input.chatSessionId) {
+         const [session] = await tx`
+            SELECT id FROM conversations
+             WHERE id = ${input.chatSessionId} AND workspace_id = ${input.workspaceId}
+             FOR UPDATE`;
+         if (!session) throw new NotFound();
+      }
 
       await tx`
          INSERT INTO runs (id, workspace_id, issue_id, board_id, agent_id, kind, source, prompt,
@@ -84,6 +94,13 @@ export async function enqueueTask(sql: Sql, input: EnqueueTaskInput): Promise<{ 
                  ${input.chatSessionId ?? null}, ${input.autopilotRunId ?? null},
                  ${input.priority ?? 0}, ${runtimeId}, ${input.kind === 'agent' ? (input.prompt ?? null) : null})`;
 
+      if (input.chatSessionId) {
+         // The first queued task becomes the session's active one; the reply
+         // hook advances it to the next when this one ends.
+         await tx`
+            UPDATE conversations SET active_run_id = ${runId}
+             WHERE id = ${input.chatSessionId} AND active_run_id IS NULL`;
+      }
       if (issueId && boardId) {
          await tx`UPDATE issues SET active_run_id = ${runId}, updated_at = now() WHERE id = ${issueId}`;
          await tx`

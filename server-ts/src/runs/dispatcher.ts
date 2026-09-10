@@ -184,6 +184,17 @@ export class Dispatcher {
                   AND r.dispatch_state = 'pending'
                   AND (r.dispatch_lease_until IS NULL OR r.dispatch_lease_until < now())
                   AND (rt.id IS NULL OR rt.status <> 'disabled')
+                  -- One task per chat session at a time (spec 2.2a): a
+                  -- session's run waits while another of its runs is running
+                  -- or is ahead of it in claim order.
+                  AND (r.chat_session_id IS NULL OR NOT EXISTS (
+                         SELECT 1 FROM runs AS o
+                          WHERE o.chat_session_id = r.chat_session_id AND o.id <> r.id
+                            AND (o.status = 'running'
+                                 OR (o.status = 'queued'
+                                     AND (o.priority > r.priority
+                                          OR (o.priority = r.priority
+                                              AND (o.created_at, o.id) < (r.created_at, r.id)))))))
             ) AS ranked
             WHERE ranked.concurrency_limit IS NULL
                OR ranked.busy_count + ranked.slot <= ranked.concurrency_limit

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
-import type { Tool } from '@strands-agents/sdk';
+import type { McpClient, Tool } from '@strands-agents/sdk';
 import type { TaskEnvelope } from '../../../runtime/envelope.ts';
 import type { TaskDelivery } from '../../../runtime/lifecycle.ts';
 import type { ExecutionSession } from '../../../execution/driver.ts';
@@ -28,6 +28,8 @@ import {
    type BerryApi,
 } from './remote-tools.ts';
 import type { SessionRegistry } from './sessions.ts';
+import { loadMcpClients, type EnvelopeMcpServerLike } from '../mcp-clients.ts';
+import { writeSkills } from '../skill-files.ts';
 
 /**
  * One task envelope, worked to a terminal lifecycle event.
@@ -61,6 +63,8 @@ export interface HandlerDeps {
    repository?: RepositoryStep;
    /** Where the video job writes. Absent means agents get no video tool. */
    videoOutput?: VideoOutput | undefined;
+   /** Connects the agent's MCP servers. Injected by tests; production uses Strands clients. */
+   loadMcp?: (servers: EnvelopeMcpServerLike[]) => Promise<McpClient[]>;
 }
 
 export async function handleInvocation(envelope: TaskEnvelope, emit: Emit, deps: HandlerDeps): Promise<void> {
@@ -91,8 +95,13 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
    const ledger = new LedgerPlugin({ ledger: sink, runId: envelope.runId });
    const outcome = new ToolOutcomePlugin();
    const api: BerryApi = { ...envelope.berry, ...(deps.fetch ? { fetch: deps.fetch } : {}) };
+   let mcpClients: McpClient[] = [];
 
    try {
+      // The agent's skills, laid out where skill-aware tools look, and its
+      // MCP servers as Strands clients beside Berry's own tools.
+      await writeSkills(join(deps.workRoot, key), envelope.agent.skills);
+      mcpClients = await (deps.loadMcp ?? loadMcpClients)(envelope.agent.mcpServers);
       // Whatever the loader threw, a task that cannot read its tools never
       // runs toolless: it fails retryable, as Berry being unreachable.
       const remote = await (deps.loadTools ?? loadRemoteTools)(api).catch((cause: unknown) => {
@@ -134,7 +143,7 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
             // The runtime's execution role; there is no key in the envelope.
             credentials: null,
             systemPrompt: envelope.agent.instructions,
-            tools,
+            tools: [...tools, ...mcpClients],
             plugins: [
                ledger,
                accounting,
@@ -189,6 +198,8 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
             ? { code: 'BERRY_UNREACHABLE', message: error.message, retryable: true }
             : classify(error);
       emit({ type: 'task.failed', failure });
+   } finally {
+      await Promise.all(mcpClients.map((client) => client.disconnect().catch(() => undefined)));
    }
 }
 

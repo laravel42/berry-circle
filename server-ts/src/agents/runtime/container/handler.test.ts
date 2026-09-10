@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -160,4 +160,27 @@ test('a transcript is normalised to alternating turns that start with the user',
          { role: 'assistant', content: [{ text: 'c' }] },
       ]
    );
+});
+
+test('an agent task writes its skills into the session workspace and connects its MCP servers', async () => {
+   const loaded: string[] = [];
+   const { deps, run } = harness([say('ok')], {
+      loadMcp: async (servers) => {
+         loaded.push(...servers.map((server) => server.name));
+         return [];
+      },
+   });
+   const manifest = '---\nname: lint\ndescription: "d"\n---\nRun the linter.';
+   const events = await run(
+      envelope({
+         agent: {
+            ...envelope().agent,
+            skills: [{ name: 'lint', files: [{ path: 'SKILL.md', content: manifest }] }],
+            mcpServers: [{ name: 'docs', url: 'https://docs.test/mcp', transport: 'http', headers: {} }],
+         },
+      })
+   );
+   assert.equal(events.at(-1)!.type, 'task.completed');
+   assert.equal(readFileSync(join(deps.workRoot, SESSION, '.claude/skills/lint/SKILL.md'), 'utf8'), manifest);
+   assert.deepEqual(loaded, ['docs']);
 });

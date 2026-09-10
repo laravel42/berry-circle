@@ -7,6 +7,8 @@ import { cleanupFixture, createIssue, seedFixture, type Fixture } from '../runti
 import { Dispatcher } from './dispatcher.ts';
 import { EnqueueRejected, enqueueTask } from './queue.ts';
 import { ActiveRunExists } from './repository.ts';
+import { ConversationRepository } from '../conversations/repository.ts';
+import { NotFound } from '../identity/errors.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 const MANUAL = { pollMs: 3_600_000, heartbeatMs: 3_600_000 };
@@ -203,5 +205,52 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
       } finally {
          await sql`UPDATE agents SET runtime_id = NULL WHERE id = ${f.agentId}`;
       }
+   });
+   test('a chat session runs its tasks one at a time, in order', async () => {
+      const f = fixture!;
+      const sessionId = await new ConversationRepository(sql).createSession({
+         workspaceId: f.workspaceId,
+         userId: f.userId,
+         agentId: f.agentId,
+         title: 'guard',
+      });
+      try {
+         const chat = { workspaceId: f.workspaceId, agentId: f.agentId, kind: 'agent', source: 'chat', chatSessionId: sessionId } as const;
+         // Serialized, not refused: chat may queue several tasks.
+         const first = await enqueueTask(sql, { ...chat, prompt: 'one' });
+         const second = await enqueueTask(sql, { ...chat, prompt: 'two' });
+         const [session] = await sql`SELECT active_run_id FROM conversations WHERE id = ${sessionId}`;
+         assert.equal(session!.active_run_id, first.runId);
+
+         const executed: string[] = [];
+         const dispatcher = new Dispatcher({
+            sql, logger: quiet, concurrency: 5, ...MANUAL,
+            executor: { execute: async (id) => void executed.push(id) },
+         });
+         await dispatcher.tick();
+         assert.equal(executed.includes(first.runId), true);
+         assert.equal(executed.includes(second.runId), false, 'the second task waits for the first');
+
+         await sql`UPDATE runs SET status = 'succeeded', completed_at = now() WHERE id = ${first.runId}`;
+         await dispatcher.tick();
+         assert.equal(executed.includes(second.runId), true, 'the second task runs once the first has ended');
+      } finally {
+         await sql`DELETE FROM runs WHERE chat_session_id = ${sessionId}`;
+         await sql`DELETE FROM conversations WHERE id = ${sessionId}`;
+      }
+   });
+
+   test('a chat task for a session outside the workspace is not found', async () => {
+      const f = fixture!;
+      await assert.rejects(
+         enqueueTask(sql, {
+            workspaceId: f.workspaceId,
+            agentId: f.agentId,
+            kind: 'agent',
+            source: 'chat',
+            chatSessionId: randomUUID(),
+         }),
+         NotFound
+      );
    });
 });

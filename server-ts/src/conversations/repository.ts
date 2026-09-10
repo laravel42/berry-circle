@@ -380,10 +380,6 @@ export class ConversationRepository {
       });
    }
 
-   async setActiveRun(id: string, runId: string | null): Promise<void> {
-      await this.#sql`UPDATE conversations SET active_run_id = ${runId} WHERE id = ${id}`;
-   }
-
    async pinnedAgents(userId: string, workspaceId: string): Promise<string[]> {
       const rows = await this.#sql`
          SELECT agent_id FROM user_pinned_agents

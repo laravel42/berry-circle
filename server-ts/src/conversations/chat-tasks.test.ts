@@ -70,7 +70,9 @@ describe('chat on tasks', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
       const messages = await conversations.messages(conversationId);
       assert.equal(messages.at(-1)?.id, sent.messageId);
       const [summary] = await conversations.list(world.ownerId);
-      assert.equal(summary?.activeRunId, run?.id);
+      // The queue's chat guard owns active_run_id (runs/queue.test.ts); a
+      // fake enqueue sets nothing, and sending no longer writes it itself.
+      assert.equal(summary?.activeRunId, null);
    });
 
    test('a generated title replaces the default once, and never a title a person set', async () => {

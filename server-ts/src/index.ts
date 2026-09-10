@@ -62,7 +62,11 @@ import { OAuthStateStore } from './integrations/oauth.ts';
 import { RunRepository } from './runs/repository.ts';
 import { RunLedger } from './runs/ledger.ts';
 import { Dispatcher } from './runs/dispatcher.ts';
-import { quickActionEnqueue } from './runtime/wiring.ts';
+import { agentCompletion, agentEnqueue, quickActionEnqueue, registerDelegateTool } from './runtime/wiring.ts';
+import { commentTriggers } from './agents/triggers.ts';
+import { registerChatReplies } from './conversations/chat-tasks.ts';
+import { registerSquadRetrigger } from './squads/retrigger.ts';
+import { AgentCoreIdentity } from './agentcore/identity.ts';
 import { agentMounts } from './mounts/agents.ts';
 import { usageMounts } from './mounts/usage.ts';
 import { PriceBook } from './agents/pricing.ts';
@@ -258,6 +262,30 @@ const completion = new RuntimeCompletion({
    defaultModel: config.runtime.defaultModel,
 });
 
+/** The agent layer's single model calls, as completion tasks on the runtime. */
+const complete = agentCompletion({
+   sql,
+   nudge: () => dispatcher?.nudge(),
+   defaultModel: config.runtime.defaultModel,
+});
+
+/**
+ * Where an agent's gateway-routed MCP servers go: the AgentCore Gateway, with
+ * the workload identity's headers. Null without a gateway, and such servers
+ * are then left out of the task rather than sent direct.
+ */
+const gatewayRoute = config.agentCoreGateway
+   ? (() => {
+        const gateway = config.agentCoreGateway;
+        const identity = new AgentCoreIdentity({
+           region: gateway.region,
+           providerName: gateway.githubProviderName,
+           workloadName: gateway.workloadName,
+        });
+        return { url: gateway.gatewayUrl, headers: () => identity.gatewayHeaders() };
+     })()
+   : null;
+
 /**
  * AutoGate: a peer agent reviews what a run delivered, for tasks whose plan
  * opted in — and on request for any task with a pull request. Needs the same
@@ -341,6 +369,8 @@ const executor = defaultTarget
            sealer: config.integrationKey ? sealerFromKey(config.integrationKey) : null,
            ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
            github: (token) => new GitHubClient({ token }),
+           extensions: { skills: skillRepository, mcp: mcpRepository, profile: agentProfiles, gateway: gatewayRoute },
+           onSkipped: (names) => logger.warn('mcp server skipped: no gateway', { names }),
         }),
         memory: runMemory ?? nullRunMemory(),
         ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
@@ -411,6 +441,14 @@ const commentOptions = {
    broadcaster,
    hooks: workHooks,
    extensions: commentTrackingRoutes({ sql, comments, broadcaster }),
+   // A person's comment that mentions an agent (or a squad, or replies to the
+   // assignee) queues a task for it.
+   triggers: commentTriggers({
+      sql,
+      enqueue: agentEnqueue,
+      report: (error: unknown) =>
+         logger.error('comment trigger failed', { error: error instanceof Error ? error.message : String(error) }),
+   }),
 };
 registry.registerAll(
    issueMounts({
@@ -582,16 +620,22 @@ registry.registerAll(
       logger,
    })
 );
+const conversationRepository = new ConversationRepository(sql);
+// Once per process: a finished chat task posts its reply into the session,
+// and a member finishing delegated work wakes its squad leader. Both hook the
+// ledger's terminal notification.
+registerChatReplies({ sql, conversations: conversationRepository });
+registerSquadRetrigger({ sql, enqueue: agentEnqueue });
+registerDelegateTool({ sql, issues });
 registry.registerAll(
    conversationMounts({
       sessions,
-      conversations: new ConversationRepository(sql),
+      conversations: conversationRepository,
       boards,
       sql,
-      // Chat runs as agent tasks through workstream A's queue. Until A is
-      // wired in (Task 13) a message is kept and the send answers 503.
-      enqueue: null,
-      complete: null,
+      // Chat runs as agent tasks through the runtime's queue.
+      enqueue: agentEnqueue,
+      complete,
       ledger: runOptions.ledger,
       runs: runOptions.runs,
       logger,
@@ -655,16 +699,13 @@ registry.registerAll(
    })
 );
 registry.registerAll(mcpServerMounts({ sessions, sql, servers: mcpRepository }));
-// enqueue and complete are workstream A's; they stay null until Task 13 wires
-// them, so an assignment records the squad but queues nothing yet, and the
-// builder answers 503 on a turn.
 registry.registerAll(
    squadMounts({
       sessions,
       sql,
       squads: squadRepository,
       issues,
-      enqueue: null,
+      enqueue: agentEnqueue,
       agentAccess: agentAccessGuard(sql),
    })
 );
@@ -672,7 +713,7 @@ registry.registerAll(
    agentBuilderMounts({
       sessions,
       sql,
-      builder: new AgentBuilder({ sql, complete: null, skills: skillRepository, agents, mcp: mcpRepository }),
+      builder: new AgentBuilder({ sql, complete, skills: skillRepository, agents, mcp: mcpRepository }),
    })
 );
 registry.registerAll(usageMounts({ sessions, sql }));
