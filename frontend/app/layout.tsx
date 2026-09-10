@@ -27,26 +27,31 @@ export const metadata: Metadata = {
 import { ThemeProvider } from '@/components/layout/theme-provider';
 import { SessionGate } from '@/components/layout/session-gate';
 import { NuqsAdapter } from 'nuqs/adapters/next/app';
+import { NextIntlClientProvider } from 'next-intl';
+import { getLocale } from 'next-intl/server';
 
-export default function RootLayout({
+export default async function RootLayout({
    children,
 }: Readonly<{
    children: React.ReactNode;
 }>) {
+   const locale = await getLocale();
    return (
-      <html lang="en" suppressHydrationWarning>
+      <html lang={locale} suppressHydrationWarning>
          <body
             className={`${dmSerifDisplay.variable} ${geistMono.variable} bg-background antialiased`}
             suppressHydrationWarning
          >
-            <NuqsAdapter>
-               <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-                  <SessionGate>
-                     {children}
-                     <Toaster />
-                  </SessionGate>
-               </ThemeProvider>
-            </NuqsAdapter>
+            <NextIntlClientProvider>
+               <NuqsAdapter>
+                  <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
+                     <SessionGate>
+                        {children}
+                        <Toaster />
+                     </SessionGate>
+                  </ThemeProvider>
+               </NuqsAdapter>
+            </NextIntlClientProvider>
          </body>
       </html>
    );
