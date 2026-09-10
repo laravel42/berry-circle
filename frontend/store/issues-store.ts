@@ -1,4 +1,4 @@
-import { groupIssuesByStatus, Issue, issues as mockIssues } from '@/data/issues';
+import { groupIssuesByStatus, Issue } from '@/data/issues';
 import { LabelInterface } from '@/data/labels';
 import { Priority } from '@/data/priorities';
 import { Project } from '@/data/projects';
@@ -113,8 +113,8 @@ function commitPatch(
 
 export const useIssuesStore = create<IssuesState>((set, get) => ({
    // Initial state
-   issues: mockIssues.sort((a, b) => b.rank.localeCompare(a.rank)),
-   issuesByStatus: groupIssuesByStatus(mockIssues),
+   issues: [],
+   issuesByStatus: {},
 
    //
    getAllIssues: () => get().issues,

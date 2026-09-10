@@ -1,17 +1,6 @@
-'use client';
-
-import {
-   SidebarGroup,
-   SidebarGroupLabel,
-   SidebarMenu,
-   SidebarMenuButton,
-   SidebarMenuItem,
-} from '@/components/ui/sidebar';
 import {
    Bell,
    Blocks,
-   Bot,
-   Code,
    Columns3,
    KeyRound,
    Link2,
@@ -19,17 +8,14 @@ import {
    LucideIcon,
    Plug,
    Puzzle,
+   Server,
    Settings,
    Sparkles,
    Tag,
    UserRound,
    Users,
-   Server,
    Zap,
 } from 'lucide-react';
-import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
-import { isNavItemActive } from '@/lib/nav-active';
 
 interface SettingsNavItem {
    name: string;
@@ -43,7 +29,13 @@ interface SettingsNavGroup {
    items: SettingsNavItem[];
 }
 
-/** Default settings navigation. Unused routes stay live; they are not listed here. */
+/**
+ * Settings navigation, rendered by the rail in settings mode.
+ *
+ * Only pages with a backend are listed. A workstream that ships a settings
+ * page appends its item here in the same change; a page with nothing behind
+ * it is not listed and not built.
+ */
 export const settingsNav: SettingsNavGroup[] = [
    {
       label: 'personal',
@@ -59,9 +51,7 @@ export const settingsNav: SettingsNavGroup[] = [
       label: 'workspace',
       items: [
          { name: 'agents', url: '/settings/ai', icon: Sparkles },
-         { name: 'agent personalization', url: '/settings/agent-personalization', icon: Bot },
          { name: 'runtimes', url: '/runtimes', icon: Server },
-         { name: 'code & reviews', url: '/settings/code-and-reviews', icon: Code },
          { name: 'task labels', url: '/settings/issue-labels', icon: Tag },
          { name: 'statuses', url: '/settings/project-statuses', icon: Columns3 },
          { name: 'integrations', url: '/settings/integrations', icon: Blocks },
@@ -73,34 +63,3 @@ export const settingsNav: SettingsNavGroup[] = [
       ],
    },
 ];
-
-export function NavSettings() {
-   const { orgId } = useParams<{ orgId: string }>();
-   const pathname = usePathname();
-
-   return (
-      <>
-         {settingsNav.map((group) => (
-            <SidebarGroup key={group.label} className="group-data-[collapsible=icon]:hidden">
-               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-               <SidebarMenu>
-                  {group.items.map((item) => {
-                     const href = `/${orgId}${item.url}`;
-                     const isActive = isNavItemActive(pathname, href);
-                     return (
-                        <SidebarMenuItem key={`${group.label}-${item.name}`}>
-                           <SidebarMenuButton asChild size="sm" isActive={isActive}>
-                              <Link href={href}>
-                                 <item.icon />
-                                 <span>{item.name}</span>
-                              </Link>
-                           </SidebarMenuButton>
-                        </SidebarMenuItem>
-                     );
-                  })}
-               </SidebarMenu>
-            </SidebarGroup>
-         ))}
-      </>
-   );
-}

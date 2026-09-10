@@ -25,7 +25,6 @@ const SECTION_LABELS: Record<string, string> = {
    'goals': 'goals',
    'approval': 'approvals',
    'approvals': 'approvals',
-   'initiative': 'initiatives',
    'review': 'reviews',
    'view': 'views',
 };

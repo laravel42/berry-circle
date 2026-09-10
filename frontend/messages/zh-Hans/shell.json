@@ -15,7 +15,8 @@
       "squads": "小队",
       "autopilots": "自动驾驶",
       "dashboard": "仪表板",
-      "usage": "用量"
+      "usage": "用量",
+      "chat": "聊天"
    },
    "rail": {
       "workspace": "工作区",

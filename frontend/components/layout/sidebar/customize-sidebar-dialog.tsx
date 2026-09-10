@@ -18,7 +18,6 @@ import {
 } from '@/store/sidebar-prefs-store';
 import {
    Activity,
-   BarChart3,
    BookOpen,
    Box,
    Check,
@@ -29,6 +28,7 @@ import {
    GripVertical,
    LayoutDashboard,
    LucideIcon,
+   MessageSquare,
    Sparkles,
    Target,
    Timer,
@@ -47,6 +47,7 @@ interface ItemConfig {
 export const WORKSPACE_ITEMS: ItemConfig[] = [
    { key: 'my-issues', label: 'tasks', icon: FolderKanban },
    { key: 'reviews', label: 'reviews', icon: GitPullRequest },
+   { key: 'chat', label: 'chat', icon: MessageSquare },
    { key: 'goals', label: 'goals', icon: Target },
    { key: 'projects', label: 'projects', icon: Box },
 ];
@@ -57,7 +58,6 @@ export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'skills', label: 'skills', icon: BookOpen },
    { key: 'squads', label: 'squads', icon: UsersRound },
    { key: 'autopilot', label: 'autopilots', icon: Timer },
-   { key: 'analytics', label: 'analytics', icon: BarChart3 },
    { key: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
    { key: 'usage', label: 'usage', icon: Coins },
 ];

@@ -1,9 +1,7 @@
 'use client';
 
 import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
-import { CyclePlayIcon } from '@/components/common/cycles/cycle-icon';
 import { Button } from '@/components/ui/button';
-import { getCycleById } from '@/data/cycles';
 import { IssueDetail } from '@/data/issue-details';
 import { Issue } from '@/data/issues';
 import { GitPullRequestArrow, Trash2 } from 'lucide-react';
@@ -34,7 +32,6 @@ interface IssuePropertiesPanelProps {
  * the tasks it waits on and blocks, project, related tasks and linked PRs.
  */
 export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssuePropertiesPanelProps) {
-   const cycle = issue.cycleId ? getCycleById(issue.cycleId) : undefined;
    const deletion = useIssueDeletion(onDeleted);
 
    return (
@@ -57,12 +54,6 @@ export function IssuePropertiesPanel({ issue, detail, onDeleted }: IssueProperti
                         <span>{issue.assignee ? issue.assignee.name : 'Assign'}</span>
                      </div>
                      <ReviewerProperty issueRef={issue.identifier} />
-                     {cycle && (
-                        <div className="flex items-center gap-2 mt-0.5">
-                           <CyclePlayIcon className="size-4" />
-                           <span>{cycle.name}</span>
-                        </div>
-                     )}
                   </div>
                </Section>
                <IssueCustomProperties issueRef={issue.identifier} />

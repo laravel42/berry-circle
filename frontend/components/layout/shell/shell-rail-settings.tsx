@@ -14,7 +14,7 @@ import { isNavItemActive } from '@/lib/nav-active';
  * the settings groups — and the shell rail had no equivalent, so settings lost
  * its navigation entirely.
  *
- * The route data comes from `settingsNav`, which NavSettings already exports,
+ * The route data comes from `settingsNav` in `nav-settings.tsx`,
  * so the two cannot list different settings pages. Only the presentation is
  * reimplemented: the legacy components render sidebar primitives styled for the
  * light Circle sidebar, which would sit wrong in the dark rail and, being

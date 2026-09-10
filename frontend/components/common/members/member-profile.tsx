@@ -8,10 +8,11 @@ import { SearchIssues } from '@/components/common/issues/search-issues';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Issue, issueCreatorIndex } from '@/data/issues';
-import { labels } from '@/data/labels';
 import { priorities } from '@/data/priorities';
-import { projects } from '@/data/projects';
-import { statusUserColors, User, users } from '@/data/users';
+import { statusUserColors, User } from '@/data/users';
+import { useLabelsStore } from '@/store/labels-store';
+import { useMembersStore } from '@/store/members-store';
+import { useProjectsStore } from '@/store/projects-store';
 import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
@@ -100,6 +101,9 @@ function useClientTimes(member: User) {
  */
 export default function MemberProfile({ member }: { member: User }) {
    const { issues } = useIssuesStore();
+   const members = useMembersStore((state) => state.members);
+   const workspaceLabels = useLabelsStore((state) => state.labels);
+   const workspaceProjects = useProjectsStore((state) => state.projects);
    const [activeTab] = useQueryState('tab', parseAsString.withDefault('assigned'));
    const { localTime, joinedAgo } = useClientTimes(member);
    const { isSearchOpen, searchQuery } = useSearchStore();
@@ -112,15 +116,15 @@ export default function MemberProfile({ member }: { member: User }) {
 
    const memberIndex = Math.max(
       0,
-      users.findIndex((candidate) => candidate.id === member.id)
+      members.findIndex((candidate) => candidate.id === member.id)
    );
 
    const scopedIssues = useMemo(() => {
       if (activeTab === 'created') {
-         return issues.filter((issue) => issueCreatorIndex(issue, users.length) === memberIndex);
+         return issues.filter((issue) => issueCreatorIndex(issue, members.length) === memberIndex);
       }
       return issues.filter((issue) => issue.assignee?.id === member.id);
-   }, [issues, activeTab, member.id, memberIndex]);
+   }, [issues, activeTab, member.id, memberIndex, members.length]);
 
    const displayedIssues = useMemo(
       () => applyIssueFilters(scopedIssues, filters),
@@ -129,7 +133,7 @@ export default function MemberProfile({ member }: { member: User }) {
 
 
    const memberProjects = useMemo(() => {
-      const led = projects.filter((project) => project.lead.id === member.id);
+      const led = workspaceProjects.filter((project) => project.lead.id === member.id);
       const fromIssues = displayedIssues
          .map((issue) => issue.project)
          .filter((project): project is NonNullable<typeof project> => Boolean(project));
@@ -140,11 +144,11 @@ export default function MemberProfile({ member }: { member: User }) {
          return true;
       });
       return merged;
-   }, [displayedIssues, member.id]);
+   }, [displayedIssues, member.id, workspaceProjects]);
 
    const labelRows = useMemo<BreakdownRow[]>(() => {
       const counts = countBy(displayedIssues, (issue) => issue.labels.map((label) => label.id));
-      return labels
+      return workspaceLabels
          .filter((label) => counts.has(label.id))
          .map((label) => ({
             key: label.id,
@@ -158,7 +162,7 @@ export default function MemberProfile({ member }: { member: User }) {
             count: counts.get(label.id) ?? 0,
          }))
          .sort((a, b) => b.count - a.count);
-   }, [displayedIssues]);
+   }, [displayedIssues, workspaceLabels]);
 
    const priorityRows = useMemo<BreakdownRow[]>(() => {
       const counts = countBy(displayedIssues, (issue) => [issue.priority.id]);
@@ -177,7 +181,7 @@ export default function MemberProfile({ member }: { member: User }) {
       const counts = countBy(displayedIssues, (issue) =>
          issue.project ? [issue.project.id] : []
       );
-      return projects
+      return workspaceProjects
          .filter((project) => counts.has(project.id))
          .map((project) => ({
             key: project.id,
@@ -186,7 +190,7 @@ export default function MemberProfile({ member }: { member: User }) {
             count: counts.get(project.id) ?? 0,
          }))
          .sort((a, b) => b.count - a.count);
-   }, [displayedIssues]);
+   }, [displayedIssues, workspaceProjects]);
 
    if (isSearching) {
       return (

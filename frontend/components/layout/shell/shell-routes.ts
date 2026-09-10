@@ -12,6 +12,7 @@ export type ShellRoute =
    | 'issues'
    | 'runs'
    | 'reviews'
+   | 'chat'
    | 'inbox'
    | 'projects'
    | 'goals'
@@ -19,13 +20,13 @@ export type ShellRoute =
    | 'skills'
    | 'squads'
    | 'autopilots'
-   | 'analytics'
    | 'dashboard'
    | 'usage';
 
 /** Key under `shell.nav` in the message catalogues. */
 export type ShellLabelKey =
    | 'tasks'
+   | 'chat'
    | 'reviews'
    | 'goals'
    | 'projects'
@@ -92,6 +93,14 @@ const WORK: ShellRouteDef[] = [
       icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
    },
    {
+      id: 'chat',
+      label: 'chat',
+      labelKey: 'chat',
+      href: '/chat',
+      prefsKey: 'chat',
+      icon: '<path d="M4 5h16v11H9l-5 4z" />',
+   },
+   {
       id: 'goals',
       label: 'goals',
       labelKey: 'goals',
@@ -155,13 +164,6 @@ const MANAGE: ShellRouteDef[] = [
       match: ['/autopilot/'],
       prefsKey: 'autopilot',
       icon: '<circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2.5" /><path d="M9.5 3h5" />',
-   },
-   {
-      id: 'analytics',
-      label: 'analytics',
-      labelKey: 'analytics',
-      prefsKey: 'analytics',
-      icon: '<path d="M4 19V10M10 19V5M16 19v-7" /><path d="M3 19h18" />',
    },
    {
       id: 'dashboard',

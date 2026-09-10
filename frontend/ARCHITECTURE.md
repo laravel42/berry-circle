@@ -9,7 +9,7 @@ provider secrets.
 A route under `app/` renders components from `components/`. Anything that needs
 server data calls a **client module** in `lib/` (never `fetch` directly), which
 goes through the one API seam `lib/api.ts`. Cross-render state lives in a
-**Zustand store** in `store/`, seeded from the domain types in `data/`. Shared
+**Zustand store** in `store/`, typed by the domain types in `data/` and filled from the API. Shared
 subscriptions and loaders are **hooks** in `hooks/`. There is no test runner —
 a change is verified with `pnpm lint`, `pnpm build:check`, and a look at the
 screen.
@@ -18,7 +18,7 @@ screen.
 app/<route>/page.tsx
    │  renders
    ▼
-components/…                     Zustand store (store/…)  ← seeded from data/…
+components/…                     Zustand store (store/…)  ← typed by data/…
    │  data via                        ▲
    ▼                                  │ shared loaders/subscriptions
 lib/<domain>.ts  ──►  lib/api.ts  ──► Berry API (same-origin, proxied)
@@ -33,7 +33,7 @@ lib/<domain>.ts  ──►  lib/api.ts  ──► Berry API (same-origin, proxie
 | `components/` | React components, grouped: `ui/` are the shadcn/Radix primitives; `common/` are the domain components (one subfolder per feature); `layout/`, `auth/`, `brand/`, `onboarding/` are their namesakes; `data-table-filter/` is vendored (the **only** place `any` is allowed). |
 | `lib/` | One client module per resource (`issues.ts`, `projects.ts`, `agents.ts`, …), each calling the API through `api.ts`. Also `config.ts` (the `NEXT_PUBLIC_*` knobs) and shared utilities. **All server traffic goes through `api.ts`.** |
 | `store/` | Zustand stores, one per screen or feature slice (`session-store`, `issues-store`, `filter-store`, `event-stream-store`, …). State the UI reads and mutates. |
-| `data/` | Domain types and intentionally **empty** collections. `currentUser` is a pre-auth placeholder. Do not reintroduce the Circle template's demo datasets. |
+| `data/` | Domain **types** and fixed vocabularies (statuses, priorities, project health). No collections: stores start empty and fill from the API. `currentUser` is a pre-auth placeholder pending removal. `eslint.config.mjs` (`FIXTURE_IMPORT_PATHS`) refuses imports of removed fixtures and of surfaces with no backend. |
 | `hooks/` | Shared React hooks: realtime event-stream subscriptions, `use-hydrate-workspace-data`, entity loaders (`use-plan`/`use-project`/`use-goal`), and `use-mobile`. |
 
 ## Conventions worth knowing before you edit

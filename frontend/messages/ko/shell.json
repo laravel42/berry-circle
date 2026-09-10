@@ -15,7 +15,8 @@
       "squads": "스쿼드",
       "autopilots": "오토파일럿",
       "dashboard": "대시보드",
-      "usage": "사용량"
+      "usage": "사용량",
+      "chat": "채팅"
    },
    "rail": {
       "workspace": "워크스페이스",

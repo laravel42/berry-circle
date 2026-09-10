@@ -15,7 +15,8 @@
       "squads": "squads",
       "autopilots": "autopilots",
       "dashboard": "dashboard",
-      "usage": "usage"
+      "usage": "usage",
+      "chat": "chat"
    },
    "rail": {
       "workspace": "Workspace",

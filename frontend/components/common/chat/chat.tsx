@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SendHorizonal } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 
 import { BerryApiError } from '@/lib/api';
 import { loadWorkspaceAgents, type Agent } from '@/lib/agents';
@@ -118,12 +119,6 @@ export function Chat() {
             setAgents(loadedAgents.filter((item) => item.status === 'available'));
             setThreads(loadedThreads);
             setPinnedAgentIds(pinned);
-            // `?agent=<id>` opens that agent's latest session, or a new one.
-            const wanted = new URLSearchParams(window.location.search).get('agent');
-            if (wanted) {
-               const id = await openAgentThread(wanted);
-               if (!cancelled) await selectById(id);
-            }
          } catch (cause) {
             if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not load chat');
          }
@@ -131,7 +126,25 @@ export function Chat() {
       return () => {
          cancelled = true;
       };
-   }, [selectById]);
+   }, []);
+
+   // A search result or a link can name the agent to open: `/chat?agent=…`
+   // opens that agent's latest session, or a new one. Keyed on the URL, so it
+   // also works when the link is followed from within chat.
+   const requestedAgentId = useSearchParams()?.get('agent') ?? null;
+   const activeAgentId = active?.agentId ?? null;
+   useEffect(() => {
+      if (!requestedAgentId || activeAgentId === requestedAgentId) return;
+      let cancelled = false;
+      void openAgentThread(requestedAgentId)
+         .then((id) => (cancelled ? undefined : selectById(id)))
+         .catch((cause: unknown) => {
+            if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not open the conversation');
+         });
+      return () => {
+         cancelled = true;
+      };
+   }, [requestedAgentId, activeAgentId, selectById]);
 
    // Replies land when a task ends: re-read on run events, and poll while
    // tasks are waiting in case the relay is not delivering events.

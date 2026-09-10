@@ -15,7 +15,8 @@
       "squads": "スクワッド",
       "autopilots": "オートパイロット",
       "dashboard": "ダッシュボード",
-      "usage": "使用量"
+      "usage": "使用量",
+      "chat": "チャット"
    },
    "rail": {
       "workspace": "ワークスペース",
