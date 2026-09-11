@@ -41,9 +41,9 @@ Berry had no inbox page. Notifications lived only in a right-hand drawer
 
 ## After the work
 
-Every row above that reads missing or partial is rebuilt in step 2. This section is
-rewritten at the end of the workstream with what was actually built; until then it records
-the intended outcome.
+Everything above that read missing or partial was rebuilt, except the one row that had no
+screen asking for it. The new page is `frontend/app/[orgId]/inbox/page.tsx` over
+`frontend/components/common/inbox/**`.
 
 | # | Behaviour | Now |
 | --- | --- | --- |
@@ -70,3 +70,26 @@ the intended outcome.
 | 21 | Backend | unchanged apart from one added field (`details`) on the existing list route. |
 | 21b | Snooze | **not built** — no screen in this checklist snoozes anything, and the project rule is that a backend addition needs a screen that requires it. Nothing in the UI, the store or the client references snoozing, so the endpoint would have no caller. |
 | 22 | Drawer | present — same behaviour, now translated, with a footer link to the inbox page. |
+
+## Wiring this needs at merge
+
+- **F2's task detail.** `IssueDetails` now takes an optional `issueRef`, so a surface that
+  is not routed at a task can still show one (`frontend/components/common/issues/details/issue-details.tsx`,
+  three lines). When F2's detail component lands, the inbox detail should render that
+  instead — one import in `inbox-detail.tsx`.
+- **F6's shortcut registry.** Up, down and `E` are a local `keydown` listener in
+  `frontend/components/common/inbox/use-inbox.ts` (`useInboxKeyboard`), because this branch
+  has no registry to register with. Moving them is a change to that one hook.
+- **The message namespace.** `inbox` is registered in three places, one line each:
+  `frontend/lib/i18n/locales.ts`, `frontend/i18n/messages-en.ts` and
+  `scripts/check-locale-catalogues.py`. Anyone else adding a namespace touches the same
+  three lines.
+- **The rail.** `shell-routes.ts` already declares an `inbox` route id and
+  `sidebar-prefs-store.ts` an `inbox` preference key, both unused. Whoever owns the shell
+  can point an entry at `/[orgId]/inbox`; this workstream did not edit the route table, so
+  the page is reached from the drawer's footer link.
+- **The command palette.** No inbox entry was added — that file belongs to the shell.
+- **Cross-tenant coverage.** The inbox mount is not new, so it was not added to
+  `cross-tenant-leakage.test.ts`. Its isolation is asserted in the new
+  `server-ts/src/mounts/inbox.test.ts`: another member's rows are invisible and
+  unactionable, and a foreign workspace is a 404 rather than an empty list.
