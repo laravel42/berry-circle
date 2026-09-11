@@ -88,7 +88,15 @@ export const SHORTCUTS: ShortcutDefinition[] = [
       defaultCombo: 'mod+f',
       allowInInput: true,
    },
-   { id: 'inbox.archive', group: 'general', labelKey: 'archiveInboxItem', defaultCombo: 'e' },
+   {
+      id: 'inbox.archive',
+      group: 'general',
+      labelKey: 'archiveInboxItem',
+      defaultCombo: 'e',
+      // The inbox is a drawer, and a drawer is a dialog. Blocking this one
+      // while a dialog is open would mean it never fired at all.
+      blockedByModal: false,
+   },
    {
       id: 'composer.send',
       group: 'general',

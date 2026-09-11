@@ -66,15 +66,15 @@ export function NavigationProgress() {
    // Creep while it is showing, and give up rather than hang.
    useEffect(() => {
       if (progress === null) return;
-      timers.current.creep = setInterval(() => {
+      const creep = setInterval(() => {
          setProgress((value) =>
             value === null ? null : Math.min(CEILING, value + (CEILING - value) * 0.18)
          );
       }, CREEP_MS);
-      timers.current.done = setTimeout(() => setProgress(null), GIVE_UP_MS);
+      const giveUp = setTimeout(() => setProgress(null), GIVE_UP_MS);
       return () => {
-         if (timers.current.creep) clearInterval(timers.current.creep);
-         if (timers.current.done) clearTimeout(timers.current.done);
+         clearInterval(creep);
+         clearTimeout(giveUp);
       };
       // Only the transition from "hidden" to "showing" starts the timers; the
       // creeping value itself must not restart them.

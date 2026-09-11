@@ -24,6 +24,12 @@ interface NotificationsState {
    markAsRead: (id: string) => void;
    markAllAsRead: () => void;
    markAsUnread: (id: string) => void;
+   /**
+    * Take an item out of the inbox. Archiving is not reading: it is saying the
+    * thing is dealt with, which is why it leaves the list rather than fading
+    * in place.
+    */
+   archiveNotification: (id: string) => void;
 
    getUnreadNotifications: () => InboxItem[];
    getReadNotifications: () => InboxItem[];
@@ -78,9 +84,7 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
    hydrateNotifications: (notifications) => {
       const { seen, primed } = trackSeen(notifications);
       set({
-         arrivals: primed
-            ? notifications.filter((item) => !item.read && !seen.has(item.id))
-            : [],
+         arrivals: primed ? notifications.filter((item) => !item.read && !seen.has(item.id)) : [],
       });
       set({
          notifications,
@@ -140,9 +144,32 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
                ? { ...state.selectedNotification, read: false }
                : state.selectedNotification,
          serverUnreadCount:
-            state.serverUnreadCount !== null ? state.serverUnreadCount + 1 : state.serverUnreadCount,
+            state.serverUnreadCount !== null
+               ? state.serverUnreadCount + 1
+               : state.serverUnreadCount,
       }));
       void syncInboxAction([id], 'unread');
+   },
+
+   archiveNotification: (id: string) => {
+      const item = get().notifications.find((notification) => notification.id === id);
+      if (!item) return;
+      set((state) => {
+         const remaining = state.notifications.filter((notification) => notification.id !== id);
+         return {
+            notifications: remaining,
+            // The selection moves to whatever took its place, so archiving
+            // several in a row is one keystroke each rather than a keystroke
+            // and a click.
+            selectedNotification:
+               state.selectedNotification?.id === id ? remaining[0] : state.selectedNotification,
+            serverUnreadCount:
+               state.serverUnreadCount !== null && !item.read
+                  ? Math.max(0, state.serverUnreadCount - 1)
+                  : state.serverUnreadCount,
+         };
+      });
+      void syncInboxAction([id], 'archive');
    },
 
    getUnreadNotifications: () => {

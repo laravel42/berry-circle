@@ -1,9 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { RiSettings3Line } from '@remixicon/react';
+import { SquarePen } from 'lucide-react';
 import {
    DropdownMenu,
    DropdownMenuContent,
@@ -19,11 +21,15 @@ import {
 } from '@/store/sidebar-prefs-store';
 import { isTerminalRunStatus } from '@/lib/runs';
 import { useRunsStore } from '@/store/runs-store';
+import { hasIssueDraft, useCreateIssueStore } from '@/store/create-issue-store';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { SHELL_SECTIONS, type ShellRouteDef, type ShellRoute } from './shell-routes';
 import { ShellIcon, BerryMark, shellIconButton } from './shell-icon';
 import { WorkspaceMenuItems } from './workspace-menu';
 import { ShellRailSettings } from './shell-rail-settings';
 import { ShellPins } from './shell-pins';
+import { ShellPersonal } from './shell-personal';
+import { ShellHelp } from './shell-help';
 
 /** A workspace route the user can pin or hide. */
 type PinnableRoute = ShellRouteDef & { prefsKey: SidebarItemKey };
@@ -46,8 +52,14 @@ interface ShellRailProps {
  */
 export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailProps) {
    const t = useTranslations('shell');
+   const nav = useTranslations('navigation.sidebar');
    const { visibility, order } = useSidebarPrefsStore();
    const [customizeOpen, setCustomizeOpen] = useState(false);
+   const openIssueModal = useCreateIssueStore((state) => state.openModal);
+   const draft = useCreateIssueStore((state) => state.draft);
+   const isMobile = useIsMobile();
+   const pathname = usePathname() ?? '';
+   const lastPath = useRef(pathname);
    // A run that has not reached a terminal status is still going, which is what
    // the dot beside runtimes reports.
    const runsLive = useRunsStore((state) =>
@@ -59,6 +71,16 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
    // hydration consistent, matching the legacy sidebar's behaviour.
    const [mounted, setMounted] = useState(false);
    useEffect(() => setMounted(true), []);
+
+   // On a narrow screen the rail covers the page it navigated to, so going
+   // somewhere closes it. Only on an actual change of route: closing on mount
+   // would mean a deep link on a phone opens with the rail already dismissed,
+   // which looks like the control does not work.
+   useEffect(() => {
+      if (pathname === lastPath.current) return;
+      lastPath.current = pathname;
+      if (isMobile) onToggle();
+   }, [pathname, isMobile, onToggle]);
 
    /**
     * Apply the user's pin preferences to a section, returning what is shown in
@@ -147,7 +169,27 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                         <WorkspaceMenuItems orgId={orgId} />
                      </DropdownMenuContent>
                   </DropdownMenu>
+                  <button
+                     type="button"
+                     onClick={() => openIssueModal()}
+                     aria-label={nav('newIssue')}
+                     title={nav('newIssue')}
+                     className={`relative size-[26px] ${shellIconButton}`}
+                  >
+                     <SquarePen className="size-3.5" />
+                     {/* A dot, not a count: there is one draft, and what the
+                         person needs to know is that it is still there. */}
+                     {hasIssueDraft(draft) ? (
+                        <span
+                           aria-label={nav('draftWaiting')}
+                           title={nav('draftWaiting')}
+                           className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-[var(--shell-accent)]"
+                        />
+                     ) : null}
+                  </button>
                </div>
+
+               <ShellPersonal orgId={orgId} />
 
                {SHELL_SECTIONS.map((section) => {
                   const shown = partition(section.routes, section.prefsSection);
@@ -219,6 +261,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
             >
                <RiSettings3Line className="size-3.5" />
             </button>
+            <ShellHelp />
             <button
                type="button"
                onClick={onToggle}

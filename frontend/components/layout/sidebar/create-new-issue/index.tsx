@@ -34,7 +34,8 @@ import { createBoardIssue } from '@/lib/issues';
 import { assignIssueToSquad, type Squad } from '@/lib/squads';
 
 export function CreateNewIssue() {
-   const { isOpen, defaultStatus, openModal, closeModal } = useCreateIssueStore();
+   const { isOpen, defaultStatus, openModal, closeModal, setDraft, clearDraft } =
+      useCreateIssueStore();
    const { addIssue, getAllIssues } = useIssuesStore();
    const boardId = useSessionStore((state) => state.boardId);
    const [pending, setPending] = useState(false);
@@ -42,9 +43,12 @@ export function CreateNewIssue() {
    // squad is given the issue once the issue exists.
    const [squad, setSquad] = useState<Squad | null>(null);
 
-
    const createDefaultData = useCallback(() => {
       const sortOrder = (getAllIssues().length + 1) * 1000;
+      // Read rather than subscribed: the draft changes on every keystroke, and
+      // a reactive read here would rebuild the form — losing the status and
+      // assignee already chosen — between one letter and the next.
+      const draft = useCreateIssueStore.getState().draft;
       return {
          id: uuidv4(),
          // Blank until the server assigns one. The identifier comes from the
@@ -52,8 +56,8 @@ export function CreateNewIssue() {
          // client knows — inventing one here produced a code that matched
          // nothing once the issue was actually created.
          identifier: '',
-         title: '',
-         description: '',
+         title: draft?.title ?? '',
+         description: draft?.description ?? '',
          status: defaultStatus || status.find((s) => s.id === 'to-do')!,
          assignee: null,
          priority: priorities.find((p) => p.id === 'no-priority')!,
@@ -118,6 +122,8 @@ export function CreateNewIssue() {
                   )
             );
          }
+         // The draft became a task, so there is nothing left to come back to.
+         clearDraft();
          closeModal();
          setSquad(null);
          setAddIssueForm(createDefaultData());
@@ -177,7 +183,10 @@ export function CreateNewIssue() {
                   className="h-auto border-none bg-transparent px-0 font-medium text-foreground shadow-none outline-none placeholder:text-foreground/40 placeholder:font-normal"
                   placeholder="Task title"
                   value={addIssueForm.title}
-                  onChange={(e) => setAddIssueForm({ ...addIssueForm, title: e.target.value })}
+                  onChange={(e) => {
+                     setAddIssueForm({ ...addIssueForm, title: e.target.value });
+                     setDraft({ title: e.target.value, description: addIssueForm.description });
+                  }}
                />
 
                <MarkdownTextarea
@@ -185,7 +194,10 @@ export function CreateNewIssue() {
                   className="min-h-28 resize-none border-none bg-transparent px-0 text-foreground shadow-none outline-none placeholder:text-foreground/40"
                   placeholder="Add description..."
                   value={addIssueForm.description}
-                  onChange={(description) => setAddIssueForm({ ...addIssueForm, description })}
+                  onChange={(description) => {
+                     setAddIssueForm({ ...addIssueForm, description });
+                     setDraft({ title: addIssueForm.title, description });
+                  }}
                />
 
                <div className="w-full flex items-center justify-start gap-1.5 flex-wrap">
