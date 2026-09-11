@@ -6,6 +6,7 @@ import { useIssuesStore } from '@/store/issues-store';
 import { useViewStore } from '@/store/view-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { cn } from '@/lib/utils';
+import { useVirtualRows } from '@/lib/use-virtual-rows';
 import { ChevronDown, EyeOff, Plus } from 'lucide-react';
 import { FC, ReactNode, useRef } from 'react';
 import { useDrop } from 'react-dnd';
@@ -17,7 +18,8 @@ import { IssueLine } from './issue-line';
 
 /**
  * Generic descriptor of an issue group. Groups are usually statuses but the
- * "Display" settings also allow grouping by assignee / priority / project.
+ * "Display" settings also allow grouping by assignee / priority / project /
+ * parent / a workspace field.
  */
 export interface IssueGroupDescriptor {
    id: string;
@@ -35,7 +37,17 @@ interface GroupIssuesProps {
    count: number;
    /** Board only: take this column off the board until it is restored. */
    onHide?: () => void;
+   /**
+    * Applies this group's value to a task dropped into it — the status of a
+    * status column, the person of an assignee column, and so on. Set by the
+    * view that knows what the grouping means.
+    */
+   onDropIssue?: (issue: Issue) => void;
 }
+
+/** Beyond this many cards a column renders only the ones in view. */
+const VIRTUALIZE_ABOVE = 40;
+const ESTIMATED_CARD_HEIGHT = 104;
 
 /** Circle board/list header tint — ~6% alpha on board, ~3% on list. */
 function statusHeaderTint(color: string, isViewTypeGrid: boolean): string {
@@ -152,7 +164,38 @@ function GroupHeaderBar({
    );
 }
 
-export function GroupIssues({ group, issues, count, onHide }: GroupIssuesProps) {
+/** The rows of a list group, and the drop target that moves a task into it. */
+const IssueLineList: FC<{
+   issues: Issue[];
+   onDropIssue?: (issue: Issue) => void;
+}> = ({ issues, onDropIssue }) => {
+   const ref = useRef<HTMLDivElement>(null);
+   const orderIds = issues.map((issue) => issue.id);
+
+   const [{ isOver }, drop] = useDrop(
+      () => ({
+         accept: IssueDragType,
+         canDrop: () => onDropIssue !== undefined,
+         drop(item: Issue, monitor) {
+            if (monitor.didDrop()) return;
+            onDropIssue?.(item);
+         },
+         collect: (monitor) => ({ isOver: monitor.isOver() && monitor.canDrop() }),
+      }),
+      [onDropIssue]
+   );
+   drop(ref);
+
+   return (
+      <div ref={ref} className={cn('space-y-0 transition-colors', isOver && 'bg-accent/30')}>
+         {issues.map((issue) => (
+            <IssueLine key={issue.id} issue={issue} layoutId={true} order={orderIds} />
+         ))}
+      </div>
+   );
+};
+
+export function GroupIssues({ group, issues, count, onHide, onDropIssue }: GroupIssuesProps) {
    const { viewType } = useViewStore();
    const isViewTypeGrid = viewType === 'grid';
    const showChevron = !isViewTypeGrid;
@@ -175,54 +218,61 @@ export function GroupIssues({ group, issues, count, onHide }: GroupIssuesProps) 
             <div className="sticky top-0 z-10 h-9 w-full shrink-0 rounded-t-lg bg-container">
                {header}
             </div>
-            <IssueGridList issues={issues} status={group.status} />
+            <IssueGridList issues={issues} status={group.status} onDropIssue={onDropIssue} />
          </div>
       );
    }
 
-   const orderIds = issues.map((issue) => issue.id);
-   const rows = (
-      <div className="space-y-0">
-         {issues.map((issue) => (
-            <IssueLine key={issue.id} issue={issue} layoutId={true} order={orderIds} />
-         ))}
-      </div>
-   );
-
    return (
       <Collapsible defaultOpen disabled={!canCollapse} className="group/issue-group bg-container">
          {header}
-         <CollapsibleContent>{rows}</CollapsibleContent>
+         <CollapsibleContent>
+            <IssueLineList issues={issues} onDropIssue={onDropIssue} />
+         </CollapsibleContent>
       </Collapsible>
    );
 }
 
-const IssueGridList: FC<{ issues: Issue[]; status?: Status }> = ({ issues, status }) => {
+const IssueGridList: FC<{
+   issues: Issue[];
+   status?: Status;
+   onDropIssue?: (issue: Issue) => void;
+}> = ({ issues, status, onDropIssue }) => {
    const ref = useRef<HTMLDivElement>(null);
    const moveIssue = useIssuesStore((state) => state.moveIssue);
    const columnIssueIds = issues.map((issue) => issue.id);
+   // A long column renders only what is on screen. The estimate is coarse
+   // because cards are not all the same height, but scrolling a thousand
+   // mounted cards is worse than a scrollbar that settles a little.
+   const virtual = useVirtualRows(issues.length, ESTIMATED_CARD_HEIGHT);
+   const windowed = issues.length > VIRTUALIZE_ABOVE;
 
    const [{ isOverColumn, isOverEmpty }, drop] = useDrop(
       () => ({
          accept: IssueDragType,
-         canDrop: () => status !== undefined,
+         canDrop: () => status !== undefined || onDropIssue !== undefined,
          drop(item: Issue, monitor) {
             if (monitor.didDrop()) return;
-            if (!status) return;
-            moveIssue(item.id, { targetStatus: status, insertBeforeId: null });
+            if (status) moveIssue(item.id, { targetStatus: status, insertBeforeId: null });
+            onDropIssue?.(item);
          },
          collect: (monitor) => ({
             isOverColumn: monitor.isOver() && monitor.canDrop(),
             isOverEmpty: monitor.isOver({ shallow: true }) && monitor.canDrop(),
          }),
       }),
-      [status, moveIssue]
+      [status, moveIssue, onDropIssue]
    );
    drop(ref);
 
+   const visible = windowed ? issues.slice(virtual.start, virtual.end) : issues;
+
    return (
       <div
-         ref={ref}
+         ref={(node) => {
+            ref.current = node;
+            virtual.ref.current = node;
+         }}
          className={cn(
             'relative flex min-h-0 flex-1 flex-col space-y-1.5 overflow-y-auto rounded-b-lg p-1.5 transition-shadow',
             isOverColumn && issues.length > 0 && 'ring-2 ring-inset ring-primary/35'
@@ -242,15 +292,25 @@ const IssueGridList: FC<{ issues: Issue[]; status?: Status }> = ({ issues, statu
                </motion.div>
             )}
          </AnimatePresence>
-         {issues.map((issue, index) => (
+         {windowed ? <div style={{ height: virtual.offset }} aria-hidden /> : null}
+         {visible.map((issue, index) => (
             <IssueGrid
                key={issue.id}
                issue={issue}
-               index={index}
+               index={(windowed ? virtual.start : 0) + index}
                columnIssueIds={columnIssueIds}
                columnStatus={status}
+               onDropIssue={onDropIssue}
             />
          ))}
+         {windowed ? (
+            <div
+               style={{
+                  height: Math.max(0, virtual.totalHeight - virtual.end * ESTIMATED_CARD_HEIGHT),
+               }}
+               aria-hidden
+            />
+         ) : null}
       </div>
    );
 };

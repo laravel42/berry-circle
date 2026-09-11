@@ -27,6 +27,8 @@ type IssueGridProps = {
    index: number;
    columnIssueIds: string[];
    columnStatus?: Status;
+   /** Applies the column's grouped value to a card dropped onto this one. */
+   onDropIssue?: (issue: Issue) => void;
 };
 
 function IssueDragPreview({ issue }: { issue: Issue }) {
@@ -78,7 +80,13 @@ export function CustomDragLayer() {
    );
 }
 
-export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueGridProps) {
+export function IssueGrid({
+   issue,
+   index,
+   columnIssueIds,
+   columnStatus,
+   onDropIssue,
+}: IssueGridProps) {
    const cardRef = useRef<HTMLDivElement>(null);
    const insertBeforeIdRef = useRef<string | null | undefined>(undefined);
    const { orgId } = useParams<{ orgId: string }>();
@@ -136,6 +144,9 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                targetStatus: columnStatus,
                insertBeforeId,
             });
+            // A card dropped from another column lands in this one's group, so
+            // whatever the board is grouped by takes this column's value.
+            onDropIssue?.(draggedItem);
             insertBeforeIdRef.current = undefined;
             setDropEdge(null);
          },
@@ -143,7 +154,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
             isOver: monitor.isOver() && monitor.canDrop(),
          }),
       }),
-      [issue.id, index, columnKey, columnStatus, moveIssue]
+      [issue.id, index, columnKey, columnStatus, moveIssue, onDropIssue]
    );
 
    drag(drop(cardRef));

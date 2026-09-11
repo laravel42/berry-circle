@@ -5,7 +5,10 @@ import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useRef } from 'react';
+import { useDrag } from 'react-dnd';
 import { AssigneeUser } from './assignee-user';
+import { IssueDragType } from './issue-grid';
 import { LabelBadge } from './label-badge';
 import { PrioritySelector } from './priority-selector';
 import { ProjectBadge } from './project-badge';
@@ -30,11 +33,26 @@ export function IssueLine({
 }) {
    const { orgId } = useParams<{ orgId: string }>();
    const { displayProperties } = useDisplaySettingsStore();
+   const rowRef = useRef<HTMLDivElement>(null);
+
+   // Rows drag for the same reason cards do: on the list layout, moving a task
+   // between groups is the quickest way to change what it is grouped by.
+   const [{ isDragging }, drag] = useDrag(
+      () => ({
+         type: IssueDragType,
+         item: () => issue,
+         collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+      }),
+      [issue]
+   );
+   drag(rowRef);
 
    return (
       <ContextMenu>
          <ContextMenuTrigger asChild>
             <motion.div
+               ref={rowRef}
+               style={{ opacity: isDragging ? 0.45 : 1 }}
                {...(layoutId && { layoutId: `issue-line-${issue.identifier}` })}
                className={cn(
                   'group flex min-h-11 w-full items-center justify-start border-b border-border/45 px-4 transition-colors sm:px-6',

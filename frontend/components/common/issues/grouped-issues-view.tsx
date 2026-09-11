@@ -4,12 +4,19 @@ import { BerryMark } from '@/components/brand/berry-mark';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Issue } from '@/data/issues';
+import { priorities } from '@/data/priorities';
 import { Status } from '@/data/status';
+import { agentToUser } from '@/lib/agents';
+import { setIssueProject } from '@/lib/issues';
+import { useAgentsStore } from '@/store/agents-store';
 import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { useFilterStore } from '@/store/filter-store';
+import { useIssuesStore } from '@/store/issues-store';
+import { useMembersStore } from '@/store/members-store';
+import { useProjectsStore } from '@/store/projects-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { ChevronDown, RotateCcw, X } from 'lucide-react';
-import { FC, useEffect, useMemo, useRef, useState } from 'react';
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { useTranslations } from 'next-intl';
@@ -193,6 +200,13 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
    const hasActiveFilters = filters.length > 0;
    const property = usePropertyGrouping(view.grouping);
    const warned = useRef(false);
+   const members = useMembersStore((state) => state.members);
+   const agents = useAgentsStore((state) => state.agents);
+   const projects = useProjectsStore((state) => state.projects);
+   const moveIssue = useIssuesStore((state) => state.moveIssue);
+   const updateIssueAssignee = useIssuesStore((state) => state.updateIssueAssignee);
+   const updateIssuePriority = useIssuesStore((state) => state.updateIssuePriority);
+   const updateIssueProject = useIssuesStore((state) => state.updateIssueProject);
 
    // A field that was deleted while a list was grouped by it leaves every task
    // in one nameless bucket. Say so once, and put the grouping back.
@@ -234,6 +248,85 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
       [rawGroups, view.ordering, view.direction]
    );
 
+   /**
+    * What dropping a task into a group means.
+    *
+    * A board grouped by assignee and one grouped by status are the same
+    * gesture asking for different writes, so the view that chose the grouping
+    * is the one that says what the drop changes. Parent and workspace-field
+    * groups accept no drop: neither is a single value a card can be given.
+    */
+   const applyGroupValue = useCallback(
+      (groupId: string) => (issue: Issue) => {
+         switch (view.grouping) {
+            case 'status': {
+               const next = statuses.find((entry) => entry.id === groupId);
+               if (next && next.id !== issue.status.id) {
+                  moveIssue(issue.id, { targetStatus: next, insertBeforeId: null });
+               }
+               return;
+            }
+            case 'assignee': {
+               if (groupId === 'no-assignee') {
+                  if (issue.assignee) updateIssueAssignee(issue.id, null);
+                  return;
+               }
+               const person =
+                  members.find((entry) => entry.id === groupId) ??
+                  agents.map(agentToUser).find((entry) => entry.id === groupId);
+               if (person && person.id !== issue.assignee?.id) {
+                  updateIssueAssignee(issue.id, person);
+               }
+               return;
+            }
+            case 'priority': {
+               const next = priorities.find((entry) => entry.id === groupId);
+               if (next && next.id !== issue.priority.id) updateIssuePriority(issue.id, next);
+               return;
+            }
+            case 'project': {
+               const next =
+                  groupId === 'no-project'
+                     ? undefined
+                     : projects.find((entry) => entry.id === groupId);
+               if ((next?.id ?? null) === (issue.project?.id ?? null)) return;
+               const previous = issue.project;
+               updateIssueProject(issue.id, next);
+               void setIssueProject(issue.identifier, next?.id ?? null).catch(() => {
+                  updateIssueProject(issue.id, previous);
+                  toast.error('That project could not be saved.');
+               });
+               return;
+            }
+            default:
+               return;
+         }
+      },
+      [
+         view.grouping,
+         statuses,
+         members,
+         agents,
+         projects,
+         moveIssue,
+         updateIssueAssignee,
+         updateIssuePriority,
+         updateIssueProject,
+      ]
+   );
+
+   /* Dragging towards the edge of the board scrolls it, so a card can reach a
+      column that is not on screen without being dropped halfway. */
+   const scrollerRef = useRef<HTMLDivElement>(null);
+   const autoScroll = (event: React.DragEvent<HTMLDivElement>) => {
+      const element = scrollerRef.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      const edge = 96;
+      if (event.clientX - rect.left < edge) element.scrollLeft -= 24;
+      else if (rect.right - event.clientX < edge) element.scrollLeft += 24;
+   };
+
    const hiddenCount = Math.max(0, scoped.total.length - scoped.visible.length);
    const showFooter = hasActiveFilters && hiddenCount > 0;
    const nothingLeft = scoped.visible.length === 0;
@@ -258,7 +351,11 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
          <DndProvider backend={HTML5Backend}>
             <CustomDragLayer />
             <div className="h-full flex flex-col">
-               <div className="flex-1 min-h-0 overflow-x-auto">
+               <div
+                  ref={scrollerRef}
+                  onDragOver={autoScroll}
+                  className="flex-1 min-h-0 overflow-x-auto"
+               >
                   <div className="flex h-full min-w-max gap-3 px-4 py-3">
                      {onBoard.map((entry) => (
                         <GroupIssues
@@ -267,6 +364,7 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
                            issues={entry.issues}
                            count={entry.issues.length}
                            onHide={() => hideBoardColumn(entry.group.id)}
+                           onDropIssue={applyGroupValue(entry.group.id)}
                         />
                      ))}
                      {manuallyHidden.length + emptied.length > 0 && (
@@ -307,6 +405,7 @@ export const GroupedIssuesView: FC<GroupedIssuesViewProps> = ({
                      group={entry.group}
                      issues={entry.issues}
                      count={entry.issues.length}
+                     onDropIssue={applyGroupValue(entry.group.id)}
                   />
                ))}
             {showFooter && !nothingLeft && <HiddenByFiltersFooter hiddenCount={hiddenCount} />}
