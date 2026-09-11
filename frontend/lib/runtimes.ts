@@ -121,6 +121,26 @@ export async function createProfile(
    return parse(profileSchema, json, 'Profile');
 }
 
+/**
+ * Puts an agent on a runtime, or takes it off one.
+ *
+ * The binding lives on the runtime rather than on the agent, so changing it
+ * from the agent's own settings page is still a write to this route. Passing
+ * no runtime clears the binding, which is what "no runtime" means: the agent
+ * keeps existing and its work cannot run.
+ */
+export async function bindAgentRuntime(
+   runtimeId: string,
+   agentId: string,
+   profileId: string | null = null
+): Promise<void> {
+   await apiFetch(`${path(runtimeId)}/agents/${encodeURIComponent(agentId)}`, send('PUT', { profileId }));
+}
+
+export async function unbindAgentRuntime(runtimeId: string, agentId: string): Promise<void> {
+   await apiFetch(`${path(runtimeId)}/agents/${encodeURIComponent(agentId)}`, { method: 'DELETE' });
+}
+
 /** "1 h", "8 h", "45 min": how a lifecycle reads to a person. */
 export function formatSeconds(seconds: number): string {
    if (seconds % 3600 === 0) return `${seconds / 3600} h`;

@@ -53,6 +53,10 @@ export interface Agent {
     * responsible says "the workspace" rather than guessing at the reader.
     */
    ownerId: string | null;
+   /** Up to three openers a new chat with this agent offers. */
+   conversationStarters: string[];
+   /** Tasks it may run at once; null leaves the ceiling to the dispatcher. */
+   maxConcurrency: number | null;
    /** A seeded role such as 'guide'; null for an ordinary agent. */
    systemRole: string | null;
    archivedAt: string | null;
@@ -82,6 +86,10 @@ export interface AgentConfigPatch {
    provider?: string | null;
    model?: string | null;
    skills?: string[];
+   /** Replaces the whole set; an empty list clears them. */
+   starters?: string[];
+   /** Null clears the ceiling rather than leaving it unchanged. */
+   maxConcurrency?: number | null;
 }
 
 export interface CreateAgentInput {
@@ -134,7 +142,7 @@ const AGENT_COLUMNS = `
    agent.model_provider, agent.model_name, agent.model_tier,
    agent.manifest_limits, agent.permissions, agent.protected, agent.system_role, agent.archived_at,
    agent.labels, agent.env_names, agent.assign_scope, agent.mention_scope,
-   agent.created_by,
+   agent.created_by, agent.conversation_starters, agent.max_concurrency,
    agent.created_at, agent.updated_at`;
 
 /**
@@ -361,6 +369,8 @@ export class AgentRepository {
       const setsDescription = patch.description !== undefined;
       const setsModel = patch.model !== undefined;
       const setsSkills = patch.skills !== undefined;
+      const setsStarters = patch.starters !== undefined;
+      const setsConcurrency = patch.maxConcurrency !== undefined;
 
       const updated = await this.sql`
          UPDATE agents SET
@@ -374,6 +384,12 @@ export class AgentRepository {
                THEN ${patch.model ?? null}::text ELSE model_name END,
             skills = CASE WHEN ${setsSkills}
                THEN ${patch.skills ?? []}::text[] ELSE skills END,
+            conversation_starters = CASE WHEN ${setsStarters}
+               THEN ${patch.starters ?? []}::text[] ELSE conversation_starters END,
+            -- Null is a value here, not an omission: clearing the ceiling and
+            -- leaving it alone are different requests.
+            max_concurrency = CASE WHEN ${setsConcurrency}
+               THEN ${patch.maxConcurrency ?? null}::integer ELSE max_concurrency END,
             -- Stamped because the prompt is now applied where it is stored:
             -- there is no upstream copy that could be behind this one.
             instructions_synced_at = CASE WHEN ${setsInstructions}
@@ -493,6 +509,8 @@ function toAgent(row: Record<string, unknown>): Agent {
       permissions: (row.permissions as string[] | null) ?? [],
       protected: row.protected === true,
       ownerId: (row.created_by as string | null) ?? null,
+      conversationStarters: (row.conversation_starters as string[] | null) ?? [],
+      maxConcurrency: row.max_concurrency === null ? null : Number(row.max_concurrency),
       systemRole: (row.system_role as string | null) ?? null,
       archivedAt: toRFC3339(row.archived_at as string | null),
       labels: (row.labels as string[] | null) ?? [],

@@ -68,7 +68,18 @@ const MAX_SKILLS = 50;
 const SKILL = /^[a-z0-9-]{1,50}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const CONFIG_FIELDS = new Set(['instructions', 'description', 'provider', 'model', 'skills']);
+const CONFIG_FIELDS = new Set([
+   'instructions',
+   'description',
+   'provider',
+   'model',
+   'skills',
+   'starters',
+   'maxConcurrency',
+]);
+const MAX_STARTERS = 3;
+const MAX_STARTER = 200;
+const MAX_AGENT_CONCURRENCY = 20;
 const CREATE_FIELDS = new Set([
    'name',
    'description',
@@ -289,12 +300,17 @@ export function agentMounts(options: AgentOptions): Mount[] {
       const instructions = optionalText(body, 'instructions', MAX_INSTRUCTIONS);
       const description = optionalText(body, 'description', MAX_DESCRIPTION);
       const skills = body.skills === undefined ? undefined : parseSkills(body.skills);
+      const starters = body.starters === undefined ? undefined : parseStarters(body.starters);
+      const maxConcurrency =
+         'maxConcurrency' in body ? parseConcurrency(body.maxConcurrency) : undefined;
       const pair = await parseModelPair(body, catalog, logger);
 
       if (
          instructions === undefined &&
          description === undefined &&
          skills === undefined &&
+         starters === undefined &&
+         maxConcurrency === undefined &&
          pair === undefined
       ) {
          throw new ApiError(400, 'NO_FIELDS', 'No configuration fields were provided.');
@@ -305,6 +321,8 @@ export function agentMounts(options: AgentOptions): Mount[] {
             ...(instructions === undefined ? {} : { instructions }),
             ...(description === undefined ? {} : { description }),
             ...(skills === undefined ? {} : { skills }),
+            ...(starters === undefined ? {} : { starters }),
+            ...(maxConcurrency === undefined ? {} : { maxConcurrency }),
             ...(pair === undefined ? {} : pair),
          })
          .catch(rethrowAgent);
@@ -577,6 +595,8 @@ function serializeAgent(agent: Agent): Record<string, unknown> {
       // Who authored the agent. Null for anything a workspace seeded itself,
       // which is a different answer from "the person reading this page".
       ownerId: agent.ownerId,
+      conversationStarters: agent.conversationStarters,
+      maxConcurrency: agent.maxConcurrency,
       archivedAt: agent.archivedAt,
       labels: agent.labels,
       envNames: agent.envNames,
@@ -705,6 +725,47 @@ function parseSkills(value: unknown): string[] {
       seen.add(skill);
    }
    return [...seen].sort();
+}
+
+/**
+ * The openers a new chat offers, in the order they are shown.
+ *
+ * Blank entries are dropped rather than refused: an editor that keeps three
+ * rows on screen sends three, and an empty one means the person did not write
+ * a third — not that the request is malformed.
+ */
+function parseStarters(value: unknown): string[] {
+   if (!Array.isArray(value)) throw startersInvalid();
+   const starters: string[] = [];
+   for (const entry of value) {
+      if (typeof entry !== 'string') throw startersInvalid();
+      const starter = entry.trim();
+      if (starter === '') continue;
+      if ([...starter].length > MAX_STARTER) throw startersInvalid();
+      starters.push(starter);
+   }
+   if (starters.length > MAX_STARTERS) throw startersInvalid();
+   return starters;
+}
+
+function startersInvalid(): ApiError {
+   return new ApiError(
+      400,
+      'STARTERS_INVALID',
+      `At most ${MAX_STARTERS} starters of up to ${MAX_STARTER} characters.`
+   );
+}
+
+/** A whole number of tasks, or null to leave the ceiling to the dispatcher. */
+function parseConcurrency(value: unknown): number | null {
+   if (value === null) return null;
+   if (typeof value !== 'number' || !Number.isInteger(value)) {
+      throw ApiError.badRequest('maxConcurrency is a whole number of tasks, or null.');
+   }
+   if (value < 1 || value > MAX_AGENT_CONCURRENCY) {
+      throw ApiError.badRequest(`maxConcurrency is from 1 to ${MAX_AGENT_CONCURRENCY}.`);
+   }
+   return value;
 }
 
 function skillsInvalid(): ApiError {
