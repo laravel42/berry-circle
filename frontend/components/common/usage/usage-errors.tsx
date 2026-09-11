@@ -135,7 +135,10 @@ export default function UsageErrors({
                   <>
                      <ul className="flex flex-col gap-1.5">
                         {offenders.map((row) => (
-                           <li key={row.agentId} className="flex items-center justify-between gap-3">
+                           <li
+                              key={row.agentId}
+                              className="flex items-center justify-between gap-3"
+                           >
                               <Link
                                  href={`/${orgId}/agents/${row.agentId}`}
                                  className="truncate hover:underline"

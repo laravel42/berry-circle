@@ -118,7 +118,10 @@ export default function DashboardOverview() {
                      ) : (
                         <ul className="flex flex-col gap-1.5">
                            {data.workingAgents.map((row) => (
-                              <li key={row.runId} className="flex items-center justify-between gap-3">
+                              <li
+                                 key={row.runId}
+                                 className="flex items-center justify-between gap-3"
+                              >
                                  <Link
                                     href={`/${orgId}/agents/${row.agentId}`}
                                     className="shrink-0 hover:underline"

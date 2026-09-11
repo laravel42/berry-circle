@@ -30,7 +30,11 @@ export function UsageDailyChart({
       value: value(point, metric),
    }));
    const format =
-      metric === 'cost' ? formatCost : metric === 'tokens' ? formatTokens : (count: number) => String(count);
+      metric === 'cost'
+         ? formatCost
+         : metric === 'tokens'
+           ? formatTokens
+           : (count: number) => String(count);
    return (
       <div className="h-48 w-full text-foreground/70">
          <ResponsiveContainer width="100%" height="100%">

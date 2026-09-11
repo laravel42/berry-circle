@@ -33,13 +33,7 @@ function heat(value: number, busiest: number): number {
    return Math.min(4, Math.ceil((value / busiest) * 4));
 }
 
-const SHADES = [
-   'bg-muted/40',
-   'bg-primary/20',
-   'bg-primary/40',
-   'bg-primary/60',
-   'bg-primary/80',
-];
+const SHADES = ['bg-muted/40', 'bg-primary/20', 'bg-primary/40', 'bg-primary/60', 'bg-primary/80'];
 
 function Heatmap({ daily }: { daily: UsageBucket[] }) {
    const t = useTranslations('areas.usage.runtime');
@@ -57,7 +51,10 @@ function Heatmap({ daily }: { daily: UsageBucket[] }) {
                      <span
                         key={day.key}
                         title={`${day.key}: ${formatCost(day.costMicros)}`}
-                        className={cn('size-3 rounded-[2px]', SHADES[heat(day.costMicros, busiest)])}
+                        className={cn(
+                           'size-3 rounded-[2px]',
+                           SHADES[heat(day.costMicros, busiest)]
+                        )}
                      />
                   ))}
                </div>
