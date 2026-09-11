@@ -67,6 +67,12 @@ export const propertyPatchSchema = z
       options: optionsSchema.optional(),
       icon: z.string().min(1).max(100).nullable().optional(),
       sortOrder: z.number().int().min(0).max(1_000_000_000).optional(),
+      /**
+       * `false` restores an archived property; archiving stays the DELETE
+       * route's job, so the reversible verb and the destructive-looking one
+       * are never the same request.
+       */
+      archived: z.literal(false).optional(),
    })
    .strict();
 export type PropertyPatch = z.infer<typeof propertyPatchSchema>;
@@ -89,6 +95,24 @@ export class PropertyNameTaken extends Error {
    constructor() {
       super('a property with that name exists');
       this.name = 'PropertyNameTaken';
+   }
+}
+
+/**
+ * The number of properties a workspace can have in use at once.
+ *
+ * Every active property is a row in the task panel and a column in every
+ * picker that offers them, so the cost of one more is paid by everyone on
+ * every task, not by the person who added it. Twenty is generous for the
+ * vocabulary a team actually maintains, and archiving is free — the bound is
+ * on what is in use, not on what has ever existed.
+ */
+export const MAX_ACTIVE_PROPERTIES = 20;
+
+export class TooManyProperties extends Error {
+   constructor() {
+      super(`a workspace has at most ${MAX_ACTIVE_PROPERTIES} active properties`);
+      this.name = 'TooManyProperties';
    }
 }
 
@@ -152,11 +176,13 @@ export async function listProperties(
 export async function getProperty(
    q: Queryable,
    workspaceId: string,
-   propertyId: string
+   propertyId: string,
+   includeArchived = false
 ): Promise<PropertyDefinition> {
    const [row] = await q`
       SELECT ${q.unsafe(COLUMNS)} FROM issue_property_definitions
-       WHERE id = ${propertyId} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
+       WHERE id = ${propertyId} AND workspace_id = ${workspaceId}
+         AND (${includeArchived}::boolean OR archived_at IS NULL)`;
    if (!row) throw new NotFound();
    return toDefinition(row);
 }
@@ -167,6 +193,11 @@ export async function createProperty(
    actorId: string,
    input: PropertyCreate
 ): Promise<PropertyDefinition> {
+   const [counted] = await q`
+      SELECT count(*)::int AS active FROM issue_property_definitions
+       WHERE workspace_id = ${workspaceId} AND archived_at IS NULL`;
+   if (Number(counted?.active ?? 0) >= MAX_ACTIVE_PROPERTIES) throw new TooManyProperties();
+
    const config = input.options ? { options: input.options } : {};
    const rows = await q`
       INSERT INTO issue_property_definitions
@@ -185,18 +216,30 @@ export async function updateProperty(
    propertyId: string,
    patch: PropertyPatch
 ): Promise<PropertyDefinition> {
-   const current = await getProperty(q, workspaceId, propertyId);
+   const restoring = patch.archived === false;
+   const current = await getProperty(q, workspaceId, propertyId, restoring);
    if (patch.options && !SELECT_KINDS.has(current.kind)) throw new PropertyKindMismatch();
+   // Restoring takes a slot back, so it is bounded exactly as creating is —
+   // otherwise the cap would be a rule about the Add button rather than about
+   // how many properties a workspace has.
+   if (restoring && current.archivedAt !== null) {
+      const [counted] = await q`
+         SELECT count(*)::int AS active FROM issue_property_definitions
+          WHERE workspace_id = ${workspaceId} AND archived_at IS NULL`;
+      if (Number(counted?.active ?? 0) >= MAX_ACTIVE_PROPERTIES) throw new TooManyProperties();
+   }
    const config = patch.options ? q.json({ options: patch.options } as never) : null;
    const rows = await q`
       UPDATE issue_property_definitions SET
+         archived_at = CASE WHEN ${restoring} THEN NULL ELSE archived_at END,
          name = COALESCE(${patch.name ?? null}, name),
          description = CASE WHEN ${patch.description !== undefined} THEN ${patch.description ?? null}::text ELSE description END,
          config = COALESCE(${config}::jsonb, config),
          icon = CASE WHEN ${patch.icon !== undefined} THEN ${patch.icon ?? null}::text ELSE icon END,
          sort_order = COALESCE(${patch.sortOrder ?? null}::integer, sort_order),
          updated_at = now()
-       WHERE id = ${propertyId} AND workspace_id = ${workspaceId} AND archived_at IS NULL
+       WHERE id = ${propertyId} AND workspace_id = ${workspaceId}
+         AND (${restoring}::boolean OR archived_at IS NULL)
       RETURNING ${q.unsafe(COLUMNS)}`.catch(mapNameConflict);
    const [row] = rows;
    if (!row) throw new NotFound();

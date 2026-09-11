@@ -357,6 +357,21 @@ export function workspaceMounts(options: WorkspaceOptions): Mount[] {
       });
    });
 
+   /**
+    * What the hover card over a member's name shows beside their role and
+    * address: the two agents that turn up most on their work.
+    */
+   route.get('/:workspaceId/members/:userId/top-agents', async (context) => {
+      const nodes = await domain('Member', () =>
+         workspaces.topAgentsForMember(
+            context.get('user').id,
+            pathId(context.req.param('workspaceId'), 'Workspace'),
+            pathId(context.req.param('userId'), 'Member')
+         )
+      );
+      return json({ nodes });
+   });
+
    route.patch('/:workspaceId/members/:userId', async (context) => {
       const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
       const targetId = pathId(context.req.param('userId'), 'Member');

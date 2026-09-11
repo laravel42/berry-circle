@@ -214,6 +214,32 @@ describe(
          assert.equal(absent.status, 404);
       });
 
+      test('the agents on a member\'s work are readable by the workspace, and nobody else', async () => {
+         const mine = await call('member', `/api/v1/workspaces/${w1}/members/${memberId}/top-agents`);
+         assert.equal(mine.status, 200);
+         // Nothing has run here, and an empty list is the honest answer rather
+         // than an absence of the route.
+         assert.deepEqual((await mine.json()) as unknown, { nodes: [] });
+
+         // Someone who is not in W1 gets the same 404 for a real member of it
+         // as they would for a workspace that does not exist, so the route
+         // cannot be used to confirm that either exists.
+         const outsider = await call(
+            'stranger',
+            `/api/v1/workspaces/${w1}/members/${memberId}/top-agents`
+         );
+         assert.equal(outsider.status, 404);
+
+         // And a member of W1 asking about somebody who is not in W1 is told
+         // the same thing: a membership they cannot see is not a fact about
+         // that person's agents.
+         const foreign = await call(
+            'member',
+            `/api/v1/workspaces/${w1}/members/${strangerId}/top-agents`
+         );
+         assert.equal(foreign.status, 404);
+      });
+
       test('a member can leave, and afterwards the workspace is not theirs to see', async () => {
          await sql`
             UPDATE users SET last_workspace_id = ${w1} WHERE id = ${memberId}`;

@@ -256,6 +256,51 @@ export class WorkspaceRepository {
    }
 
    /**
+    * The agents that have run most on this member's work.
+    *
+    * "This member's work" is the tasks they filed or hold, because that is the
+    * only link a run has to a person: `runs` records the agent and the task,
+    * never who asked. So this answers the question the hover card is really
+    * asking — which agents turn up on the things this person is responsible
+    * for — rather than pretending to a requester column that does not exist.
+    *
+    * The membership check runs first, so the caller must be in the workspace
+    * and a member of another workspace gets the same 404 as an absent one.
+    */
+   async topAgentsForMember(
+      userId: string,
+      workspaceId: string,
+      memberId: string,
+      limit = 2
+   ): Promise<{ agentId: string; name: string; runCount: number }[]> {
+      await this.get(workspaceId, userId);
+      // 404 rather than an empty list for somebody who is not in here: the
+      // absence of a membership is not a fact about their agents.
+      const [member] = await this.sql`
+         SELECT 1 FROM workspace_memberships
+          WHERE workspace_id = ${workspaceId} AND user_id = ${memberId}`;
+      if (!member) throw new NotFound();
+
+      const rows = await this.sql`
+         SELECT agent.id AS agent_id, agent.name AS name, count(*)::int AS run_count
+           FROM runs AS run
+           JOIN issues AS issue ON issue.id = run.issue_id
+           JOIN agents AS agent ON agent.id = run.agent_id
+          WHERE run.workspace_id = ${workspaceId}
+            AND agent.workspace_id = ${workspaceId}
+            AND (issue.created_by = ${memberId}
+                 OR (issue.assignee_type = 'user' AND issue.assignee_id = ${memberId}))
+          GROUP BY agent.id, agent.name
+          ORDER BY run_count DESC, lower(agent.name), agent.id
+          LIMIT ${limit}`;
+      return rows.map((row) => ({
+         agentId: row.agent_id as string,
+         name: row.name as string,
+         runCount: Number(row.run_count),
+      }));
+   }
+
+   /**
     * Changes one member's role under a row lock.
     *
     * The lock is what makes the last-owner rule hold: two concurrent
