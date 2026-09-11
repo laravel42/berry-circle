@@ -165,12 +165,17 @@ export const API_SCOPES = [
  */
 export async function createToken(
    name: string,
-   scopes: string[] | null = null
+   scopes: string[] | null = null,
+   expiresInDays: number | null = null
 ): Promise<{ secret: string | null; record: PersonalToken }> {
+   const body: Record<string, unknown> = { name };
+   if (scopes !== null) body.scopes = scopes;
+   if (expiresInDays !== null) body.expiresAt = expiryFromNow(expiresInDays);
+
    const json: unknown = await apiFetch('/api/v1/tokens', {
       method: 'POST',
       headers: { 'idempotency-key': crypto.randomUUID() },
-      body: JSON.stringify(scopes === null ? { name } : { name, scopes }),
+      body: JSON.stringify(body),
    });
    const parsed = parse(
       z.object({ personalToken: tokenSchema, token: z.string().optional() }),
@@ -182,6 +187,20 @@ export async function createToken(
 
 export async function revokeToken(tokenId: string): Promise<void> {
    await apiFetch(`/api/v1/tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' });
+}
+
+/** The expiry choices a key can be given. `null` is a key that never expires. */
+export const TOKEN_EXPIRY_DAYS = [30, 90, 365, null] as const;
+
+/**
+ * An RFC 3339 expiry `days` from now.
+ *
+ * A minute is held back because the server refuses anything beyond 365 days
+ * from *its* clock: a "1 year" key computed here and sent over a slow link
+ * would otherwise land a fraction past the bound and be refused outright.
+ */
+function expiryFromNow(days: number): string {
+   return new Date(Date.now() + days * 86_400_000 - 60_000).toISOString();
 }
 
 // ------------------------------------------------------------ notifications

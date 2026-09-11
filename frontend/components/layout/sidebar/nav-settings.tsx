@@ -1,6 +1,7 @@
 import {
    Bell,
    Blocks,
+   Braces,
    Building2,
    Columns3,
    FolderGit2,
@@ -35,6 +36,7 @@ export type SettingsNavKey =
    | 'preferences'
    | 'notifications'
    | 'security'
+   | 'tokens'
    | 'connectedAccounts'
    | 'general'
    | 'members'
@@ -87,6 +89,7 @@ export const settingsNav: SettingsNavGroup[] = [
          { labelKey: 'preferences', url: '/settings/preferences', icon: Settings },
          { labelKey: 'notifications', url: '/settings/notifications', icon: Bell },
          { labelKey: 'security', url: '/settings/security', icon: KeyRound },
+         { labelKey: 'tokens', url: '/settings/tokens', icon: Braces },
          { labelKey: 'connectedAccounts', url: '/settings/connected-accounts', icon: Users },
       ],
    },
