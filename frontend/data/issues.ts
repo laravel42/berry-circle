@@ -31,6 +31,10 @@ export interface Issue {
    priority: Priority;
    labels: LabelInterface[];
    createdAt: string;
+   /** Last write the server recorded, used by date filters and ordering. */
+   updatedAt?: string;
+   /** Who opened the task: a member, or an agent that filed it. */
+   creator?: User | null;
    /** Cycle the issue belongs to. Empty string = no cycle (backlog stock). */
    cycleId: string;
    project?: Project;

@@ -198,6 +198,11 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
       priority: uiPriority,
       labels: [],
       createdAt: apiIssue.createdAt,
+      updatedAt: apiIssue.updatedAt,
+      // Carried rather than dropped: "created by me" and the creator filter
+      // have nothing to stand on otherwise, and the field is already on the
+      // wire.
+      creator: apiIssue.createdBy ? toUiUser(apiIssue.createdBy) : null,
       cycleId: '',
       rank: rankFromSortOrder(apiIssue.sortOrder),
       sortOrder: apiIssue.sortOrder,
