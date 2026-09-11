@@ -28,7 +28,13 @@ import {
    type BerryApi,
 } from './remote-tools.ts';
 import type { SessionRegistry } from './sessions.ts';
-import { listedMcpTools, loadMcpClients, mcpToolPermissions, type EnvelopeMcpServerLike } from '../mcp-clients.ts';
+import {
+   loadMcpClients,
+   mcpToolPermissions,
+   registrableMcpTools,
+   type EnvelopeMcpServerLike,
+   type Warn,
+} from '../mcp-clients.ts';
 import { writeSkills } from '../skill-files.ts';
 
 /**
@@ -65,7 +71,11 @@ export interface HandlerDeps {
    videoOutput?: VideoOutput | undefined;
    /** Connects the agent's MCP servers. Injected by tests; production uses Strands clients. */
    loadMcp?: (servers: EnvelopeMcpServerLike[]) => Promise<McpClient[]>;
+   /** Where a dropped MCP tool is reported. Defaults to a JSON line on stderr. */
+   warn?: Warn;
 }
+
+const consoleWarn: Warn = (message, fields) => console.warn(JSON.stringify({ level: 'WARN', msg: message, ...fields }));
 
 export async function handleInvocation(envelope: TaskEnvelope, emit: Emit, deps: HandlerDeps): Promise<void> {
    let ended = false;
@@ -127,11 +137,14 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
             },
          }),
       ];
-      const table = toolTable(
-         envelope.agent.mcpServers,
-         await listedMcpTools(mcpClients),
-         remote.map((t) => t.name)
+      // MCP tools are registered as tools, not as clients, so one whose name
+      // clashes with a built-in is dropped here instead of failing the task.
+      const mcp = await registrableMcpTools(
+         mcpClients,
+         tools.map((t) => t.name),
+         deps.warn ?? consoleWarn
       );
+      const table = toolTable(envelope.agent.mcpServers, mcp.listed, remote.map((t) => t.name));
 
       const directory = deps.repository
          ? await deps.repository.prepare({ envelope, session: workspace, warm, emit })
@@ -145,7 +158,7 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
             // The runtime's execution role; there is no key in the envelope.
             credentials: null,
             systemPrompt: envelope.agent.instructions,
-            tools: [...tools, ...mcpClients],
+            tools: [...tools, ...mcp.tools],
             plugins: [
                ledger,
                accounting,

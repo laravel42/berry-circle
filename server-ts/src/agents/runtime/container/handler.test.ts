@@ -260,3 +260,37 @@ test('a plugin server’s approved tool runs; an unapproved tool on the same ser
       await fake.close();
    }
 });
+
+test('an MCP tool whose name clashes with a built-in is dropped with a warning; the rest of its server still works', async () => {
+   // Server 'run' listing 'command' becomes 'run_command', the shell's name.
+   const fake = await fakeMcpServer(['command', 'lookup']);
+   const warnings: { message: string; fields: Record<string, unknown> }[] = [];
+   try {
+      const { model, run } = harness(
+         [call('run_lookup', {}), call('run_command', { command: 'echo hi' }), say('done')],
+         { warn: (message, fields) => warnings.push({ message, fields }) }
+      );
+      const events = await run(
+         envelope({
+            agent: {
+               ...envelope().agent,
+               mcpServers: [{ name: 'run', url: fake.url, transport: 'streamable_http', headers: {}, allowedTools: null }],
+            },
+         })
+      );
+      const last = events.at(-1);
+      assert.equal(last?.type, 'task.completed', JSON.stringify(last));
+      // The non-clashing tool from the same server still runs.
+      assert.match(JSON.stringify(model.received[1]), /lookup ran/);
+      // The clashing call reached the built-in, which kept its rule: this
+      // agent lacks run_commands, so it is refused and the server never sees it.
+      assert.deepEqual(fake.called, ['lookup']);
+      assert.doesNotMatch(JSON.stringify(model.received[2]), /command ran/);
+      assert.match(JSON.stringify(model.received[2]), /does not have permission to run commands/);
+      // Exactly one warning, naming the server and the tool.
+      assert.equal(warnings.length, 1, JSON.stringify(warnings));
+      assert.deepEqual(warnings[0]!.fields, { server: 'run', tool: 'command', name: 'run_command' });
+   } finally {
+      await fake.close();
+   }
+});

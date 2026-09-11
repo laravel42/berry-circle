@@ -1,4 +1,4 @@
-import { McpClient, type McpServerConfig } from '@strands-agents/sdk';
+import { McpClient, type McpServerConfig, type Tool } from '@strands-agents/sdk';
 import type { McpServerRef } from '../../runtime/envelope.ts';
 
 /**
@@ -81,6 +81,52 @@ export function mcpToolPermissions(servers: EnvelopeMcpServerLike[], listed: Rec
       }
    }
    return entries;
+}
+
+export type Warn = (message: string, fields: Record<string, unknown>) => void;
+
+/**
+ * The MCP tools the agent can register, listed once, and their names keyed by
+ * server (as {@link listedMcpTools} gives them).
+ *
+ * Strands refuses a second tool under a name it already holds, and that
+ * refusal fails the whole task. So a tool whose agent-facing name is already
+ * `reserved` (a built-in or Berry tool: server 'run' listing 'command' is
+ * `run_command`), or was taken by an earlier server, is dropped here with one
+ * warning. The built-in and every other MCP tool are kept, and the dropped name
+ * stays out of `listed`, so the permission table keeps the built-in's rule.
+ */
+export async function registrableMcpTools(
+   clients: McpClient[],
+   reserved: Iterable<string>,
+   warn: Warn
+): Promise<{ tools: Tool[]; listed: Record<string, string[]> }> {
+   const offered = await Promise.all(
+      clients.map(async (client) => ({ client, tools: await client.listTools().catch(() => []) }))
+   );
+   const taken = new Set(reserved);
+   const tools: Tool[] = [];
+   const listed: Record<string, string[]> = {};
+   for (const { client, tools: serverTools } of offered) {
+      const server = client.clientName;
+      const prefix = `${server}_`;
+      const names: string[] = [];
+      for (const tool of serverTools) {
+         if (taken.has(tool.name)) {
+            warn('MCP tool dropped: its name clashes with a tool the run already has', {
+               server,
+               tool: tool.name.startsWith(prefix) ? tool.name.slice(prefix.length) : tool.name,
+               name: tool.name,
+            });
+            continue;
+         }
+         taken.add(tool.name);
+         tools.push(tool);
+         names.push(tool.name);
+      }
+      listed[server] = names;
+   }
+   return { tools, listed };
 }
 
 export async function loadMcpClients(servers: EnvelopeMcpServerLike[]): Promise<McpClient[]> {
