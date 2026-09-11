@@ -16,14 +16,43 @@ import {
    Tag,
    UserRound,
    Users,
+   UsersRound,
    Zap,
 } from 'lucide-react';
 
 export type SettingsGroupKey = 'personal' | 'workspace' | 'issueConfig' | 'connections';
 
+/**
+ * The keys under `workspaceAdmin.nav`, spelled out rather than left as
+ * `string`.
+ *
+ * The rail and the header dropdown both render `nav.${labelKey}`, and only a
+ * union makes that a message key the compiler can check — with `string`, a
+ * typo here would ship and surface as a raw key in the navigation.
+ */
+export type SettingsNavKey =
+   | 'profile'
+   | 'preferences'
+   | 'notifications'
+   | 'security'
+   | 'connectedAccounts'
+   | 'general'
+   | 'members'
+   | 'agents'
+   | 'runtimes'
+   | 'joinLinks'
+   | 'statuses'
+   | 'labels'
+   | 'properties'
+   | 'quickActions'
+   | 'repositories'
+   | 'integrations'
+   | 'mcp'
+   | 'plugins';
+
 interface SettingsNavItem {
    /** Key under `workspaceAdmin.nav` in the message catalogues. */
-   labelKey: string;
+   labelKey: SettingsNavKey;
    /** Path under /{orgId}. */
    url: string;
    icon: LucideIcon;
@@ -65,6 +94,9 @@ export const settingsNav: SettingsNavGroup[] = [
       labelKey: 'workspace',
       items: [
          { labelKey: 'general', url: '/settings/general', icon: Building2 },
+         // Members is not under /settings: it is a workspace surface in its own
+         // right, and the rail should reach the page people already bookmark.
+         { labelKey: 'members', url: '/members', icon: UsersRound },
          { labelKey: 'agents', url: '/settings/ai', icon: Sparkles },
          { labelKey: 'runtimes', url: '/runtimes', icon: Server },
          { labelKey: 'joinLinks', url: '/settings/join-links', icon: Link2 },

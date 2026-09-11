@@ -230,3 +230,93 @@ export async function listWorkspaceMemberRoles(
    }
    return collected;
 }
+
+/** The roles a workspace membership can hold, strongest first. */
+export const WORKSPACE_ROLES = ['owner', 'admin', 'member', 'viewer'] as const;
+export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
+
+/**
+ * Changes one member's role.
+ *
+ * The rules are the server's and are not re-implemented here: only an owner
+ * may grant or touch owner and admin, and the last owner cannot be demoted
+ * (409 `LAST_OWNER_REQUIRED`). The page disables what it knows will be
+ * refused, and reports what it does not.
+ */
+export async function updateMemberRole(
+   workspaceId: string,
+   userId: string,
+   role: WorkspaceRole
+): Promise<WorkspaceMemberRole> {
+   const json: unknown = await apiFetch(
+      `${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}`,
+      { method: 'PATCH', body: JSON.stringify({ role }) }
+   );
+   const parsed = memberRoleSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Member response was not recognized');
+   return parsed.data;
+}
+
+export async function removeMember(workspaceId: string, userId: string): Promise<void> {
+   await apiFetch(`${workspacePath(workspaceId)}/members/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+   });
+}
+
+// ---------------------------------------------------------------- invitations
+
+const invitationSchema = z.object({
+   id: z.string(),
+   workspaceId: z.string(),
+   email: z.string(),
+   role: z.string(),
+   invitedBy: z.string().nullish(),
+   expiresAt: z.string(),
+   acceptedAt: z.string().nullable(),
+   revokedAt: z.string().nullable(),
+   createdAt: z.string(),
+});
+
+export type WorkspaceInvitation = z.infer<typeof invitationSchema>;
+
+/** Invitations for this workspace. Needs `invitations.read`. */
+export async function listWorkspaceInvitations(
+   workspaceId: string
+): Promise<WorkspaceInvitation[]> {
+   const json: unknown = await apiFetch(`${workspacePath(workspaceId)}/invitations?first=100`);
+   const parsed = z.object({ nodes: z.array(invitationSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Invitation list was not recognized');
+   return parsed.data.nodes;
+}
+
+/**
+ * Invites an address, and hands back the token once.
+ *
+ * Berry sends no mail, so the token in this response is the only way the
+ * invitation can reach the person it names — the server keeps a hash and will
+ * never show it again. A caller that drops it has to revoke and re-invite.
+ */
+export async function createWorkspaceInvitation(
+   workspaceId: string,
+   input: { email: string; role: 'admin' | 'member' | 'viewer' }
+): Promise<{ invitation: WorkspaceInvitation; token: string | null }> {
+   const json: unknown = await apiFetch(`${workspacePath(workspaceId)}/invitations`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': newIdempotencyKey() },
+      body: JSON.stringify(input),
+   });
+   const parsed = z
+      .object({ invitation: invitationSchema, token: z.string().optional() })
+      .safeParse(json);
+   if (!parsed.success) throw new Error('Invitation response was not recognized');
+   return { invitation: parsed.data.invitation, token: parsed.data.token ?? null };
+}
+
+export async function revokeWorkspaceInvitation(
+   workspaceId: string,
+   invitationId: string
+): Promise<void> {
+   await apiFetch(`${workspacePath(workspaceId)}/invitations/${encodeURIComponent(invitationId)}`, {
+      method: 'DELETE',
+   });
+}
