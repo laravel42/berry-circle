@@ -357,6 +357,7 @@ export function serializeAutopilot(autopilot: Autopilot): Record<string, unknown
       quotaPeriod: autopilot.quotaPeriod,
       quotaMax: autopilot.quotaMax,
       createdBy: autopilot.createdBy,
+      triggerKinds: autopilot.triggerKinds,
       createdAt: autopilot.createdAt,
       updatedAt: autopilot.updatedAt,
    };

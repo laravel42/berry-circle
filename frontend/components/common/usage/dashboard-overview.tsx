@@ -2,47 +2,57 @@
 
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { Button } from '@/components/ui/button';
+import { localTimezone } from '@/lib/cron-schedule';
 import { USAGE_DAY_OPTIONS, getDashboard } from '@/lib/usage';
 import { useSessionStore } from '@/store/session-store';
 
 import { UsageDailyChart } from './usage-daily-chart';
 import { useUsage } from './use-usage';
 
-const TASK_LABELS: Record<string, string> = {
-   backlog: 'Backlog',
-   todo: 'To do',
-   inProgress: 'In progress',
-   inReview: 'In review',
-   blocked: 'Blocked',
-   done: 'Done',
-   cancelled: 'Cancelled',
-};
+const TASK_KEYS = [
+   'backlog',
+   'todo',
+   'inProgress',
+   'inReview',
+   'blocked',
+   'done',
+   'cancelled',
+] as const;
+
+const RUN_STATUSES = ['running', 'queued', 'succeeded', 'failed', 'cancelled'] as const;
 
 /** The workspace at a glance: what is running, what failed, what it cost, where tasks stand. */
 export default function DashboardOverview() {
+   const t = useTranslations('areas.dashboard');
    const { orgId } = useParams<{ orgId: string }>();
    const workspaceId = useSessionStore((state) => state.workspace?.id ?? null);
    const [days, setDays] = useState<number>(30);
    const { data, error } = useUsage(
-      workspaceId ? () => getDashboard(workspaceId, days) : null,
+      workspaceId ? () => getDashboard(workspaceId, { days, timezone: localTimezone() }) : null,
       `${workspaceId}:${days}`
    );
 
+   const taskLabel = (status: string) =>
+      (TASK_KEYS as readonly string[]).includes(status)
+         ? t(`task_${status as (typeof TASK_KEYS)[number]}`)
+         : status;
+
    return (
       <div className="flex flex-col gap-8 px-6 py-6">
-         <div className="flex items-center gap-1">
+         <div className="flex w-fit items-center gap-1 rounded-md border p-0.5">
             {USAGE_DAY_OPTIONS.map((option) => (
                <Button
                   key={option}
-                  size="sm"
+                  size="xxs"
                   variant={option === days ? 'secondary' : 'ghost'}
                   onClick={() => setDays(option)}
                >
-                  {option} days
+                  {t('days', { count: option })}
                </Button>
             ))}
          </div>
@@ -50,20 +60,16 @@ export default function DashboardOverview() {
          {data ? (
             <>
                <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                  {(['running', 'queued', 'succeeded', 'failed', 'cancelled'] as const).map(
-                     (status) => (
-                        <div key={status} className="rounded-md border px-4 py-3">
-                           <p className="capitalize text-muted-foreground">{status}</p>
-                           <p className="mt-1 font-medium tabular-nums">
-                              {data.runCounts[status]}
-                           </p>
-                        </div>
-                     )
-                  )}
+                  {RUN_STATUSES.map((status) => (
+                     <div key={status} className="rounded-md border px-4 py-3">
+                        <p className="text-muted-foreground">{t(`status_${status}`)}</p>
+                        <p className="mt-1 font-medium tabular-nums">{data.runCounts[status]}</p>
+                     </div>
+                  ))}
                </div>
 
                <section>
-                  <h3 className="mb-2 font-medium">Runs by day</h3>
+                  <h3 className="mb-2 font-medium">{t('runsByDay')}</h3>
                   <div className="h-48 w-full">
                      <ResponsiveContainer width="100%" height="100%">
                         <BarChart
@@ -100,22 +106,19 @@ export default function DashboardOverview() {
                </section>
 
                <section>
-                  <h3 className="mb-2 font-medium">Cost by day</h3>
+                  <h3 className="mb-2 font-medium">{t('costByDay')}</h3>
                   <UsageDailyChart points={data.usageDaily} metric="cost" />
                </section>
 
                <div className="grid gap-8 lg:grid-cols-2">
                   <section className="flex flex-col gap-2">
-                     <h3 className="font-medium">Working now</h3>
+                     <h3 className="font-medium">{t('workingNow')}</h3>
                      {data.workingAgents.length === 0 ? (
-                        <p className="text-muted-foreground">No agent is running.</p>
+                        <p className="text-muted-foreground">{t('noneWorking')}</p>
                      ) : (
                         <ul className="flex flex-col gap-1.5">
                            {data.workingAgents.map((row) => (
-                              <li
-                                 key={row.runId}
-                                 className="flex items-center justify-between gap-3"
-                              >
+                              <li key={row.runId} className="flex items-center justify-between gap-3">
                                  <Link
                                     href={`/${orgId}/agents/${row.agentId}`}
                                     className="shrink-0 hover:underline"
@@ -135,9 +138,9 @@ export default function DashboardOverview() {
                   </section>
 
                   <section className="flex flex-col gap-2">
-                     <h3 className="font-medium">Failures by agent</h3>
+                     <h3 className="font-medium">{t('failuresByAgent')}</h3>
                      {data.failuresByAgent.length === 0 ? (
-                        <p className="text-muted-foreground">No failed runs in this window.</p>
+                        <p className="text-muted-foreground">{t('noFailures')}</p>
                      ) : (
                         <ul className="flex flex-col gap-1.5">
                            {data.failuresByAgent.map((row) => (
@@ -152,7 +155,7 @@ export default function DashboardOverview() {
                                     {row.agentName}
                                  </Link>
                                  <span className="tabular-nums text-muted-foreground">
-                                    {row.failed} of {row.total}
+                                    {t('failedOf', { failed: row.failed, total: row.total })}
                                  </span>
                               </li>
                            ))}
@@ -162,11 +165,11 @@ export default function DashboardOverview() {
                </div>
 
                <section className="flex flex-col gap-2">
-                  <h3 className="font-medium">Tasks now</h3>
+                  <h3 className="font-medium">{t('tasksNow')}</h3>
                   <div className="flex flex-wrap gap-2">
                      {Object.entries(data.taskSnapshot).map(([status, count]) => (
                         <span key={status} className="rounded-md border px-3 py-1.5">
-                           {TASK_LABELS[status] ?? status}{' '}
+                           {taskLabel(status)}{' '}
                            <span className="tabular-nums text-muted-foreground">{count}</span>
                         </span>
                      ))}

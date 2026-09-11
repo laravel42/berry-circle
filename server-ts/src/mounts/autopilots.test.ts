@@ -94,6 +94,31 @@ describe('/api/v1/autopilots', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is
       assert.ok(body.nodes.some((node) => node.id === created.id));
    });
 
+   test('the list says what makes each autopilot run, without asking after its triggers', async () => {
+      const created = await createOne();
+      const before = await call('GET', `/api/v1/autopilots?workspaceId=${fixture.workspaceId}`);
+      const quiet = ((await before.json()) as { nodes: Array<Record<string, unknown>> }).nodes.find(
+         (node) => node.id === created.id
+      );
+      assert.deepEqual(quiet?.triggerKinds, [], 'nothing fires it yet');
+
+      assert.equal(
+         (
+            await call('POST', `/api/v1/autopilots/${created.id}/triggers`, {
+               kind: 'cron',
+               expression: '0 9 * * 1-5',
+               timezone: 'Europe/Rome',
+            })
+         ).status,
+         201
+      );
+      const after = await call('GET', `/api/v1/autopilots?workspaceId=${fixture.workspaceId}`);
+      const scheduled = ((await after.json()) as { nodes: Array<Record<string, unknown>> }).nodes.find(
+         (node) => node.id === created.id
+      );
+      assert.deepEqual(scheduled?.triggerKinds, ['cron']);
+   });
+
    test('an agent from nowhere is a validation error at the field that named it', async () => {
       const response = await call('POST', '/api/v1/autopilots', {
          workspaceId: fixture.workspaceId, name: 'x', assigneeType: 'agent', assigneeId: randomUUID(),

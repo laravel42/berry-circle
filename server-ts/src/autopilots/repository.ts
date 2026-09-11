@@ -49,6 +49,11 @@ export interface Autopilot extends AutopilotDraft {
    status: AutopilotStatus;
    version: number;
    createdBy: string | null;
+   /**
+    * What makes it run, so a list can be filtered by it without asking after
+    * each autopilot's triggers in turn. Empty when only a person can fire it.
+    */
+   triggerKinds: Array<'cron' | 'webhook'>;
    createdAt: string;
    updatedAt: string;
 }
@@ -175,16 +180,17 @@ export class AutopilotRepository {
 
    async list(workspaceId: string): Promise<Autopilot[]> {
       const rows = await this.#sql`
-         SELECT * FROM autopilots
-          WHERE workspace_id = ${workspaceId} AND archived_at IS NULL
-          ORDER BY updated_at DESC, id DESC
+         SELECT a.*, ${this.#sql.unsafe(TRIGGER_KINDS)} FROM autopilots AS a
+          WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
+          ORDER BY a.updated_at DESC, a.id DESC
           LIMIT 500`;
       return rows.map(toAutopilot);
    }
 
    async get(workspaceId: string, autopilotId: string): Promise<Autopilot> {
       const [row] = await this.#sql`
-         SELECT * FROM autopilots WHERE workspace_id = ${workspaceId} AND id = ${autopilotId}`;
+         SELECT a.*, ${this.#sql.unsafe(TRIGGER_KINDS)} FROM autopilots AS a
+          WHERE a.workspace_id = ${workspaceId} AND a.id = ${autopilotId}`;
       if (!row) throw new NotFound();
       return toAutopilot(row);
    }
@@ -690,8 +696,18 @@ function draftOf(autopilot: Autopilot): AutopilotDraft {
    };
 }
 
+/**
+ * The distinct kinds of trigger an autopilot has, as a column.
+ *
+ * Unsafe-interpolated into two reads that already name their workspace in the
+ * WHERE clause; it carries no request value of its own, only the row's own id.
+ */
+const TRIGGER_KINDS = `COALESCE((SELECT array_agg(DISTINCT t.kind)
+     FROM autopilot_triggers t WHERE t.autopilot_id = a.id), '{}') AS trigger_kinds`;
+
 function toAutopilot(row: Row): Autopilot {
    return {
+      triggerKinds: ((row.trigger_kinds as string[] | null) ?? []) as Array<'cron' | 'webhook'>,
       id: row.id as string,
       workspaceId: row.workspace_id as string,
       name: row.name as string,
