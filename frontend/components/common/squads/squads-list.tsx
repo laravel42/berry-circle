@@ -1,148 +1,229 @@
 'use client';
 
+import { Lock, MoreHorizontal, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useTranslations } from 'next-intl';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
+import {
+   AlertDialog,
+   AlertDialogAction,
+   AlertDialogCancel,
+   AlertDialogContent,
+   AlertDialogDescription,
+   AlertDialogFooter,
+   AlertDialogHeader,
+   AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuItem,
+   DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { BerryApiError } from '@/lib/api';
-import { loadWorkspaceAgents, type Agent } from '@/lib/agents';
-import { createSquad, listSquads, type Squad } from '@/lib/squads';
+import type { Agent } from '@/lib/agents';
+import { archiveSquad, type Squad } from '@/lib/squads';
 
-interface SquadsListProps {
-   creating: boolean;
-   onCreatingChange: (open: boolean) => void;
+import type { SquadCriteria } from './squads-filters';
+
+interface Props {
+   squads: Squad[] | null;
+   error: string | null;
+   criteria: SquadCriteria;
+   agents: Agent[];
+   canEdit: boolean;
+   onChanged: () => void;
+   narrowed: boolean;
 }
 
-export default function SquadsList({ creating, onCreatingChange }: SquadsListProps) {
+function sortSquads(squads: Squad[], sort: SquadCriteria['sort']): Squad[] {
+   const sorted = [...squads];
+   if (sort === 'updated') {
+      sorted.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+   } else if (sort === 'members') {
+      sorted.sort(
+         (left, right) =>
+            right.members.length - left.members.length || left.name.localeCompare(right.name)
+      );
+   } else {
+      sorted.sort((left, right) => left.name.localeCompare(right.name));
+   }
+   return sorted;
+}
+
+/**
+ * The workspace's squads.
+ *
+ * Archiving is offered here rather than only inside a squad, and says the thing
+ * a person actually needs to know before doing it: the issues the squad holds
+ * stay with its leader.
+ */
+export default function SquadsList({
+   squads,
+   error,
+   criteria,
+   agents,
+   canEdit,
+   onChanged,
+   narrowed,
+}: Props) {
+   const t = useTranslations('areas.squads');
    const { orgId } = useParams<{ orgId: string }>();
-   const [squads, setSquads] = useState<Squad[] | null>(null);
-   const [agents, setAgents] = useState<Agent[]>([]);
-   const [error, setError] = useState<string | null>(null);
-   const [name, setName] = useState('');
-   const [description, setDescription] = useState('');
-   const [leader, setLeader] = useState('');
-   const [busy, setBusy] = useState(false);
+   const [confirming, setConfirming] = useState<Squad | null>(null);
 
-   useEffect(() => {
-      let cancelled = false;
-      Promise.all([listSquads(), loadWorkspaceAgents()])
-         .then(([foundSquads, foundAgents]) => {
-            if (cancelled) return;
-            setSquads(foundSquads);
-            setAgents(foundAgents);
-         })
-         .catch((failure: unknown) => {
-            if (!cancelled) {
-               setError(failure instanceof BerryApiError ? failure.message : 'Squads could not be loaded.');
-            }
-         });
-      return () => {
-         cancelled = true;
-      };
-   }, []);
+   const rows = useMemo(() => sortSquads(squads ?? [], criteria.sort), [squads, criteria.sort]);
+   const shows = (column: SquadCriteria['columns'][number]) => criteria.columns.includes(column);
+   const agentName = (id: string) =>
+      agents.find((agent) => agent.id === id)?.name ?? t('row.archivedAgent');
 
-   const agentName = (id: string) => agents.find((agent) => agent.id === id)?.name ?? 'An archived agent';
+   if (error) return <p className="px-6 py-8 text-muted-foreground">{error}</p>;
+   if (squads === null) return <p className="px-6 py-8 text-muted-foreground">{t('loading')}</p>;
 
-   const create = async () => {
-      setBusy(true);
+   const archive = async (squad: Squad) => {
       try {
-         const squad = await createSquad({ name: name.trim(), description, leaderAgentId: leader });
-         setSquads((current) => [...(current ?? []), squad].sort((a, b) => a.name.localeCompare(b.name)));
-         setName('');
-         setDescription('');
-         setLeader('');
-         onCreatingChange(false);
-         toast.success(`Created ${squad.name}`);
+         await archiveSquad(squad.id);
+         toast.success(t('archive.done', { name: squad.name }));
+         onChanged();
       } catch (failure) {
-         toast.error(failure instanceof BerryApiError ? failure.message : 'The squad could not be created.');
-      } finally {
-         setBusy(false);
+         toast.error(failure instanceof BerryApiError ? failure.message : t('archive.failed'));
       }
    };
 
    return (
       <div className="w-full">
-         {error ? (
-            <p className="px-6 py-8 text-muted-foreground">{error}</p>
-         ) : squads === null ? (
-            <p className="px-6 py-8 text-muted-foreground">Loading squads…</p>
-         ) : squads.length === 0 ? (
+         <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-container px-6 py-1.5 text-muted-foreground">
+            <div className="min-w-0 flex-1">{t('columns.squad')}</div>
+            {shows('leader') ? (
+               <div className="hidden w-40 shrink-0 md:block">{t('columns.leader')}</div>
+            ) : null}
+            {shows('creator') ? (
+               <div className="hidden w-32 shrink-0 lg:block">{t('columns.creator')}</div>
+            ) : null}
+            {shows('updated') ? (
+               <div className="hidden w-28 shrink-0 lg:block">{t('columns.updated')}</div>
+            ) : null}
+            {shows('members') ? (
+               <div className="w-16 shrink-0 text-right">{t('columns.members')}</div>
+            ) : null}
+            <div className="w-7 shrink-0" />
+         </div>
+
+         {rows.length === 0 ? (
             <p className="px-6 py-8 text-muted-foreground">
-               No squads yet. A squad puts agents and people under one leader agent, who splits the work.
+               {narrowed ? t('noMatch') : t('empty')}
             </p>
          ) : (
-            <>
-               <div className="sticky top-0 z-10 flex items-center border-b bg-container px-6 py-1.5 text-muted-foreground">
-                  <div className="min-w-0 flex-1">Squad</div>
-                  <div className="hidden w-45 shrink-0 md:block">Leader</div>
-                  <div className="w-20 shrink-0 text-right">Members</div>
-               </div>
-               {squads.map((squad) => (
+            rows.map((squad) => (
+               <div
+                  key={squad.id}
+                  className="flex w-full items-center gap-3 border-b border-muted-foreground/5 px-6 py-3 hover:bg-sidebar/50"
+               >
                   <Link
-                     key={squad.id}
                      href={`/${orgId}/squads/${squad.id}`}
-                     className="flex w-full items-center border-b border-muted-foreground/5 px-6 py-3 last:border-b-0 hover:bg-sidebar/50"
+                     className="flex min-w-0 flex-1 items-center gap-3"
                   >
-                     <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium">{squad.name}</p>
+                     <Avatar className="size-7 shrink-0">
+                        {squad.avatarUrl ? <AvatarImage src={squad.avatarUrl} alt="" /> : null}
+                        <AvatarFallback>
+                           <Users className="size-3.5" />
+                        </AvatarFallback>
+                     </Avatar>
+                     <span className="min-w-0">
+                        <span className="block truncate font-medium">{squad.name}</span>
                         {squad.description ? (
-                           <p className="line-clamp-1 text-muted-foreground">{squad.description}</p>
+                           <span className="block truncate text-muted-foreground">
+                              {squad.description}
+                           </span>
                         ) : null}
-                     </div>
-                     <div className="hidden w-45 shrink-0 truncate text-muted-foreground md:block">
+                     </span>
+                  </Link>
+                  {shows('leader') ? (
+                     <div className="hidden w-40 shrink-0 truncate text-muted-foreground md:block">
                         {agentName(squad.leaderAgentId)}
                      </div>
-                     <div className="w-20 shrink-0 text-right text-muted-foreground">{squad.members.length}</div>
-                  </Link>
-               ))}
-            </>
+                  ) : null}
+                  {shows('creator') ? (
+                     <div className="hidden w-32 shrink-0 truncate text-muted-foreground lg:block">
+                        {squad.createdBy ? t('row.someone') : t('row.unknownCreator')}
+                     </div>
+                  ) : null}
+                  {shows('updated') ? (
+                     <div className="hidden w-28 shrink-0 text-muted-foreground lg:block">
+                        {new Date(squad.updatedAt).toLocaleDateString()}
+                     </div>
+                  ) : null}
+                  {shows('members') ? (
+                     <div className="w-16 shrink-0 text-right text-muted-foreground">
+                        {squad.members.length}
+                     </div>
+                  ) : null}
+                  <div className="flex w-7 shrink-0 justify-end">
+                     {canEdit ? (
+                        <DropdownMenu>
+                           <DropdownMenuTrigger asChild>
+                              <Button
+                                 size="icon"
+                                 variant="ghost"
+                                 className="size-7"
+                                 aria-label={t('row.menu')}
+                              >
+                                 <MoreHorizontal className="size-4" />
+                              </Button>
+                           </DropdownMenuTrigger>
+                           <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                 <Link href={`/${orgId}/squads/${squad.id}`}>{t('row.open')}</Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => setConfirming(squad)}>
+                                 {t('row.archive')}
+                              </DropdownMenuItem>
+                           </DropdownMenuContent>
+                        </DropdownMenu>
+                     ) : (
+                        <Lock
+                           className="size-4 text-muted-foreground"
+                           aria-label={t('row.locked')}
+                        />
+                     )}
+                  </div>
+               </div>
+            ))
          )}
 
-         <Dialog open={creating} onOpenChange={onCreatingChange}>
-            <DialogContent className="sm:max-w-lg">
-               <DialogHeader>
-                  <DialogTitle>New squad</DialogTitle>
-               </DialogHeader>
-               <div className="flex flex-col gap-3">
-                  <label className="flex flex-col gap-1.5">
-                     <span className="text-muted-foreground">Name</span>
-                     <Input value={name} onChange={(event) => setName(event.target.value)} />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                     <span className="text-muted-foreground">Description</span>
-                     <Input value={description} onChange={(event) => setDescription(event.target.value)} />
-                  </label>
-                  <div className="flex flex-col gap-1.5">
-                     <span className="text-muted-foreground">Leader</span>
-                     <Select value={leader} onValueChange={setLeader}>
-                        <SelectTrigger aria-label="Leader">
-                           <SelectValue placeholder="Choose the agent that leads" />
-                        </SelectTrigger>
-                        <SelectContent>
-                           {agents.map((agent) => (
-                              <SelectItem key={agent.id} value={agent.id}>
-                                 {agent.name}
-                              </SelectItem>
-                           ))}
-                        </SelectContent>
-                     </Select>
-                  </div>
-                  <Button
-                     size="sm"
-                     className="w-fit"
-                     disabled={busy || !name.trim() || !leader}
-                     onClick={() => void create()}
+         <AlertDialog
+            open={confirming !== null}
+            onOpenChange={(open) => !open && setConfirming(null)}
+         >
+            <AlertDialogContent>
+               <AlertDialogHeader>
+                  <AlertDialogTitle>
+                     {t('archive.title', { name: confirming?.name ?? '' })}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                     {t('archive.body', {
+                        leader: confirming ? agentName(confirming.leaderAgentId) : '',
+                     })}
+                  </AlertDialogDescription>
+               </AlertDialogHeader>
+               <AlertDialogFooter>
+                  <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+                  <AlertDialogAction
+                     onClick={() => {
+                        const target = confirming;
+                        setConfirming(null);
+                        if (target) void archive(target);
+                     }}
                   >
-                     Create squad
-                  </Button>
-               </div>
-            </DialogContent>
-         </Dialog>
+                     {t('row.archive')}
+                  </AlertDialogAction>
+               </AlertDialogFooter>
+            </AlertDialogContent>
+         </AlertDialog>
       </div>
    );
 }
