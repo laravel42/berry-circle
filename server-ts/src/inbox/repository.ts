@@ -27,6 +27,13 @@ export interface InboxItem {
    actorId: string | null;
    title: string;
    body: string | null;
+   /**
+    * What the projection recorded about the event: the field that changed,
+    * the comment it was about, the prompt an agent was given. The shape
+    * varies by event, so a reader takes what it recognizes and ignores the
+    * rest rather than being typed into a shape no writer agreed to.
+    */
+   details: Record<string, unknown>;
    read: boolean;
    archived: boolean;
    createdAt: string;
@@ -47,7 +54,8 @@ export type InboxAction = 'read' | 'unread' | 'archive' | 'unarchive';
 
 const COLUMNS = `item.id, item.workspace_id, item.recipient_id, item.event_type, item.category,
    item.severity, item.issue_id, item.actor_type, item.actor_id, item.title, item.body,
-   item.read_at, item.archived_at, item.created_at, item.approval_id, item.goal_id, item.plan_id,
+   item.details, item.read_at, item.archived_at, item.created_at,
+   item.approval_id, item.goal_id, item.plan_id,
    issue.status::text AS issue_status,
    berry_issue_identifier(board.workspace_id, issue.number) AS issue_identifier`;
 
@@ -138,6 +146,10 @@ export class InboxRepository {
    }
 }
 
+function isObject(value: unknown): value is Record<string, unknown> {
+   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function toItem(row: Record<string, unknown>): InboxItem {
    return {
       id: row.id as string,
@@ -153,6 +165,7 @@ function toItem(row: Record<string, unknown>): InboxItem {
       actorId: (row.actor_id as string | null) ?? null,
       title: row.title as string,
       body: (row.body as string | null) ?? null,
+      details: isObject(row.details) ? row.details : {},
       // Booleans on the wire, timestamps in the column: the page asks whether
       // it was read, and when is nobody's question.
       read: row.read_at !== null && row.read_at !== undefined,
