@@ -24,6 +24,13 @@ export interface ImportedSkill extends SkillInput {
    sourceRef: string | null;
 }
 
+/** An agent that carries this skill, and whether its binding is switched on. */
+export interface SkillAgent {
+   id: string;
+   name: string;
+   enabled: boolean;
+}
+
 export interface Skill {
    id: string;
    name: string;
@@ -33,8 +40,24 @@ export interface Skill {
    source: { kind: string; url: string | null; ref: string | null; importedAt: string | null };
    files: { path: string; size: number }[];
    agentEnabled: boolean | null;
+   /** Who wrote or imported it; null once that account is gone. */
+   createdBy: string | null;
+   creatorName: string | null;
+   agents: SkillAgent[];
    createdAt: string;
    updatedAt: string;
+}
+
+/** What narrows the catalogue beyond the workspace. */
+export interface SkillFilter {
+   query?: string | undefined;
+   label?: string | undefined;
+   /** Bindings for this agent decide `agentEnabled`. */
+   agentId?: string | undefined;
+   source?: 'manual' | 'github' | 'zip' | undefined;
+   createdBy?: string | undefined;
+   /** True: at least one agent has it switched on. False: no agent does. */
+   inUse?: boolean | undefined;
 }
 
 export interface SkillWithFiles extends Skill {
@@ -42,10 +65,16 @@ export interface SkillWithFiles extends Skill {
 }
 
 const COLUMNS = `s.id, s.name, s.description, s.content, s.labels, s.source_kind, s.source_url,
-   s.source_ref, s.imported_at, s.created_at, s.updated_at,
+   s.source_ref, s.imported_at, s.created_by, s.created_at, s.updated_at,
+   (SELECT cu.name FROM users cu WHERE cu.id = s.created_by) AS creator_name,
    COALESCE((SELECT json_agg(json_build_object('path', f.path, 'size', octet_length(f.content))
                ORDER BY f.path)
-               FROM skill_files f WHERE f.skill_id = s.id), '[]'::json) AS files`;
+               FROM skill_files f WHERE f.skill_id = s.id), '[]'::json) AS files,
+   COALESCE((SELECT json_agg(json_build_object('id', ba.id, 'name', ba.name, 'enabled', b.enabled)
+               ORDER BY ba.name)
+               FROM agent_skills b
+               JOIN agents ba ON ba.id = b.agent_id AND ba.archived_at IS NULL
+              WHERE b.skill_id = s.id), '[]'::json) AS agents`;
 
 export class SkillRepository {
    readonly #sql: Sql;
@@ -56,10 +85,7 @@ export class SkillRepository {
       this.#newId = newId;
    }
 
-   async list(
-      workspaceId: string,
-      filter: { query?: string; label?: string; agentId?: string } = {}
-   ): Promise<Skill[]> {
+   async list(workspaceId: string, filter: SkillFilter = {}): Promise<Skill[]> {
       const like = filter.query ? `%${filter.query.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
       const rows = await this.#sql`
          SELECT ${this.#sql.unsafe(COLUMNS)},
@@ -71,6 +97,12 @@ export class SkillRepository {
           WHERE s.workspace_id = ${workspaceId}
             AND (${like}::text IS NULL OR s.name ILIKE ${like} OR s.description ILIKE ${like})
             AND (${filter.label ?? null}::text IS NULL OR ${filter.label ?? null} = ANY (s.labels))
+            AND (${filter.source ?? null}::text IS NULL OR s.source_kind = ${filter.source ?? null})
+            AND (${filter.createdBy ?? null}::uuid IS NULL OR s.created_by = ${filter.createdBy ?? null}::uuid)
+            AND (${filter.inUse ?? null}::boolean IS NULL
+                 OR EXISTS (SELECT 1 FROM agent_skills ub
+                             JOIN agents ua ON ua.id = ub.agent_id AND ua.archived_at IS NULL
+                            WHERE ub.skill_id = s.id AND ub.enabled) = ${filter.inUse ?? null}::boolean)
           ORDER BY s.name ASC
           LIMIT 500`;
       return rows.map(toSkill);
@@ -215,6 +247,9 @@ function toSkill(row: Record<string, unknown>): Skill {
       },
       files: (row.files as { path: string; size: number }[] | null) ?? [],
       agentEnabled: (row.agent_enabled as boolean | null) ?? null,
+      createdBy: (row.created_by as string | null) ?? null,
+      creatorName: (row.creator_name as string | null) ?? null,
+      agents: (row.agents as SkillAgent[] | null) ?? [],
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
    };

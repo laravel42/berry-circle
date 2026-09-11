@@ -11,7 +11,7 @@ import { assertValid, fieldError } from '../http/body.ts';
 import { ApiError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
 import { Conflict, NotFound } from '../identity/errors.ts';
-import type { SquadRepository } from '../squads/repository.ts';
+import { InvalidMember, type SquadRepository } from '../squads/repository.ts';
 import { currentWorkspace, owned, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 import { readJson } from './zod-body.ts';
 
@@ -32,27 +32,36 @@ export interface SquadMountOptions {
    agentAccess?: AgentAccess;
 }
 
+/** The same shape the roster route takes, so a squad starts with members or gains them later. */
+const rosterSchema = z
+   .array(
+      z.strictObject({
+         type: z.enum(['agent', 'user']),
+         id: z.string().uuid(),
+         role: z.string().trim().min(1).max(50).default('member'),
+      })
+   )
+   .max(50);
+const avatarUrl = z
+   .string()
+   .max(2048)
+   .regex(/^https?:\/\//, 'an avatar is an http(s) URL');
 const squadSchema = z.strictObject({
    name: z.string().trim().min(1).max(100),
    description: z.string().max(2000).default(''),
+   instructions: z.string().max(20_000).default(''),
+   avatarUrl: avatarUrl.nullable().default(null),
    leaderAgentId: z.string().uuid(),
+   members: rosterSchema.default([]),
 });
 const squadPatchSchema = z.strictObject({
    name: z.string().trim().min(1).max(100).optional(),
    description: z.string().max(2000).optional(),
+   instructions: z.string().max(20_000).optional(),
+   avatarUrl: avatarUrl.nullable().optional(),
    leaderAgentId: z.string().uuid().optional(),
 });
-const membersSchema = z.strictObject({
-   members: z
-      .array(
-         z.strictObject({
-            type: z.enum(['agent', 'user']),
-            id: z.string().uuid(),
-            role: z.string().trim().min(1).max(50).default('member'),
-         })
-      )
-      .max(50),
-});
+const membersSchema = z.strictObject({ members: rosterSchema });
 const assignSchema = z.strictObject({ issueRef: z.string().min(1).max(100) });
 
 export function squadMounts(options: SquadMountOptions): Mount[] {
@@ -115,9 +124,7 @@ export function squadMounts(options: SquadMountOptions): Mount[] {
       const scoped = await scopeOne(context.get('user'), id);
       const { members } = await readJson(context, membersSchema);
       const ok = await squads.setMembers(scoped.ctx.workspaceId, id, members).catch(rethrow);
-      if (!ok) {
-         assertValid([fieldError('/members', 'invalid_member', 'Every member must belong to this workspace.')]);
-      }
+      if (!ok) refuseMember();
       return json(await squads.get(scoped.ctx.workspaceId, id).catch(rethrow));
    });
 
@@ -172,7 +179,14 @@ export function squadMounts(options: SquadMountOptions): Mount[] {
    return [{ prefix: '/api/v1/squads', handler: route }];
 }
 
+/** A roster naming someone outside the workspace, in the words the roster route uses. */
+function refuseMember(): never {
+   assertValid([fieldError('/members', 'invalid_member', 'Every member must belong to this workspace.')]);
+   throw ApiError.badRequest('The request is invalid.');
+}
+
 function rethrow(error: unknown): never {
+   if (error instanceof InvalidMember) refuseMember();
    if (error instanceof NotFound) throw ApiError.notFound('Squad');
    if (error instanceof Conflict) {
       throw new ApiError(409, 'SQUAD_NAME_TAKEN', 'A squad with that name already exists.');

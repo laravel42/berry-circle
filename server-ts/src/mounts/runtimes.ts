@@ -161,12 +161,26 @@ export function runtimeMounts(options: {
       return json(await repository.create(workspaceId, user.id, body), 201);
    });
 
+   /**
+    * Which agents have somewhere to run. Registered before `/:id` so the word
+    * is read as this route rather than as a runtime id (which it is not).
+    */
+   route.get('/agent-coverage', async (context) => {
+      const user = context.get('user');
+      const workspaceId = await scope(user.id, user.currentWorkspaceId, false);
+      return json(await repository.agentCoverage(workspaceId));
+   });
+
    route.get('/:id', async (context) => {
       const user = context.get('user');
       const workspaceId = await scope(user.id, user.currentWorkspaceId, false);
       const id = pathId(context.req.param('id'), 'Runtime');
       const view = await guard(repository.get(workspaceId, id));
-      return json({ ...view, activity: await repository.activity(workspaceId, id) });
+      const [activity, servingAgents] = await Promise.all([
+         repository.activity(workspaceId, id),
+         repository.servingAgents(workspaceId, id),
+      ]);
+      return json({ ...view, activity, servingAgents });
    });
 
    route.patch('/:id', async (context) => {

@@ -6,7 +6,9 @@ import { Conflict, NotFound } from '../identity/errors.ts';
  * Squads: agents and people under one leader agent.
  *
  * An issue given to a squad is assigned to its leader; the roster is what the
- * leader is briefed with, and what it may delegate to.
+ * leader is briefed with, and what it may delegate to. A squad also carries
+ * standing instructions — the brief every member's work follows — and an
+ * avatar, so it is recognisable in a list beside agents and people.
  */
 
 export interface SquadMember {
@@ -14,14 +16,23 @@ export interface SquadMember {
    id: string;
    name: string;
    role: string;
+   /** An agent's own status; `'person'` for a member who is one. */
+   status: string;
+   /** Tasks assigned to this member that are neither done nor cancelled. */
+   openIssues: number;
+   /** An agent's most recent run. People have none: Berry does not track their presence. */
+   lastActiveAt: string | null;
 }
 
 export interface Squad {
    id: string;
    name: string;
    description: string;
+   instructions: string;
+   avatarUrl: string | null;
    leaderAgentId: string;
    members: SquadMember[];
+   createdBy: string | null;
    archivedAt: string | null;
    createdAt: string;
    updatedAt: string;
@@ -31,12 +42,18 @@ export interface SquadInput {
    name: string;
    description: string;
    leaderAgentId: string;
+   instructions?: string | undefined;
+   avatarUrl?: string | null | undefined;
+   /** The roster to start with. Validated in the same transaction as the squad. */
+   members?: SquadMemberInput[] | undefined;
 }
 
 export interface SquadPatch {
    name?: string | undefined;
    description?: string | undefined;
    leaderAgentId?: string | undefined;
+   instructions?: string | undefined;
+   avatarUrl?: string | null | undefined;
 }
 
 export interface SquadMemberInput {
@@ -45,13 +62,36 @@ export interface SquadMemberInput {
    role: string;
 }
 
-const COLUMNS = `s.id, s.name, s.description, s.leader_agent_id, s.archived_at, s.created_at, s.updated_at,
-   COALESCE((SELECT json_agg(json_build_object('type', m.member_type, 'id', m.member_id,
-               'name', COALESCE(a.name, u.name, ''), 'role', m.role) ORDER BY m.member_type, m.member_id)
+/** A roster naming someone who is not of this workspace. Never a 404: the squad was found. */
+export class InvalidMember extends Error {}
+
+const MEMBERS = `COALESCE((SELECT json_agg(json_build_object(
+               'type', m.member_type,
+               'id', m.member_id,
+               'name', COALESCE(a.name, u.name, ''),
+               'role', m.role,
+               'status', CASE WHEN m.member_type = 'agent'
+                              THEN COALESCE(a.status, 'unknown') ELSE 'person' END,
+               'openIssues', (SELECT count(*) FROM issues oi
+                                JOIN boards ob ON ob.id = oi.board_id
+                               WHERE ob.workspace_id = s.workspace_id
+                                 AND oi.deleted_at IS NULL
+                                 AND oi.assignee_type::text = m.member_type
+                                 AND oi.assignee_id = m.member_id
+                                 AND oi.status::text NOT IN ('done', 'cancelled')),
+               'lastActiveAt', (SELECT max(lr.created_at) FROM runs lr
+                                 WHERE m.member_type = 'agent'
+                                   AND lr.workspace_id = s.workspace_id
+                                   AND lr.agent_id = m.member_id))
+               ORDER BY m.member_type, m.member_id)
                FROM squad_members m
                LEFT JOIN agents a ON m.member_type = 'agent' AND a.id = m.member_id
                LEFT JOIN users u ON m.member_type = 'user' AND u.id = m.member_id
               WHERE m.squad_id = s.id), '[]'::json) AS members`;
+
+const COLUMNS = `s.id, s.name, s.description, s.instructions, s.avatar_url, s.leader_agent_id,
+   s.created_by, s.archived_at, s.created_at, s.updated_at,
+   ${MEMBERS}`;
 
 export class SquadRepository {
    readonly #sql: Sql;
@@ -78,11 +118,24 @@ export class SquadRepository {
 
    async create(workspaceId: string, input: SquadInput, userId: string): Promise<Squad> {
       const id = randomUUID();
-      await this.#sql`
-         INSERT INTO squads (id, workspace_id, name, description, leader_agent_id, created_by)
-         VALUES (${id}, ${workspaceId}, ${input.name}, ${input.description}, ${input.leaderAgentId}, ${userId})`.catch(
-         classify
-      );
+      await this.#sql
+         .begin(async (transaction) => {
+            const tx = transaction as unknown as Sql;
+            await tx`
+               INSERT INTO squads (id, workspace_id, name, description, instructions, avatar_url,
+                                   leader_agent_id, created_by)
+               VALUES (${id}, ${workspaceId}, ${input.name}, ${input.description},
+                       ${input.instructions ?? ''}, ${input.avatarUrl ?? null},
+                       ${input.leaderAgentId}, ${userId})`;
+            // The roster is written here rather than in a second request, so a
+            // member who is not of this workspace leaves no half-made squad.
+            if (input.members && input.members.length > 0) {
+               if (!(await writeMembers(tx, workspaceId, id, input.members))) {
+                  throw new InvalidMember();
+               }
+            }
+         })
+         .catch(classify);
       return this.get(workspaceId, id);
    }
 
@@ -90,6 +143,9 @@ export class SquadRepository {
       const updated = await this.#sql`
          UPDATE squads SET name = COALESCE(${patch.name ?? null}, name),
                 description = COALESCE(${patch.description ?? null}, description),
+                instructions = COALESCE(${patch.instructions ?? null}, instructions),
+                avatar_url = CASE WHEN ${patch.avatarUrl !== undefined}::boolean
+                                  THEN ${patch.avatarUrl ?? null} ELSE avatar_url END,
                 leader_agent_id = COALESCE(${patch.leaderAgentId ?? null}::uuid, leader_agent_id),
                 updated_at = now()
           WHERE id = ${id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`.catch(classify);
@@ -111,25 +167,8 @@ export class SquadRepository {
          const [squad] = await tx`
             SELECT 1 FROM squads WHERE id = ${id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
          if (!squad) throw new NotFound();
-         for (const member of members) {
-            const [ok] =
-               member.type === 'agent'
-                  ? await tx`
-                       SELECT 1 FROM agents
-                        WHERE id = ${member.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`
-                  : await tx`
-                       SELECT 1 FROM workspace_memberships
-                        WHERE user_id = ${member.id} AND workspace_id = ${workspaceId}`;
-            if (!ok) return false;
-         }
          await tx`DELETE FROM squad_members WHERE squad_id = ${id}`;
-         for (const member of members) {
-            await tx`
-               INSERT INTO squad_members (squad_id, workspace_id, member_type, member_id, role)
-               VALUES (${id}, ${workspaceId}, ${member.type}, ${member.id}, ${member.role})
-               ON CONFLICT DO NOTHING`;
-         }
-         return true;
+         return writeMembers(tx, workspaceId, id, members);
       })) as boolean;
    }
 
@@ -151,13 +190,59 @@ export class SquadRepository {
    }
 }
 
+/**
+ * Writes a roster, having confirmed every member belongs to this workspace.
+ * Returns false — rather than throwing — so both callers can answer with the
+ * validation error the API already speaks.
+ */
+async function writeMembers(
+   tx: Sql,
+   workspaceId: string,
+   squadId: string,
+   members: SquadMemberInput[]
+): Promise<boolean> {
+   for (const member of members) {
+      const [ok] =
+         member.type === 'agent'
+            ? await tx`
+                 SELECT 1 FROM agents
+                  WHERE id = ${member.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`
+            : await tx`
+                 SELECT 1 FROM workspace_memberships
+                  WHERE user_id = ${member.id} AND workspace_id = ${workspaceId}`;
+      if (!ok) return false;
+   }
+   for (const member of members) {
+      await tx`
+         INSERT INTO squad_members (squad_id, workspace_id, member_type, member_id, role)
+         VALUES (${squadId}, ${workspaceId}, ${member.type}, ${member.id}, ${member.role})
+         ON CONFLICT DO NOTHING`;
+   }
+   return true;
+}
+
+function toMember(raw: Record<string, unknown>): SquadMember {
+   return {
+      type: raw.type as 'agent' | 'user',
+      id: raw.id as string,
+      name: (raw.name as string | null) ?? '',
+      role: raw.role as string,
+      status: (raw.status as string | null) ?? 'unknown',
+      openIssues: Number(raw.openIssues ?? 0),
+      lastActiveAt: toRFC3339((raw.lastActiveAt as string | null) ?? null),
+   };
+}
+
 function toSquad(row: Record<string, unknown>): Squad {
    return {
       id: row.id as string,
       name: row.name as string,
       description: row.description as string,
+      instructions: (row.instructions as string | null) ?? '',
+      avatarUrl: (row.avatar_url as string | null) ?? null,
       leaderAgentId: row.leader_agent_id as string,
-      members: (row.members as SquadMember[] | null) ?? [],
+      members: ((row.members as Record<string, unknown>[] | null) ?? []).map(toMember),
+      createdBy: (row.created_by as string | null) ?? null,
       archivedAt: toRFC3339(row.archived_at as string | null),
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
@@ -165,6 +250,7 @@ function toSquad(row: Record<string, unknown>): Squad {
 }
 
 function classify(error: unknown): never {
+   if (error instanceof InvalidMember || error instanceof NotFound) throw error;
    const code = (error as { code?: string }).code;
    if (code === '23505') throw new Conflict();
    if (code === '23503') throw new NotFound();
