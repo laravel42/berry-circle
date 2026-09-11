@@ -20,10 +20,20 @@ import { createElement } from 'react';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
+/** Where the first load of the task list got to. */
+export type IssuesLoadState = 'loading' | 'ready' | 'error';
+
 interface IssuesState {
    // Data
    issues: Issue[];
    issuesByStatus: Record<string, Issue[]>;
+   /** The list's own load state, so a view can show a skeleton or a retry. */
+   loadState: IssuesLoadState;
+   loadError: string | null;
+   /** Bumped by `retryLoad`; the hydrating hook watches it and fetches again. */
+   retryToken: number;
+   setLoadState: (state: IssuesLoadState, error?: string | null) => void;
+   retryLoad: () => void;
 
    //
    getAllIssues: () => Issue[];
@@ -115,6 +125,17 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
    // Initial state
    issues: [],
    issuesByStatus: {},
+   loadState: 'loading',
+   loadError: null,
+   retryToken: 0,
+
+   setLoadState: (loadState, loadError = null) => set({ loadState, loadError }),
+   retryLoad: () =>
+      set((state) => ({
+         loadState: 'loading',
+         loadError: null,
+         retryToken: state.retryToken + 1,
+      })),
 
    //
    getAllIssues: () => get().issues,

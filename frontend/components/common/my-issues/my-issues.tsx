@@ -11,6 +11,11 @@ import {
 import { IssueGantt } from '@/components/common/issues/issue-gantt';
 import { IssueSwimlanes } from '@/components/common/issues/issue-swimlanes';
 import { IssueTable } from '@/components/common/issues/issue-table';
+import {
+   IssueListError,
+   IssueListSkeleton,
+   useIssueListLoad,
+} from '@/components/common/issues/list-states';
 import { QuickCreate } from '@/components/common/issues/quick-create';
 import { SearchIssues } from '@/components/common/issues/search-issues';
 import { useIssueListView } from '@/components/common/issues/use-issue-list-view';
@@ -36,6 +41,7 @@ export default function MyIssues() {
    const { filters } = useFilterStore();
    const { issues } = useIssuesStore();
    const { openPanel } = useRightPanelStore();
+   const load = useIssueListLoad();
 
    const isSearching = isSearchOpen && searchQuery.trim() !== '';
 
@@ -56,6 +62,16 @@ export default function MyIssues() {
             </div>
          </div>
       );
+   }
+
+   // Only while there is nothing to show: a refresh that already has rows on
+   // screen should not replace them with a skeleton.
+   if (load.loadState === 'loading' && issues.length === 0) {
+      return <IssueListSkeleton mode={view.mode} />;
+   }
+
+   if (load.loadState === 'error' && issues.length === 0) {
+      return <IssueListError message={load.loadError ?? ''} onRetry={load.retry} />;
    }
 
    return (

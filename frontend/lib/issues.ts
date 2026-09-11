@@ -281,7 +281,11 @@ async function fetchAllBoardIssues(boardId: string): Promise<Issue[]> {
       }
 
       return collected;
-   } catch {
+   } catch (error) {
+      // A page that arrived is still worth showing. Nothing at all is a
+      // failure the list has to be able to report, rather than an empty board
+      // that looks like a workspace with no work in it.
+      if (collected.length === 0) throw error;
       return collected;
    }
 }

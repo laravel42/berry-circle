@@ -42,6 +42,8 @@ export function useHydrateWorkspaceData(): void {
    const workspaceId = useSessionStore((state) => state.workspace?.id);
    const user = useSessionStore((state) => state.user);
    const hydrateIssues = useIssuesStore((state) => state.hydrateIssues);
+   const setIssuesLoadState = useIssuesStore((state) => state.setLoadState);
+   const retryToken = useIssuesStore((state) => state.retryToken);
    const hydrateProjects = useProjectsStore((state) => state.hydrateProjects);
    const hydrateNotifications = useNotificationsStore((state) => state.hydrateNotifications);
    const setServerUnreadCount = useNotificationsStore((state) => state.setServerUnreadCount);
@@ -56,9 +58,20 @@ export function useHydrateWorkspaceData(): void {
    useEffect(() => {
       if (status !== 'ready' || !boardId) return;
       let cancelled = false;
-      void loadBoardIssues(boardId).then((issues) => {
-         if (!cancelled) hydrateIssues(issues);
-      });
+      setIssuesLoadState('loading');
+      void loadBoardIssues(boardId)
+         .then((issues) => {
+            if (cancelled) return;
+            hydrateIssues(issues);
+            setIssuesLoadState('ready');
+         })
+         .catch((error: unknown) => {
+            if (cancelled) return;
+            setIssuesLoadState(
+               'error',
+               error instanceof BerryApiError ? error.message : 'Tasks could not be loaded.'
+            );
+         });
       void loadBoardRuns(boardId, { first: 200 })
          .then((runs) => {
             if (!cancelled) hydrateRuns(runs, null);
@@ -74,7 +87,7 @@ export function useHydrateWorkspaceData(): void {
       return () => {
          cancelled = true;
       };
-   }, [status, boardId, hydrateIssues, hydrateRuns]);
+   }, [status, boardId, hydrateIssues, hydrateRuns, setIssuesLoadState, retryToken]);
 
    useEffect(() => {
       if (status !== 'ready' || !workspaceId) return;
