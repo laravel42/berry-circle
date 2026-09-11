@@ -1,58 +1,94 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SendHorizonal } from 'lucide-react';
-import { useSearchParams } from 'next/navigation';
+import Link from 'next/link';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { MoreHorizontal } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 
-import { BerryApiError } from '@/lib/api';
-import { loadWorkspaceAgents, type Agent } from '@/lib/agents';
 import {
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuItem,
+   DropdownMenuSeparator,
+   DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { BerryApiError } from '@/lib/api';
+import { loadAgentRoster, loadWorkspaceAgents, type Agent, type AgentRoster } from '@/lib/agents';
+import {
+   cancelSessionTask,
    createSession,
+   deleteSession,
    getPinnedAgents,
    listMessages,
    listSessionTasks,
    listSuggestions,
+   listTaskEvents,
    listThreads,
    markSessionRead,
    openAgentThread,
+   renameSession,
    saveDraft,
    sendMessage,
    setPinnedAgents,
+   setSessionArchived,
    type ChatMessage,
    type ChatSuggestion,
    type ChatTask,
+   type ChatTaskEvent,
    type ChatThread,
 } from '@/lib/chat';
 import { subscribeWorkspaceEvents } from '@/lib/events';
-import { ChatSidebar } from './chat-sidebar';
-import { ChatTasksPanel, TaskStepsSheet } from './chat-tasks-panel';
+import { useSessionStore } from '@/store/session-store';
+import { ChatComposer } from './chat-composer';
+import { ChatSidebar, MAX_PINNED_AGENTS } from './chat-sidebar';
+import { ChatQueue } from './chat-tasks-panel';
 import { ChatThread as ThreadView } from './chat-thread';
 
 const PAGE = 50;
 
 /**
- * Chat sessions whose messages run as agent tasks.
+ * Conversations with an agent, and the tasks they become.
  *
- * Sending never blocks: a message is queued as a task on the session's agent,
- * and the reply is appended when that task ends. The view re-reads the open
- * session on `run.*` events, and polls while tasks are waiting, because the
- * event relay may be absent.
+ * Sending never blocks: a message is queued as a task on the conversation's
+ * agent, and the reply is appended when that task ends. The open conversation
+ * lives in the URL, so a conversation can be linked to and comes back on a
+ * reload — including from the agent pages, which link here with `?agent=`.
  */
 export function Chat() {
+   const t = useTranslations('agentsChat.chat');
+   const router = useRouter();
+   const pathname = usePathname();
+   const searchParams = useSearchParams();
+   const workspaceId = useSessionStore((state) => state.workspace?.id);
+   const sessionUserId = useSessionStore((state) => state.user?.id);
+
    const [agents, setAgents] = useState<Agent[]>([]);
+   const [roster, setRoster] = useState<Map<string, AgentRoster>>(new Map());
    const [pinnedAgentIds, setPinnedAgentIds] = useState<string[]>([]);
    const [threads, setThreads] = useState<ChatThread[]>([]);
+   const [archived, setArchived] = useState<ChatThread[] | null>(null);
+   const [showArchived, setShowArchived] = useState(false);
    const [active, setActive] = useState<ChatThread | null>(null);
    const [messages, setMessages] = useState<ChatMessage[]>([]);
    const [hasEarlier, setHasEarlier] = useState(false);
+   const [loadingEarlier, setLoadingEarlier] = useState(false);
    const [tasks, setTasks] = useState<ChatTask[]>([]);
    const [suggestions, setSuggestions] = useState<ChatSuggestion[]>([]);
+   const [regenerating, setRegenerating] = useState(false);
+   const [steps, setSteps] = useState<Map<string, ChatTaskEvent[]>>(new Map());
    const [composer, setComposer] = useState('');
    const [sending, setSending] = useState(false);
    const [error, setError] = useState<string | null>(null);
-   const [stepsRunId, setStepsRunId] = useState<string | null>(null);
+   const [forbidden, setForbidden] = useState(false);
+   const [offline, setOffline] = useState(false);
+   const [renaming, setRenaming] = useState(false);
+   const [title, setTitle] = useState('');
+
    const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
    const activeId = active?.id ?? null;
+   const activeAgent = active?.agentId ? agents.find((a) => a.id === active.agentId) : undefined;
 
    const refreshThreads = useCallback(async () => {
       const found = await listThreads();
@@ -60,11 +96,17 @@ export function Chat() {
       return found;
    }, []);
 
-   /** Re-reads the open session's newest page and its task queue. */
+   const refreshArchived = useCallback(async () => {
+      setArchived(await listThreads({ archived: true }).catch(() => []));
+   }, []);
+
+   /** Re-reads the open conversation's newest page and its queue. */
    const refreshSession = useCallback(async (id: string) => {
-      const [page, queue] = await Promise.all([listMessages(id), listSessionTasks(id).catch(() => [])]);
+      const [page, queue] = await Promise.all([
+         listMessages(id),
+         listSessionTasks(id).catch(() => [] as ChatTask[]),
+      ]);
       setMessages((current) => {
-         // Keep earlier pages already loaded; replace the newest page.
          const oldestNew = page[0]?.createdAt;
          const kept = oldestNew ? current.filter((message) => message.createdAt < oldestNew) : [];
          return [...kept, ...page];
@@ -75,88 +117,140 @@ export function Chat() {
    const select = useCallback(
       async (thread: ChatThread) => {
          setActive(thread);
+         setTitle(thread.topic);
          setError(null);
+         setForbidden(false);
          setMessages([]);
          setTasks([]);
          setSuggestions([]);
-         // Draft restore: what the person had typed in this session comes back.
+         setSteps(new Map());
          setComposer(thread.draft ?? '');
          try {
             const page = await listMessages(thread.id);
             setMessages(page);
             setHasEarlier(page.length === PAGE);
             setTasks(await listSessionTasks(thread.id).catch(() => []));
-            if (thread.agentId) setSuggestions(await listSuggestions(thread.agentId).catch(() => []));
+            if (thread.agentId) {
+               setSuggestions(await listSuggestions(thread.agentId).catch(() => []));
+            }
             await markSessionRead(thread.id).catch(() => undefined);
             void refreshThreads().catch(() => undefined);
          } catch (cause) {
-            setError(cause instanceof Error ? cause.message : 'Could not open the session');
+            setError(cause instanceof Error ? cause.message : t('rowFailed'));
          }
       },
-      [refreshThreads]
+      [refreshThreads, t]
    );
 
-   const selectById = useCallback(
-      async (id: string) => {
-         const found = await refreshThreads();
-         const thread = found.find((entry) => entry.id === id);
-         if (thread) await select(thread);
+   /** Puts the open conversation (and its agent) in the URL. */
+   const show = useCallback(
+      (thread: ChatThread | null) => {
+         const params = new URLSearchParams(searchParams?.toString() ?? '');
+         if (thread) {
+            params.set('session', thread.id);
+            if (thread.agentId) params.set('agent', thread.agentId);
+            else params.delete('agent');
+         } else {
+            params.delete('session');
+            params.delete('agent');
+         }
+         const next = params.toString();
+         if (next !== (searchParams?.toString() ?? '')) {
+            router.replace(next ? `${pathname}?${next}` : pathname, { scroll: false });
+         }
       },
-      [refreshThreads, select]
+      [pathname, router, searchParams]
    );
 
    useEffect(() => {
       let cancelled = false;
       void (async () => {
          try {
-            const [loadedAgents, loadedThreads, pinned] = await Promise.all([
+            const [loadedAgents, loadedThreads, pinned, entries] = await Promise.all([
                loadWorkspaceAgents(),
                listThreads(),
-               getPinnedAgents().catch(() => []),
+               getPinnedAgents().catch(() => [] as string[]),
+               loadAgentRoster(7).catch(() => new Map<string, AgentRoster>()),
             ]);
             if (cancelled) return;
-            // Only agents the runtime reports as available can answer.
-            setAgents(loadedAgents.filter((item) => item.status === 'available'));
+            setAgents(loadedAgents.filter((agent) => !agent.archivedAt));
             setThreads(loadedThreads);
             setPinnedAgentIds(pinned);
+            setRoster(entries);
          } catch (cause) {
-            if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not load chat');
+            if (!cancelled) setError(cause instanceof Error ? cause.message : t('rowFailed'));
          }
       })();
       return () => {
          cancelled = true;
       };
-   }, []);
+   }, [t]);
 
-   // A search result or a link can name the agent to open: `/chat?agent=…`
-   // opens that agent's latest session, or a new one. Keyed on the URL, so it
-   // also works when the link is followed from within chat.
-   const requestedAgentId = useSearchParams()?.get('agent') ?? null;
-   const activeAgentId = active?.agentId ?? null;
+   // The URL is the source of truth for which conversation is open: a link
+   // with `?session=`, and `?agent=` from anywhere that knows an agent but not
+   // a conversation, both land here.
+   const requestedSession = searchParams?.get('session') ?? null;
+   const requestedAgent = searchParams?.get('agent') ?? null;
    useEffect(() => {
-      if (!requestedAgentId || activeAgentId === requestedAgentId) return;
-      let cancelled = false;
-      void openAgentThread(requestedAgentId)
-         .then((id) => (cancelled ? undefined : selectById(id)))
-         .catch((cause: unknown) => {
-            if (!cancelled) setError(cause instanceof Error ? cause.message : 'Could not open the conversation');
-         });
-      return () => {
-         cancelled = true;
-      };
-   }, [requestedAgentId, activeAgentId, selectById]);
+      if (requestedSession && requestedSession !== activeId) {
+         let cancelled = false;
+         void refreshThreads()
+            .then(async (found) => {
+               if (cancelled) return;
+               const thread =
+                  found.find((entry) => entry.id === requestedSession) ??
+                  (await listThreads({ archived: true }).catch(() => []))?.find(
+                     (entry) => entry.id === requestedSession
+                  );
+               if (thread) await select(thread);
+            })
+            .catch(() => undefined);
+         return () => {
+            cancelled = true;
+         };
+      }
+      if (!requestedSession && requestedAgent && active?.agentId !== requestedAgent) {
+         let cancelled = false;
+         void openAgentThread(requestedAgent)
+            .then(async (id) => {
+               if (cancelled) return;
+               const found = await refreshThreads();
+               const thread = found.find((entry) => entry.id === id);
+               if (thread) {
+                  await select(thread);
+                  show(thread);
+               }
+            })
+            .catch((cause: unknown) => {
+               if (!cancelled) {
+                  setError(cause instanceof Error ? cause.message : t('rowFailed'));
+               }
+            });
+         return () => {
+            cancelled = true;
+         };
+      }
+   }, [
+      requestedSession,
+      requestedAgent,
+      activeId,
+      active?.agentId,
+      refreshThreads,
+      select,
+      show,
+      t,
+   ]);
 
-   // Replies land when a task ends: re-read on run events, and poll while
-   // tasks are waiting in case the relay is not delivering events.
+   // Replies land when a task ends: re-read on run events, and poll while work
+   // is waiting in case the event relay is not delivering.
    useEffect(() => {
       if (!activeId) return;
-      const unsubscribe = subscribeWorkspaceEvents((event) => {
+      return subscribeWorkspaceEvents((event) => {
          if (event.type.startsWith('run.') || event.type.startsWith('conversation.')) {
             void refreshSession(activeId).catch(() => undefined);
             void refreshThreads().catch(() => undefined);
          }
       });
-      return unsubscribe;
    }, [activeId, refreshSession, refreshThreads]);
 
    useEffect(() => {
@@ -166,6 +260,49 @@ export function Chat() {
       }, 5000);
       return () => clearInterval(timer);
    }, [activeId, tasks.length, refreshSession]);
+
+   useEffect(() => {
+      const sync = () => setOffline(!navigator.onLine);
+      sync();
+      window.addEventListener('online', sync);
+      window.addEventListener('offline', sync);
+      return () => {
+         window.removeEventListener('online', sync);
+         window.removeEventListener('offline', sync);
+      };
+   }, []);
+
+   // What the running reply is doing, from the newest event of its task.
+   const running = tasks.find((task) => task.status === 'running');
+   const [stage, setStage] = useState<string | null>(null);
+   useEffect(() => {
+      if (!activeId || !running) {
+         setStage(null);
+         return;
+      }
+      let cancelled = false;
+      const read = () =>
+         void listTaskEvents(activeId, running.id)
+            .then((events) => {
+               if (cancelled) return;
+               const newest = events.at(-1);
+               const type = newest?.type ?? '';
+               setStage(
+                  /tool|command|exec/i.test(type)
+                     ? t('msgStageRunning')
+                     : /message|output|write/i.test(type)
+                       ? t('msgStageWriting')
+                       : t('msgStageThinking')
+               );
+            })
+            .catch(() => undefined);
+      read();
+      const timer = setInterval(read, 4000);
+      return () => {
+         cancelled = true;
+         clearInterval(timer);
+      };
+   }, [activeId, running, t]);
 
    const changeComposer = (value: string) => {
       setComposer(value);
@@ -180,14 +317,24 @@ export function Chat() {
    const newChat = async (agent: Agent) => {
       try {
          const id = await createSession(agent.id);
-         await selectById(id);
+         const found = await refreshThreads();
+         const thread = found.find((entry) => entry.id === id);
+         if (thread) {
+            await select(thread);
+            show(thread);
+         }
       } catch (cause) {
-         setError(cause instanceof BerryApiError ? cause.message : 'Could not start a session');
+         setError(cause instanceof BerryApiError ? cause.message : t('rowFailed'));
       }
    };
 
    const togglePinned = async (agent: Agent) => {
-      const next = pinnedAgentIds.includes(agent.id)
+      const has = pinnedAgentIds.includes(agent.id);
+      if (!has && pinnedAgentIds.length >= MAX_PINNED_AGENTS) {
+         toast.info(t('pinnedFull'));
+         return;
+      }
+      const next = has
          ? pinnedAgentIds.filter((id) => id !== agent.id)
          : [...pinnedAgentIds, agent.id];
       setPinnedAgentIds(next);
@@ -199,10 +346,15 @@ export function Chat() {
    };
 
    const loadEarlier = async () => {
-      if (!activeId || messages.length === 0) return;
-      const older = await listMessages(activeId, messages[0]?.id);
-      setHasEarlier(older.length === PAGE);
-      setMessages((current) => [...older, ...current]);
+      if (!activeId || messages.length === 0 || loadingEarlier) return;
+      setLoadingEarlier(true);
+      try {
+         const older = await listMessages(activeId, messages[0]?.id);
+         setHasEarlier(older.length === PAGE);
+         setMessages((current) => [...older, ...current]);
+      } finally {
+         setLoadingEarlier(false);
+      }
    };
 
    const send = async () => {
@@ -215,12 +367,13 @@ export function Chat() {
       try {
          await sendMessage(activeId, text);
       } catch (cause) {
+         if (cause instanceof BerryApiError && cause.status === 403) setForbidden(true);
          setError(
             cause instanceof BerryApiError && cause.code === 'AGENT_TASKS_UNAVAILABLE'
-               ? 'Your message was kept, but this server cannot run agent tasks yet.'
+               ? t('bannerNoRuntime')
                : cause instanceof Error
                  ? cause.message
-                 : 'The message could not be sent'
+                 : t('rowFailed')
          );
       } finally {
          setSending(false);
@@ -229,95 +382,237 @@ export function Chat() {
       }
    };
 
+   const stop = async (thread: ChatThread) => {
+      if (!thread.activeRunId) return;
+      if (!window.confirm(t('stopConfirm'))) return;
+      try {
+         await cancelSessionTask(thread.id, thread.activeRunId);
+         await refreshThreads();
+         if (thread.id === activeId) await refreshSession(thread.id);
+      } catch (cause) {
+         toast.error(cause instanceof BerryApiError ? cause.message : t('rowFailed'));
+      }
+   };
+
+   const requestSteps = (runId: string) => {
+      if (!activeId || steps.has(runId)) return;
+      void listTaskEvents(activeId, runId)
+         .then((events) => setSteps((current) => new Map(current).set(runId, events)))
+         .catch(() => setSteps((current) => new Map(current).set(runId, [])));
+   };
+
+   const regenerate = async () => {
+      if (!active?.agentId) return;
+      setRegenerating(true);
+      try {
+         setSuggestions(await listSuggestions(active.agentId));
+      } catch {
+         /* Suggestions are a nicety; a failure is not worth a banner. */
+      } finally {
+         setRegenerating(false);
+      }
+   };
+
    const agentName = active?.agentName ?? null;
+   const noRuntime =
+      active?.agentId !== undefined &&
+      active?.agentId !== null &&
+      roster.get(active.agentId) !== undefined &&
+      !roster.get(active.agentId)?.runtimeId;
+
+   const banner = offline
+      ? t('bannerOffline')
+      : agents.length === 0
+        ? t('bannerNoAgents')
+        : forbidden
+          ? t('bannerNoPermission')
+          : active?.archived
+            ? t('bannerArchived')
+            : noRuntime
+              ? t('bannerNoRuntime')
+              : null;
 
    return (
       <div className="flex h-full min-h-0 bg-[var(--shell-canvas)] text-[var(--shell-text)]">
          <ChatSidebar
             agents={agents}
+            roster={roster}
+            sessionUserId={sessionUserId}
             pinnedAgentIds={pinnedAgentIds}
             threads={threads}
+            archived={archived}
+            showArchived={showArchived}
+            onToggleArchived={() => {
+               const next = !showArchived;
+               setShowArchived(next);
+               if (next) void refreshArchived();
+            }}
             activeId={activeId}
             onNewChat={(agent) => void newChat(agent)}
             onTogglePinned={(agent) => void togglePinned(agent)}
-            onSelect={(thread) => void select(thread)}
-            onChanged={() => void refreshThreads().catch(() => undefined)}
+            onSelect={(thread) => {
+               void select(thread);
+               show(thread);
+            }}
+            onChanged={() => {
+               void refreshThreads().catch(() => undefined);
+               if (showArchived) void refreshArchived();
+            }}
+            onStop={(thread) => void stop(thread)}
          />
 
          <section className="flex min-w-0 flex-1 flex-col">
-            <header className="flex flex-none items-baseline gap-3 border-b border-[var(--shell-line)] px-6 py-3">
-               <h2 className="text-[var(--shell-text)]">{active ? active.topic : 'Chat'}</h2>
-               <p className="min-w-0 truncate text-[var(--shell-text-dim)]">
-                  {agentName ? `with ${agentName}` : 'Start a session with a workspace agent'}
+            <header className="flex flex-none items-center gap-3 border-b border-[var(--shell-line)] px-6 py-3">
+               {renaming && active ? (
+                  <input
+                     autoFocus
+                     value={title}
+                     aria-label={t('rename')}
+                     onChange={(event) => setTitle(event.target.value)}
+                     onBlur={() => setRenaming(false)}
+                     onKeyDown={(event) => {
+                        if (event.key === 'Escape') {
+                           setRenaming(false);
+                           setTitle(active.topic);
+                        }
+                        if (event.key === 'Enter' && title.trim()) {
+                           setRenaming(false);
+                           void renameSession(active.id, title.trim())
+                              .then(() => refreshThreads())
+                              .catch((cause: unknown) =>
+                                 toast.error(
+                                    cause instanceof BerryApiError ? cause.message : t('rowFailed')
+                                 )
+                              );
+                        }
+                     }}
+                     className="min-w-0 flex-1 rounded bg-[var(--shell-surface)] px-2 py-1 text-[var(--shell-text)] outline-none"
+                  />
+               ) : (
+                  <button
+                     type="button"
+                     disabled={!active}
+                     onClick={() => {
+                        if (!active) return;
+                        setTitle(active.topic);
+                        setRenaming(true);
+                     }}
+                     className="min-w-0 truncate text-left text-[var(--shell-text)] disabled:cursor-default"
+                  >
+                     {active ? active.topic : t('title')}
+                  </button>
+               )}
+
+               <p className="min-w-0 flex-1 truncate text-[var(--shell-text-dim)]">
+                  {agentName ?? t('composerNoSession')}
                </p>
+
+               {active ? (
+                  <DropdownMenu>
+                     <DropdownMenuTrigger asChild>
+                        <button
+                           type="button"
+                           aria-label={t('title')}
+                           className="flex-none rounded p-1 text-[var(--shell-text-dim)] hover:text-[var(--shell-text)]"
+                        >
+                           <MoreHorizontal className="size-4" />
+                        </button>
+                     </DropdownMenuTrigger>
+                     <DropdownMenuContent align="end">
+                        {active.agentId ? (
+                           <DropdownMenuItem asChild>
+                              <Link href={`../agents/${active.agentId}`}>
+                                 {t('headerOpenAgent')}
+                              </Link>
+                           </DropdownMenuItem>
+                        ) : null}
+                        <DropdownMenuItem onSelect={() => setRenaming(true)}>
+                           {t('rename')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                           onSelect={() =>
+                              void setSessionArchived(active.id, !active.archived)
+                                 .then(() => {
+                                    setActive(null);
+                                    show(null);
+                                    return refreshThreads();
+                                 })
+                                 .catch(() => undefined)
+                           }
+                        >
+                           {active.archived ? t('unarchive') : t('archive')}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                           onSelect={() => {
+                              if (!window.confirm(t('deleteConfirm', { name: active.topic }))) {
+                                 return;
+                              }
+                              void deleteSession(active.id)
+                                 .then(() => {
+                                    setActive(null);
+                                    show(null);
+                                    return refreshThreads();
+                                 })
+                                 .catch(() => undefined);
+                           }}
+                        >
+                           {t('delete')}
+                        </DropdownMenuItem>
+                     </DropdownMenuContent>
+                  </DropdownMenu>
+               ) : null}
             </header>
+
+            {banner ? (
+               <p className="flex-none border-b border-[var(--shell-line)] bg-[var(--shell-surface)] px-6 py-2 text-[var(--shell-text-muted)]">
+                  {banner}
+               </p>
+            ) : null}
 
             <ThreadView
                messages={messages}
                agentName={agentName}
-               onLoadEarlier={hasEarlier ? () => void loadEarlier() : null}
-               onViewSteps={setStepsRunId}
+               starters={activeAgent?.conversationStarters ?? []}
+               suggestions={suggestions}
+               onUseSuggestion={changeComposer}
+               onRegenerate={() => void regenerate()}
+               regenerating={regenerating}
+               hasEarlier={hasEarlier}
+               loadingEarlier={loadingEarlier}
+               onLoadEarlier={() => void loadEarlier()}
+               stepsFor={(runId) => steps.get(runId)}
+               onRequestSteps={requestSteps}
+               stage={stage}
             />
 
-            {active && messages.length === 0 && suggestions.length > 0 ? (
-               <div className="flex flex-none flex-wrap gap-2 px-6 pb-3">
-                  {suggestions.map((suggestion) => (
-                     <button
-                        key={suggestion.label}
-                        type="button"
-                        onClick={() => changeComposer(suggestion.prompt)}
-                        className="rounded-[5px] bg-[var(--shell-line)] px-2.5 py-1 text-[var(--shell-text-muted)] hover:text-[var(--shell-text)]"
-                     >
-                        {suggestion.label}
-                     </button>
-                  ))}
-               </div>
-            ) : null}
-
             {error ? (
-               <p role="alert" className="px-6 pb-2 text-[var(--shell-accent)]">
+               <p role="alert" className="flex-none px-6 pb-2 text-[var(--shell-accent)]">
                   {error}
                </p>
             ) : null}
 
             {activeId ? (
-               <ChatTasksPanel
+               <ChatQueue
                   conversationId={activeId}
                   tasks={tasks}
                   onChanged={() => void refreshSession(activeId).catch(() => undefined)}
-                  onViewSteps={setStepsRunId}
                />
             ) : null}
 
-            <form
-               className="flex flex-none items-center gap-2 border-t border-[var(--shell-line)] px-6 py-3"
-               onSubmit={(event) => {
-                  event.preventDefault();
-                  void send();
-               }}
-            >
-               <input
-                  value={composer}
-                  onChange={(event) => changeComposer(event.target.value)}
-                  disabled={!activeId}
-                  placeholder={agentName ? `message ${agentName}…` : 'start a session to chat'}
-                  aria-label="Message"
-                  className="min-w-0 flex-1 bg-transparent text-[var(--shell-text)] outline-none [--input-color:var(--shell-text)] [--placeholder-color:var(--shell-text-dim)] placeholder:text-[var(--shell-text-dim)] disabled:cursor-not-allowed"
-               />
-               <button
-                  type="submit"
-                  disabled={!activeId || sending || composer.trim() === ''}
-                  className="flex flex-none cursor-pointer items-center gap-1.5 rounded-[5px] bg-[var(--shell-line)] px-2.5 py-1 text-[var(--shell-text-muted)] transition-colors hover:bg-[var(--shell-line-strong)] hover:text-[var(--shell-text)] disabled:cursor-not-allowed disabled:opacity-40"
-               >
-                  <SendHorizonal className="size-3.5" />
-                  {tasks.length > 0 ? 'queue' : 'send'}
-               </button>
-            </form>
+            <ChatComposer
+               value={composer}
+               onChange={changeComposer}
+               onSend={() => void send()}
+               onStop={active?.activeRunId ? () => void stop(active) : null}
+               queueing={tasks.length > 0}
+               disabled={!activeId || sending}
+               placeholder={
+                  agentName ? t('composerPlaceholder', { name: agentName }) : t('composerNoSession')
+               }
+               workspaceId={workspaceId}
+            />
          </section>
-
-         {activeId ? (
-            <TaskStepsSheet conversationId={activeId} runId={stepsRunId} onClose={() => setStepsRunId(null)} />
-         ) : null}
       </div>
    );
 }

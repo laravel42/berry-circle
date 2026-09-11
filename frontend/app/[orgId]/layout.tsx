@@ -1,3 +1,4 @@
+import { FloatingChat } from '@/components/common/chat/floating-chat';
 import { BerryShell } from '@/components/layout/shell/berry-shell';
 
 /**
@@ -22,6 +23,9 @@ export default function OrgLayout({
       <BerryShell>
          {children}
          {drawer}
+         {/* Chat from anywhere except the chat page, which is this window's
+             full-size counterpart. */}
+         <FloatingChat />
       </BerryShell>
    );
 }

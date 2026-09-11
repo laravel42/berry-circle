@@ -1,149 +1,109 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { BerryApiError } from '@/lib/api';
-import {
-   cancelSessionTask,
-   listTaskEvents,
-   prioritizeSessionTask,
-   type ChatTask,
-   type ChatTaskEvent,
-} from '@/lib/chat';
+import { cancelSessionTask, prioritizeSessionTask, type ChatTask } from '@/lib/chat';
 
 const failed = (error: unknown, fallback: string) =>
    toast.error(error instanceof BerryApiError ? error.message : fallback);
 
-/** A short, readable line for one step of a task. */
-function describe(event: ChatTaskEvent): string {
-   const payload = event.payload;
-   if (payload && typeof payload === 'object') {
-      const record = payload as Record<string, unknown>;
-      for (const key of ['summary', 'message', 'text', 'tool', 'name']) {
-         const value = record[key];
-         if (typeof value === 'string' && value.trim()) return value.trim().slice(0, 400);
-      }
-   }
-   return '';
-}
-
-interface TaskStepsSheetProps {
-   conversationId: string;
-   runId: string | null;
-   onClose: () => void;
-}
-
-/** The thread view of one task: every step it took, in order. */
-export function TaskStepsSheet({ conversationId, runId, onClose }: TaskStepsSheetProps) {
-   const [events, setEvents] = useState<ChatTaskEvent[] | null>(null);
-
-   useEffect(() => {
-      if (!runId) return;
-      let cancelled = false;
-      setEvents(null);
-      listTaskEvents(conversationId, runId).then(
-         (found) => {
-            if (!cancelled) setEvents(found);
-         },
-         (error: unknown) => {
-            if (!cancelled) {
-               setEvents([]);
-               failed(error, 'The steps could not be loaded.');
-            }
-         }
-      );
-      return () => {
-         cancelled = true;
-      };
-   }, [conversationId, runId]);
-
-   return (
-      <Sheet open={runId !== null} onOpenChange={(open) => (open ? undefined : onClose())}>
-         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
-            <SheetHeader>
-               <SheetTitle>Task steps</SheetTitle>
-            </SheetHeader>
-            <ol className="flex flex-col gap-2 px-4 pb-6">
-               {events === null ? <li className="text-muted-foreground">Loading steps…</li> : null}
-               {events !== null && events.length === 0 ? (
-                  <li className="text-muted-foreground">No steps recorded for this task.</li>
-               ) : null}
-               {(events ?? []).map((event) => (
-                  <li key={event.id} className="rounded-md border border-border px-3 py-2">
-                     <p className="font-mono">{event.type}</p>
-                     {describe(event) ? (
-                        <p className="whitespace-pre-wrap break-words text-muted-foreground">{describe(event)}</p>
-                     ) : null}
-                  </li>
-               ))}
-            </ol>
-         </SheetContent>
-      </Sheet>
-   );
-}
-
-interface ChatTasksPanelProps {
+interface ChatQueueProps {
    conversationId: string;
    tasks: ChatTask[];
    onChanged: () => void;
-   onViewSteps: (runId: string) => void;
 }
 
-/** Queued and running tasks of this session, above the composer. */
-export function ChatTasksPanel({ conversationId, tasks, onChanged, onViewSteps }: ChatTasksPanelProps) {
+/**
+ * What this conversation still has to do.
+ *
+ * Messages sent while a reply is running become tasks behind it, so the queue
+ * is the honest answer to "did my message go anywhere". Each waiting task can
+ * be moved to the front or dropped, and the whole queue can be cleared —
+ * dropping a task is the only way to take back something already sent.
+ */
+export function ChatQueue({ conversationId, tasks, onChanged }: ChatQueueProps) {
+   const t = useTranslations('agentsChat.chat');
    const [open, setOpen] = useState(true);
+   const [busy, setBusy] = useState(false);
+
    if (tasks.length === 0) return null;
+
+   const queued = tasks.filter((task) => task.status === 'queued');
+
+   const act = (work: Promise<unknown>) =>
+      void work.then(onChanged, (error: unknown) => failed(error, t('rowFailed')));
+
+   const clearAll = async () => {
+      setBusy(true);
+      try {
+         // One at a time, and failures are not fatal: a task that started
+         // while the queue was being cleared is simply no longer queued.
+         for (const task of queued) {
+            await cancelSessionTask(conversationId, task.id).catch(() => undefined);
+         }
+         onChanged();
+      } finally {
+         setBusy(false);
+      }
+   };
 
    return (
       <div className="flex-none border-t border-[var(--shell-line)] px-6 py-2">
-         <button
-            type="button"
-            aria-expanded={open}
-            onClick={() => setOpen(!open)}
-            className="text-[var(--shell-text-dim)] hover:text-[var(--shell-text)]"
-         >
-            {tasks.length === 1 ? '1 task' : `${tasks.length} tasks`} in this session
-         </button>
+         <div className="flex flex-wrap items-center gap-3">
+            <button
+               type="button"
+               aria-expanded={open}
+               onClick={() => setOpen(!open)}
+               className="text-[var(--shell-text-dim)] hover:text-[var(--shell-text)]"
+            >
+               {t('queueTitle', { count: tasks.length })}
+            </button>
+            {queued.length > 0 ? (
+               <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void clearAll()}
+                  className="text-[var(--shell-text-dim)] hover:text-[var(--shell-text)] disabled:opacity-50"
+               >
+                  {t('queueClear')}
+               </button>
+            ) : null}
+         </div>
+
          {open ? (
             <ul className="mt-1 flex flex-col gap-1">
                {tasks.map((task, index) => (
-                  <li key={task.id} className="flex items-center gap-3 text-[var(--shell-text-muted)]">
-                     <span className="w-16 flex-none">{task.status === 'running' ? 'running' : `queued #${index + 1}`}</span>
-                     <span className="min-w-0 flex-1 truncate text-[var(--shell-text-dim)]">
-                        {new Date(task.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  <li
+                     key={task.id}
+                     className="flex flex-wrap items-center gap-3 text-[var(--shell-text-muted)]"
+                  >
+                     <span className="w-20 flex-none">
+                        {task.status === 'running' ? t('rowWorking') : `#${index + 1}`}
                      </span>
-                     <button
-                        type="button"
-                        className="hover:text-[var(--shell-text)]"
-                        onClick={() => onViewSteps(task.id)}
-                     >
-                        View steps
-                     </button>
+                     <span className="min-w-0 flex-1 truncate text-[var(--shell-text-dim)]">
+                        {new Date(task.createdAt).toLocaleTimeString([], {
+                           hour: '2-digit',
+                           minute: '2-digit',
+                        })}
+                     </span>
                      {task.status === 'queued' ? (
                         <button
                            type="button"
                            className="hover:text-[var(--shell-text)]"
-                           onClick={() =>
-                              void prioritizeSessionTask(conversationId, task.id).then(onChanged, (error: unknown) =>
-                                 failed(error, 'The task could not be moved up.')
-                              )
-                           }
+                           onClick={() => act(prioritizeSessionTask(conversationId, task.id))}
                         >
-                           Run next
+                           {t('queueRunNext')}
                         </button>
                      ) : null}
                      <button
                         type="button"
                         className="hover:text-[var(--shell-text)]"
-                        onClick={() =>
-                           void cancelSessionTask(conversationId, task.id).then(onChanged, (error: unknown) =>
-                              failed(error, 'The task could not be cancelled.')
-                           )
-                        }
+                        onClick={() => act(cancelSessionTask(conversationId, task.id))}
                      >
-                        Cancel
+                        {task.status === 'running' ? t('stop') : t('queueRemove')}
                      </button>
                   </li>
                ))}

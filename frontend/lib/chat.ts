@@ -20,6 +20,12 @@ const summarySchema = z.object({
    unread: z.number().default(0),
    activeRunId: z.string().nullish(),
    draft: z.string().default(''),
+   /**
+    * The newest message, for the row preview. Defaulted rather than required
+    * so a server that predates the field still parses.
+    */
+   lastMessage: z.string().nullish(),
+   lastMessageAuthor: z.enum(['user', 'agent', 'system']).nullish(),
 });
 
 const messageSchema = z.object({
@@ -68,7 +74,10 @@ export async function listThreads(options: { archived?: boolean } = {}): Promise
 }
 
 /** One page of history, oldest first; `before` is the oldest message already shown. */
-export async function listMessages(conversationId: string, before?: string): Promise<ChatMessage[]> {
+export async function listMessages(
+   conversationId: string,
+   before?: string
+): Promise<ChatMessage[]> {
    const query = new URLSearchParams({ first: '50' });
    if (before) query.set('before', before);
    const json: unknown = await apiFetch(session(conversationId, `/messages?${query}`));
@@ -95,8 +104,10 @@ export async function createSession(agentId: string, title?: string): Promise<st
    return z.object({ id: z.string() }).parse(json).id;
 }
 
-const patchSession = (id: string, patch: { title?: string; pinned?: boolean; archived?: boolean }) =>
-   apiFetch<void>(session(id), { method: 'PATCH', body: JSON.stringify(patch) });
+const patchSession = (
+   id: string,
+   patch: { title?: string; pinned?: boolean; archived?: boolean }
+) => apiFetch<void>(session(id), { method: 'PATCH', body: JSON.stringify(patch) });
 
 export const renameSession = (id: string, title: string) => patchSession(id, { title });
 export const setSessionPinned = (id: string, pinned: boolean) => patchSession(id, { pinned });
@@ -124,7 +135,9 @@ export async function sendMessage(id: string, body: string) {
       method: 'POST',
       body: JSON.stringify({ body }),
    });
-   return z.object({ messageId: z.string(), runId: z.string(), queued: z.literal(true) }).parse(json);
+   return z
+      .object({ messageId: z.string(), runId: z.string(), queued: z.literal(true) })
+      .parse(json);
 }
 
 export async function listSessionTasks(id: string): Promise<ChatTask[]> {
@@ -133,7 +146,10 @@ export async function listSessionTasks(id: string): Promise<ChatTask[]> {
 }
 
 export async function cancelSessionTask(id: string, runId: string): Promise<void> {
-   await apiFetch(session(id, `/tasks/${encodeURIComponent(runId)}/cancel`), { method: 'POST', body: '{}' });
+   await apiFetch(session(id, `/tasks/${encodeURIComponent(runId)}/cancel`), {
+      method: 'POST',
+      body: '{}',
+   });
 }
 
 export async function prioritizeSessionTask(id: string, runId: string): Promise<void> {
@@ -149,7 +165,9 @@ export async function listTaskEvents(id: string, runId: string): Promise<ChatTas
 }
 
 export async function listSuggestions(agentId: string): Promise<ChatSuggestion[]> {
-   const json: unknown = await apiFetch(`${base}/suggestions?agentId=${encodeURIComponent(agentId)}`);
+   const json: unknown = await apiFetch(
+      `${base}/suggestions?agentId=${encodeURIComponent(agentId)}`
+   );
    return z.object({ nodes: z.array(suggestionSchema) }).parse(json).nodes;
 }
 
