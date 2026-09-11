@@ -23,10 +23,30 @@ export const skillSchema = z.object({
    }),
    files: z.array(fileSchema),
    agentEnabled: z.boolean().nullable().optional(),
+   /** Who wrote or imported it; null once that account is gone. */
+   createdBy: z.string().nullable().default(null),
+   creatorName: z.string().nullable().default(null),
+   /** The agents that carry it, and whether each has it switched on. */
+   agents: z
+      .array(z.object({ id: z.string(), name: z.string(), enabled: z.boolean() }))
+      .default([]),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
 export type Skill = z.infer<typeof skillSchema>;
+
+/** An agent carries a skill only when a binding says so and is switched on. */
+export const isSkillInUse = (skill: Skill): boolean => skill.agents.some((agent) => agent.enabled);
+
+export interface SkillFilters {
+   q?: string;
+   label?: string;
+   agentId?: string;
+   source?: Skill['source']['kind'];
+   createdBy?: string;
+   /** True lists only skills an agent carries; false only those none does. */
+   inUse?: boolean;
+}
 
 export interface SkillInput {
    name: string;
@@ -44,11 +64,11 @@ function parse(json: unknown): Skill {
 
 const skillPath = (id: string, rest = '') => `/api/v1/skills/${encodeURIComponent(id)}${rest}`;
 
-export async function listSkills(
-   params: { q?: string; label?: string; agentId?: string } = {}
-): Promise<Skill[]> {
+export async function listSkills(params: SkillFilters = {}): Promise<Skill[]> {
    const query = new URLSearchParams(
-      Object.entries(params).filter((entry): entry is [string, string] => Boolean(entry[1]))
+      Object.entries(params)
+         .filter(([, value]) => value !== undefined && value !== '')
+         .map(([name, value]) => [name, String(value)])
    );
    const json: unknown = await apiFetch(`/api/v1/skills${query.size ? `?${query}` : ''}`);
    const parsed = z.object({ nodes: z.array(skillSchema) }).safeParse(json);

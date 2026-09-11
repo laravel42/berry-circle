@@ -14,6 +14,8 @@ export interface SessionWorkspace {
    id: string;
    name: string;
    slug: string;
+   /** The signed-in account's role here, which decides what a screen may offer. */
+   role: string;
 }
 
 interface SessionState {
@@ -69,6 +71,7 @@ const toSessionWorkspace = (workspace: BootstrapWorkspace): SessionWorkspace => 
    id: workspace.id,
    name: workspace.name,
    slug: workspace.slug,
+   role: workspace.role,
 });
 
 async function loadReadyState(): Promise<
