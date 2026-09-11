@@ -22,6 +22,8 @@ export interface RuntimeView {
    lastHealthError: string | null;
    concurrencyLimit: number | null;
    visibility: 'private' | 'workspace';
+   /** Who registered it. Only they may change whether the workspace sees it. */
+   ownerId: string | null;
    idleTimeoutS: number;
    maxLifetimeS: number;
    isDefault: boolean;
@@ -84,7 +86,7 @@ export class RuntimeProtected extends Error {}
 export class RuntimeSealingUnavailable extends Error {}
 
 const COLUMNS = `r.id, r.name, r.kind, r.driver, r.arn, r.endpoint_url, r.qualifier, r.region, r.status,
-   r.last_health_at, r.last_health_error, r.concurrency_limit, r.visibility, r.idle_timeout_s,
+   r.last_health_at, r.last_health_error, r.concurrency_limit, r.visibility, r.owner_id, r.idle_timeout_s,
    r.max_lifetime_s, r.is_default,
    (SELECT count(*) FROM runs AS x WHERE x.runtime_id = r.id AND x.status IN ('queued', 'running'))::int AS active_runs`;
 
@@ -103,6 +105,7 @@ function toView(row: Record<string, unknown>): RuntimeView {
       lastHealthError: (row.last_health_error as string | null) ?? null,
       concurrencyLimit: (row.concurrency_limit as number | null) ?? null,
       visibility: row.visibility as RuntimeView['visibility'],
+      ownerId: (row.owner_id as string | null) ?? null,
       idleTimeoutS: Number(row.idle_timeout_s),
       maxLifetimeS: Number(row.max_lifetime_s),
       isDefault: Boolean(row.is_default),
