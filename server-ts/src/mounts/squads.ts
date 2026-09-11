@@ -12,7 +12,7 @@ import { ApiError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
 import { Conflict, NotFound } from '../identity/errors.ts';
 import type { SquadRepository } from '../squads/repository.ts';
-import { currentWorkspace, pathId, resolveScoped } from './shared.ts';
+import { currentWorkspace, owned, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 import { readJson } from './zod-body.ts';
 
 /**
@@ -66,6 +66,16 @@ export function squadMounts(options: SquadMountOptions): Mount[] {
          currentWorkspace(user.currentWorkspaceId),
          write ? 'product.write' : 'product.read'
       );
+   // A squad named by id is found in this workspace before `product.write`
+   // is checked: absent or foreign is the same 404 for every role.
+   const scopeOne = (user: { id: string; currentWorkspaceId: string | null }, id: string) =>
+      resolveScopedResource(
+         sql,
+         user.id,
+         currentWorkspace(user.currentWorkspaceId),
+         'product.write',
+         owned('squads', id, 'Squad')
+      );
 
    route.get('/', async (context) => {
       const scoped = await scope(context.get('user'), false);
@@ -87,24 +97,22 @@ export function squadMounts(options: SquadMountOptions): Mount[] {
    });
 
    route.patch('/:id', async (context) => {
-      const scoped = await scope(context.get('user'), true);
+      const id = pathId(context.req.param('id'), 'Squad');
+      const scoped = await scopeOne(context.get('user'), id);
       const patch = await readJson(context, squadPatchSchema);
-      return json(
-         await squads
-            .update(scoped.ctx.workspaceId, pathId(context.req.param('id'), 'Squad'), patch)
-            .catch(rethrowLeader)
-      );
+      return json(await squads.update(scoped.ctx.workspaceId, id, patch).catch(rethrowLeader));
    });
 
    route.delete('/:id', async (context) => {
-      const scoped = await scope(context.get('user'), true);
-      await squads.archive(scoped.ctx.workspaceId, pathId(context.req.param('id'), 'Squad')).catch(rethrow);
+      const id = pathId(context.req.param('id'), 'Squad');
+      const scoped = await scopeOne(context.get('user'), id);
+      await squads.archive(scoped.ctx.workspaceId, id).catch(rethrow);
       return new Response(null, { status: 204 });
    });
 
    route.put('/:id/members', async (context) => {
-      const scoped = await scope(context.get('user'), true);
       const id = pathId(context.req.param('id'), 'Squad');
+      const scoped = await scopeOne(context.get('user'), id);
       const { members } = await readJson(context, membersSchema);
       const ok = await squads.setMembers(scoped.ctx.workspaceId, id, members).catch(rethrow);
       if (!ok) {
@@ -115,10 +123,9 @@ export function squadMounts(options: SquadMountOptions): Mount[] {
 
    route.post('/:id/assign', async (context) => {
       const user = context.get('user');
-      const scoped = await scope(user, true);
-      const squad = await squads
-         .get(scoped.ctx.workspaceId, pathId(context.req.param('id'), 'Squad'))
-         .catch(rethrow);
+      const id = pathId(context.req.param('id'), 'Squad');
+      const scoped = await scopeOne(user, id);
+      const squad = await squads.get(scoped.ctx.workspaceId, id).catch(rethrow);
       if (squad.archivedAt) throw ApiError.notFound('Squad');
       const { issueRef } = await readJson(context, assignSchema);
       const issue = await options.issues.get(issueRef).catch(() => {

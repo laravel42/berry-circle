@@ -126,7 +126,7 @@ function pluginRoutes(options: PluginMountOptions): Hono<{ Variables: ScopedVari
                ...(body.enabled !== undefined ? { enabled: body.enabled } : {}),
                ...(body.config !== undefined ? { config: body.config } : {}),
             })
-         )
+         , { table: 'plugin_installations', id: installationId })
          .catch(mapPluginError);
       return json(serializeInstallation(updated));
    });
@@ -135,7 +135,7 @@ function pluginRoutes(options: PluginMountOptions): Hono<{ Variables: ScopedVari
       const installationId = id(context.req.param('id'));
       await context
          .get('scoped')
-         .mutate('settings.write', (tx, ctx) => repo().uninstall(tx, ctx.workspaceId, installationId))
+         .mutate('settings.write', (tx, ctx) => repo().uninstall(tx, ctx.workspaceId, installationId), { table: 'plugin_installations', id: installationId })
          .catch(mapPluginError);
       return new Response(null, { status: 204 });
    });
@@ -146,7 +146,7 @@ function pluginRoutes(options: PluginMountOptions): Hono<{ Variables: ScopedVari
       const body = await readJson(context, secretSchema);
       await context
          .get('scoped')
-         .mutate('settings.write', (tx, ctx) => repo().setSecret(tx, ctx.workspaceId, installationId, name, body.value))
+         .mutate('settings.write', (tx, ctx) => repo().setSecret(tx, ctx.workspaceId, installationId, name, body.value), { table: 'plugin_installations', id: installationId })
          .catch(mapPluginError);
       const response = new Response(null, { status: 204 });
       response.headers.set('Cache-Control', 'no-store');
@@ -158,7 +158,7 @@ function pluginRoutes(options: PluginMountOptions): Hono<{ Variables: ScopedVari
       const name = context.req.param('name');
       await context
          .get('scoped')
-         .mutate('settings.write', (tx, ctx) => repo().deleteSecret(tx, ctx.workspaceId, installationId, name))
+         .mutate('settings.write', (tx, ctx) => repo().deleteSecret(tx, ctx.workspaceId, installationId, name), { table: 'plugin_installations', id: installationId })
          .catch(mapPluginError);
       return new Response(null, { status: 204 });
    });
@@ -171,7 +171,7 @@ function pluginRoutes(options: PluginMountOptions): Hono<{ Variables: ScopedVari
       await scoped
          .mutate('settings.write', (tx, ctx) =>
             repo().setToolApproval(tx, ctx.workspaceId, installationId, tool, body.approved, ctx.userId)
-         )
+         , { table: 'plugin_installations', id: installationId })
          .catch(mapPluginError);
       return json(serializeInstallation(await repo().get(scoped.ctx.workspaceId, installationId)));
    });

@@ -13,6 +13,7 @@ import {
    mountWorkspaceScope,
    pathId,
    resolveScoped,
+   rethrowScoped,
    type ScopedVariables,
 } from './shared.ts';
 
@@ -425,7 +426,7 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
             throw new ApiError(409, 'CONFLICT', 'A label with that name already exists.');
          }
          return inserted;
-      });
+      }).catch(rethrowScoped('Label'));
       return json(serializeLabel(row), 201);
    });
 
@@ -434,9 +435,10 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
       const labelId = pathId(context.req.param('labelId'), 'Label');
       const input = await readLabel(context, { partial: true });
 
-      // Authorize + update share one transaction; the label is matched against
-      // the confirmed scope, so a label in another workspace is 404, not a
-      // silent no-op, and a role without `settings.write` is 403.
+      // Locate, authorize and update: the label is found in the confirmed
+      // scope first, so a label in another workspace or none at all is the
+      // same 404 for every role; only then is a role without `settings.write`
+      // refused with 403. The update itself runs in one transaction.
       const row = await db.mutate('settings.write', async (tx, ctx) => {
          const [updated] = await tx`
             UPDATE issue_labels
@@ -448,7 +450,7 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
              RETURNING id, workspace_id, name, description, color, created_at, updated_at, archived_at`;
          if (!updated) throw ApiError.notFound('Label');
          return updated;
-      });
+      }, { table: 'issue_labels', id: labelId }).catch(rethrowScoped('Label'));
       return json(serializeLabel(row));
    });
 
@@ -463,16 +465,16 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
       const db = context.get('scoped');
       const labelId = pathId(context.req.param('labelId'), 'Label');
 
-      // Authorize + archive share one transaction, scoped to the confirmed
-      // workspace: a label elsewhere is 404, a role without `settings.write` is
-      // 403, and either rejection leaves the row untouched.
+      // Locate, authorize and archive, scoped to the confirmed workspace: a
+      // label elsewhere is 404 for every role, a role without `settings.write`
+      // is 403 on one of its own, and either rejection leaves the row untouched.
       await db.mutate('settings.write', async (tx, ctx) => {
          const rows = await tx`
             UPDATE issue_labels SET archived_at = now(), updated_at = now()
              WHERE id = ${labelId} AND workspace_id = ${ctx.workspaceId} AND archived_at IS NULL
              RETURNING id`;
          if (rows.length === 0) throw ApiError.notFound('Label');
-      });
+      }, { table: 'issue_labels', id: labelId }).catch(rethrowScoped('Label'));
       return new Response(null, { status: 204 });
    });
 
@@ -546,7 +548,7 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
              RETURNING id, key, name, description, category, color, sort_order, is_system`;
          if (!updated) throw ApiError.notFound('Status');
          return updated;
-      });
+      }, { table: 'issue_status_definitions', id: statusId }).catch(rethrowScoped('Status'));
       return json({
          id: row.id as string,
          key: row.key as string,

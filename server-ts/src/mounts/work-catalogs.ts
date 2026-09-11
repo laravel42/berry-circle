@@ -65,7 +65,10 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
       const propertyId = pathId(context.req.param('propertyId'), 'Property');
       const patch = await parseJsonBody(context.req.raw, propertyPatchSchema);
       const updated = await db
-         .mutate('settings.write', (tx, ctx) => updateProperty(tx, ctx.workspaceId, propertyId, patch))
+         .mutate('settings.write', (tx, ctx) => updateProperty(tx, ctx.workspaceId, propertyId, patch), {
+            table: 'issue_property_definitions',
+            id: propertyId,
+         })
          .catch(rethrowWork('Property'));
       return json(serializeProperty(updated));
    });
@@ -73,7 +76,12 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
    route.delete('/:workspaceId/issue-properties/:propertyId', async (context) => {
       const db = context.get('scoped');
       const propertyId = pathId(context.req.param('propertyId'), 'Property');
-      const archived = await db.mutate('settings.write', (tx, ctx) => archiveProperty(tx, ctx.workspaceId, propertyId));
+      const archived = await db
+         .mutate('settings.write', (tx, ctx) => archiveProperty(tx, ctx.workspaceId, propertyId), {
+            table: 'issue_property_definitions',
+            id: propertyId,
+         })
+         .catch(rethrowWork('Property'));
       if (!archived) throw ApiError.notFound('Property');
       return new Response(null, { status: 204 });
    });
@@ -101,7 +109,10 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
       const db = context.get('scoped');
       const statusId = pathId(context.req.param('statusId'), 'Status');
       await db
-         .mutate('settings.write', (tx, ctx) => archiveStatus(tx, ctx.workspaceId, statusId))
+         .mutate('settings.write', (tx, ctx) => archiveStatus(tx, ctx.workspaceId, statusId), {
+            table: 'issue_status_definitions',
+            id: statusId,
+         })
          .catch(rethrowWork('Status'));
       return new Response(null, { status: 204 });
    });
@@ -127,8 +138,11 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
       const actionId = pathId(context.req.param('actionId'), 'Quick action');
       const patch = await parseJsonBody(context.req.raw, quickActionPatchSchema);
       const updated = await db
-         .mutate('product.write', (tx, ctx) =>
-            updateQuickAction(tx, { workspaceId: ctx.workspaceId, actionId, actorId: ctx.userId, moderator: MODERATOR_ROLES.has(ctx.role), patch })
+         .mutate(
+            'product.write',
+            (tx, ctx) =>
+               updateQuickAction(tx, { workspaceId: ctx.workspaceId, actionId, actorId: ctx.userId, moderator: MODERATOR_ROLES.has(ctx.role), patch }),
+            { table: 'quick_action_definitions', id: actionId }
          )
          .catch(rethrowWork('Quick action'));
       return json(updated);
@@ -138,8 +152,11 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
       const db = context.get('scoped');
       const actionId = pathId(context.req.param('actionId'), 'Quick action');
       await db
-         .mutate('product.write', (tx, ctx) =>
-            archiveQuickAction(tx, { workspaceId: ctx.workspaceId, actionId, actorId: ctx.userId, moderator: MODERATOR_ROLES.has(ctx.role) })
+         .mutate(
+            'product.write',
+            (tx, ctx) =>
+               archiveQuickAction(tx, { workspaceId: ctx.workspaceId, actionId, actorId: ctx.userId, moderator: MODERATOR_ROLES.has(ctx.role) }),
+            { table: 'quick_action_definitions', id: actionId }
          )
          .catch(rethrowWork('Quick action'));
       return new Response(null, { status: 204 });
@@ -165,7 +182,12 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
    route.delete('/:workspaceId/join-links/:linkId', async (context) => {
       const db = context.get('scoped');
       const linkId = pathId(context.req.param('linkId'), 'Join link');
-      const revoked = await db.mutate('invitations.write', (tx, ctx) => revokeJoinLink(tx, ctx.workspaceId, linkId));
+      const revoked = await db
+         .mutate('invitations.write', (tx, ctx) => revokeJoinLink(tx, ctx.workspaceId, linkId), {
+            table: 'workspace_join_links',
+            id: linkId,
+         })
+         .catch(rethrowWork('Join link'));
       if (!revoked) throw ApiError.notFound('Join link');
       return new Response(null, { status: 204 });
    });

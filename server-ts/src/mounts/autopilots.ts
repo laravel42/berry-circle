@@ -24,7 +24,7 @@ import type { Mount } from '../http/registry.ts';
 import { toApiError } from '../identity/errors.ts';
 import type { Permission } from '../identity/roles.ts';
 import { SealingUnavailable } from '../integrations/sealing.ts';
-import { pathId, resolveScoped } from './shared.ts';
+import { owned, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 
 /**
  * `/api/v1/autopilots`.
@@ -117,15 +117,24 @@ export function autopilotMounts(options: AutopilotMountOptions): Mount[] {
    const { autopilots } = options;
    const clock = options.clock ?? (() => new Date());
 
-   /** The workspace an autopilot belongs to, once the caller is proven a member with `required`. */
+   /**
+    * The workspace an autopilot belongs to, once the caller is proven a member
+    * with `required`. A trigger the route names is found in that workspace
+    * before the permission is checked, so an absent or foreign trigger id is
+    * the same 404 for every role, and a 403 only speaks of rows the caller
+    * could already see.
+    */
    async function scopeOf(
       context: Context<{ Variables: AuthVariables }>,
       autopilotId: string,
-      required: Permission
+      required: Permission,
+      triggerId?: string
    ): Promise<string> {
       const workspaceId = await autopilots.workspaceOf(autopilotId).catch(mapError);
       try {
-         await resolveScoped(options.sql, context.get('user').id, workspaceId, required);
+         await resolveScopedResource(options.sql, context.get('user').id, workspaceId, required, async (db) => {
+            if (triggerId) await owned('autopilot_triggers', triggerId, 'Autopilot')(db);
+         });
       } catch (error) {
          // "Workspace not found" would say the autopilot exists somewhere.
          if (error instanceof ApiError && error.status === 404) throw ApiError.notFound('Autopilot');
@@ -236,7 +245,7 @@ export function autopilotMounts(options: AutopilotMountOptions): Mount[] {
    route.patch('/:autopilotId/triggers/:triggerId', async (context) => {
       const id = pathId(context.req.param('autopilotId'), 'Autopilot');
       const triggerId = pathId(context.req.param('triggerId'), 'Autopilot');
-      const workspaceId = await scopeOf(context, id, 'product.write');
+      const workspaceId = await scopeOf(context, id, 'product.write', triggerId);
       const patch = await readJson(context, triggerPatchSchema);
       const trigger = await autopilots.updateTrigger(workspaceId, id, triggerId, patch).catch(mapError);
       return json(serializeTrigger(trigger));
@@ -245,7 +254,7 @@ export function autopilotMounts(options: AutopilotMountOptions): Mount[] {
    route.delete('/:autopilotId/triggers/:triggerId', async (context) => {
       const id = pathId(context.req.param('autopilotId'), 'Autopilot');
       const triggerId = pathId(context.req.param('triggerId'), 'Autopilot');
-      const workspaceId = await scopeOf(context, id, 'product.write');
+      const workspaceId = await scopeOf(context, id, 'product.write', triggerId);
       await autopilots.deleteTrigger(workspaceId, id, triggerId).catch(mapError);
       return new Response(null, { status: 204 });
    });
@@ -253,7 +262,7 @@ export function autopilotMounts(options: AutopilotMountOptions): Mount[] {
    route.post('/:autopilotId/triggers/:triggerId/rotate', async (context) => {
       const id = pathId(context.req.param('autopilotId'), 'Autopilot');
       const triggerId = pathId(context.req.param('triggerId'), 'Autopilot');
-      const workspaceId = await scopeOf(context, id, 'product.write');
+      const workspaceId = await scopeOf(context, id, 'product.write', triggerId);
       const made = await autopilots.rotateWebhook(workspaceId, id, triggerId).catch(mapError);
       return secretResponse(made.trigger, made.secrets, 200);
    });

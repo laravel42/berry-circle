@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
@@ -81,6 +81,32 @@ describe('mcp servers mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is 
          enabled: true,
       });
       assert.equal(res.status, 404);
+   });
+
+   test("a member is told 404 for a server that is absent or another workspace's, and 403 only for this one", async () => {
+      const mine = (await call(app, world.ownerToken, 'GET', '/api/v1/mcp-servers')).body.nodes as Array<{ id: string }>;
+      const own = mine[0]!.id;
+      const theirs = await call(app, world.outsiderToken, 'POST', '/api/v1/mcp-servers', {
+         agentId: null,
+         name: 'theirs',
+         url: 'https://t.test/mcp',
+         transport: 'sse',
+         headers: {},
+         viaGateway: false,
+         enabled: true,
+      });
+      assert.equal(theirs.status, 201);
+      try {
+         for (const [method, body] of [['PATCH', { enabled: false }], ['DELETE', undefined]] as const) {
+            const probe = (id: string) => call(app, world.memberToken, method, `/api/v1/mcp-servers/${id}`, body);
+            assert.equal((await probe(theirs.body.id as string)).status, 404, `${method}: another workspace's`);
+            assert.equal((await probe(randomUUID())).status, 404, `${method}: none at all`);
+            assert.equal((await probe(own)).status, 403, `${method}: this workspace's`);
+         }
+      } finally {
+         // The outsider's workspace must be empty again for the tests after this one.
+         await sql`DELETE FROM mcp_servers WHERE id = ${theirs.body.id as string}`;
+      }
    });
 
    test('an outsider lists nothing', async () => {

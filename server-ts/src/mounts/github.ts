@@ -6,9 +6,10 @@ import { json } from '../http/app.ts';
 import { assertValid, decodeBody, fieldError } from '../http/body.ts';
 import { ApiError, type FieldError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
-import { Forbidden, toApiError } from '../identity/errors.ts';
-import { allows } from '../identity/roles.ts';
-import type { ScopedDb } from '../identity/workspace-context.ts';
+import type { Queryable } from '../db/pool.ts';
+import { Forbidden, NotFound, toApiError } from '../identity/errors.ts';
+import { allows, type Permission } from '../identity/roles.ts';
+import type { ScopedDb, WorkspaceContext } from '../identity/workspace-context.ts';
 import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubAppUnavailable, type GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient, GitHubError, type RepositoryChoice } from '../integrations/github.ts';
@@ -69,19 +70,25 @@ const repositoriesBody = z
    .max(50);
 
 /**
- * A scoped write whose permission refusal is a 403, not a 500.
+ * A scoped write whose refusals are a 404 or a 403, not a 500.
  *
- * `ScopedDb.mutate` refuses a role that lacks the permission with the identity
- * layer's `Forbidden`, which the app shell does not know how to answer. Only
- * that error is translated: the handlers' own ApiErrors (an unknown
- * installation, say) keep their status.
+ * `ScopedDb.mutate` refuses with the identity layer's `NotFound` (a named
+ * resource that is absent or another workspace's, whatever the caller's role)
+ * and `Forbidden` (a role that lacks the permission, on a resource it can
+ * see), which the app shell does not know how to answer. Only those are
+ * translated: the handlers' own ApiErrors (an unknown installation, say) keep
+ * their status.
  */
 function mutateScoped<T>(
    db: ScopedDb,
-   ...args: Parameters<ScopedDb['mutate']>
+   required: Permission,
+   work: (tx: Queryable, ctx: WorkspaceContext) => Promise<T>,
+   resource?: { table: string; id: string; name: string }
 ): Promise<T> {
-   return (db.mutate(...args) as Promise<T>).catch((error: unknown) => {
-      throw error instanceof Forbidden ? toApiError(error, 'Workspace') : error;
+   return db.mutate(required, work, resource).catch((error: unknown) => {
+      if (error instanceof Forbidden) throw toApiError(error, 'Workspace');
+      if (error instanceof NotFound && resource) throw toApiError(error, resource.name);
+      throw error;
    });
 }
 
@@ -217,7 +224,7 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
             }
             throw error;
          }
-      });
+      }, { table: 'workspace_repositories', id: repositoryId, name: 'Repository' });
       if (!updated) throw ApiError.notFound('Repository');
       return json({ repository: updated });
    });
@@ -225,8 +232,11 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
    route.delete('/:workspaceId/repositories/:repositoryId', async (context) => {
       const db = context.get('scoped');
       const repositoryId = pathId(context.req.param('repositoryId'), 'Repository');
-      const removed = await mutateScoped(db, 'settings.write', (tx, ctx) =>
-         options.settings.removeRepository(ctx.workspaceId, repositoryId, tx)
+      const removed = await mutateScoped(
+         db,
+         'settings.write',
+         (tx, ctx) => options.settings.removeRepository(ctx.workspaceId, repositoryId, tx),
+         { table: 'workspace_repositories', id: repositoryId, name: 'Repository' }
       );
       if (!removed) throw ApiError.notFound('Repository');
       return new Response(null, { status: 204 });

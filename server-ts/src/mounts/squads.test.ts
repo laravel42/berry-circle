@@ -10,7 +10,14 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { SquadRepository } from '../squads/repository.ts';
-import { call, dropAgentLayerWorld, seedAgentLayerWorld, type AgentLayerWorld } from './agent-layer.fixture.ts';
+import {
+   call,
+   dropAgentLayerWorld,
+   dropExtraUser,
+   seedAgentLayerWorld,
+   seedViewer,
+   type AgentLayerWorld,
+} from './agent-layer.fixture.ts';
 import { squadMounts } from './squads.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
@@ -132,6 +139,33 @@ describe('squads mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       assert.equal(res.status, 404);
       const [row] = await sql`SELECT assignee_id FROM issues WHERE id = ${foreignIssueId}`;
       assert.equal(row?.assignee_id, null);
+   });
+
+   test("a viewer is told 404 for a squad that is absent or another workspace's, and 403 only for this one", async () => {
+      const viewer = await seedViewer(sql, world);
+      const theirs = await call(app, world.outsiderToken, 'POST', '/api/v1/squads', {
+         name: `Foreign ${randomUUID().slice(0, 8)}`,
+         leaderAgentId: world.otherAgentId,
+      });
+      try {
+         assert.equal(theirs.status, 201);
+         const probes = [
+            ['PATCH', '', { name: 'Renamed' }],
+            ['DELETE', '', undefined],
+            ['PUT', '/members', { members: [] }],
+            ['POST', '/assign', { issueRef: world.issueId }],
+         ] as const;
+         for (const [method, suffix, body] of probes) {
+            const probe = (id: string) => call(app, viewer.token, method, `/api/v1/squads/${id}${suffix}`, body);
+            assert.equal((await probe(theirs.body.id as string)).status, 404, `${method} ${suffix}: another workspace's`);
+            assert.equal((await probe(randomUUID())).status, 404, `${method} ${suffix}: none at all`);
+            assert.equal((await probe(squadId)).status, 403, `${method} ${suffix}: this workspace's`);
+         }
+      } finally {
+         // The outsider's workspace must be empty again for the tests after this one.
+         if (theirs.body.id) await sql`DELETE FROM squads WHERE id = ${theirs.body.id as string}`;
+         await dropExtraUser(sql, viewer.id);
+      }
    });
 
    test('an outsider cannot read the squad', async () => {

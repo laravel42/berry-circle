@@ -118,6 +118,52 @@ describe('work-tracking mounts', { skip: url ? false : 'BERRY_TEST_DATABASE_URL 
       assert.equal(order.status, 200);
    });
 
+   test('a catalog write finds its row before the permission: absent or foreign is 404 for every role, own is 403', async () => {
+      const tag = randomUUID().slice(0, 8);
+      const theirs = (path: string) => `/api/v1/catalogs/${other.workspaceId}${path}`;
+      const make = async (path: string, mine: unknown, foreign: unknown = mine): Promise<[string, string]> => {
+         const own = await call('POST', catalog(path), 'owner', mine);
+         const their = await call('POST', theirs(path), 'outsider', foreign);
+         assert.equal(own.status, 201, `own ${path}`);
+         assert.equal(their.status, 201, `foreign ${path}`);
+         return [own.body?.id as string, their.body?.id as string];
+      };
+      const labels = await make('/issue-labels', { name: `probe-${tag}` });
+      const properties = await make('/issue-properties', { name: `Probe ${tag}`, kind: 'text' });
+      const statuses = await make('/issue-statuses', { name: `Probe ${tag}`, category: 'blocked', color: '#d97706' });
+      const links = await make('/join-links', { role: 'member', maxUses: 5 });
+      const actions = await make(
+         '/quick-actions',
+         { name: `Probe ${tag}`, targetAgentId: world.agentId, prompt: 'Go.' },
+         { name: `Probe ${tag}`, targetAgentId: other.agentId, prompt: 'Go.' }
+      );
+      // A member lacks settings.write and invitations.write; a viewer lacks product.write.
+      const probes: Array<{ method: string; path: string; who: string; ids: [string, string]; body?: unknown }> = [
+         { method: 'PATCH', path: '/issue-labels/', who: 'member', ids: labels, body: { name: 'renamed' } },
+         { method: 'DELETE', path: '/issue-labels/', who: 'member', ids: labels },
+         { method: 'PATCH', path: '/issue-properties/', who: 'member', ids: properties, body: { name: 'Renamed' } },
+         { method: 'DELETE', path: '/issue-properties/', who: 'member', ids: properties },
+         { method: 'PATCH', path: '/issue-statuses/', who: 'member', ids: statuses, body: { name: 'Renamed' } },
+         { method: 'DELETE', path: '/issue-statuses/', who: 'member', ids: statuses },
+         { method: 'PATCH', path: '/quick-actions/', who: 'viewer', ids: actions, body: { name: 'Renamed' } },
+         { method: 'DELETE', path: '/quick-actions/', who: 'viewer', ids: actions },
+         { method: 'DELETE', path: '/join-links/', who: 'member', ids: links },
+      ];
+      const error = (body: Record<string, unknown> | null) => {
+         const { requestId: _ignored, ...rest } = (body?.error ?? {}) as Record<string, unknown>;
+         return rest;
+      };
+      for (const { method, path, who, ids: [own, foreign], body } of probes) {
+         const label = `${method} ${path} as ${who}`;
+         const cross = await call(method, catalog(`${path}${foreign}`), who, body);
+         const absent = await call(method, catalog(`${path}${randomUUID()}`), who, body);
+         assert.equal(cross.status, 404, `${label}: another workspace's row`);
+         assert.equal(absent.status, 404, `${label}: no row at all`);
+         assert.deepEqual(error(cross.body), error(absent.body), `${label}: the two 404s read the same`);
+         assert.equal((await call(method, catalog(`${path}${own}`), who, body)).status, 403, `${label}: own row`);
+      }
+   });
+
    test('join links: created with a token, looked up without a session, accepted once', async () => {
       const created = await call('POST', catalog('/join-links'), 'owner', { role: 'member', maxUses: 5 });
       assert.equal(created.status, 201);

@@ -17,7 +17,9 @@ import {
    type RuntimeView,
 } from '../runtime/runtimes.ts';
 import type { RuntimeTarget } from '../runtime/transport.ts';
-import { pathId, resolveScoped } from './shared.ts';
+import type { Permission } from '../identity/roles.ts';
+import type { ScopedDb } from '../identity/workspace-context.ts';
+import { currentWorkspace, owned, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 
 const seconds = z.number().int().min(60).max(28_800);
 const runtimeBody = z.object({
@@ -75,6 +77,33 @@ export function runtimeMounts(options: {
       const scoped = await resolveScoped(options.sql, userId, workspaceId, write ? 'settings.write' : 'product.read');
       return scoped.ctx.workspaceId;
    };
+   /**
+    * The scope for a write on named rows. Each row is found in the caller's
+    * workspace before `settings.write` is checked, so an absent or foreign id
+    * is the same 404 for every role, and a 403 only ever speaks of a row the
+    * caller could already see.
+    */
+   const scopeFor = async (
+      user: { id: string; currentWorkspaceId: string | null },
+      required: Permission,
+      ...rows: Array<(db: ScopedDb) => Promise<void>>
+   ): Promise<string> => {
+      const scoped = await resolveScopedResource(
+         options.sql,
+         user.id,
+         currentWorkspace(user.currentWorkspaceId),
+         required,
+         async (db) => {
+            for (const row of rows) await row(db);
+         }
+      );
+      return scoped.ctx.workspaceId;
+   };
+   // Every miss is "Runtime not found", as the repository's own misses are,
+   // so which row was absent is not told apart either.
+   const runtimeRow = (id: string) => owned('agent_runtimes', id, 'Runtime');
+   const profileRow = (id: string) => owned('runtime_profiles', id, 'Runtime');
+   const agentRow = (id: string) => owned('agents', id, 'Runtime');
    const parse = async <S extends z.ZodType>(request: Request, schema: S): Promise<z.output<S>> => {
       const parsed = schema.safeParse(await request.json().catch(() => null));
       if (!parsed.success) {
@@ -142,16 +171,17 @@ export function runtimeMounts(options: {
 
    route.patch('/:id', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
       const id = pathId(context.req.param('id'), 'Runtime');
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id));
       const body = await parse(context.req.raw, runtimeBody);
       return json(await guard(repository.update(workspaceId, id, body)));
    });
 
    route.delete('/:id', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
-      await guard(repository.remove(workspaceId, pathId(context.req.param('id'), 'Runtime')));
+      const id = pathId(context.req.param('id'), 'Runtime');
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id));
+      await guard(repository.remove(workspaceId, id));
       return new Response(null, { status: 204 });
    });
 
@@ -180,8 +210,8 @@ export function runtimeMounts(options: {
 
    route.post('/:id/profiles', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
       const id = pathId(context.req.param('id'), 'Runtime');
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id));
       const body = await parse(context.req.raw, profileBody);
       const profile = await guard(repository.saveProfile(workspaceId, id, null, body));
       return json(await withLifecycle(await repository.get(workspaceId, id), profile), 201);
@@ -189,9 +219,9 @@ export function runtimeMounts(options: {
 
    route.patch('/:id/profiles/:profileId', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
       const id = pathId(context.req.param('id'), 'Runtime');
       const profileId = pathId(context.req.param('profileId'), 'Profile');
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id), profileRow(profileId));
       const body = await parse(context.req.raw, profileBody);
       const profile = await guard(repository.saveProfile(workspaceId, id, profileId, body));
       return json(await withLifecycle(await repository.get(workspaceId, id), profile));
@@ -199,38 +229,30 @@ export function runtimeMounts(options: {
 
    route.delete('/:id/profiles/:profileId', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
-      await guard(
-         repository.removeProfile(
-            workspaceId,
-            pathId(context.req.param('id'), 'Runtime'),
-            pathId(context.req.param('profileId'), 'Profile')
-         )
-      );
+      const id = pathId(context.req.param('id'), 'Runtime');
+      const profileId = pathId(context.req.param('profileId'), 'Profile');
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id), profileRow(profileId));
+      await guard(repository.removeProfile(workspaceId, id, profileId));
       return new Response(null, { status: 204 });
    });
 
    route.put('/:id/agents/:agentId', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
+      const id = pathId(context.req.param('id'), 'Runtime');
+      const agentId = pathId(context.req.param('agentId'), 'Agent');
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id), agentRow(agentId));
       const body = await parse(context.req.raw, z.object({ profileId: z.uuid().nullable().optional() }));
-      await guard(
-         repository.bind(
-            workspaceId,
-            pathId(context.req.param('id'), 'Runtime'),
-            pathId(context.req.param('agentId'), 'Agent'),
-            body.profileId ?? null
-         )
-      );
+      await guard(repository.bind(workspaceId, id, agentId, body.profileId ?? null));
       return new Response(null, { status: 204 });
    });
 
    route.delete('/:id/agents/:agentId', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user.id, user.currentWorkspaceId, true);
-      // The runtime in the path must still be this workspace's.
-      await guard(repository.get(workspaceId, pathId(context.req.param('id'), 'Runtime')));
-      await guard(repository.bind(workspaceId, null, pathId(context.req.param('agentId'), 'Agent'), null));
+      const id = pathId(context.req.param('id'), 'Runtime');
+      const agentId = pathId(context.req.param('agentId'), 'Agent');
+      // The runtime in the path must still be this workspace's, and so must the agent.
+      const workspaceId = await scopeFor(user, 'settings.write', runtimeRow(id), agentRow(agentId));
+      await guard(repository.bind(workspaceId, null, agentId, null));
       return new Response(null, { status: 204 });
    });
 

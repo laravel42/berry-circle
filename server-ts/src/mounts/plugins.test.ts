@@ -154,6 +154,43 @@ describe('/api/v1/plugins', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is no
       assert.equal(denied.status, 403);
    });
 
+   test('a member is told 404 for a plugin that is absent or another workspace\'s, and 403 only for this one', async () => {
+      const other = await seedWorld(sql, 'admin');
+      try {
+         const token = (await new SecretsRepository(sql).createPersonalToken({
+            userId: other.userId, name: 'x', expiresAt: null, idempotencyKey: randomUUID(),
+            fingerprint: Buffer.alloc(32, randomUUID()), scopes: null,
+         })).secret;
+         const installed = await app.request(`/api/v1/plugins/${other.workspaceId}/installations`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify({ package: HELLO, config: { greeting: 'hi' } }),
+         });
+         assert.equal(installed.status, 201);
+         const theirs = ((await installed.json()) as { installation: { id: string } }).installation.id;
+         const probes: Array<[string, string, unknown]> = [
+            ['PATCH', '', { enabled: false }],
+            ['DELETE', '', undefined],
+            ['PUT', '/secrets/API_KEY', { value: 'nope' }],
+            ['DELETE', '/secrets/API_KEY', undefined],
+            ['PUT', '/tools/say_hello', { approved: false }],
+         ];
+         for (const [method, suffix, body] of probes) {
+            const probe = (id: string) =>
+               call(`/installations/${id}${suffix}`, tokens.member, {
+                  method,
+                  ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+               });
+            assert.equal((await probe(theirs)).status, 404, `${method} ${suffix}: another workspace's plugin`);
+            assert.equal((await probe(randomUUID())).status, 404, `${method} ${suffix}: no plugin at all`);
+            assert.equal((await probe(installationId)).status, 403, `${method} ${suffix}: this workspace's plugin`);
+         }
+      } finally {
+         await sql`DELETE FROM personal_api_tokens WHERE user_id = ${other.userId}`;
+         await dropWorld(sql, other);
+      }
+   });
+
    test('uninstall removes it', async () => {
       assert.equal((await call(`/installations/${installationId}`, tokens.owner, { method: 'DELETE' })).status, 204);
       assert.equal((await call(`/installations/${installationId}`, tokens.owner)).status, 404);

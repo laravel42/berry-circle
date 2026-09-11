@@ -13,7 +13,14 @@ import { sealerFromKey } from '../integrations/sealing.ts';
 import { McpServerRepository } from '../mcp/repository.ts';
 import { SkillRepository } from '../skills/repository.ts';
 import { agentBuilderMounts } from './agent-builder.ts';
-import { call, dropAgentLayerWorld, seedAgentLayerWorld, type AgentLayerWorld } from './agent-layer.fixture.ts';
+import {
+   call,
+   dropAgentLayerWorld,
+   dropExtraUser,
+   seedAgentLayerWorld,
+   seedViewer,
+   type AgentLayerWorld,
+} from './agent-layer.fixture.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -153,6 +160,29 @@ describe('agent builder', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
          prompt: 'Too late',
       });
       assert.equal(turn.status, 409);
+   });
+
+   test("a viewer is told 404 for a session that is absent or another workspace's, and 403 only for this one", async () => {
+      const viewer = await seedViewer(sql, world);
+      const theirs = await call(app, world.outsiderToken, 'POST', '/api/v1/agent-builder/sessions');
+      assert.equal(theirs.status, 201);
+      try {
+         const probes = [
+            ['GET', '', undefined],
+            ['POST', '/turns', { prompt: 'Anything' }],
+            ['POST', '/apply', { draftId: randomUUID() }],
+            ['DELETE', '', undefined],
+         ] as const;
+         for (const [method, suffix, body] of probes) {
+            const probe = (id: string) => call(app, viewer.token, method, `/api/v1/agent-builder/sessions/${id}${suffix}`, body);
+            assert.equal((await probe(theirs.body.id as string)).status, 404, `${method} ${suffix}: another workspace's`);
+            assert.equal((await probe(randomUUID())).status, 404, `${method} ${suffix}: none at all`);
+            assert.equal((await probe(sessionId)).status, 403, `${method} ${suffix}: this workspace's`);
+         }
+      } finally {
+         await sql`DELETE FROM agent_builder_sessions WHERE id = ${theirs.body.id as string}`;
+         await dropExtraUser(sql, viewer.id);
+      }
    });
 
    test('an outsider cannot read the session', async () => {

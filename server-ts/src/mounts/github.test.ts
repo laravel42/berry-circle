@@ -150,6 +150,30 @@ describe(
          assert.equal(row, undefined, 'a refused write leaves no row behind');
       });
 
+      test('a member is told 404 for a repository that is absent or another workspace\'s, and 403 only for this one', async () => {
+         const suffix = randomUUID().slice(0, 8);
+         const added = await call(ownerToken, 'POST', '/repositories', {
+            repositories: [{ url: `https://github.com/berry/own-${suffix}` }],
+         });
+         assert.equal(added.status, 201);
+         const own = ((await added.json()) as { repositories: Array<{ id: string }> }).repositories[0]!.id;
+         const [theirs] = await new GitHubSettingsRepository(sql).addRepositories(
+            workspaces[1]!,
+            [{ url: `https://github.com/berry/their-${suffix}` }],
+            users[2]!,
+            sql
+         );
+         try {
+            for (const [method, body] of [['PATCH', { description: 'mine now' }], ['DELETE', undefined]] as const) {
+               assert.equal((await call(memberToken, method, `/repositories/${theirs!.id}`, body)).status, 404, `${method}: another workspace's`);
+               assert.equal((await call(memberToken, method, `/repositories/${randomUUID()}`, body)).status, 404, `${method}: none at all`);
+               assert.equal((await call(memberToken, method, `/repositories/${own}`, body)).status, 403, `${method}: this workspace's`);
+            }
+         } finally {
+            await sql`DELETE FROM workspace_repositories WHERE id IN (${own}, ${theirs!.id})`;
+         }
+      });
+
       test('an unknown field or an empty change is refused', async () => {
          assert.equal((await call(ownerToken, 'PATCH', '/settings', { enabeld: false })).status, 422);
          assert.equal((await call(ownerToken, 'PATCH', '/settings', {})).status, 422);

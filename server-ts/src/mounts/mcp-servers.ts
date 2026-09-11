@@ -10,7 +10,7 @@ import { Conflict, NotFound } from '../identity/errors.ts';
 import { SealingUnavailable } from '../integrations/sealing.ts';
 import type { McpServerRepository } from '../mcp/repository.ts';
 import { mcpTransportSchema } from '../runtime/envelope.ts';
-import { currentWorkspace, pathId, resolveScoped } from './shared.ts';
+import { currentWorkspace, owned, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 import { readJson } from './zod-body.ts';
 
 const HEADER = /^[A-Za-z0-9-]{1,100}$/;
@@ -31,6 +31,16 @@ export function mcpServerMounts(options: { sessions: SessionService; sql: Sql; s
    const { servers, sql } = options;
    const scope = (user: { id: string; currentWorkspaceId: string | null }, write: boolean) =>
       resolveScoped(sql, user.id, currentWorkspace(user.currentWorkspaceId), write ? 'settings.write' : 'product.read');
+   // A server named by id is found in this workspace before `settings.write`
+   // is checked: absent or foreign is the same 404 for every role.
+   const scopeOne = (user: { id: string; currentWorkspaceId: string | null }, id: string) =>
+      resolveScopedResource(
+         sql,
+         user.id,
+         currentWorkspace(user.currentWorkspaceId),
+         'settings.write',
+         owned('mcp_servers', id, 'MCP server')
+      );
 
    route.get('/', async (context) => {
       const scoped = await scope(context.get('user'), false);
@@ -47,17 +57,17 @@ export function mcpServerMounts(options: { sessions: SessionService; sql: Sql; s
    });
 
    route.patch('/:id', async (context) => {
-      const scoped = await scope(context.get('user'), true);
+      const id = pathId(context.req.param('id'), 'MCP server');
+      const scoped = await scopeOne(context.get('user'), id);
       const patch = await readJson(context, patchSchema);
-      const updated = await servers
-         .update(scoped.ctx.workspaceId, pathId(context.req.param('id'), 'MCP server'), patch)
-         .catch(rethrow);
+      const updated = await servers.update(scoped.ctx.workspaceId, id, patch).catch(rethrow);
       return json(updated);
    });
 
    route.delete('/:id', async (context) => {
-      const scoped = await scope(context.get('user'), true);
-      await servers.remove(scoped.ctx.workspaceId, pathId(context.req.param('id'), 'MCP server')).catch(rethrow);
+      const id = pathId(context.req.param('id'), 'MCP server');
+      const scoped = await scopeOne(context.get('user'), id);
+      await servers.remove(scoped.ctx.workspaceId, id).catch(rethrow);
       return new Response(null, { status: 204 });
    });
 

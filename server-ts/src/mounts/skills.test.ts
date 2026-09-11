@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
@@ -6,7 +7,14 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { SkillRepository } from '../skills/repository.ts';
-import { call, dropAgentLayerWorld, seedAgentLayerWorld, type AgentLayerWorld } from './agent-layer.fixture.ts';
+import {
+   call,
+   dropAgentLayerWorld,
+   dropExtraUser,
+   seedAgentLayerWorld,
+   seedViewer,
+   type AgentLayerWorld,
+} from './agent-layer.fixture.ts';
 import { skillMounts } from './skills.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
@@ -117,6 +125,35 @@ describe('skills mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       const res = await call(app, world.outsiderToken, 'GET', '/api/v1/skills');
       assert.equal(res.status, 200);
       assert.deepEqual(res.body.nodes, []);
+   });
+
+   test("a viewer is told 404 for a skill or agent that is absent or another workspace's, and 403 only for this one's", async () => {
+      const viewer = await seedViewer(sql, world);
+      const theirs = await call(app, world.outsiderToken, 'POST', '/api/v1/skills', { name: `foreign-${randomUUID().slice(0, 8)}` });
+      assert.equal(theirs.status, 201);
+      const foreign = theirs.body.id as string;
+      try {
+         const list = await call(app, world.ownerToken, 'GET', '/api/v1/skills');
+         const own = (list.body.nodes as { id: string }[])[0]?.id as string;
+         const probes = [['PATCH', '', { description: 'x' }], ['DELETE', '', undefined], ['POST', '/refresh', undefined]] as const;
+         for (const [method, suffix, body] of probes) {
+            const probe = (id: string) => call(app, viewer.token, method, `/api/v1/skills/${id}${suffix}`, body);
+            assert.equal((await probe(foreign)).status, 404, `${method} ${suffix}: another workspace's skill`);
+            assert.equal((await probe(randomUUID())).status, 404, `${method} ${suffix}: no skill at all`);
+            assert.equal((await probe(own)).status, 403, `${method} ${suffix}: this workspace's skill`);
+         }
+         for (const [method, body] of [['PUT', { enabled: true }], ['DELETE', undefined]] as const) {
+            const probe = (skillId: string, agentId: string) =>
+               call(app, viewer.token, method, `/api/v1/skills/${skillId}/agents/${agentId}`, body);
+            assert.equal((await probe(foreign, world.agentId)).status, 404, `${method} binding: another workspace's skill`);
+            assert.equal((await probe(own, world.otherAgentId)).status, 404, `${method} binding: another workspace's agent`);
+            assert.equal((await probe(own, randomUUID())).status, 404, `${method} binding: no agent at all`);
+            assert.equal((await probe(own, world.agentId)).status, 403, `${method} binding: this workspace's`);
+         }
+      } finally {
+         await sql`DELETE FROM skills WHERE id = ${foreign}`;
+         await dropExtraUser(sql, viewer.id);
+      }
    });
 
    test('a GitHub import creates a refreshable skill', async () => {

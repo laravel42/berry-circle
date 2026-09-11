@@ -8,7 +8,7 @@ import { json } from '../http/app.ts';
 import { ApiError } from '../http/errors.ts';
 import type { Mount } from '../http/registry.ts';
 import { Conflict, NotFound } from '../identity/errors.ts';
-import { currentWorkspace, pathId, resolveScoped } from './shared.ts';
+import { currentWorkspace, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 import { readJson } from './zod-body.ts';
 
 /**
@@ -33,6 +33,17 @@ export function agentBuilderMounts(options: {
       (await resolveScoped(sql, user.id, currentWorkspace(user.currentWorkspaceId), 'product.write')).ctx
          .workspaceId;
    const sessionId = (raw: string | undefined): string => pathId(raw, 'Builder session');
+   /**
+    * The scope for one session. The session is found in the caller's
+    * workspace before `product.write` is checked, so an absent or foreign
+    * session is the same 404 for every role.
+    */
+   const scopeSession = async (user: { id: string; currentWorkspaceId: string | null }, id: string): Promise<string> =>
+      (
+         await resolveScopedResource(sql, user.id, currentWorkspace(user.currentWorkspaceId), 'product.write', (db) =>
+            builder.get(db.ctx.workspaceId, id).catch(rethrow)
+         )
+      ).ctx.workspaceId;
 
    route.post('/sessions', async (context) => {
       const workspaceId = await scope(context.get('user'));
@@ -40,21 +51,22 @@ export function agentBuilderMounts(options: {
    });
 
    route.get('/sessions/:id', async (context) => {
-      const workspaceId = await scope(context.get('user'));
-      return json(await builder.get(workspaceId, sessionId(context.req.param('id'))).catch(rethrow));
+      const id = sessionId(context.req.param('id'));
+      const workspaceId = await scopeSession(context.get('user'), id);
+      return json(await builder.get(workspaceId, id).catch(rethrow));
    });
 
    route.post('/sessions/:id/turns', async (context) => {
-      const workspaceId = await scope(context.get('user'));
       const id = sessionId(context.req.param('id'));
+      const workspaceId = await scopeSession(context.get('user'), id);
       const { prompt } = await readJson(context, turnSchema);
       return json(await builder.turn(workspaceId, id, prompt).catch(rethrow), 201);
    });
 
    route.post('/sessions/:id/apply', async (context) => {
       const user = context.get('user');
-      const workspaceId = await scope(user);
       const id = sessionId(context.req.param('id'));
+      const workspaceId = await scopeSession(user, id);
       const { draftId } = await readJson(context, applySchema);
       // MCP servers are a settings.write resource (the mcp-servers mount); the
       // builder must not let someone without it create them.
@@ -67,8 +79,9 @@ export function agentBuilderMounts(options: {
    });
 
    route.delete('/sessions/:id', async (context) => {
-      const workspaceId = await scope(context.get('user'));
-      await builder.discard(workspaceId, sessionId(context.req.param('id'))).catch(rethrow);
+      const id = sessionId(context.req.param('id'));
+      const workspaceId = await scopeSession(context.get('user'), id);
+      await builder.discard(workspaceId, id).catch(rethrow);
       return new Response(null, { status: 204 });
    });
 

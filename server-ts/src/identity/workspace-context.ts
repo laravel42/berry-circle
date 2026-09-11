@@ -126,13 +126,33 @@ export interface ScopedDb {
     */
    requireResource(table: string, id: string): Promise<void>;
    /**
-    * Runs authorize + write in one transaction. `allows(ctx.role, required)`
-    * is checked first — {@link Forbidden} (→ 403) on denial — then `work` runs
-    * inside a single `sql.begin` that rolls back on any throw, so a refused or
-    * failed write leaves nothing behind (Requirements 7.6, and the RBAC gate of
-    * design §5).
+    * Refuses a role that lacks `required` with {@link Forbidden} (→ 403).
+    *
+    * Only meaningful once the resource being acted on is known to exist in
+    * this workspace: a caller must never learn from a 403 that an id they
+    * cannot reach exists.
     */
-   mutate<T>(required: Permission, work: (tx: Queryable, ctx: WorkspaceContext) => Promise<T>): Promise<T>;
+   authorize(required: Permission): void;
+   /**
+    * Runs locate + authorize + write. When `resource` is given, the row is
+    * first confirmed to live in this workspace — {@link NotFound} (→ 404),
+    * whatever the caller's role, if it is absent or foreign — and only then is
+    * `allows(ctx.role, required)` checked — {@link Forbidden} (→ 403). `work`
+    * runs inside a single `sql.begin` that rolls back on any throw, so a
+    * refused or failed write leaves nothing behind (Requirements 7.6, and the
+    * RBAC gate of design §5).
+    */
+   mutate<T>(
+      required: Permission,
+      work: (tx: Queryable, ctx: WorkspaceContext) => Promise<T>,
+      resource?: OwnedResource
+   ): Promise<T>;
+}
+
+/** A row named by id, owned by this workspace through a `workspace_id` column. */
+export interface OwnedResource {
+   readonly table: string;
+   readonly id: string;
 }
 
 /**
@@ -151,7 +171,19 @@ const OWNED_TABLES: ReadonlySet<string> = new Set<string>([
    'saved_issue_views',
    'issue_labels',
    'issue_status_definitions',
+   'issue_property_definitions',
+   'quick_action_definitions',
+   'workspace_join_links',
    'agents',
+   'agent_runtimes',
+   'runtime_profiles',
+   'mcp_servers',
+   'skills',
+   'squads',
+   'autopilots',
+   'autopilot_triggers',
+   'plugin_installations',
+   'workspace_repositories',
 ]);
 
 /**
@@ -168,7 +200,7 @@ export function scopedDb(sql: Sql, ctx: WorkspaceContext): ScopedDb {
    // builder embeds this; the value is ctx.workspaceId, never the request's.
    const scope: PendingScope = sql`workspace_id = ${ctx.workspaceId}`;
 
-   return {
+   const surface: ScopedDb = {
       ctx,
 
       list<T>(build: (q: ScopedQuery) => Promise<T[]>): Promise<T[]> {
@@ -193,22 +225,31 @@ export function scopedDb(sql: Sql, ctx: WorkspaceContext): ScopedDb {
          if (!row) throw new NotFound();
       },
 
-      mutate<T>(
+      authorize(required: Permission): void {
+         if (!allows(ctx.role, required)) throw new Forbidden();
+      },
+
+      async mutate<T>(
          required: Permission,
-         work: (tx: Queryable, ctx: WorkspaceContext) => Promise<T>
+         work: (tx: Queryable, ctx: WorkspaceContext) => Promise<T>,
+         resource?: OwnedResource
       ): Promise<T> {
+         // Locate before authorizing. A 403 is only safe to give for a row
+         // that exists in the caller's own workspace; an absent or foreign id
+         // must be the same 404 for every role, or the refusal itself would
+         // say the id exists across the tenant boundary.
+         if (resource) await surface.requireResource(resource.table, resource.id);
          // Authorize before opening the transaction: a denial should cost
-         // nothing and reveal nothing about the data. A read permission is not
-         // a valid `mutate` gate — every write permission the role lacks is a
-         // genuine 403 here, since membership is already established.
-         // Rejected rather than thrown: the signature promises a Promise, so a
-         // caller's `.catch(...)` must see the denial too.
-         if (!allows(ctx.role, required)) return Promise.reject(new Forbidden());
+         // nothing. A read permission is not a valid `mutate` gate — every
+         // write permission the role lacks is a genuine 403 here, since
+         // membership (and the resource, when named) is already established.
+         surface.authorize(required);
          // One transaction for the whole write. postgres.js rolls back if the
          // callback throws, so a failure mid-write leaves nothing behind. The
          // transaction executor is passed to `work` so the write cannot escape
          // onto a different connection.
-         return sql.begin((tx) => work(tx, ctx)) as Promise<T>;
+         return (await sql.begin((tx) => work(tx, ctx))) as T;
       },
    };
+   return surface;
 }

@@ -12,7 +12,7 @@ import { Conflict, NotFound } from '../identity/errors.ts';
 import { SkillImportError, type SkillImporter } from '../skills/github-import.ts';
 import type { SkillRepository, SkillWithFiles } from '../skills/repository.ts';
 import { readZip, skillFromArchive } from '../skills/zip.ts';
-import { currentWorkspace, pathId, resolveScoped } from './shared.ts';
+import { currentWorkspace, owned, pathId, resolveScoped, resolveScopedResource } from './shared.ts';
 import { readJson } from './zod-body.ts';
 
 const fileSchema = z.strictObject({
@@ -54,6 +54,14 @@ export function skillMounts(options: SkillMountOptions): Mount[] {
 
    const scope = async (user: { id: string; currentWorkspaceId: string | null }, write: boolean) =>
       resolveScoped(sql, user.id, currentWorkspace(user.currentWorkspaceId), write ? 'product.write' : 'product.read');
+   // A skill (and an agent) named by id is found in this workspace before
+   // `product.write` is checked: absent or foreign is the same 404 for every
+   // role. Every miss reads "Skill not found", as the repository's do.
+   const scopeOne = async (user: { id: string; currentWorkspaceId: string | null }, skillId: string, agentId?: string) =>
+      resolveScopedResource(sql, user.id, currentWorkspace(user.currentWorkspaceId), 'product.write', async (db) => {
+         await owned('skills', skillId, 'Skill')(db);
+         if (agentId) await owned('agents', agentId, 'Skill')(db);
+      });
 
    route.get('/', async (context) => {
       const scoped = await scope(context.get('user'), false);
@@ -118,8 +126,8 @@ export function skillMounts(options: SkillMountOptions): Mount[] {
    });
 
    route.post('/:skillId/refresh', async (context) => {
-      const scoped = await scope(context.get('user'), true);
       const id = pathId(context.req.param('skillId'), 'Skill');
+      const scoped = await scopeOne(context.get('user'), id);
       const current = await skills.get(scoped.ctx.workspaceId, id).catch(rethrow);
       if (current.source.kind !== 'github' || !current.source.url || !options.importer) {
          throw new ApiError(
@@ -144,43 +152,34 @@ export function skillMounts(options: SkillMountOptions): Mount[] {
    });
 
    route.patch('/:skillId', async (context) => {
-      const scoped = await scope(context.get('user'), true);
+      const id = pathId(context.req.param('skillId'), 'Skill');
+      const scoped = await scopeOne(context.get('user'), id);
       const patch = await readJson(context, patchSchema);
-      const updated = await skills
-         .update(scoped.ctx.workspaceId, pathId(context.req.param('skillId'), 'Skill'), patch)
-         .catch(rethrow);
+      const updated = await skills.update(scoped.ctx.workspaceId, id, patch).catch(rethrow);
       return json(serialize(updated));
    });
 
    route.delete('/:skillId', async (context) => {
-      const scoped = await scope(context.get('user'), true);
-      await skills.remove(scoped.ctx.workspaceId, pathId(context.req.param('skillId'), 'Skill')).catch(rethrow);
+      const id = pathId(context.req.param('skillId'), 'Skill');
+      const scoped = await scopeOne(context.get('user'), id);
+      await skills.remove(scoped.ctx.workspaceId, id).catch(rethrow);
       return new Response(null, { status: 204 });
    });
 
    route.put('/:skillId/agents/:agentId', async (context) => {
-      const scoped = await scope(context.get('user'), true);
+      const skillId = pathId(context.req.param('skillId'), 'Skill');
+      const agentId = pathId(context.req.param('agentId'), 'Agent');
+      const scoped = await scopeOne(context.get('user'), skillId, agentId);
       const { enabled } = await readJson(context, bindingSchema);
-      await skills
-         .setBinding(
-            scoped.ctx.workspaceId,
-            pathId(context.req.param('agentId'), 'Agent'),
-            pathId(context.req.param('skillId'), 'Skill'),
-            enabled
-         )
-         .catch(rethrow);
+      await skills.setBinding(scoped.ctx.workspaceId, agentId, skillId, enabled).catch(rethrow);
       return new Response(null, { status: 204 });
    });
 
    route.delete('/:skillId/agents/:agentId', async (context) => {
-      const scoped = await scope(context.get('user'), true);
-      await skills
-         .removeBinding(
-            scoped.ctx.workspaceId,
-            pathId(context.req.param('agentId'), 'Agent'),
-            pathId(context.req.param('skillId'), 'Skill')
-         )
-         .catch(rethrow);
+      const skillId = pathId(context.req.param('skillId'), 'Skill');
+      const agentId = pathId(context.req.param('agentId'), 'Agent');
+      const scoped = await scopeOne(context.get('user'), skillId, agentId);
+      await skills.removeBinding(scoped.ctx.workspaceId, agentId, skillId).catch(rethrow);
       return new Response(null, { status: 204 });
    });
 

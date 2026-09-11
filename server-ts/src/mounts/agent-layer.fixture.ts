@@ -129,6 +129,30 @@ export async function dropAgentLayerWorld(sql: Sql, world: AgentLayerWorld): Pro
    await sql`DELETE FROM users WHERE id IN ${sql([world.ownerId, world.memberId, world.outsiderId])}`;
 }
 
+/**
+ * A viewer of W (current workspace W), for probing writes a viewer may not
+ * make. Drop it with {@link dropExtraUser} before {@link dropAgentLayerWorld}.
+ */
+export async function seedViewer(sql: Sql, world: AgentLayerWorld): Promise<{ id: string; token: string }> {
+   const [row] = await sql`
+      INSERT INTO users (id, email, name)
+      VALUES (${randomUUID()}, ${`viewer-${randomUUID().slice(0, 8)}@berry.test`}, 'viewer')
+      RETURNING id`;
+   const id = row?.id as string;
+   await sql`
+      INSERT INTO workspace_memberships (workspace_id, user_id, role)
+      VALUES (${world.workspaceId}, ${id}, 'viewer')`;
+   await sql`UPDATE users SET last_workspace_id = ${world.workspaceId} WHERE id = ${id}`;
+   return { id, token: await issueTestToken(sql, id) };
+}
+
+/** Removes a user a test added on top of the world, with its token and memberships. */
+export async function dropExtraUser(sql: Sql, userId: string): Promise<void> {
+   await sql`DELETE FROM personal_api_tokens WHERE user_id = ${userId}`;
+   await sql`DELETE FROM workspace_memberships WHERE user_id = ${userId}`;
+   await sql`DELETE FROM users WHERE id = ${userId}`;
+}
+
 /** One request through the real app, as a signed-in user. */
 export async function call(
    app: BerryApp,

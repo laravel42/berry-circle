@@ -95,6 +95,50 @@ export async function resolveScoped(
 }
 
 /**
+ * {@link resolveScoped} for a route that acts on one resource named by id.
+ *
+ * The order is the tenant-isolation contract: membership first (a non-member
+ * or absent workspace is 404), then `locate` confirms the resource lives in
+ * that workspace (an absent or foreign id is 404, whatever the caller's role),
+ * and only then is `required` checked (403). A 403 therefore only ever speaks
+ * about a resource the caller could already see.
+ */
+export async function resolveScopedResource(
+   sql: Sql,
+   userId: string,
+   workspaceId: string,
+   required: Permission,
+   locate: (db: ScopedDb) => Promise<unknown>
+): Promise<ScopedDb> {
+   const db = await resolveScoped(sql, userId, workspaceId);
+   await locate(db);
+   try {
+      db.authorize(required);
+   } catch (error) {
+      throw toApiError(error, 'Workspace');
+   }
+   return db;
+}
+
+/** A `locate` for {@link resolveScopedResource}: the row is this workspace's, or 404 `resource`. */
+export function owned(table: string, id: string, resource: string): (db: ScopedDb) => Promise<void> {
+   return async (db) => {
+      try {
+         await db.requireResource(table, id);
+      } catch (error) {
+         throw toApiError(error, resource);
+      }
+   };
+}
+
+/** Identity failures from a scoped write, in the API's words: NotFound → 404 `resource`, Forbidden → 403. */
+export function rethrowScoped(resource: string): (error: unknown) => never {
+   return (error: unknown) => {
+      throw toApiError(error, resource);
+   };
+}
+
+/**
  * A malformed id is 404, not 400.
  *
  * Go parses the path segment and answers "not found" when it is not a

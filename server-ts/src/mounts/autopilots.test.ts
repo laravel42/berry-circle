@@ -170,6 +170,59 @@ describe('/api/v1/autopilots', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is
       assert.equal(fired.length, 0);
    });
 
+   test("a viewer is told 404 for an autopilot or trigger that is absent or another workspace's, and 403 only for this one's", async () => {
+      const own = await createOne();
+      const ownId = own.id as string;
+      const made = await call('POST', `/api/v1/autopilots/${ownId}/triggers`, {
+         kind: 'cron', expression: '0 9 * * *', timezone: 'UTC',
+      });
+      assert.equal(made.status, 201);
+      const ownTrigger = ((await made.json()) as { trigger: { id: string } }).trigger.id;
+      const other = await seedWorkspace(sql, 'mount-other');
+      const [viewer] = await sql`
+         INSERT INTO users (id, email, name)
+         VALUES (${randomUUID()}, ${`viewer-${randomUUID().slice(0, 8)}@berry.test`}, 'Viewer')
+         RETURNING id`;
+      const viewerId = viewer!.id as string;
+      try {
+         await sql`
+            INSERT INTO workspace_memberships (workspace_id, user_id, role)
+            VALUES (${fixture.workspaceId}, ${viewerId}, 'viewer')`;
+         const viewerToken = await issueTestToken(sql, viewerId);
+         const theirs = await repo.create(other.workspaceId, {
+            name: 'Theirs', description: null, assigneeType: 'agent', assigneeId: other.agentId,
+            promptTemplate: 'x', executionMode: 'create_issue', boardId: other.boardId, issueId: null,
+            quotaPeriod: 'none', quotaMax: null,
+         }, other.userId);
+         const theirTrigger = await repo.addCronTrigger(other.workspaceId, theirs.id, {
+            expression: '0 9 * * *', timezone: 'UTC', enabled: true,
+         });
+         const as = (method: string, path: string, body?: unknown) =>
+            app.request(`/api/v1/autopilots${path}`, {
+               method,
+               headers: { authorization: `Bearer ${viewerToken}`, 'content-type': 'application/json' },
+               ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            });
+         for (const [method, body] of [['PATCH', { name: 'x' }], ['DELETE', undefined]] as const) {
+            assert.equal((await as(method, `/${theirs.id}`, body)).status, 404, `${method}: another workspace's autopilot`);
+            assert.equal((await as(method, `/${randomUUID()}`, body)).status, 404, `${method}: no autopilot at all`);
+            assert.equal((await as(method, `/${ownId}`, body)).status, 403, `${method}: this workspace's autopilot`);
+         }
+         const triggerProbes = [['PATCH', '', { enabled: false }], ['DELETE', '', undefined], ['POST', '/rotate', undefined]] as const;
+         for (const [method, suffix, body] of triggerProbes) {
+            const at = (triggerId: string) => as(method, `/${ownId}/triggers/${triggerId}${suffix}`, body);
+            assert.equal((await at(theirTrigger.id)).status, 404, `${method} ${suffix}: another workspace's trigger`);
+            assert.equal((await at(randomUUID())).status, 404, `${method} ${suffix}: no trigger at all`);
+            assert.equal((await at(ownTrigger)).status, 403, `${method} ${suffix}: this workspace's trigger`);
+         }
+      } finally {
+         await sql`DELETE FROM personal_api_tokens WHERE user_id = ${viewerId}`;
+         await sql`DELETE FROM workspace_memberships WHERE user_id = ${viewerId}`;
+         await sql`DELETE FROM users WHERE id = ${viewerId}`;
+         await cleanupWorkspace(sql, other);
+      }
+   });
+
    test('pausing then archiving takes it off the list', async () => {
       const created = await createOne();
       const paused = await call('PATCH', `/api/v1/autopilots/${created.id}`, { status: 'paused' });

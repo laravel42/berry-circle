@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
@@ -179,6 +180,53 @@ describe('/api/v1/runtimes', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
       assert.equal((await call(`/${runtimeId}/agents/${mine!.agentId}`, { method: 'DELETE' })).status, 204);
       const [unbound] = await sql`SELECT runtime_id FROM agents WHERE id = ${mine!.agentId}`;
       assert.equal(unbound!.runtime_id, null);
+   });
+
+   test("a member is told 404 for a runtime, profile or agent that is absent or another workspace's, and 403 only for this one's", async () => {
+      const [member] = await sql`
+         INSERT INTO users (id, email, name)
+         VALUES (${randomUUID()}, ${`rt-member-${randomUUID().slice(0, 8)}@berry.test`}, 'Member')
+         RETURNING id`;
+      const memberId = member!.id as string;
+      try {
+         await sql`
+            INSERT INTO workspace_memberships (workspace_id, user_id, role)
+            VALUES (${mine!.workspaceId}, ${memberId}, 'member')`;
+         await sql`UPDATE users SET last_workspace_id = ${mine!.workspaceId} WHERE id = ${memberId}`;
+         const memberToken = await issueTestToken(sql, memberId);
+         const asMember = (method: string, path: string, body?: unknown) =>
+            app.request(`/api/v1/runtimes${path}`, {
+               method,
+               headers: { authorization: `Bearer ${memberToken}`, 'content-type': 'application/json' },
+               ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            });
+         const own = await firstCustom();
+         const [ownProfile] = await sql`
+            INSERT INTO runtime_profiles (workspace_id, runtime_id, name)
+            VALUES (${mine!.workspaceId}, ${own}, ${`probe-${randomUUID().slice(0, 8)}`}) RETURNING id`;
+         const [theirProfile] = await sql`
+            INSERT INTO runtime_profiles (workspace_id, runtime_id, name)
+            VALUES (${theirs!.workspaceId}, ${theirRuntime}, ${`probe-${randomUUID().slice(0, 8)}`}) RETURNING id`;
+         const probes: Array<{ method: string; path: (id: string) => string; own: string; foreign: string; body?: unknown }> = [
+            { method: 'PATCH', path: (id) => `/${id}`, own, foreign: theirRuntime, body: { name: 'mine now' } },
+            { method: 'DELETE', path: (id) => `/${id}`, own, foreign: theirRuntime },
+            { method: 'POST', path: (id) => `/${id}/profiles`, own, foreign: theirRuntime, body: { name: 'p' } },
+            { method: 'PATCH', path: (id) => `/${own}/profiles/${id}`, own: ownProfile!.id as string, foreign: theirProfile!.id as string, body: { name: 'p' } },
+            { method: 'DELETE', path: (id) => `/${own}/profiles/${id}`, own: ownProfile!.id as string, foreign: theirProfile!.id as string },
+            { method: 'PUT', path: (id) => `/${own}/agents/${id}`, own: mine!.agentId, foreign: theirs!.agentId, body: {} },
+            { method: 'DELETE', path: (id) => `/${own}/agents/${id}`, own: mine!.agentId, foreign: theirs!.agentId },
+         ];
+         for (const probe of probes) {
+            const label = `${probe.method} ${probe.path(':id')}`;
+            assert.equal((await asMember(probe.method, probe.path(probe.foreign), probe.body)).status, 404, `${label}: another workspace's`);
+            assert.equal((await asMember(probe.method, probe.path(randomUUID()), probe.body)).status, 404, `${label}: none at all`);
+            assert.equal((await asMember(probe.method, probe.path(probe.own), probe.body)).status, 403, `${label}: this workspace's`);
+         }
+      } finally {
+         await sql`DELETE FROM personal_api_tokens WHERE user_id = ${memberId}`;
+         await sql`DELETE FROM workspace_memberships WHERE user_id = ${memberId}`;
+         await sql`DELETE FROM users WHERE id = ${memberId}`;
+      }
    });
 
    test('without a session nothing answers', async () => {
