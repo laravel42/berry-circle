@@ -55,6 +55,10 @@ export interface Issue {
    /** A workspace status refining `status`. */
    statusId?: string | null;
    childProgress?: { total: number; done: number };
+   /** Who filed it. Absent on a task created before the field was carried. */
+   createdBy?: User | null;
+   /** Last write of any kind, which is what the detail page's "updated" means. */
+   updatedAt?: string;
 }
 
 /**

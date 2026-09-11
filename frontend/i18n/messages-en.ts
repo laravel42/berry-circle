@@ -1,6 +1,7 @@
 import agents from '@/messages/en/agents.json';
 import common from '@/messages/en/common.json';
 import goals from '@/messages/en/goals.json';
+import issueDetail from '@/messages/en/issueDetail.json';
 import projects from '@/messages/en/projects.json';
 import reviews from '@/messages/en/reviews.json';
 import runtimes from '@/messages/en/runtimes.json';
@@ -13,6 +14,17 @@ import tasks from '@/messages/en/tasks.json';
  * `AppConfig` in global.d.ts, so a missing key fails `next build` rather than
  * rendering as a raw key.
  */
-const messages = { agents, common, goals, projects, reviews, runtimes, settings, shell, tasks };
+const messages = {
+   agents,
+   common,
+   goals,
+   issueDetail,
+   projects,
+   reviews,
+   runtimes,
+   settings,
+   shell,
+   tasks,
+};
 
 export default messages;

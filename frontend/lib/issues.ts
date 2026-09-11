@@ -126,6 +126,8 @@ export type IssuePatchBody = {
    description?: string | null;
    assignee?: { type: 'user' | 'agent'; id: string } | null;
    goalId?: string | null;
+   /** An ISO date, or null to clear it. */
+   dueDate?: string | null;
 };
 
 /**
@@ -227,6 +229,11 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
    issue.stage = apiIssue.stage ?? null;
    issue.statusId = apiIssue.statusId ?? null;
    issue.childProgress = apiIssue.childProgress ?? { total: 0, done: 0 };
+   // Both were parsed and dropped. The detail page's "created by / created /
+   // updated" block is the only thing that reads them, and without them it
+   // could only ever have said "unknown".
+   issue.createdBy = apiIssue.createdBy ? toUiUser(apiIssue.createdBy) : null;
+   issue.updatedAt = apiIssue.updatedAt;
 
    return issue;
 }
@@ -301,6 +308,8 @@ export async function createBoardIssue(input: {
    priorityId: string;
    assignee?: { type: 'user' | 'agent'; id: string };
    projectId?: string;
+   /** ISO date. The create modal offers it; the board's quick add does not. */
+   dueDate?: string;
 }): Promise<Issue> {
    const body: Record<string, unknown> = {
       boardId: input.boardId,
@@ -308,6 +317,9 @@ export async function createBoardIssue(input: {
       status: apiStatusFromUi(input.statusId),
       priority: apiPriorityFromUi(input.priorityId),
    };
+   if (input.dueDate) {
+      body.dueDate = input.dueDate;
+   }
    if (input.description) {
       body.description = input.description;
    }

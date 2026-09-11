@@ -58,6 +58,25 @@ export async function uploadIssueAttachment(
    return parsed.data;
 }
 
+/** Is this something the image viewer can show? */
+export function isImageAttachment(attachment: ApiAttachment): boolean {
+   return attachment.contentType.startsWith('image/');
+}
+
+/**
+ * A blob URL for an attachment, for showing it rather than saving it.
+ *
+ * The same reason downloads are fetched rather than linked: the route needs
+ * the session header, so an `<img src>` pointed straight at it renders an
+ * authentication error instead of the picture. The caller owns the URL and
+ * must revoke it — every one of these holds the whole file in memory.
+ */
+export async function attachmentObjectUrl(attachment: ApiAttachment): Promise<string> {
+   const response = await apiStream(attachment.downloadUrl, undefined, {});
+   if (!response.ok) throw new Error(`Attachment failed with status ${response.status}`);
+   return URL.createObjectURL(await response.blob());
+}
+
 /**
  * Download an attachment to the viewer's machine.
  *
@@ -111,9 +130,7 @@ export type RunArtifact = z.infer<typeof artifactSchema>;
  */
 export async function loadIssueArtifacts(issueRef: string): Promise<RunArtifact[]> {
    if (!issueRef) return [];
-   const json: unknown = await apiFetch(
-      `/api/v1/issues/${encodeURIComponent(issueRef)}/artifacts`
-   );
+   const json: unknown = await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}/artifacts`);
    const parsed = z.object({ artifacts: z.array(artifactSchema) }).safeParse(json);
    return parsed.success ? parsed.data.artifacts : [];
 }

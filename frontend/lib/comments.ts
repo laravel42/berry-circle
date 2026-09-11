@@ -31,7 +31,9 @@ function timeAgo(iso: string): string {
    }
 }
 
-export function commentToActivityItem(comment: ApiComment): Extract<ActivityItem, { kind: 'comment' }> {
+export function commentToActivityItem(
+   comment: ApiComment
+): Extract<ActivityItem, { kind: 'comment' }> {
    const actor: User = toUiUser(comment.author);
    return {
       kind: 'comment',
@@ -62,15 +64,23 @@ export async function loadIssueComments(issueRef: string): Promise<ApiComment[]>
    return collected;
 }
 
-export async function createIssueComment(issueRef: string, body: string): Promise<ApiComment> {
-   const json: unknown = await apiFetch(
-      `/api/v1/issues/${encodeURIComponent(issueRef)}/comments`,
-      {
-         method: 'POST',
-         headers: { 'Idempotency-Key': newIdempotencyKey() },
-         body: JSON.stringify({ body }),
-      }
-   );
+/**
+ * Post a comment, optionally as a reply.
+ *
+ * `parentId` names the thread root. The server refuses a reply to a reply, so
+ * threads are one level deep by design — deep enough to keep an exchange
+ * together, shallow enough that nothing gets lost three indents down.
+ */
+export async function createIssueComment(
+   issueRef: string,
+   body: string,
+   parentId?: string
+): Promise<ApiComment> {
+   const json: unknown = await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}/comments`, {
+      method: 'POST',
+      headers: { 'Idempotency-Key': newIdempotencyKey() },
+      body: JSON.stringify(parentId ? { body, parentId } : { body }),
+   });
    const parsed = commentSchema.safeParse(json);
    if (!parsed.success) {
       throw new Error('Create comment response was not recognized');
@@ -78,7 +88,11 @@ export async function createIssueComment(issueRef: string, body: string): Promis
    return parsed.data;
 }
 
-export async function updateComment(commentId: string, body: string, revision: number): Promise<ApiComment> {
+export async function updateComment(
+   commentId: string,
+   body: string,
+   revision: number
+): Promise<ApiComment> {
    const json: unknown = await apiFetch(`/api/v1/comments/${encodeURIComponent(commentId)}`, {
       method: 'PATCH',
       body: JSON.stringify({ body, revision }),
@@ -92,10 +106,16 @@ export async function deleteComment(commentId: string): Promise<void> {
    await apiFetch(`/api/v1/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' });
 }
 
-export async function setCommentResolved(commentId: string, resolved: boolean): Promise<ApiComment> {
-   const json: unknown = await apiFetch(`/api/v1/comments/${encodeURIComponent(commentId)}/resolution`, {
-      method: resolved ? 'POST' : 'DELETE',
-   });
+export async function setCommentResolved(
+   commentId: string,
+   resolved: boolean
+): Promise<ApiComment> {
+   const json: unknown = await apiFetch(
+      `/api/v1/comments/${encodeURIComponent(commentId)}/resolution`,
+      {
+         method: resolved ? 'POST' : 'DELETE',
+      }
+   );
    const parsed = commentSchema.safeParse(json);
    if (!parsed.success) throw new Error('Resolve comment response was not recognized');
    return parsed.data;
@@ -115,8 +135,7 @@ export function mentionToken(kind: 'agent' | 'squad', id: string, name: string):
 }
 
 export type MentionPart =
-   | { text: string }
-   | { mention: { kind: 'agent' | 'squad'; id: string; name: string } };
+   { text: string } | { mention: { kind: 'agent' | 'squad'; id: string; name: string } };
 
 export function splitMentions(body: string): MentionPart[] {
    const parts: MentionPart[] = [];
