@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { RunConflict, RunLedger, RunTerminal } from './ledger.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * The run ledger against a real PostgreSQL.
@@ -391,12 +392,7 @@ async function cleanup(sql: Sql, fixture: Record<string, string>): Promise<void>
    // The guard is therefore suspended here and only here, for the fixture's
    // own teardown. Nothing under test is exempt from it; the alternative is a
    // test that leaves a workspace behind on every run.
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;

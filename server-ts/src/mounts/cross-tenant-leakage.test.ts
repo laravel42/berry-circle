@@ -52,6 +52,7 @@ import { PluginRepository } from '../plugins/repository.ts';
 import { PluginRuntimeStore } from '../plugins/runtime-store.ts';
 import { pluginMounts } from './plugins.ts';
 import { publicApiMounts } from './public-api.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -315,22 +316,17 @@ describe(
          if (!sql) return;
          if (world.workspaceIds?.length) {
             // A workspace provisions a protected Orchestrator agent by trigger,
-            // and protected agents refuse deletion. Suspend the guard for the
-            // fixture's own teardown, then restore it.
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               for (const ws of world.workspaceIds) {
-                  await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM agents WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM saved_issue_views WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM boards WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspaces WHERE id = ${ws}`;
-               }
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+            // and protected agents refuse deletion. The shared helper clears and
+            // deletes it inside one transaction.
+            for (const ws of world.workspaceIds) {
+               await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
+               await deleteWorkspaceAgents(sql, [ws]);
+               await sql`DELETE FROM saved_issue_views WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM boards WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM workspaces WHERE id = ${ws}`;
             }
          }
          if (world.userIds?.length) {

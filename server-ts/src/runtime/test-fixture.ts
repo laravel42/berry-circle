@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from '../db/pool.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * One workspace, board, agent and owner for the runtime DB tests.
@@ -74,12 +75,7 @@ export async function cleanupFixture(sql: Sql, fixture: Fixture | null): Promise
    await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM runs WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM issues WHERE board_id = ${fixture.boardId}`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
    await sql`DELETE FROM agent_runtimes WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;

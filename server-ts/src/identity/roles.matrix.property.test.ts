@@ -10,6 +10,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { Forbidden } from './errors.ts';
 import { allows, PERMISSIONS, ROLES } from './roles.ts';
 import { scopedDb, type WorkspaceContext } from './workspace-context.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Database-backed property test, gated the way the rest of the server suite
@@ -94,18 +95,13 @@ describe(
       after(async () => {
          if (fixture.workspaceId) {
             // A workspace provisions a protected Orchestrator agent by trigger,
-            // and protected agents refuse deletion. Suspend the guard for the
-            // fixture's own teardown, then restore it.
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-            }
+            // and protected agents refuse deletion. The shared helper clears and
+            // deletes it inside one transaction.
+            await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
+            await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
+            await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
+            await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
+            await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;
          }
          if (fixture.userId) await sql`DELETE FROM users WHERE id = ${fixture.userId}`;
          await closeDatabase(sql);

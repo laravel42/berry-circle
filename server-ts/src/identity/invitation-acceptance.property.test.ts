@@ -9,6 +9,7 @@ import fc from 'fast-check';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { InvitationInvalid } from './errors.ts';
 import { INVITATION_TOKEN_PREFIX, SecretsRepository } from './secrets.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Database-backed property test, gated the way the rest of the server suite
@@ -127,18 +128,13 @@ describe(
       after(async () => {
          if (fixture.workspaceId) {
             // A workspace provisions a protected Orchestrator agent by trigger,
-            // and protected agents refuse deletion. Suspend the guard for the
-            // fixture's own teardown, then restore it.
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM workspace_invitations WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
-               await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-            }
+            // and protected agents refuse deletion. The shared helper clears and
+            // deletes it inside one transaction.
+            await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
+            await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
+            await sql`DELETE FROM workspace_invitations WHERE workspace_id = ${fixture.workspaceId}`;
+            await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
+            await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;
          }
          for (const id of [fixture.inviteeId, fixture.strangerId, fixture.inviterId]) {
             if (id) await sql`DELETE FROM users WHERE id = ${id}`;

@@ -13,6 +13,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Database-backed property test, gated the way the rest of the server suite
@@ -151,21 +152,16 @@ async function buildWorld(
 
 /**
  * Removes a world's rows. A workspace provisions a protected Orchestrator agent
- * by trigger, and protected agents refuse deletion, so suspend that guard for
- * the fixture's own teardown and restore it afterwards.
+ * by trigger, and protected agents refuse deletion, so the shared helper clears
+ * and deletes it inside one transaction.
  */
 async function dropWorld(sql: Sql, world: World): Promise<void> {
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      for (const workspaceId of world.workspaces) {
-         await sql`DELETE FROM outbox_events WHERE workspace_id = ${workspaceId}`;
-         await sql`DELETE FROM agents WHERE workspace_id = ${workspaceId}`;
-         await sql`DELETE FROM issue_labels WHERE workspace_id = ${workspaceId}`;
-         await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
-         await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
-      }
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+   for (const workspaceId of world.workspaces) {
+      await sql`DELETE FROM outbox_events WHERE workspace_id = ${workspaceId}`;
+      await deleteWorkspaceAgents(sql, [workspaceId]);
+      await sql`DELETE FROM issue_labels WHERE workspace_id = ${workspaceId}`;
+      await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
+      await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
    }
    for (const userId of world.users) {
       await sql`DELETE FROM sessions WHERE user_id = ${userId}`;

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Sql } from '../db/pool.ts';
 import type { ScopedQuery } from '../identity/workspace-context.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * A workspace with one member, one board, one agent, one task and one queued
@@ -111,12 +112,7 @@ export async function cleanupUsageWorld(sql: Sql, world: UsageWorld | undefined)
        WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${world.workspaceId})`;
    // Protected agents refuse deletion by trigger, deliberately; suspended only
    // for the fixture's own teardown, as the run repository tests do.
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${world.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [world.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${world.workspaceId}`;

@@ -9,6 +9,7 @@ import {
    exchangeGitHubCode,
    githubAuthorizeUrl,
 } from './oauth.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * The OAuth handshake.
@@ -164,12 +165,7 @@ describe('oauth state store', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is 
 
    after(async () => {
       await sql`DELETE FROM integration_oauth_states WHERE workspace_id = ${fixture.workspaceId}`;
-      await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-      try {
-         await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-      } finally {
-         await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-      }
+      await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
       await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
       await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;
       await sql`DELETE FROM users WHERE id = ${fixture.userId}`;

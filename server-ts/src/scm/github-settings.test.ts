@@ -7,6 +7,7 @@ import {
    GitHubSettingsRepository,
    normaliseRepositoryUrl,
 } from './github-settings.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 describe('what counts as a repository URL', () => {
    test('https, ssh and scp-style addresses are kept, trimmed and without a trailing slash', () => {
@@ -59,15 +60,10 @@ describe(
 
       after(async () => {
          if (!sql) return;
-         await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-         try {
-            for (const id of workspaceIds) {
-               await sql`DELETE FROM outbox_events WHERE workspace_id = ${id}`;
-               await sql`DELETE FROM agents WHERE workspace_id = ${id}`;
-               await sql`DELETE FROM workspaces WHERE id = ${id}`;
-            }
-         } finally {
-            await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+         for (const id of workspaceIds) {
+            await sql`DELETE FROM outbox_events WHERE workspace_id = ${id}`;
+            await deleteWorkspaceAgents(sql, [id]);
+            await sql`DELETE FROM workspaces WHERE id = ${id}`;
          }
          if (userId) await sql`DELETE FROM users WHERE id = ${userId}`;
          await closeDatabase(sql);

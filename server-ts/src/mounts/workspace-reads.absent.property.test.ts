@@ -14,6 +14,7 @@ import { BoardRepository } from '../core/boards.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Database-backed property test, gated the way the rest of the server suite
@@ -167,20 +168,15 @@ describe(
       after(async () => {
          if (fixture.w1Id || fixture.w2Id) {
             // A workspace provisions a protected Orchestrator agent by trigger,
-            // and protected agents refuse deletion. Suspend the guard for the
-            // fixture's own teardown, then restore it.
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               for (const ws of [fixture.w1Id, fixture.w2Id]) {
-                  if (!ws) continue;
-                  await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM agents WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspaces WHERE id = ${ws}`;
-               }
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+            // and protected agents refuse deletion. The shared helper clears and
+            // deletes it inside one transaction.
+            for (const ws of [fixture.w1Id, fixture.w2Id]) {
+               if (!ws) continue;
+               await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
+               await deleteWorkspaceAgents(sql, [ws]);
+               await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM workspaces WHERE id = ${ws}`;
             }
          }
          if (fixture.userId) {

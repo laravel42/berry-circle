@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { ConnectionRepository } from './connections.ts';
 import type { Sealer } from './sealing.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * What a reader is told about a connection, against a real database.
@@ -53,12 +54,7 @@ describe(
          // tests take it off, and goes straight back on.
          if (workspaceId) {
             await sql`DELETE FROM integration_connections WHERE workspace_id = ${workspaceId}`;
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               await sql`DELETE FROM agents WHERE workspace_id = ${workspaceId}`;
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-            }
+            await deleteWorkspaceAgents(sql, [workspaceId]);
             await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
             await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
          }

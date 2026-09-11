@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { AgentRepository, type Agent } from './repository.ts';
 import { Forbidden, NotFound } from '../identity/errors.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Agents against a real PostgreSQL.
@@ -297,12 +298,7 @@ async function dropWorkspace(sql: Sql, workspaceId: string): Promise<void> {
       DELETE FROM issues WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${workspaceId})`;
    // The protected Orchestrator refuses deletion, deliberately, so the guard
    // is suspended for the fixture's own teardown and nowhere else.
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;

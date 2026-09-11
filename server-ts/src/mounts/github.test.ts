@@ -11,6 +11,7 @@ import { Registry } from '../http/registry.ts';
 import { GitHubSettingsRepository } from '../scm/github-settings.ts';
 import { PullRequestStore } from '../scm/pull-requests.ts';
 import { githubMounts } from './github.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * `/api/v1/github` through the real app shell, against a real database.
@@ -101,18 +102,13 @@ describe(
 
       after(async () => {
          if (!sql) return;
-         await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-         try {
-            for (const id of workspaces) {
-               await sql`DELETE FROM outbox_events WHERE workspace_id = ${id}`;
-               await sql`DELETE FROM issues WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${id})`;
-               await sql`DELETE FROM agents WHERE workspace_id = ${id}`;
-               await sql`DELETE FROM boards WHERE workspace_id = ${id}`;
-               await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${id}`;
-               await sql`DELETE FROM workspaces WHERE id = ${id}`;
-            }
-         } finally {
-            await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+         for (const id of workspaces) {
+            await sql`DELETE FROM outbox_events WHERE workspace_id = ${id}`;
+            await sql`DELETE FROM issues WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${id})`;
+            await deleteWorkspaceAgents(sql, [id]);
+            await sql`DELETE FROM boards WHERE workspace_id = ${id}`;
+            await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${id}`;
+            await sql`DELETE FROM workspaces WHERE id = ${id}`;
          }
          for (const id of users) await sql`DELETE FROM users WHERE id = ${id}`;
          await closeDatabase(sql);

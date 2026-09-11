@@ -10,6 +10,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { NotFound } from './errors.ts';
 import { IdentityRepository } from './repository.ts';
 import { WorkspaceRepository } from './workspaces.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Database-backed property test, gated the way the rest of the server suite
@@ -119,21 +120,16 @@ describe(
 
       after(async () => {
          if (createdWorkspaceIds.size > 0) {
-            // Protected agents refuse deletion; suspend the guard for the
-            // fixtures' own teardown, then restore it.
-            await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-            try {
-               for (const ws of createdWorkspaceIds) {
-                  await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM agents WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM boards WHERE workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
-                  // Nobody may point at a workspace about to disappear.
-                  await sql`UPDATE users SET last_workspace_id = NULL WHERE last_workspace_id = ${ws}`;
-                  await sql`DELETE FROM workspaces WHERE id = ${ws}`;
-               }
-            } finally {
-               await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+            // Protected agents refuse deletion; the shared helper clears and
+            // deletes them inside one transaction.
+            for (const ws of createdWorkspaceIds) {
+               await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
+               await deleteWorkspaceAgents(sql, [ws]);
+               await sql`DELETE FROM boards WHERE workspace_id = ${ws}`;
+               await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
+               // Nobody may point at a workspace about to disappear.
+               await sql`UPDATE users SET last_workspace_id = NULL WHERE last_workspace_id = ${ws}`;
+               await sql`DELETE FROM workspaces WHERE id = ${ws}`;
             }
          }
          for (const userId of createdUserIds) {

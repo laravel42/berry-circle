@@ -3,6 +3,7 @@ import { personalTokenResolver } from '../auth/credentials.ts';
 import { SessionService } from '../auth/sessions.ts';
 import type { Sql } from '../db/pool.ts';
 import { sealerFromKey, type Sealer } from '../integrations/sealing.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /** Shared by the plugin and public API tests. Not a test file itself. */
 
@@ -87,12 +88,7 @@ export async function dropWorld(sql: Sql, world: World): Promise<void> {
    await sql`DELETE FROM outbox_events WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM plugin_installations WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM issues WHERE board_id = ${world.boardId}`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${world.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [world.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${world.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${world.workspaceId}`;

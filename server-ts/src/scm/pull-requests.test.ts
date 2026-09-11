@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { IssueRepository } from '../core/issues.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { PullRequestStore, type PullRequestInput } from './pull-requests.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Pull requests against issues, on a real database.
@@ -99,18 +100,13 @@ describe(
 
       after(async () => {
          if (!sql) return;
-         await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-         try {
-            for (const { workspaceId } of tenants) {
-               await sql`DELETE FROM outbox_events WHERE workspace_id = ${workspaceId}`;
-               await sql`DELETE FROM runs WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${workspaceId})`;
-               await sql`DELETE FROM issues WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${workspaceId})`;
-               await sql`DELETE FROM agents WHERE workspace_id = ${workspaceId}`;
-               await sql`DELETE FROM boards WHERE workspace_id = ${workspaceId}`;
-               await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
-            }
-         } finally {
-            await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
+         for (const { workspaceId } of tenants) {
+            await sql`DELETE FROM outbox_events WHERE workspace_id = ${workspaceId}`;
+            await sql`DELETE FROM runs WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${workspaceId})`;
+            await sql`DELETE FROM issues WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${workspaceId})`;
+            await deleteWorkspaceAgents(sql, [workspaceId]);
+            await sql`DELETE FROM boards WHERE workspace_id = ${workspaceId}`;
+            await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
          }
          if (userId) await sql`DELETE FROM users WHERE id = ${userId}`;
          await closeDatabase(sql);

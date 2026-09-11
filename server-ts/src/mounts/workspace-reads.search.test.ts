@@ -18,6 +18,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { deleteWorkspaceAgentsInTransaction } from '../test-support/protected-agents.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -165,21 +166,18 @@ describe(
          if (!sql) return;
          if (world.workspaceIds?.length) {
             const workspaceIds = world.workspaceIds;
-            // One transaction: the trigger toggle is table-global, and outside a
-            // transaction a suite running in parallel can re-enable it between
-            // our DISABLE and our DELETE. ALTER TABLE holds its lock to commit.
+            // One transaction; the protected Orchestrator is cleared and deleted
+            // inside it, invisible to any suite running in parallel.
             await sql.begin(async (tx) => {
-               await tx`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
                for (const ws of workspaceIds) {
                   await tx`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM conversations WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM projects WHERE workspace_id = ${ws}`;
-                  await tx`DELETE FROM agents WHERE workspace_id = ${ws}`;
+                  await deleteWorkspaceAgentsInTransaction(tx as unknown as Sql, [ws]);
                   await tx`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM workspaces WHERE id = ${ws}`;
                }
-               await tx`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
             });
          }
          for (const uid of world.userIds ?? []) {
