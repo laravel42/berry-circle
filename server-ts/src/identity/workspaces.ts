@@ -15,7 +15,8 @@ import type { Workspace, WorkspaceSettings } from './repository.ts';
  */
 
 const WORKSPACE_COLUMNS = `w.id, w.name, w.slug, w.description, w.settings,
-                           m.role::text AS role, w.created_at, w.updated_at`;
+                           m.role::text AS role, w.created_at, w.updated_at,
+                           w.logo_url, w.agent_context`;
 
 const MEMBER_COLUMNS = `m.workspace_id, m.user_id, m.role::text AS role,
                         u.email, u.name, u.avatar_url, m.joined_at, m.updated_at`;
@@ -36,6 +37,10 @@ export interface WorkspacePatch {
    slug?: string;
    descriptionSet: boolean;
    description?: string | null;
+   logoUrlSet: boolean;
+   logoUrl?: string | null;
+   agentContextSet: boolean;
+   agentContext?: string | null;
 }
 
 export interface WorkspaceSettingsPatch {
@@ -161,11 +166,12 @@ export class WorkspaceRepository {
             SET name = CASE WHEN ${patch.name !== undefined} THEN ${patch.name ?? null}::text ELSE name END,
                 slug = CASE WHEN ${patch.slug !== undefined} THEN ${patch.slug ?? null}::text ELSE slug END,
                 description = CASE WHEN ${patch.descriptionSet} THEN ${patch.description ?? null}::text ELSE description END,
+                logo_url = CASE WHEN ${patch.logoUrlSet} THEN ${patch.logoUrl ?? null}::text ELSE logo_url END,
+                agent_context = CASE WHEN ${patch.agentContextSet} THEN ${patch.agentContext ?? null}::text ELSE agent_context END,
                 updated_at = ${this.now()}
           WHERE id = ${workspaceId} AND deleted_at IS NULL
-          RETURNING id, name, slug, description, settings, created_at, updated_at`.catch(
-         classifyWrite
-      );
+          RETURNING id, name, slug, description, settings, created_at, updated_at,
+                    logo_url, agent_context`.catch(classifyWrite);
       if (!row) throw new NotFound();
       return toWorkspace({ ...row, role: current.role });
    }
@@ -297,6 +303,40 @@ export class WorkspaceRepository {
       });
    }
 
+   /**
+    * The caller removes their own membership.
+    *
+    * Separate from {@link removeMember} because it is a different act with a
+    * different rule: removing someone else needs `members.manage`, which a
+    * plain member does not have — so routing "leave" through that method left
+    * most of a workspace unable to leave it. What does carry over is the
+    * last-owner rule, under the same lock: a sole owner leaving would abandon
+    * a workspace nobody can administer, so they must hand it over or delete it.
+    */
+   async leave(userId: string, workspaceId: string): Promise<void> {
+      await this.sql.begin(async (tx) => {
+         const [row] = await tx`
+            SELECT m.role::text AS role
+              FROM workspace_memberships AS m
+              JOIN workspaces AS w ON w.id = m.workspace_id AND w.deleted_at IS NULL
+             WHERE m.workspace_id = ${workspaceId} AND m.user_id = ${userId}
+             FOR UPDATE OF m`;
+         // A non-member and an absent workspace are the same 404, as everywhere.
+         if (!row) throw new NotFound();
+         if ((row.role as string) === 'owner' && (await lockOwners(tx, workspaceId)) < 2) {
+            throw new LastOwner();
+         }
+
+         const deleted = await tx`
+            DELETE FROM workspace_memberships
+             WHERE workspace_id = ${workspaceId} AND user_id = ${userId}`;
+         if (deleted.count !== 1) throw new NotFound();
+         await tx`
+            UPDATE users SET last_workspace_id = NULL
+             WHERE id = ${userId} AND last_workspace_id = ${workspaceId}`;
+      });
+   }
+
    async removeMember(workspaceId: string, actorId: string, targetId: string): Promise<void> {
       await this.sql.begin(async (tx) => {
          const roles = await lockRoles(tx, workspaceId, actorId, targetId);
@@ -389,6 +429,8 @@ function toWorkspace(row: Record<string, unknown>): Workspace {
       role: row.role as string,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
+      logoUrl: (row.logo_url as string | null) ?? null,
+      agentContext: (row.agent_context as string | null) ?? null,
    };
 }
 

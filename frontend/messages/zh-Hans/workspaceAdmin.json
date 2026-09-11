@@ -32,5 +32,20 @@
       "saved": "已保存",
       "failed": "未保存",
       "retry": "重试"
+   },
+   "profile": {
+      "title": "个人资料",
+      "picture": "头像",
+      "pictureDescription": "一个 Berry 可以加载的图片地址。Berry 尚不支持上传图片。",
+      "pictureLabel": "头像地址",
+      "remove": "移除",
+      "email": "邮箱",
+      "emailDescription": "修改邮箱需要 Berry 尚未提供的验证步骤。",
+      "name": "姓名",
+      "namePlaceholder": "你的姓名",
+      "about": "关于你",
+      "aboutDescription": "与你协作的智能体会把这段内容作为背景信息。写一次，处处适用。",
+      "aboutPlaceholder": "你负责什么，以及你希望智能体了解什么。",
+      "counter": "{count} / {max}"
    }
 }

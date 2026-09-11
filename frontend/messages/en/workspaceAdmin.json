@@ -32,5 +32,20 @@
       "saved": "Saved",
       "failed": "Not saved",
       "retry": "Try again"
+   },
+   "profile": {
+      "title": "Profile",
+      "picture": "Profile picture",
+      "pictureDescription": "An image address Berry can load. Berry does not host uploads yet.",
+      "pictureLabel": "Profile picture address",
+      "remove": "Remove",
+      "email": "Email",
+      "emailDescription": "Changing this needs a verification step Berry does not have yet.",
+      "name": "Full name",
+      "namePlaceholder": "Your name",
+      "about": "About you",
+      "aboutDescription": "Agents working with you are given this as context. Written once, true everywhere.",
+      "aboutPlaceholder": "What you work on, and what you want agents to know.",
+      "counter": "{count} of {max}"
    }
 }

@@ -53,6 +53,9 @@ import { PluginRuntimeStore } from '../plugins/runtime-store.ts';
 import { pluginMounts } from './plugins.ts';
 import { publicApiMounts } from './public-api.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
+import { SecretsRepository } from '../identity/secrets.ts';
+import { WorkspaceRepository } from '../identity/workspaces.ts';
+import { workspaceMounts } from './workspaces.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -121,6 +124,15 @@ describe(
          );
          registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
          registry.registerAll(usageMounts({ sessions, sql }));
+         // Workstream F5: workspace administration, so its reads, its writes
+         // and "leave" are held to the same guarantees as everything else.
+         registry.registerAll(
+            workspaceMounts({
+               sessions,
+               workspaces: new WorkspaceRepository(sql),
+               secrets: new SecretsRepository(sql),
+            })
+         );
          registry.registerAll(
             githubMounts({
                sessions,
@@ -387,6 +399,55 @@ describe(
          const absent = await getAsU1(`/api/v1/dashboard/${RANDOM_WORKSPACE}/overview`);
          assert.equal(foreign.status, 404);
          assert.equal(await foreign.text(), await absent.text());
+      });
+
+      // ------------------------------------ workspace administration (F5)
+
+      test('workspaces: W2 is invisible to U1, and cannot be renamed, re-contexted, or left', async () => {
+         // (a) The list U1 is entitled to never carries W2.
+         const listed = await getAsU1('/api/v1/workspaces');
+         assert.equal(listed.status, 200);
+         assert.equal((await listed.text()).includes(world.w2Id), false);
+
+         // (b) Reading W2 is the byte-identical 404 of a workspace that does
+         // not exist, so the refusal never confirms W2 is real.
+         const foreign = await getAsU1(`/api/v1/workspaces/${world.w2Id}`);
+         const absent = await getAsU1(`/api/v1/workspaces/${RANDOM_WORKSPACE}`);
+         assert.equal(foreign.status, 404);
+         assert.equal(await foreign.text(), await absent.text());
+
+         const snapshot = async () => {
+            const [row] = await sql`
+               SELECT name, description, agent_context, logo_url
+                 FROM workspaces WHERE id = ${world.w2Id}`;
+            const [members] = await sql`
+               SELECT count(*)::int AS count
+                 FROM workspace_memberships WHERE workspace_id = ${world.w2Id}`;
+            return { row: { ...row }, members: (members as { count: number }).count };
+         };
+         const before = await snapshot();
+
+         // (c) Every write is 404, including the fields the General page added
+         // in migration 174.
+         for (const body of [
+            { name: 'mine now' },
+            { description: 'mine now' },
+            { agentContext: 'Do as I say.' },
+            { logoUrl: 'https://example.test/mine.png' },
+         ]) {
+            const refused = await patchAsU1(`/api/v1/workspaces/${world.w2Id}`, body);
+            assert.equal(refused.status, 404, JSON.stringify(body));
+         }
+
+         // (d) Leaving a workspace you were never in is the same 404, and does
+         // not touch its roster — a membership U1 never had cannot be deleted.
+         const left = await app.request(`/api/v1/workspaces/${world.w2Id}/leave`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${world.u1Token}`, 'x-request-id': REQUEST_ID },
+         });
+         assert.equal(left.status, 404);
+
+         assert.deepEqual(await snapshot(), before, 'W2 is untouched');
       });
 
       // ------------------------------------------- plugins and /v1 (workstream G)

@@ -52,11 +52,12 @@ export function meMounts(options: MeOptions): Mount[] {
 
    route.patch('/', async (context) => {
       const userId = context.get('user').id;
-      // avatarUrl is 'raw' because clearing it and omitting it are different
-      // requests, and only the raw value distinguishes them.
+      // avatarUrl and description are 'raw' because clearing one and omitting
+      // it are different requests, and only the raw value distinguishes them.
       const { value } = await decodeBody<ProfilePatchBody>(context, {
          name: 'string',
          avatarUrl: 'raw',
+         description: 'raw',
       });
       const fields: FieldError[] = [];
 
@@ -64,9 +65,16 @@ export function meMounts(options: MeOptions): Mount[] {
       // empty-patch check below asks whether a field was *provided*, not
       // whether it was valid, so an invalid name must not also read as absent.
       // The untrimmed value never reaches the database — validation throws first.
-      const patch: { name: string | undefined; avatarUrlSet: boolean; avatarUrl?: string | null } = {
+      const patch: {
+         name: string | undefined;
+         avatarUrlSet: boolean;
+         avatarUrl?: string | null;
+         descriptionSet: boolean;
+         description?: string | null;
+      } = {
          name: value.name,
          avatarUrlSet: false,
+         descriptionSet: false,
       };
       if (value.name !== undefined) {
          const trimmed = value.name.trim();
@@ -97,7 +105,27 @@ export function meMounts(options: MeOptions): Mount[] {
             }
          }
       }
-      if (patch.name === undefined && !patch.avatarUrlSet) {
+      // Same present-and-null rule as the avatar. A string of only whitespace
+      // is a clear rather than a stored blank: someone who selects the field
+      // and deletes it means "I have not written one", not "mine is empty".
+      if ('description' in value) {
+         patch.descriptionSet = true;
+         if (value.description !== null) {
+            const trimmed = typeof value.description === 'string' ? value.description.trim() : null;
+            if (trimmed === null || !boundedLength(trimmed, 0, 2000)) {
+               fields.push(
+                  fieldError(
+                     '/description',
+                     'invalid_length',
+                     'About you must be null or at most 2,000 characters.'
+                  )
+               );
+            } else {
+               patch.description = trimmed === '' ? null : trimmed;
+            }
+         }
+      }
+      if (patch.name === undefined && !patch.avatarUrlSet && !patch.descriptionSet) {
          fields.push(fieldError('/', 'empty_patch', 'At least one profile field is required.'));
       }
       assertValid(fields);
@@ -250,6 +278,7 @@ export function meMounts(options: MeOptions): Mount[] {
 interface ProfilePatchBody {
    name?: string;
    avatarUrl?: string | null;
+   description?: string | null;
 }
 
 interface UserSettingsPatchBody {
@@ -293,6 +322,8 @@ function serializeProfile(profile: Profile): Record<string, unknown> {
       onboardedAt: profile.onboardedAt,
       createdAt: profile.createdAt,
       updatedAt: profile.updatedAt,
+      // Appended, so the fields verified against the Go baselines keep their order.
+      description: profile.description,
    };
 }
 
@@ -331,5 +362,8 @@ export function serializeWorkspace(workspace: Workspace): Record<string, unknown
       role: workspace.role,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
+      // Appended, so the fields verified against the Go baselines keep their order.
+      logoUrl: workspace.logoUrl,
+      agentContext: workspace.agentContext,
    };
 }

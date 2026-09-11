@@ -32,5 +32,20 @@
       "saved": "保存しました",
       "failed": "保存されていません",
       "retry": "再試行"
+   },
+   "profile": {
+      "title": "プロフィール",
+      "picture": "プロフィール画像",
+      "pictureDescription": "Berry が読み込める画像の URL です。アップロードにはまだ対応していません。",
+      "pictureLabel": "プロフィール画像の URL",
+      "remove": "削除",
+      "email": "メールアドレス",
+      "emailDescription": "変更には、Berry がまだ備えていない確認手順が必要です。",
+      "name": "氏名",
+      "namePlaceholder": "あなたの名前",
+      "about": "あなたについて",
+      "aboutDescription": "あなたと作業するエージェントに、背景情報として渡されます。一度書けば、どこでも使われます。",
+      "aboutPlaceholder": "担当していることや、エージェントに知っておいてほしいこと。",
+      "counter": "{count} / {max}"
    }
 }

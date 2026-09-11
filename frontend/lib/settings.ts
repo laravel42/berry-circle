@@ -18,6 +18,8 @@ const profileSchema = z.object({
    email: z.string(),
    name: z.string(),
    avatarUrl: z.string().nullish(),
+   /** "About you", given to agents as context. Nullish for a server without it. */
+   description: z.string().nullish(),
 });
 
 const userSettingsSchema = z.object({
@@ -35,10 +37,11 @@ export async function loadProfile(): Promise<Profile> {
    return parse(profileSchema, await apiFetch('/api/v1/me'), 'Profile');
 }
 
-/** `avatarUrl: null` clears it; omitting it leaves what is there. */
+/** A null clears that field; omitting it leaves what is there. */
 export async function saveProfile(patch: {
    name?: string;
    avatarUrl?: string | null;
+   description?: string | null;
 }): Promise<Profile> {
    return parse(
       profileSchema,
@@ -92,20 +95,28 @@ export async function revokeSession(sessionId: string): Promise<void> {
  */
 export function describeDevice(userAgent: string | null): string {
    if (!userAgent) return 'Unknown device';
-   const browser =
-      /Edg\//.test(userAgent) ? 'Edge'
-      : /OPR\//.test(userAgent) ? 'Opera'
-      : /Chrome\//.test(userAgent) ? 'Chrome'
-      : /Safari\//.test(userAgent) ? 'Safari'
-      : /Firefox\//.test(userAgent) ? 'Firefox'
-      : 'A browser';
-   const platform =
-      /Mac OS X|Macintosh/.test(userAgent) ? 'macOS'
-      : /Windows/.test(userAgent) ? 'Windows'
-      : /Android/.test(userAgent) ? 'Android'
-      : /iPhone|iPad/.test(userAgent) ? 'iOS'
-      : /Linux/.test(userAgent) ? 'Linux'
-      : null;
+   const browser = /Edg\//.test(userAgent)
+      ? 'Edge'
+      : /OPR\//.test(userAgent)
+        ? 'Opera'
+        : /Chrome\//.test(userAgent)
+          ? 'Chrome'
+          : /Safari\//.test(userAgent)
+            ? 'Safari'
+            : /Firefox\//.test(userAgent)
+              ? 'Firefox'
+              : 'A browser';
+   const platform = /Mac OS X|Macintosh/.test(userAgent)
+      ? 'macOS'
+      : /Windows/.test(userAgent)
+        ? 'Windows'
+        : /Android/.test(userAgent)
+          ? 'Android'
+          : /iPhone|iPad/.test(userAgent)
+            ? 'iOS'
+            : /Linux/.test(userAgent)
+              ? 'Linux'
+              : null;
    return platform ? `${browser} on ${platform}` : browser;
 }
 
@@ -400,7 +411,10 @@ export async function archiveStatus(workspaceId: string, statusId: string): Prom
    );
 }
 
-export async function reorderStatuses(workspaceId: string, ids: string[]): Promise<WorkspaceStatus[]> {
+export async function reorderStatuses(
+   workspaceId: string,
+   ids: string[]
+): Promise<WorkspaceStatus[]> {
    return parse(
       z.object({ nodes: z.array(statusSchema) }),
       await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses/order`, {
