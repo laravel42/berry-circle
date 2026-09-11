@@ -1,6 +1,9 @@
 'use client';
 
-import { applyIssueFilters } from '@/components/common/issues/issue-filter-columns';
+import {
+   applyIssueFilters,
+   usePropertyFilterMatches,
+} from '@/components/common/issues/issue-filter-columns';
 import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
 import { GroupedIssuesView } from '@/components/common/issues/grouped-issues-view';
 import { InsightsPanel } from '@/components/common/issues/insights-panel';
@@ -33,9 +36,11 @@ export default function MyIssues() {
 
    const scopedIssues = useMemo(() => scopeMyIssues(issues, tab), [issues, tab]);
 
+   const propertyMatches = usePropertyFilterMatches(filters);
+
    const displayedIssues = useMemo(
-      () => applyIssueFilters(scopedIssues, filters),
-      [scopedIssues, filters]
+      () => applyIssueFilters(scopedIssues, filters, propertyMatches),
+      [scopedIssues, filters, propertyMatches]
    );
 
    if (isSearching) {

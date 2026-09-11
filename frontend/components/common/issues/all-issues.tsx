@@ -4,7 +4,7 @@ import { Issue } from '@/data/issues';
 import { getStatusesByCategory, StatusCategory, displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
-import { applyIssueFilters } from './issue-filter-columns';
+import { applyIssueFilters, usePropertyFilterMatches } from './issue-filter-columns';
 import { IssueFilterBar } from './issue-filter-bar';
 import { BatchToolbar } from './batch-toolbar';
 import { QuickCreate } from './quick-create';
@@ -44,15 +44,15 @@ export default function AllIssues({ categories }: AllIssuesProps) {
 
    const scopedIssues = useMemo<Issue[]>(
       () =>
-         categories
-            ? issues.filter((issue) => categories.includes(issue.status.category))
-            : issues,
+         categories ? issues.filter((issue) => categories.includes(issue.status.category)) : issues,
       [issues, categories]
    );
 
+   const propertyMatches = usePropertyFilterMatches(filters);
+
    const displayedIssues = useMemo(
-      () => applyIssueFilters(scopedIssues, filters),
-      [scopedIssues, filters]
+      () => applyIssueFilters(scopedIssues, filters, propertyMatches),
+      [scopedIssues, filters, propertyMatches]
    );
 
    if (isSearching) {

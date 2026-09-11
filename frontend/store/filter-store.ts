@@ -24,12 +24,26 @@ const isFilterModel = (value: unknown): value is FilterModel => {
    );
 };
 
+/**
+ * A date filter holds `Date` objects, and a round trip through the URL leaves
+ * ISO strings behind. Revived here rather than at each call site: the calendar
+ * and every date comparison take a `Date`, and a string reaches them as an
+ * invalid one that silently matches nothing.
+ */
+const reviveDates = (filter: FilterModel): FilterModel => {
+   if (filter.type !== 'date') return filter;
+   const values = (filter.values as unknown[]).map((value) =>
+      value instanceof Date ? value : new Date(String(value))
+   );
+   return { ...filter, values } as FilterModel;
+};
+
 const filtersParser = createParser<FiltersState>({
    parse: (value) => {
       try {
          const parsed: unknown = JSON.parse(value);
          if (!Array.isArray(parsed)) return null;
-         return parsed.filter(isFilterModel);
+         return parsed.filter(isFilterModel).map(reviveDates);
       } catch {
          return null;
       }

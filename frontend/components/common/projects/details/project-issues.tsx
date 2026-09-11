@@ -1,7 +1,10 @@
 'use client';
 
 import { GroupedIssuesView } from '@/components/common/issues/grouped-issues-view';
-import { applyIssueFilters } from '@/components/common/issues/issue-filter-columns';
+import {
+   applyIssueFilters,
+   usePropertyFilterMatches,
+} from '@/components/common/issues/issue-filter-columns';
 import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
 import { getProjectDetail } from '@/data/project-details';
 import { displayOrderedStatus } from '@/data/status';
@@ -29,7 +32,11 @@ export default function ProjectIssues({ projectId }: ProjectIssuesProps) {
 
    // Filters (filter bar + click-to-filter from the insights panel) apply
    // on top of the project scope.
-   const displayedIssues = useMemo(() => applyIssueFilters(issues, filters), [issues, filters]);
+   const propertyMatches = usePropertyFilterMatches(filters);
+   const displayedIssues = useMemo(
+      () => applyIssueFilters(issues, filters, propertyMatches),
+      [issues, filters, propertyMatches]
+   );
 
    if (!project) {
       return <div className="p-6 text-muted-foreground">Loading project…</div>;
