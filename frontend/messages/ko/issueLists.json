@@ -36,6 +36,26 @@
       "cardProperties": "카드 속성",
       "reset": "초기화"
    },
+   "menu": {
+      "dueDate": "마감일",
+      "today": "오늘",
+      "tomorrow": "내일",
+      "nextWeek": "다음 주",
+      "clearDate": "마감일 지우기",
+      "openInNewTab": "새 탭에서 열기",
+      "pin": "고정",
+      "unpin": "고정 해제",
+      "copyLink": "링크 복사",
+      "copyTitle": "제목 복사",
+      "relations": "관계",
+      "subIssue": "하위 작업 만들기",
+      "setParent": "상위 작업 지정",
+      "removeParent": "상위 작업 해제",
+      "addExisting": "기존 하위 작업 추가",
+      "noParent": "상위 작업 없음",
+      "labels": "라벨",
+      "delete": "삭제"
+   },
    "filters": {
       "creator": "작성자",
       "noProject": "프로젝트 없음",

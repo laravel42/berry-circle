@@ -1,4 +1,7 @@
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+'use client';
+
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { BerryMark } from '@/components/brand/berry-mark';
 import {
    ContextMenuContent,
    ContextMenuGroup,
@@ -9,59 +12,72 @@ import {
    ContextMenuSubContent,
    ContextMenuSubTrigger,
 } from '@/components/ui/context-menu';
-import {
-   CircleCheck,
-   User,
-   BarChart3,
-   Tag,
-   Folder,
-   CalendarClock,
-   Pencil,
-   Link as LinkIcon,
-   Repeat2,
-   Copy as CopyIcon,
-   PlusSquare,
-   Flag,
-   ArrowRightLeft,
-   Bell,
-   Star,
-   AlarmClock,
-   Trash2,
-   CheckCircle2,
-   Clock,
-   FileText,
-   MessageSquare,
-   Clipboard,
-} from 'lucide-react';
-import React from 'react';
 import { DeleteIssueDialog, useIssueDeletion } from '@/components/common/issues/delete-issue';
 import { useIssueActions } from '@/components/common/issues/use-issue-actions';
-import { status } from '@/data/status';
 import { priorities } from '@/data/priorities';
+import { status } from '@/data/status';
+import { agentToUser } from '@/lib/agents';
+import { useAgentsStore } from '@/store/agents-store';
+import { useIssuesStore } from '@/store/issues-store';
+import {
+   BarChart3,
+   CalendarClock,
+   CircleCheck,
+   ExternalLink,
+   Folder,
+   Link as LinkIcon,
+   Link2,
+   Pin,
+   PinOff,
+   Tag,
+   Trash2,
+   User,
+} from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { useMemo } from 'react';
 
 interface IssueContextMenuProps {
    issueId?: string;
 }
 
+/** How many sibling tasks a relation submenu offers before it stops listing. */
+const RELATION_CHOICES = 8;
+
+/**
+ * The right-click menu on a row or a card: the fields people change without
+ * opening anything, the ways out of the list, the relations, and delete.
+ */
 export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
+   const t = useTranslations('issueLists');
    const actions = useIssueActions(issueId);
    const issue = actions.issue;
    const deletion = useIssueDeletion();
    const { projects, members, labels } = actions;
+   const agents = useAgentsStore((state) => state.agents);
+   const issues = useIssuesStore((state) => state.issues);
+
+   const agentPeople = useMemo(() => agents.map(agentToUser), [agents]);
+
+   /* Candidates for a parent or an adopted sub-task: other tasks, nearest
+      first. A full picker belongs on the task page; this is the quick path. */
+   const relatives = useMemo(
+      () => issues.filter((candidate) => candidate.id !== issue?.id).slice(0, RELATION_CHOICES),
+      [issues, issue?.id]
+   );
 
    return (
       <ContextMenuContent className="w-64">
          <ContextMenuGroup>
             <ContextMenuSub>
                <ContextMenuSubTrigger>
-                  <CircleCheck className="mr-2 size-4" /> Status
+                  <CircleCheck className="mr-2 size-4" /> {t('display.status')}
                </ContextMenuSubTrigger>
                <ContextMenuSubContent className="w-48">
-                  {status.map((s) => {
-                     const Icon = s.icon;
+                  {status.map((entry) => {
+                     const Icon = entry.icon;
                      return (
-                        <ContextMenuItem key={s.id} onClick={() => actions.setStatus(s.id)}>
-                           <Icon /> {s.name}
+                        <ContextMenuItem key={entry.id} onClick={() => actions.setStatus(entry.id)}>
+                           <Icon /> {entry.name}
                         </ContextMenuItem>
                      );
                   })}
@@ -70,11 +86,11 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
 
             <ContextMenuSub>
                <ContextMenuSubTrigger>
-                  <User className="mr-2 size-4" /> Assignee
+                  <User className="mr-2 size-4" /> {t('display.assignee')}
                </ContextMenuSubTrigger>
                <ContextMenuSubContent className="w-48">
                   <ContextMenuItem onClick={() => actions.setAssignee(null)}>
-                     <User className="size-4" /> Unassigned
+                     <User className="size-4" /> {t('filters.noAssignee')}
                   </ContextMenuItem>
                   {members.map((user) => (
                      <ContextMenuItem key={user.id} onClick={() => actions.setAssignee(user.id)}>
@@ -85,12 +101,18 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                         {user.name}
                      </ContextMenuItem>
                   ))}
+                  {agentPeople.map((agent) => (
+                     <ContextMenuItem key={agent.id} onClick={() => actions.setAssignee(agent.id)}>
+                        <BerryMark size="sm" tone="working" label={`${agent.name}, agent`} />
+                        {agent.name}
+                     </ContextMenuItem>
+                  ))}
                </ContextMenuSubContent>
             </ContextMenuSub>
 
             <ContextMenuSub>
                <ContextMenuSubTrigger>
-                  <BarChart3 className="mr-2 size-4" /> Priority
+                  <BarChart3 className="mr-2 size-4" /> {t('display.priority')}
                </ContextMenuSubTrigger>
                <ContextMenuSubContent className="w-48">
                   {priorities.map((priority) => (
@@ -106,7 +128,28 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
 
             <ContextMenuSub>
                <ContextMenuSubTrigger>
-                  <Tag className="mr-2 size-4" /> Labels
+                  <CalendarClock className="mr-2 size-4" /> {t('menu.dueDate')}
+               </ContextMenuSubTrigger>
+               <ContextMenuSubContent className="w-48">
+                  <ContextMenuItem onClick={actions.setDueDateToday}>
+                     {t('menu.today')}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={actions.setDueDateTomorrow}>
+                     {t('menu.tomorrow')}
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={actions.setDueDateNextWeek}>
+                     {t('menu.nextWeek')}
+                  </ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onClick={actions.clearDueDate}>
+                     {t('menu.clearDate')}
+                  </ContextMenuItem>
+               </ContextMenuSubContent>
+            </ContextMenuSub>
+
+            <ContextMenuSub>
+               <ContextMenuSubTrigger>
+                  <Tag className="mr-2 size-4" /> {t('menu.labels')}
                </ContextMenuSubTrigger>
                <ContextMenuSubContent className="w-48">
                   {labels.map((label) => (
@@ -124,13 +167,13 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
 
             <ContextMenuSub>
                <ContextMenuSubTrigger>
-                  <Folder className="mr-2 size-4" /> Project
+                  <Folder className="mr-2 size-4" /> {t('display.project')}
                </ContextMenuSubTrigger>
                <ContextMenuSubContent className="w-64">
                   <ContextMenuItem onClick={() => actions.setProject(null)}>
-                     <Folder className="size-4" /> No Project
+                     <Folder className="size-4" /> {t('filters.noProject')}
                   </ContextMenuItem>
-                  {projects.slice(0, 5).map((project) => (
+                  {projects.slice(0, 8).map((project) => (
                      <ContextMenuItem
                         key={project.id}
                         onClick={() => actions.setProject(project.id)}
@@ -140,90 +183,65 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                   ))}
                </ContextMenuSubContent>
             </ContextMenuSub>
-
-            <ContextMenuItem onClick={actions.setDueDateInAWeek}>
-               <CalendarClock className="size-4" /> Set due date...
-               <ContextMenuShortcut>D</ContextMenuShortcut>
-            </ContextMenuItem>
-
-            <ContextMenuItem>
-               <Pencil className="size-4" /> Rename...
-               <ContextMenuShortcut>R</ContextMenuShortcut>
-            </ContextMenuItem>
-
-            <ContextMenuSeparator />
-
-            <ContextMenuItem onClick={actions.addLink}>
-               <LinkIcon className="size-4" /> Add link...
-               <ContextMenuShortcut>Ctrl L</ContextMenuShortcut>
-            </ContextMenuItem>
-
-            <ContextMenuSub>
-               <ContextMenuSubTrigger>
-                  <Repeat2 className="mr-2 size-4" /> Convert into
-               </ContextMenuSubTrigger>
-               <ContextMenuSubContent className="w-48">
-                  <ContextMenuItem>
-                     <FileText className="size-4" /> Document
-                  </ContextMenuItem>
-                  <ContextMenuItem>
-                     <MessageSquare className="size-4" /> Comment
-                  </ContextMenuItem>
-               </ContextMenuSubContent>
-            </ContextMenuSub>
-
-            <ContextMenuItem onClick={actions.makeCopy}>
-               <CopyIcon className="size-4" /> Make a copy...
-            </ContextMenuItem>
          </ContextMenuGroup>
 
          <ContextMenuSeparator />
 
-         <ContextMenuItem onClick={actions.createRelated}>
-            <PlusSquare className="size-4" /> Create related
+         <ContextMenuItem onClick={actions.openInNewTab}>
+            <ExternalLink className="size-4" /> {t('menu.openInNewTab')}
          </ContextMenuItem>
-
-         <ContextMenuSub>
-            <ContextMenuSubTrigger>
-               <Flag className="mr-2 size-4" /> Mark as
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-48">
-               <ContextMenuItem onClick={() => actions.markAs('Completed')}>
-                  <CheckCircle2 className="size-4" /> Completed
-               </ContextMenuItem>
-               <ContextMenuItem onClick={() => actions.markAs('Duplicate')}>
-                  <CopyIcon className="size-4" /> Duplicate
-               </ContextMenuItem>
-               <ContextMenuItem onClick={() => actions.markAs("Won't Fix")}>
-                  <Clock className="size-4" /> Won&apos;t Fix
-               </ContextMenuItem>
-            </ContextMenuSubContent>
-         </ContextMenuSub>
-
-         <ContextMenuItem onClick={actions.move}>
-            <ArrowRightLeft className="size-4" /> Move
+         <ContextMenuItem onClick={actions.togglePin}>
+            {actions.isPinned ? <PinOff className="size-4" /> : <Pin className="size-4" />}
+            {actions.isPinned ? t('menu.unpin') : t('menu.pin')}
+         </ContextMenuItem>
+         <ContextMenuItem onClick={actions.copyLink}>
+            <LinkIcon className="size-4" /> {t('menu.copyLink')}
+            <ContextMenuShortcut>⌘L</ContextMenuShortcut>
          </ContextMenuItem>
 
          <ContextMenuSeparator />
 
-         <ContextMenuItem onClick={actions.toggleSubscribed}>
-            <Bell className="size-4" /> {actions.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
-            <ContextMenuShortcut>S</ContextMenuShortcut>
-         </ContextMenuItem>
-
-         <ContextMenuItem onClick={actions.toggleFavorite}>
-            <Star className="size-4" /> {actions.isFavorite ? 'Unfavorite' : 'Favorite'}
-            <ContextMenuShortcut>F</ContextMenuShortcut>
-         </ContextMenuItem>
-
-         <ContextMenuItem onClick={actions.copyTitle}>
-            <Clipboard className="size-4" /> Copy
-         </ContextMenuItem>
-
-         <ContextMenuItem onClick={actions.remindMe}>
-            <AlarmClock className="size-4" /> Remind me
-            <ContextMenuShortcut>H</ContextMenuShortcut>
-         </ContextMenuItem>
+         <ContextMenuSub>
+            <ContextMenuSubTrigger>
+               <Link2 className="mr-2 size-4" /> {t('menu.relations')}
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-64">
+               <ContextMenuItem onClick={() => actions.createSubIssue()}>
+                  {t('menu.subIssue')}
+               </ContextMenuItem>
+               <ContextMenuSub>
+                  <ContextMenuSubTrigger>{t('menu.setParent')}</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-64">
+                     {relatives.map((candidate) => (
+                        <ContextMenuItem
+                           key={candidate.id}
+                           onClick={() => actions.setParentIssue(candidate.id)}
+                        >
+                           <span className="text-muted-foreground">{candidate.identifier}</span>
+                           <span className="truncate">{candidate.title}</span>
+                        </ContextMenuItem>
+                     ))}
+                  </ContextMenuSubContent>
+               </ContextMenuSub>
+               <ContextMenuItem disabled={!issue?.parentId} onClick={() => actions.removeParent()}>
+                  {t('menu.removeParent')}
+               </ContextMenuItem>
+               <ContextMenuSub>
+                  <ContextMenuSubTrigger>{t('menu.addExisting')}</ContextMenuSubTrigger>
+                  <ContextMenuSubContent className="w-64">
+                     {relatives.map((candidate) => (
+                        <ContextMenuItem
+                           key={candidate.id}
+                           onClick={() => actions.addExistingSubIssue(candidate.id)}
+                        >
+                           <span className="text-muted-foreground">{candidate.identifier}</span>
+                           <span className="truncate">{candidate.title}</span>
+                        </ContextMenuItem>
+                     ))}
+                  </ContextMenuSubContent>
+               </ContextMenuSub>
+            </ContextMenuSubContent>
+         </ContextMenuSub>
 
          <ContextMenuSeparator />
 
@@ -236,10 +254,9 @@ export function IssueContextMenu({ issueId }: IssueContextMenuProps) {
                if (issue) deletion.request(issue);
             }}
          >
-            <Trash2 className="size-4" /> Delete...
+            <Trash2 className="size-4" /> {t('menu.delete')}
             <ContextMenuShortcut>⌘⌫</ContextMenuShortcut>
          </ContextMenuItem>
-
 
          <DeleteIssueDialog deletion={deletion} />
       </ContextMenuContent>

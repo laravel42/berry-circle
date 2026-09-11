@@ -36,6 +36,26 @@
       "cardProperties": "Card properties",
       "reset": "Reset"
    },
+   "menu": {
+      "dueDate": "Due date",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "nextWeek": "Next week",
+      "clearDate": "Clear due date",
+      "openInNewTab": "Open in a new tab",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "copyLink": "Copy link",
+      "copyTitle": "Copy title",
+      "relations": "Relations",
+      "subIssue": "Create sub-task",
+      "setParent": "Set parent",
+      "removeParent": "Remove parent",
+      "addExisting": "Add an existing sub-task",
+      "noParent": "No parent",
+      "labels": "Labels",
+      "delete": "Delete"
+   },
    "filters": {
       "creator": "Creator",
       "noProject": "No project",

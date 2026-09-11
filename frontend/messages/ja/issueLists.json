@@ -36,6 +36,26 @@
       "cardProperties": "カードの項目",
       "reset": "リセット"
    },
+   "menu": {
+      "dueDate": "期限",
+      "today": "今日",
+      "tomorrow": "明日",
+      "nextWeek": "来週",
+      "clearDate": "期限を消す",
+      "openInNewTab": "新しいタブで開く",
+      "pin": "固定",
+      "unpin": "固定を外す",
+      "copyLink": "リンクをコピー",
+      "copyTitle": "タイトルをコピー",
+      "relations": "関連",
+      "subIssue": "サブタスクを作成",
+      "setParent": "親タスクを設定",
+      "removeParent": "親タスクを外す",
+      "addExisting": "既存のサブタスクを追加",
+      "noParent": "親タスクなし",
+      "labels": "ラベル",
+      "delete": "削除"
+   },
    "filters": {
       "creator": "作成者",
       "noProject": "プロジェクトなし",

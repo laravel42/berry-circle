@@ -36,6 +36,26 @@
       "cardProperties": "卡片属性",
       "reset": "重置"
    },
+   "menu": {
+      "dueDate": "截止日期",
+      "today": "今天",
+      "tomorrow": "明天",
+      "nextWeek": "下周",
+      "clearDate": "清除截止日期",
+      "openInNewTab": "在新标签页打开",
+      "pin": "固定",
+      "unpin": "取消固定",
+      "copyLink": "复制链接",
+      "copyTitle": "复制标题",
+      "relations": "关联",
+      "subIssue": "创建子任务",
+      "setParent": "设置父任务",
+      "removeParent": "移除父任务",
+      "addExisting": "添加已有子任务",
+      "noParent": "无父任务",
+      "labels": "标签",
+      "delete": "删除"
+   },
    "filters": {
       "creator": "创建者",
       "noProject": "无项目",

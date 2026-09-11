@@ -2,13 +2,27 @@
 
 import { priorities } from '@/data/priorities';
 import { status } from '@/data/status';
-import { setIssueProject } from '@/lib/issues';
+import { createChild, setParent } from '@/lib/issue-tracking';
+import { describePatchFailure, patchBoardIssue, setIssueProject } from '@/lib/issues';
+import { pinTarget, unpinTarget } from '@/lib/pins';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { useIssuesStore } from '@/store/issues-store';
 import { useLabelsStore } from '@/store/labels-store';
 import { useMembersStore } from '@/store/members-store';
+import { usePinsStore } from '@/store/pins-store';
 import { useProjectsStore } from '@/store/projects-store';
+import { useSessionStore } from '@/store/session-store';
+import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
+
+/** Today, tomorrow or next week at the start of the day. */
+function dayFromNow(days: number): Date {
+   const date = new Date();
+   date.setHours(0, 0, 0, 0);
+   date.setDate(date.getDate() + days);
+   return date;
+}
 
 /**
  * Everything an issue menu can do, independent of how it is presented.
@@ -29,6 +43,7 @@ export function useIssueActions(issueId?: string) {
       removeIssueLabel,
       updateIssueProject,
       updateIssue,
+      addIssue,
       getIssueById,
    } = useIssuesStore();
 
@@ -36,9 +51,17 @@ export function useIssueActions(issueId?: string) {
    const projects = useProjectsStore((state) => state.projects);
    const members = useMembersStore((state) => state.members);
    const labels = useLabelsStore((state) => state.labels);
+   const workspaceId = useSessionStore((state) => state.workspace?.id ?? '');
+   const { pins, add: addPin, remove: removePin } = usePinsStore();
+   const { orgId } = useParams<{ orgId?: string }>();
 
    const [isSubscribed, setIsSubscribed] = useState(false);
    const [isFavorite, setIsFavorite] = useState(false);
+
+   const pin = issue
+      ? pins.find((entry) => entry.targetType === 'issue' && entry.targetId === issue.id)
+      : undefined;
+   const issueHref = issue ? `/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}` : '';
 
    const setStatus = useCallback(
       (statusId: string) => {
@@ -109,13 +132,22 @@ export function useIssueActions(issueId?: string) {
       [issueId, issue, projects, updateIssueProject]
    );
 
-   const setDueDateInAWeek = useCallback(() => {
-      if (!issueId) return;
-      const dueDate = new Date();
-      dueDate.setDate(dueDate.getDate() + 7);
-      updateIssue(issueId, { dueDate: dueDate.toISOString() });
-      toast.success('Due date set to 7 days from now');
-   }, [issueId, updateIssue]);
+   /** Sets or clears the due date, optimistically and then on the server. */
+   const setDueDate = useCallback(
+      (date: Date | null) => {
+         if (!issueId || !issue) return;
+         const previous = issue.dueDate;
+         const next = date ? date.toISOString() : undefined;
+         updateIssue(issueId, { dueDate: next });
+         void patchBoardIssue(issueId, { dueDate: next ?? null }).catch((cause: unknown) => {
+            updateIssue(issueId, { dueDate: previous });
+            toast.error(describePatchFailure(cause));
+         });
+      },
+      [issueId, issue, updateIssue]
+   );
+
+   const setDueDateInAWeek = useCallback(() => setDueDate(dayFromNow(7)), [setDueDate]);
 
    const copyTitle = useCallback(() => {
       if (!issue) return;
@@ -125,9 +157,65 @@ export function useIssueActions(issueId?: string) {
 
    const copyLink = useCallback(() => {
       if (!issue) return;
-      void navigator.clipboard.writeText(`${window.location.origin}/issue/${issue.identifier}`);
+      void navigator.clipboard.writeText(`${window.location.origin}${issueHref}`);
       toast.success('Link copied to clipboard');
-   }, [issue]);
+   }, [issue, issueHref]);
+
+   const openInNewTab = useCallback(() => {
+      if (!issue) return;
+      window.open(issueHref, '_blank', 'noopener,noreferrer');
+   }, [issue, issueHref]);
+
+   /** Pins the task in the rail, or takes it back out. */
+   const togglePin = useCallback(() => {
+      if (!issue || !workspaceId) return;
+      const write = pin
+         ? unpinTarget(workspaceId, pin.id).then(() => removePin(pin.id))
+         : pinTarget(workspaceId, 'issue', issue.id).then(addPin);
+      void write.catch(() => toast.error('The pin could not be changed.'));
+   }, [issue, workspaceId, pin, addPin, removePin]);
+
+   const createSubIssue = useCallback(
+      (title = 'New sub-task') => {
+         if (!issue) return;
+         void createChild(issue.identifier, { title })
+            .then((child) => {
+               addIssue(child);
+               toast.success(`${child.identifier} created`);
+            })
+            .catch(() => toast.error('That sub-task could not be created.'));
+      },
+      [issue, addIssue]
+   );
+
+   const setParentIssue = useCallback(
+      (parentId: string | null) => {
+         if (!issue) return;
+         void setParent(issue.identifier, parentId, null)
+            .then(() => {
+               updateIssue(issue.id, { parentId });
+               toast.success(parentId ? 'Parent set' : 'Parent removed');
+            })
+            .catch(() => toast.error('That parent could not be saved.'));
+      },
+      [issue, updateIssue]
+   );
+
+   /** Adopts a task that already exists as a sub-task of this one. */
+   const addExistingSubIssue = useCallback(
+      (childId: string) => {
+         if (!issue) return;
+         const child = getIssueById(childId);
+         if (!child) return;
+         void setParent(child.identifier, issue.id, null)
+            .then(() => {
+               updateIssue(child.id, { parentId: issue.id });
+               toast.success(`${child.identifier} is now a sub-task`);
+            })
+            .catch(() => toast.error('That sub-task could not be linked.'));
+      },
+      [issue, getIssueById, updateIssue]
+   );
 
    const toggleSubscribed = useCallback(() => {
       setIsSubscribed((previous) => {
@@ -155,19 +243,32 @@ export function useIssueActions(issueId?: string) {
 
    return {
       issue,
+      issueHref,
       projects,
       members,
       labels,
       isSubscribed,
       isFavorite,
+      isPinned: pin !== undefined,
       setStatus,
       setPriority,
       setAssignee,
       toggleLabel,
       setProject,
+      setDueDate,
+      setDueDateToday: () => setDueDate(dayFromNow(0)),
+      setDueDateTomorrow: () => setDueDate(dayFromNow(1)),
+      setDueDateNextWeek: () => setDueDate(dayFromNow(7)),
+      clearDueDate: () => setDueDate(null),
       setDueDateInAWeek,
       copyTitle,
       copyLink,
+      openInNewTab,
+      togglePin,
+      createSubIssue,
+      setParentIssue,
+      removeParent: () => setParentIssue(null),
+      addExistingSubIssue,
       toggleSubscribed,
       toggleFavorite,
       addLink: notYetImplemented('Link added'),
