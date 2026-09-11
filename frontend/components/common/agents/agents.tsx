@@ -164,7 +164,8 @@ export default function Agents() {
          }
          const entry = roster.get(agent.id);
          if (filters.availability && agent.status !== filters.availability) return false;
-         if (filters.access && (agent.access?.assign ?? 'everyone') !== filters.access) return false;
+         if (filters.access && (agent.access?.assign ?? 'everyone') !== filters.access)
+            return false;
          if (filters.runtime) {
             const runtimeId = entry?.runtimeId ?? 'none';
             if (runtimeId !== filters.runtime) return false;
@@ -180,9 +181,13 @@ export default function Agents() {
       const direction = sortDescending ? -1 : 1;
       return matched.slice().sort((left, right) => {
          if (sortKey === 'name') return direction * left.name.localeCompare(right.name);
-         if (sortKey === 'created') return direction * left.createdAt.localeCompare(right.createdAt);
+         if (sortKey === 'created')
+            return direction * left.createdAt.localeCompare(right.createdAt);
          if (sortKey === 'runs') {
-            return direction * ((roster.get(left.id)?.totalRuns ?? 0) - (roster.get(right.id)?.totalRuns ?? 0));
+            return (
+               direction *
+               ((roster.get(left.id)?.totalRuns ?? 0) - (roster.get(right.id)?.totalRuns ?? 0))
+            );
          }
          // Recent activity, falling back to when the row last changed so an
          // agent that has never run still lands somewhere deterministic.
@@ -284,9 +289,7 @@ export default function Agents() {
          <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-container px-6 py-1.5 text-muted-foreground">
             <Checkbox
                checked={allSelected}
-               onCheckedChange={() =>
-                  setSelected(allSelected ? [] : rows.map((agent) => agent.id))
-               }
+               onCheckedChange={() => setSelected(allSelected ? [] : rows.map((agent) => agent.id))}
                aria-label={t('selectAll')}
                className="shrink-0"
             />
@@ -439,7 +442,10 @@ export default function Agents() {
             ))
          )}
 
-         <AlertDialog open={confirm !== null} onOpenChange={(open) => (open ? null : setConfirm(null))}>
+         <AlertDialog
+            open={confirm !== null}
+            onOpenChange={(open) => (open ? null : setConfirm(null))}
+         >
             <AlertDialogContent>
                <AlertDialogHeader>
                   <AlertDialogTitle>

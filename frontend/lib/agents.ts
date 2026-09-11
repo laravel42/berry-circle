@@ -275,10 +275,12 @@ export function modelVendor(model: Pick<AgentModel, 'id' | 'provider'>): string 
 export async function updateAgentConfig(
    agentId: string,
    config: {
+      name?: string;
       instructions?: string;
       description?: string;
-      provider?: string;
-      model?: string;
+      /** Both together, or both null to run on no named model at all. */
+      provider?: string | null;
+      model?: string | null;
       skills?: string[];
       /** Replaces every starter; an empty list clears them. */
       starters?: string[];
@@ -329,9 +331,21 @@ export function pickRunnableAgent(agents: Agent[]): Agent | undefined {
  * that makes the human review gate advisory, and it is not a default.
  */
 export const AGENT_PERMISSIONS = [
-   { key: 'read_repository', label: 'Read the repository', description: 'Clone it and read its files.' },
-   { key: 'create_branches', label: 'Create branches', description: 'Push a branch named for the task.' },
-   { key: 'run_commands', label: 'Run commands', description: 'Run builds and tests in an isolated workspace.' },
+   {
+      key: 'read_repository',
+      label: 'Read the repository',
+      description: 'Clone it and read its files.',
+   },
+   {
+      key: 'create_branches',
+      label: 'Create branches',
+      description: 'Push a branch named for the task.',
+   },
+   {
+      key: 'run_commands',
+      label: 'Run commands',
+      description: 'Run builds and tests in an isolated workspace.',
+   },
    {
       key: 'open_pull_requests',
       label: 'Open pull requests',
@@ -346,10 +360,7 @@ export const AGENT_PERMISSIONS = [
 ] as const;
 
 /** Replaces the whole set; every enforcement point reads it as a set. */
-export async function setAgentPermissions(
-   agentId: string,
-   permissions: string[]
-): Promise<Agent> {
+export async function setAgentPermissions(agentId: string, permissions: string[]): Promise<Agent> {
    const json: unknown = await apiFetch(
       `/api/v1/agents/${encodeURIComponent(agentId)}/permissions`,
       { method: 'PUT', body: JSON.stringify({ permissions }) }
@@ -374,9 +385,7 @@ const runNodeSchema = z.object({
     * instead of printing the word "failed" and leaving the reader to open
     * the run ledger to find out which kind of failure it was.
     */
-   failure: z
-      .object({ code: z.string(), message: z.string(), retryable: z.boolean() })
-      .nullish(),
+   failure: z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).nullish(),
    createdAt: z.string(),
    startedAt: z.string().nullish(),
    completedAt: z.string().nullish(),
@@ -421,7 +430,10 @@ export async function archiveAgent(id: string): Promise<void> {
 }
 
 export async function cancelAgentTasks(id: string): Promise<number> {
-   const json: unknown = await apiFetch(agentPath(id, '/cancel-tasks'), { method: 'POST', body: '{}' });
+   const json: unknown = await apiFetch(agentPath(id, '/cancel-tasks'), {
+      method: 'POST',
+      body: '{}',
+   });
    return z.object({ cancelled: z.number() }).parse(json).cancelled;
 }
 
@@ -432,7 +444,9 @@ export async function listAgentTasks(id: string, after?: string) {
 }
 
 export const setAgentLabels = async (id: string, labels: string[]) =>
-   parseAgent(await apiFetch(agentPath(id, '/labels'), { method: 'PUT', body: JSON.stringify({ labels }) }));
+   parseAgent(
+      await apiFetch(agentPath(id, '/labels'), { method: 'PUT', body: JSON.stringify({ labels }) })
+   );
 
 /** Replaces every variable; the response carries names only. */
 export async function setAgentEnv(id: string, env: Record<string, string>): Promise<string[]> {
@@ -463,7 +477,12 @@ export const getAgentAccess = async (id: string) =>
    agentAccessSchema.parse(await apiFetch(agentPath(id, '/access')));
 
 export const setAgentAccess = async (id: string, access: AgentAccess) =>
-   parseAgent(await apiFetch(agentPath(id, '/permissions'), { method: 'PUT', body: JSON.stringify({ access }) }));
+   parseAgent(
+      await apiFetch(agentPath(id, '/permissions'), {
+         method: 'PUT',
+         body: JSON.stringify({ access }),
+      })
+   );
 
 /** The workspace's guide agent, or null when it has none (archived, say). */
 export async function getGuideAgent(): Promise<Agent | null> {

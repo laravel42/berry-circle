@@ -204,7 +204,10 @@ export default function AgentLine({
                      <span className="text-muted-foreground">{t('hoverNoSkills')}</span>
                   ) : (
                      agent.capabilities.slice(0, 8).map((skill) => (
-                        <span key={skill} className="rounded-md border border-border/70 px-1.5 py-0.5">
+                        <span
+                           key={skill}
+                           className="rounded-md border border-border/70 px-1.5 py-0.5"
+                        >
                            {skill}
                         </span>
                      ))

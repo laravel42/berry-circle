@@ -69,6 +69,7 @@ const SKILL = /^[a-z0-9-]{1,50}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 const CONFIG_FIELDS = new Set([
+   'name',
    'instructions',
    'description',
    'provider',
@@ -299,6 +300,9 @@ export function agentMounts(options: AgentOptions): Mount[] {
       const body = await readBody(context.req.raw, CONFIG_FIELDS);
       const instructions = optionalText(body, 'instructions', MAX_INSTRUCTIONS);
       const description = optionalText(body, 'description', MAX_DESCRIPTION);
+      // Required when present: renaming to nothing is not a rename, and an
+      // agent with no name cannot be referred to anywhere it appears.
+      const name = body.name === undefined ? undefined : text(body.name, 'name', MAX_NAME, true);
       const skills = body.skills === undefined ? undefined : parseSkills(body.skills);
       const starters = body.starters === undefined ? undefined : parseStarters(body.starters);
       const maxConcurrency =
@@ -306,6 +310,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
       const pair = await parseModelPair(body, catalog, logger);
 
       if (
+         name === undefined &&
          instructions === undefined &&
          description === undefined &&
          skills === undefined &&
@@ -318,6 +323,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
 
       const updated = await agents
          .setConfig(agentId, scope.workspaceId, {
+            ...(name === undefined ? {} : { name }),
             ...(instructions === undefined ? {} : { instructions }),
             ...(description === undefined ? {} : { description }),
             ...(skills === undefined ? {} : { skills }),
@@ -786,7 +792,13 @@ async function parseModelPair(
    body: Record<string, unknown>,
    catalog: ModelCatalog | null,
    logger?: Logger
-): Promise<{ provider: string; model: string } | undefined> {
+): Promise<{ provider: string | null; model: string | null } | undefined> {
+   // Both sent as null clears the pairing: an agent that runs on whatever its
+   // runtime defaults to. Distinct from omitting them, which changes nothing —
+   // without this there is no way back from a model once one is chosen.
+   if ('provider' in body && 'model' in body && body.provider === null && body.model === null) {
+      return { provider: null, model: null };
+   }
    const hasProvider = 'provider' in body && body.provider !== null;
    const hasModel = 'model' in body && body.model !== null;
    if (!hasProvider && !hasModel) return undefined;

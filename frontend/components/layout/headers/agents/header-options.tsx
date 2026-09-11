@@ -139,7 +139,9 @@ export default function HeaderOptions() {
       <>
          <DropdownMenuLabel>{label}</DropdownMenuLabel>
          <DropdownMenuItem onSelect={() => setFilter(key, null)}>
-            <Check className={cn('size-3.5', filters[key] === null ? 'opacity-100' : 'opacity-0')} />
+            <Check
+               className={cn('size-3.5', filters[key] === null ? 'opacity-100' : 'opacity-0')}
+            />
             {t('filterAny')}
          </DropdownMenuItem>
          {options[key].map((option) => (

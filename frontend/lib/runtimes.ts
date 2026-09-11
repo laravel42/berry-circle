@@ -134,7 +134,10 @@ export async function bindAgentRuntime(
    agentId: string,
    profileId: string | null = null
 ): Promise<void> {
-   await apiFetch(`${path(runtimeId)}/agents/${encodeURIComponent(agentId)}`, send('PUT', { profileId }));
+   await apiFetch(
+      `${path(runtimeId)}/agents/${encodeURIComponent(agentId)}`,
+      send('PUT', { profileId })
+   );
 }
 
 export async function unbindAgentRuntime(runtimeId: string, agentId: string): Promise<void> {

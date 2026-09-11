@@ -86,6 +86,8 @@ export interface AgentConfigPatch {
    provider?: string | null;
    model?: string | null;
    skills?: string[];
+   /** A new name. Never empty: an agent without one cannot be referred to. */
+   name?: string;
    /** Replaces the whole set; an empty list clears them. */
    starters?: string[];
    /** Null clears the ceiling rather than leaving it unchanged. */
@@ -369,6 +371,7 @@ export class AgentRepository {
       const setsDescription = patch.description !== undefined;
       const setsModel = patch.model !== undefined;
       const setsSkills = patch.skills !== undefined;
+      const setsName = patch.name !== undefined;
       const setsStarters = patch.starters !== undefined;
       const setsConcurrency = patch.maxConcurrency !== undefined;
 
@@ -384,6 +387,7 @@ export class AgentRepository {
                THEN ${patch.model ?? null}::text ELSE model_name END,
             skills = CASE WHEN ${setsSkills}
                THEN ${patch.skills ?? []}::text[] ELSE skills END,
+            name = CASE WHEN ${setsName} THEN ${patch.name ?? ''}::text ELSE name END,
             conversation_starters = CASE WHEN ${setsStarters}
                THEN ${patch.starters ?? []}::text[] ELSE conversation_starters END,
             -- Null is a value here, not an omission: clearing the ceiling and

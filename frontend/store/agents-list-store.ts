@@ -120,9 +120,7 @@ export const useAgentsListStore = create<AgentsListState>((set, get) => ({
       set((state) => ({
          columns: state.columns.includes(column)
             ? state.columns.filter((entry) => entry !== column)
-            : AGENT_COLUMNS.filter(
-                 (entry) => entry === column || state.columns.includes(entry)
-              ),
+            : AGENT_COLUMNS.filter((entry) => entry === column || state.columns.includes(entry)),
       })),
 
    toggleSelected: (id) =>

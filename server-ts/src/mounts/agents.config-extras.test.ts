@@ -109,6 +109,16 @@ describe('agent config extras', { skip: url ? false : 'BERRY_TEST_DATABASE_URL i
       assert.equal((await config(world.ownerToken, {})).status, 400);
    });
 
+   test('an agent can be renamed, but not to nothing', async () => {
+      const renamed = await config(world.ownerToken, { name: '  Reviewer  ' });
+      assert.equal(renamed.status, 200);
+      assert.equal(renamed.body.name, 'Reviewer');
+      assert.equal((await read(world.ownerToken)).body.name, 'Reviewer');
+
+      assert.equal((await config(world.ownerToken, { name: '   ' })).status, 400);
+      assert.equal((await read(world.ownerToken)).body.name, 'Reviewer', 'the name is untouched');
+   });
+
    test('an agent in another workspace cannot be configured', async () => {
       const foreign = await call(
          app,

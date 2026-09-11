@@ -35,19 +35,17 @@ const GAP = 2;
  * they survive a table that re-renders under the pointer, and a screen reader
  * gets the same numbers from the group label.
  */
-export function AgentSparkline({
-   activity,
-   describe,
-   emptyLabel,
-   className,
-}: AgentSparklineProps) {
+export function AgentSparkline({ activity, describe, emptyLabel, className }: AgentSparklineProps) {
    const width = activity.length * BAR + Math.max(0, activity.length - 1) * GAP;
    const peak = Math.max(1, ...activity.map((point) => point.runs));
    const total = activity.reduce((sum, point) => sum + point.runs, 0);
 
    if (total === 0) {
       return (
-         <span className={cn('inline-flex items-center text-muted-foreground', className)} title={emptyLabel}>
+         <span
+            className={cn('inline-flex items-center text-muted-foreground', className)}
+            title={emptyLabel}
+         >
             <svg
                width={width}
                height={HEIGHT}
@@ -89,7 +87,9 @@ export function AgentSparkline({
             {activity.map((point, index) => {
                const full = Math.max(1, Math.round((point.runs / peak) * (HEIGHT - 2)));
                const failed =
-                  point.failed === 0 ? 0 : Math.max(1, Math.round((point.failed / peak) * (HEIGHT - 2)));
+                  point.failed === 0
+                     ? 0
+                     : Math.max(1, Math.round((point.failed / peak) * (HEIGHT - 2)));
                const x = index * (BAR + GAP);
                const label = describe({
                   ...point,
@@ -104,7 +104,9 @@ export function AgentSparkline({
                         width={BAR}
                         height={full}
                         rx={1}
-                        className={point.runs === 0 ? 'fill-muted-foreground/30' : 'fill-primary/70'}
+                        className={
+                           point.runs === 0 ? 'fill-muted-foreground/30' : 'fill-primary/70'
+                        }
                      />
                      {failed > 0 ? (
                         <rect

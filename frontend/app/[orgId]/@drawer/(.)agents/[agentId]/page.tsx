@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import { Suspense } from 'react';
 
 import AgentDetails from '@/components/common/agents/agent-details';
 import DetailDrawerShell from '@/components/layout/detail-drawer-shell';
@@ -13,7 +14,9 @@ export default function AgentDrawerPage() {
 
    return (
       <DetailDrawerShell header={<AgentDetailHeader agentName={agent?.name ?? 'Agent'} />}>
-         <AgentDetails agentId={agentId} />
+         <Suspense fallback={null}>
+            <AgentDetails agentId={agentId} />
+         </Suspense>
       </DetailDrawerShell>
    );
 }
