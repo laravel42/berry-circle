@@ -3,6 +3,7 @@
 import { getIssueDetail } from '@/data/issue-details';
 import { getBoardIssue } from '@/lib/issues';
 import { useIssuesStore } from '@/store/issues-store';
+import { useUiPrefsStore } from '@/store/ui-prefs-store';
 import { BerryMark } from '@/components/brand/berry-mark';
 import { Button } from '@/components/ui/button';
 import { Paperclip } from 'lucide-react';
@@ -61,6 +62,10 @@ export default function IssueDetails() {
    }, [issue, issueId, addIssue]);
 
    const activityFeed = useIssueActivity(issue?.identifier ?? issueId ?? '', issue?.id ?? issueId);
+   // Preferences → General. Pinned, the comment box is always one click away;
+   // unpinned, it sits at the end of the activity where a long thread can be
+   // read without a bar over the last line of it.
+   const stickyCommentBar = useUiPrefsStore((state) => state.stickyCommentBar);
 
    if (!issue) {
       return (
@@ -126,22 +131,35 @@ export default function IssueDetails() {
                            onCommentChanged={activityFeed.replaceComment}
                            onCommentDeleted={activityFeed.removeComment}
                         />
+                        {stickyCommentBar ? null : (
+                           <div className="mt-6">
+                              <ActivityCommentComposer
+                                 issueRef={issue?.identifier ?? issueId ?? ''}
+                                 draft={activityFeed.draft}
+                                 setDraft={activityFeed.setDraft}
+                                 submitComment={activityFeed.submitComment}
+                                 className="border-0 bg-transparent p-0 sm:px-0"
+                              />
+                           </div>
+                        )}
                      </div>
                   </>
                </div>
             </div>
 
-            <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
-               <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
-                  <ActivityCommentComposer
-                     issueRef={issue?.identifier ?? issueId ?? ''}
-                     draft={activityFeed.draft}
-                     setDraft={activityFeed.setDraft}
-                     submitComment={activityFeed.submitComment}
-                     className="border-0 bg-transparent p-0 sm:px-0"
-                  />
+            {stickyCommentBar ? (
+               <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
+                  <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
+                     <ActivityCommentComposer
+                        issueRef={issue?.identifier ?? issueId ?? ''}
+                        draft={activityFeed.draft}
+                        setDraft={activityFeed.setDraft}
+                        submitComment={activityFeed.submitComment}
+                        className="border-0 bg-transparent p-0 sm:px-0"
+                     />
+                  </div>
                </div>
-            </div>
+            ) : null}
          </div>
 
          {/* Properties sidebar */}

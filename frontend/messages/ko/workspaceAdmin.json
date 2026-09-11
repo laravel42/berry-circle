@@ -237,5 +237,19 @@
       "create": "워크스페이스 만들기",
       "creating": "만드는 중…",
       "createFailed": "워크스페이스를 만들지 못했습니다."
+   },
+   "preferences": {
+      "timezoneBrowser": "이 브라우저({zone})",
+      "stickyCommentBar": "댓글 입력창 고정",
+      "stickyCommentBarDescription": "활동 내역과 함께 스크롤되어 사라지지 않도록 작업 하단에 고정합니다. 이 브라우저에 저장됩니다.",
+      "issue": "작업",
+      "issueDescription": "작업 작성 화면에 표시할 선택기입니다. 숨긴 항목은 워크스페이스 기본값을 따릅니다. 이 브라우저에 저장됩니다.",
+      "createField_status": "상태",
+      "createField_priority": "우선순위",
+      "createField_assignee": "담당자",
+      "createField_project": "프로젝트",
+      "chat": "채팅",
+      "floatingChat": "플로팅 채팅",
+      "floatingChatDescription": "채팅을 전용 페이지뿐 아니라 패널로 따라다니게 합니다. 이 브라우저에 저장됩니다."
    }
 }

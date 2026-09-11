@@ -237,5 +237,19 @@
       "create": "创建工作区",
       "creating": "正在创建…",
       "createFailed": "无法创建该工作区。"
+   },
+   "preferences": {
+      "timezoneBrowser": "此浏览器（{zone}）",
+      "stickyCommentBar": "始终显示评论框",
+      "stickyCommentBarDescription": "将其固定在任务底部，而不是随动态一起滚动消失。保存在此浏览器中。",
+      "issue": "任务",
+      "issueDescription": "任务编辑器显示哪些选择器。隐藏的项目将采用工作区默认值。保存在此浏览器中。",
+      "createField_status": "状态",
+      "createField_priority": "优先级",
+      "createField_assignee": "负责人",
+      "createField_project": "项目",
+      "chat": "聊天",
+      "floatingChat": "浮动聊天",
+      "floatingChatDescription": "让聊天以面板形式随你移动，而不仅限于独立页面。保存在此浏览器中。"
    }
 }

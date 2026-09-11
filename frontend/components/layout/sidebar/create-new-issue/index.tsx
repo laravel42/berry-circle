@@ -21,6 +21,7 @@ import { status } from '@/data/status';
 import { useIssuesStore } from '@/store/issues-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useSessionStore } from '@/store/session-store';
+import { useUiPrefsStore } from '@/store/ui-prefs-store';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { StatusSelector } from './status-selector';
@@ -37,11 +38,14 @@ export function CreateNewIssue() {
    const { isOpen, defaultStatus, openModal, closeModal } = useCreateIssueStore();
    const { addIssue, getAllIssues } = useIssuesStore();
    const boardId = useSessionStore((state) => state.boardId);
+   // Preferences → Tasks decides which of these selectors are worth the room.
+   // A hidden one is not a missing value: the form still carries its default
+   // and still sends it, so the task is created exactly as before.
+   const createFields = useUiPrefsStore((state) => state.createFields);
    const [pending, setPending] = useState(false);
    // A squad chosen as assignee: its leader is the assignee on create, and the
    // squad is given the issue once the issue exists.
    const [squad, setSquad] = useState<Squad | null>(null);
-
 
    const createDefaultData = useCallback(() => {
       const sortOrder = (getAllIssues().length + 1) * 1000;
@@ -189,31 +193,39 @@ export function CreateNewIssue() {
                />
 
                <div className="w-full flex items-center justify-start gap-1.5 flex-wrap">
-                  <StatusSelector
-                     status={addIssueForm.status}
-                     onChange={(newStatus) =>
-                        setAddIssueForm({ ...addIssueForm, status: newStatus })
-                     }
-                  />
-                  <PrioritySelector
-                     priority={addIssueForm.priority}
-                     onChange={(newPriority) =>
-                        setAddIssueForm({ ...addIssueForm, priority: newPriority })
-                     }
-                  />
-                  <AssigneeSelector
-                     assignee={addIssueForm.assignee}
-                     onChange={(newAssignee) =>
-                        setAddIssueForm({ ...addIssueForm, assignee: newAssignee })
-                     }
-                     onSquadChange={setSquad}
-                  />
-                  <ProjectSelector
-                     project={addIssueForm.project}
-                     onChange={(newProject) =>
-                        setAddIssueForm({ ...addIssueForm, project: newProject })
-                     }
-                  />
+                  {createFields.status ? (
+                     <StatusSelector
+                        status={addIssueForm.status}
+                        onChange={(newStatus) =>
+                           setAddIssueForm({ ...addIssueForm, status: newStatus })
+                        }
+                     />
+                  ) : null}
+                  {createFields.priority ? (
+                     <PrioritySelector
+                        priority={addIssueForm.priority}
+                        onChange={(newPriority) =>
+                           setAddIssueForm({ ...addIssueForm, priority: newPriority })
+                        }
+                     />
+                  ) : null}
+                  {createFields.assignee ? (
+                     <AssigneeSelector
+                        assignee={addIssueForm.assignee}
+                        onChange={(newAssignee) =>
+                           setAddIssueForm({ ...addIssueForm, assignee: newAssignee })
+                        }
+                        onSquadChange={setSquad}
+                     />
+                  ) : null}
+                  {createFields.project ? (
+                     <ProjectSelector
+                        project={addIssueForm.project}
+                        onChange={(newProject) =>
+                           setAddIssueForm({ ...addIssueForm, project: newProject })
+                        }
+                     />
+                  ) : null}
                </div>
             </div>
             <div className="flex items-center justify-between py-2.5 px-4 w-full border-t">

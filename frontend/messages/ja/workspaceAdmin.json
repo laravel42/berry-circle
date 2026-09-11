@@ -237,5 +237,19 @@
       "create": "ワークスペースを作成",
       "creating": "作成しています…",
       "createFailed": "ワークスペースを作成できませんでした。"
+   },
+   "preferences": {
+      "timezoneBrowser": "このブラウザ（{zone}）",
+      "stickyCommentBar": "コメント欄を常に表示",
+      "stickyCommentBarDescription": "アクティビティと一緒にスクロールさせず、タスクの下部に固定します。このブラウザに保存されます。",
+      "issue": "タスク",
+      "issueDescription": "タスク作成画面に表示するセレクターです。非表示にした項目はワークスペースの既定値になります。このブラウザに保存されます。",
+      "createField_status": "ステータス",
+      "createField_priority": "優先度",
+      "createField_assignee": "担当者",
+      "createField_project": "プロジェクト",
+      "chat": "チャット",
+      "floatingChat": "フローティングチャット",
+      "floatingChatDescription": "専用ページだけでなく、パネルとしてチャットが付いてくるようにします。このブラウザに保存されます。"
    }
 }

@@ -237,5 +237,19 @@
       "create": "Create workspace",
       "creating": "Creating…",
       "createFailed": "The workspace could not be created."
+   },
+   "preferences": {
+      "timezoneBrowser": "This browser ({zone})",
+      "stickyCommentBar": "Keep the comment box in view",
+      "stickyCommentBarDescription": "Pin it to the bottom of a task instead of letting it scroll away with the activity. Stored in this browser.",
+      "issue": "Tasks",
+      "issueDescription": "Which selectors the task composer shows. Anything hidden takes the workspace default. Stored in this browser.",
+      "createField_status": "Status",
+      "createField_priority": "Priority",
+      "createField_assignee": "Assignee",
+      "createField_project": "Project",
+      "chat": "Chat",
+      "floatingChat": "Floating chat",
+      "floatingChatDescription": "Let chat follow you as a panel, instead of only on its own page. Stored in this browser."
    }
 }
