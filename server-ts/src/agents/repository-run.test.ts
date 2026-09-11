@@ -520,8 +520,14 @@ describe(
          for (const call of commands) {
             assert.ok(!call.command.includes(TOKEN), `token leaked into: ${call.command}`);
          }
-         // Exactly two commands are trusted with it: the clone and the push.
-         assert.equal(commands.filter((call) => call.env?.BERRY_GIT_TOKEN).length, 2);
+         // Exactly three commands are trusted with it, and only through their
+         // own env: the clone, the fetch that reads the branch the push leases
+         // against, and the push.
+         const trusted = commands.filter((call) => call.env?.BERRY_GIT_TOKEN).map((call) => call.command);
+         assert.equal(trusted.length, 3, `commands given the credential: ${trusted.join(' | ')}`);
+         assert.match(trusted[0]!, /^git -c credential\.helper='[^']*' clone /);
+         assert.match(trusted[1]!, /^git -c credential\.helper='[^']*' fetch origin /);
+         assert.match(trusted[2]!, /^git -c credential\.helper='[^']*' push --force-with-lease=/);
       });
 
       test('a reference is built from the workspace prefix, not a hardcoded one', async () => {

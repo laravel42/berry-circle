@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { IssueRepository } from '../core/issues.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { PullRequestStore, type PullRequestInput } from './pull-requests.ts';
+import { insertBoard } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -42,11 +43,12 @@ describe(
                     ${userId})
             RETURNING id`;
          const workspaceId = workspace!.id as string;
-         const [board] = await sql`
-            INSERT INTO boards (id, workspace_id, name, slug, created_by)
-            VALUES (${randomUUID()}, ${workspaceId}, 'PRs', ${`prb-${suffix}`}, ${userId})
-            RETURNING id`;
-         const boardId = board!.id as string;
+         const boardId = await insertBoard(sql, {
+            workspaceId,
+            createdBy: userId,
+            name: 'PRs',
+            slug: `prb-${suffix}`,
+         });
          const [agent] = await sql`
             INSERT INTO agents (id, workspace_id, board_id, name, status)
             VALUES (${randomUUID()}, ${workspaceId}, ${boardId}, 'Forge', 'available')

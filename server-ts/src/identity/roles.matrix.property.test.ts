@@ -10,6 +10,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { Forbidden } from './errors.ts';
 import { allows, PERMISSIONS, ROLES } from './roles.ts';
 import { scopedDb, type WorkspaceContext } from './workspace-context.ts';
+import { insertBoard } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -84,12 +85,13 @@ describe(
 
          // A board owned by the workspace: `work` renames it, so its `name` is
          // the pre/post snapshot the oracle compares.
-         const [board] = await sql`
-            INSERT INTO boards (id, workspace_id, name, slug, created_by)
-            VALUES (${randomUUID()}, ${fixture.workspaceId}, ${BASELINE_NAME}, ${`matrix-${suffix}`},
-                    ${fixture.userId})
-            RETURNING id`;
-         fixture.boardId = board!.id as string;
+         fixture.boardId = await insertBoard(sql, {
+            workspaceId: fixture.workspaceId,
+            createdBy: fixture.userId,
+            name: BASELINE_NAME,
+            // Board slugs are at most 12 characters (boards_slug_format_ck).
+            slug: `mtx-${suffix}`,
+         });
       });
 
       after(async () => {

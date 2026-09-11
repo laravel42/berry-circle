@@ -10,6 +10,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { NotFound } from './errors.ts';
 import { ROLES } from './roles.ts';
 import { resolveWorkspaceContext, scopedDb } from './workspace-context.ts';
+import { insertBoard } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -84,31 +85,39 @@ describe(
 
          // A resource owned by the confirmed workspace: requireResource must
          // resolve it by its stored workspace_id, not a claimed one.
-         const [board] = await sql`
-            INSERT INTO boards (id, workspace_id, name, slug, created_by)
-            VALUES (${randomUUID()}, ${fixture.workspaceId}, 'Ctx board', ${`ctx-${suffix}`},
-                    ${fixture.userId})
-            RETURNING id`;
-         fixture.boardId = board!.id as string;
+         fixture.boardId = await insertBoard(sql, {
+            workspaceId: fixture.workspaceId,
+            createdBy: fixture.userId,
+            name: 'Ctx board',
+            slug: `ctx-${suffix}`,
+         });
 
          // A second workspace the user is NOT a member of. A claim naming it
          // must never grant the user access to it.
+         // It belongs to someone else, who creates it and its board: a board's
+         // creator must be an active member, and the user must stay outside it.
+         const [otherOwner] = await sql`
+            INSERT INTO users (id, email, name)
+            VALUES (${randomUUID()}, ${`ctx-prop5-other-${suffix}@berry.test`}, 'Context Property 5 other')
+            RETURNING id`;
+         fixture.otherOwnerId = otherOwner!.id as string;
          const [other] = await sql`
             INSERT INTO workspaces (id, name, slug, settings, created_by)
             VALUES (${randomUUID()}, ${`Other ${suffix}`}, ${`other-${suffix}`},
                     ${sql.json({ issuePrefix: 'OTH', defaultRole: 'member', allowMemberInvites: false } as never)},
-                    ${fixture.userId})
+                    ${fixture.otherOwnerId})
             RETURNING id`;
          fixture.otherWorkspaceId = other!.id as string;
 
          // A resource owned by the OTHER workspace: it must be indistinguishable
          // from a non-existent id when looked up under the member's scope.
-         const [otherBoard] = await sql`
-            INSERT INTO boards (id, workspace_id, name, slug, created_by)
-            VALUES (${randomUUID()}, ${fixture.otherWorkspaceId}, 'Other board', ${`other-${suffix}`},
-                    ${fixture.userId})
-            RETURNING id`;
-         fixture.otherBoardId = otherBoard!.id as string;
+         fixture.otherBoardId = await insertBoard(sql, {
+            workspaceId: fixture.otherWorkspaceId,
+            createdBy: fixture.otherOwnerId,
+            name: 'Other board',
+            // Board slugs are at most 12 characters (boards_slug_format_ck).
+            slug: `oth-${suffix}`,
+         });
       });
 
       after(async () => {
@@ -125,7 +134,9 @@ describe(
                await sql`DELETE FROM workspaces WHERE id = ${ws}`;
             }
          }
-         if (fixture.userId) await sql`DELETE FROM users WHERE id = ${fixture.userId}`;
+         for (const id of [fixture.userId, fixture.otherOwnerId]) {
+            if (id) await sql`DELETE FROM users WHERE id = ${id}`;
+         }
          await closeDatabase(sql);
       });
 
