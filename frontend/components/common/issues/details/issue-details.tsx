@@ -24,9 +24,17 @@ import { useDetailDrawerClose, useInDetailDrawer } from '@/components/layout/det
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { cn } from '@/lib/utils';
 
-/** Issue detail page: description, activity, properties, and review context. */
-export default function IssueDetails() {
-   const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
+/**
+ * Issue detail page: description, activity, properties, and review context.
+ *
+ * `issueRef` is for surfaces that show a task without being routed at it — the
+ * inbox reads it out of its own query string. Left out, the task comes from
+ * the route, exactly as before.
+ */
+export default function IssueDetails({ issueRef }: { issueRef?: string } = {}) {
+   const params = useParams<{ orgId: string; issueId: string }>();
+   const orgId = params?.orgId;
+   const issueId = issueRef ?? params?.issueId ?? '';
    const { issues, addIssue } = useIssuesStore();
    const inDrawer = useInDetailDrawer();
    const closeDrawer = useDetailDrawerClose();
