@@ -176,6 +176,30 @@ export function agentMounts(options: AgentOptions): Mount[] {
       });
    });
 
+   /**
+    * What the agents list needs beyond each agent's own row.
+    *
+    * Owner, bound runtime, current load, run total, last activity and a short
+    * daily history, for every agent at once. The list draws a sparkline and a
+    * workload cell per row; doing that from per-agent requests would be one
+    * round trip per row, and doing it from the runs the browser happens to
+    * hold would be a number that means something different on every screen.
+    *
+    * Before `/:agentId`, like every other named path on this mount.
+    */
+   route.get('/roster', async (context) => {
+      const workspaceId = currentWorkspace(context.get('user').currentWorkspaceId);
+      await agents
+         .authorizeWorkspace(context.get('user').id, workspaceId, 'product.read')
+         .catch(rethrowWorkspace);
+      const raw = new URL(context.req.url).searchParams.get('days');
+      const days = raw === null ? 7 : Number(raw);
+      if (!Number.isInteger(days) || days < 1 || days > 90) {
+         throw ApiError.badRequest('days must be an integer from 1 to 90.');
+      }
+      return json({ nodes: await agents.roster(workspaceId, days) });
+   });
+
    /** The workspace's guide agent, found by role. Before `/:agentId`, like the rest. */
    route.get('/guide', async (context) => {
       const workspaceId = currentWorkspace(context.get('user').currentWorkspaceId);
@@ -229,6 +253,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
          .create({
             workspaceId,
             name: name!,
+            createdBy: context.get('user').id,
             ...(description === undefined ? {} : { description }),
             ...(instructions === undefined ? {} : { instructions }),
             ...(skills === undefined ? {} : { skills }),
@@ -355,19 +380,57 @@ export function agentMounts(options: AgentOptions): Mount[] {
    /** Admin-only: env usually carries credentials the agent acts with. */
    route.put('/:agentId/env', async (context) => {
       const agentId = pathId(context.req.param('agentId'));
+      const user = context.get('user');
+      const scope = await agents
+         .authorizeAgent(user.id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+      const { env } = await readJson(context, envSchema);
+      const profile = requireProfile();
+      const envNames = await profile.setEnv(scope.workspaceId, agentId, env).catch(rethrowSealing);
+      // After the write, and not awaited into it: the variables are stored
+      // either way, and an audit row is the record of a change that happened.
+      await profile
+         .recordEnvWrite(scope.workspaceId, agentId, { id: user.id, name: user.name }, envNames)
+         .catch(() => undefined);
+      return json({ envNames });
+   });
+
+   /**
+    * Opens an agent's environment, and writes down that it was opened.
+    *
+    * The values are sealed, so "edit one variable" would otherwise mean
+    * retyping all of them — which is how a person ends up pasting secrets
+    * around to avoid losing the ones they cannot see. Revealing them is
+    * therefore a named act with a record, rather than something the editor
+    * does quietly on open: a POST, admin-only, and one audit row per call.
+    */
+   route.post('/:agentId/env/reveal', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const user = context.get('user');
+      const scope = await agents
+         .authorizeAgent(user.id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+      const env = await requireProfile()
+         .revealEnv(scope.workspaceId, agentId, { id: user.id, name: user.name })
+         .catch(rethrowSealing);
+      return json({ env });
+   });
+
+   /** Every reveal and every write, newest first. Admin-only, like the values. */
+   route.get('/:agentId/env/audit', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
       const scope = await agents
          .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
          .catch(rethrowAgent);
-      const { env } = await readJson(context, envSchema);
-      const envNames = await requireProfile()
-         .setEnv(scope.workspaceId, agentId, env)
-         .catch((error: unknown) => {
-            if (error instanceof SealingUnavailable) {
-               throw new ApiError(412, 'INTEGRATIONS_NOT_CONFIGURED', 'This server cannot store credentials.');
-            }
-            return rethrowAgent(error);
-         });
-      return json({ envNames });
+      const raw = new URL(context.req.url).searchParams.get('first');
+      const first = raw === null ? 50 : Number(raw);
+      if (!Number.isInteger(first) || first < 1 || first > 200) {
+         throw ApiError.badRequest('first must be an integer from 1 to 200.');
+      }
+      const nodes = await requireProfile()
+         .envAudit(scope.workspaceId, agentId, first)
+         .catch(rethrowAgent);
+      return json({ nodes });
    });
 
    route.put('/:agentId/avatar', async (context) => {
@@ -511,6 +574,9 @@ function serializeAgent(agent: Agent): Record<string, unknown> {
       modelProvider: agent.modelProvider,
       modelName: agent.modelName,
       systemRole: agent.systemRole,
+      // Who authored the agent. Null for anything a workspace seeded itself,
+      // which is a different answer from "the person reading this page".
+      ownerId: agent.ownerId,
       archivedAt: agent.archivedAt,
       labels: agent.labels,
       envNames: agent.envNames,
@@ -714,6 +780,14 @@ function rethrowWorkspace(error: unknown): never {
    if (error instanceof NotFound) throw ApiError.notFound('Workspace');
    if (error instanceof Forbidden) throw ApiError.forbidden();
    throw error;
+}
+
+/** A server with no sealing key cannot hold credentials; that is a 412, not a 500. */
+function rethrowSealing(error: unknown): never {
+   if (error instanceof SealingUnavailable) {
+      throw new ApiError(412, 'INTEGRATIONS_NOT_CONFIGURED', 'This server cannot store credentials.');
+   }
+   return rethrowAgent(error);
 }
 
 function rethrowAgent(error: unknown): never {

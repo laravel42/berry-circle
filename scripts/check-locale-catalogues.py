@@ -19,6 +19,7 @@ MESSAGES = ROOT / "frontend" / "messages"
 LOCALES = ("en", "zh-Hans", "ja", "ko")
 NAMESPACES = (
     "common", "settings", "shell", "tasks", "projects", "goals", "reviews", "agents", "runtimes",
+    "agentsChat",
 )
 PLACEHOLDER = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)")
 

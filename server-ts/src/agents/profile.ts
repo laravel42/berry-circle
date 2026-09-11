@@ -1,4 +1,4 @@
-import type { Sql } from '../db/pool.ts';
+import { toRFC3339, type Sql } from '../db/pool.ts';
 import { NotFound } from '../identity/errors.ts';
 import type { Sealer } from '../integrations/sealing.ts';
 import type { AccessScope } from './access.ts';
@@ -12,6 +12,22 @@ export interface AgentAccessSettings {
    assign: AccessScope;
    mention: AccessScope;
    members: string[];
+}
+
+/** Who did what to an agent's environment, and when. Never what the value was. */
+export interface AgentEnvAuditEntry {
+   id: string;
+   actorId: string | null;
+   actorName: string | null;
+   action: 'reveal' | 'update';
+   envNames: string[];
+   occurredAt: string;
+}
+
+/** The member an audit entry is recorded against. */
+export interface EnvActor {
+   id: string;
+   name: string | null;
 }
 
 const NO_USER = '00000000-0000-0000-0000-000000000000';
@@ -53,6 +69,64 @@ export class AgentProfileRepository {
       if (!row) throw new NotFound();
       if (!row.env_sealed) return {};
       return JSON.parse(this.#sealer.open(Buffer.from(row.env_sealed as Buffer))) as Record<string, string>;
+   }
+
+   /**
+    * Opens an agent's environment for a person, and records that it happened.
+    *
+    * The audit row is written in the same transaction as the read, so there is
+    * no path that hands the values back without leaving the trace: a reveal
+    * whose record failed to store is a reveal that did not happen, and the
+    * caller sees the failure rather than the secrets.
+    */
+   async revealEnv(
+      workspaceId: string,
+      agentId: string,
+      actor: EnvActor
+   ): Promise<Record<string, string>> {
+      const env = await this.envFor(workspaceId, agentId);
+      await this.#record(workspaceId, agentId, actor, 'reveal', Object.keys(env).sort());
+      return env;
+   }
+
+   /** Records a write. Called by the mount after {@link setEnv} succeeds. */
+   async recordEnvWrite(
+      workspaceId: string,
+      agentId: string,
+      actor: EnvActor,
+      envNames: string[]
+   ): Promise<void> {
+      await this.#record(workspaceId, agentId, actor, 'update', envNames);
+   }
+
+   /** The agent's environment history, newest first. */
+   async envAudit(workspaceId: string, agentId: string, limit = 50): Promise<AgentEnvAuditEntry[]> {
+      const rows = await this.#sql`
+         SELECT id, actor_id, actor_name, action, env_names, occurred_at
+           FROM agent_env_audit
+          WHERE workspace_id = ${workspaceId} AND agent_id = ${agentId}
+          ORDER BY occurred_at DESC, id DESC
+          LIMIT ${Math.min(Math.max(Math.trunc(limit), 1), 200)}`;
+      return rows.map((row) => ({
+         id: row.id as string,
+         actorId: (row.actor_id as string | null) ?? null,
+         actorName: (row.actor_name as string | null) ?? null,
+         action: row.action as 'reveal' | 'update',
+         envNames: (row.env_names as string[] | null) ?? [],
+         occurredAt: toRFC3339(row.occurred_at as string) ?? '',
+      }));
+   }
+
+   async #record(
+      workspaceId: string,
+      agentId: string,
+      actor: EnvActor,
+      action: 'reveal' | 'update',
+      envNames: string[]
+   ): Promise<void> {
+      await this.#sql`
+         INSERT INTO agent_env_audit (workspace_id, agent_id, actor_id, actor_name, action, env_names)
+         VALUES (${workspaceId}, ${agentId}, ${actor.id}, ${actor.name ?? null}, ${action}, ${envNames})`;
    }
 
    async getAccess(workspaceId: string, agentId: string): Promise<AgentAccessSettings> {

@@ -38,6 +38,10 @@ import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { runtimeMounts } from './runtimes.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { agentMounts } from './agents.ts';
+import { AgentRepository } from '../agents/repository.ts';
+import { AgentProfileRepository } from '../agents/profile.ts';
+import { IdempotencyStore } from '../http/idempotency.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { GitHubSettingsRepository } from '../scm/github-settings.ts';
 import { PullRequestStore } from '../scm/pull-requests.ts';
@@ -121,6 +125,20 @@ describe(
          );
          registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
          registry.registerAll(usageMounts({ sessions, sql }));
+         // The agents mount, so its roster and its environment routes sit
+         // behind the same guard these guarantees exercise.
+         registry.registerAll(
+            agentMounts({
+               sessions,
+               agents: new AgentRepository(sql),
+               idempotency: new IdempotencyStore(sql),
+               catalog: null,
+               profile: new AgentProfileRepository({
+                  sql,
+                  sealer: sealerFromKey(Buffer.alloc(32, 9).toString('base64')),
+               }),
+            })
+         );
          registry.registerAll(
             githubMounts({
                sessions,
@@ -365,6 +383,55 @@ describe(
             })
          );
       }
+
+      /** Authenticated POST as U1 with no body, with the fixed request id. */
+      function postAsU1(path: string): Promise<Response> {
+         return Promise.resolve(
+            app.request(path, {
+               method: 'POST',
+               headers: {
+                  authorization: `Bearer ${world.u1Token}`,
+                  'content-type': 'application/json',
+                  'x-request-id': REQUEST_ID,
+               },
+               body: '{}',
+            })
+         );
+      }
+
+      // ------------------------------------------------- agents (workstream F4)
+
+      test(
+         'agents: the roster carries none of W2’s agents, and W2’s environment cannot be revealed or audited',
+         async () => {
+            // Every workspace is provisioned with a protected Orchestrator, so
+            // W2 has a real agent without this test seeding one.
+            const [w2Agent] = await sql`
+               SELECT id FROM agents WHERE workspace_id = ${world.w2Id} LIMIT 1`;
+            const w2AgentId = w2Agent!.id as string;
+
+            // (a) The roster is the caller's own workspace, whatever else exists.
+            const roster = await getAsU1('/api/v1/agents/roster');
+            assert.equal(roster.status, 200);
+            assert.equal((await roster.text()).includes(w2AgentId), false);
+
+            // (b) Reading W2's environment record is the byte-identical 404 of
+            // an agent that does not exist at all.
+            const foreignAudit = await getAsU1(`/api/v1/agents/${w2AgentId}/env/audit`);
+            const absentAudit = await getAsU1(`/api/v1/agents/${randomUUID()}/env/audit`);
+            assert.equal(foreignAudit.status, 404);
+            assert.equal(await foreignAudit.text(), await absentAudit.text());
+
+            // (c) Revealing it is refused, and the attempt leaves nothing —
+            // neither values returned nor a record implying it was opened.
+            const reveal = await postAsU1(`/api/v1/agents/${w2AgentId}/env/reveal`);
+            assert.equal(reveal.status, 404);
+            assert.equal((await reveal.text()).includes('env'), false);
+            const [recorded] = await sql`
+               SELECT count(*)::int AS n FROM agent_env_audit WHERE agent_id = ${w2AgentId}`;
+            assert.equal(Number(recorded!.n), 0, 'no audit row was written against W2’s agent');
+         }
+      );
 
       test('runtimes: W1 lists none of W2 and cannot open or change W2 runtime', async () => {
          const list = await getAsU1('/api/v1/runtimes');
