@@ -1,6 +1,7 @@
 import {
    Bell,
    Blocks,
+   Building2,
    Columns3,
    FolderGit2,
    KeyRound,
@@ -63,6 +64,7 @@ export const settingsNav: SettingsNavGroup[] = [
    {
       labelKey: 'workspace',
       items: [
+         { labelKey: 'general', url: '/settings/general', icon: Building2 },
          { labelKey: 'agents', url: '/settings/ai', icon: Sparkles },
          { labelKey: 'runtimes', url: '/runtimes', icon: Server },
          { labelKey: 'joinLinks', url: '/settings/join-links', icon: Link2 },

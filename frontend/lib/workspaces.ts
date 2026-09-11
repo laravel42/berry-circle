@@ -20,6 +20,16 @@ const workspaceSchema = z.object({
    role: z.string(),
    createdAt: z.string(),
    updatedAt: z.string(),
+   /** Optional so a server without the General-page fields still parses. */
+   settings: z
+      .object({
+         issuePrefix: z.string(),
+         defaultRole: z.string(),
+         allowMemberInvites: z.boolean(),
+      })
+      .optional(),
+   logoUrl: z.string().nullish(),
+   agentContext: z.string().nullish(),
 });
 
 const memberSchema = z.object({
@@ -106,4 +116,117 @@ export async function acceptInvitation(
       throw new Error('Accept invitation response was not recognized');
    }
    return parsed.data;
+}
+
+// ------------------------------------------------------ workspace settings
+
+const workspacePath = (workspaceId: string) =>
+   `/api/v1/workspaces/${encodeURIComponent(workspaceId)}`;
+
+function parseWorkspace(json: unknown): WorkspaceSummary {
+   const parsed = workspaceSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Workspace response was not recognized');
+   return parsed.data;
+}
+
+export async function loadWorkspace(workspaceId: string): Promise<WorkspaceSummary> {
+   return parseWorkspace(await apiFetch(workspacePath(workspaceId)));
+}
+
+/** A null clears that field; omitting it leaves what is there. */
+export async function updateWorkspace(
+   workspaceId: string,
+   patch: {
+      name?: string;
+      description?: string | null;
+      logoUrl?: string | null;
+      agentContext?: string | null;
+   }
+): Promise<WorkspaceSummary> {
+   return parseWorkspace(
+      await apiFetch(workspacePath(workspaceId), {
+         method: 'PATCH',
+         body: JSON.stringify(patch),
+      })
+   );
+}
+
+const workspaceSettingsSchema = z.object({
+   issuePrefix: z.string(),
+   defaultRole: z.string(),
+   allowMemberInvites: z.boolean(),
+});
+
+export type WorkspaceSettings = z.infer<typeof workspaceSettingsSchema>;
+
+/**
+ * Changes a workspace setting.
+ *
+ * `issuePrefix` is the one that is never quietly saved: issue identifiers are
+ * derived from it, so every task reference in the workspace changes the moment
+ * this returns. The caller confirms first.
+ */
+export async function updateWorkspaceSettings(
+   workspaceId: string,
+   patch: { issuePrefix?: string; defaultRole?: string; allowMemberInvites?: boolean }
+): Promise<WorkspaceSettings> {
+   const json: unknown = await apiFetch(`${workspacePath(workspaceId)}/settings`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+   });
+   const parsed = workspaceSettingsSchema.safeParse(json);
+   if (!parsed.success) throw new Error('Workspace settings response was not recognized');
+   return parsed.data;
+}
+
+/** The caller removes their own membership. A sole owner is refused (409). */
+export async function leaveWorkspace(workspaceId: string): Promise<void> {
+   await apiFetch(`${workspacePath(workspaceId)}/leave`, { method: 'POST', body: '' });
+}
+
+/** Owner only. Soft-deletes the workspace for everyone in it. */
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+   await apiFetch(workspacePath(workspaceId), { method: 'DELETE' });
+}
+
+const memberRoleSchema = z.object({
+   userId: z.string(),
+   role: z.string(),
+   name: z.string(),
+   email: z.string(),
+   avatarUrl: z.string().nullable(),
+   joinedAt: z.string(),
+});
+
+export type WorkspaceMemberRole = z.infer<typeof memberRoleSchema>;
+
+/**
+ * Members with their real roles.
+ *
+ * `lib/members.ts` maps a member onto the template's `User`, which collapses
+ * owner and viewer into "Member" — fine for an avatar list, useless for
+ * deciding whether someone is the last owner.
+ */
+export async function listWorkspaceMemberRoles(
+   workspaceId: string
+): Promise<WorkspaceMemberRole[]> {
+   const collected: WorkspaceMemberRole[] = [];
+   let after: string | undefined;
+   for (let page = 0; page < 20; page += 1) {
+      const params = new URLSearchParams({ first: '100' });
+      if (after) params.set('after', after);
+      const json: unknown = await apiFetch(`${workspacePath(workspaceId)}/members?${params}`);
+      const parsed = z
+         .object({
+            nodes: z.array(memberRoleSchema),
+            pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+         })
+         .safeParse(json);
+      if (!parsed.success) throw new Error('Member list was not recognized');
+      collected.push(...parsed.data.nodes);
+      const { hasNextPage, endCursor } = parsed.data.pageInfo;
+      if (!hasNextPage || !endCursor || parsed.data.nodes.length === 0) break;
+      after = endCursor;
+   }
+   return collected;
 }
