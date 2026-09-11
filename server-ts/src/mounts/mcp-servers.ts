@@ -9,6 +9,7 @@ import type { Mount } from '../http/registry.ts';
 import { Conflict, NotFound } from '../identity/errors.ts';
 import { SealingUnavailable } from '../integrations/sealing.ts';
 import type { McpServerRepository } from '../mcp/repository.ts';
+import { mcpTransportSchema } from '../runtime/envelope.ts';
 import { currentWorkspace, pathId, resolveScoped } from './shared.ts';
 import { readJson } from './zod-body.ts';
 
@@ -17,7 +18,7 @@ const inputSchema = z.strictObject({
    agentId: z.string().uuid().nullable().default(null),
    name: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/),
    url: z.string().url().max(2000).refine((u) => /^https?:\/\//.test(u), 'url must be http(s)'),
-   transport: z.enum(['streamable_http', 'sse']).default('streamable_http'),
+   transport: mcpTransportSchema.default('streamable_http'),
    headers: z.record(z.string().regex(HEADER), z.string().max(4000)).default({}),
    viaGateway: z.boolean().default(false),
    enabled: z.boolean().default(true),

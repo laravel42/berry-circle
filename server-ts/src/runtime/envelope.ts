@@ -30,11 +30,25 @@ export const skillRefSchema = z.object({
    files: z.array(z.object({ path: z.string().min(1), content: z.string() })),
 });
 
+/**
+ * The one MCP transport vocabulary: the API, the `mcp_servers` column, the
+ * agent builder, plugin servers and the envelope all say the same thing, so
+ * nothing translates between them. The runtime maps it to Strands' names.
+ */
+export const mcpTransportSchema = z.enum(['streamable_http', 'sse']);
+
 export const mcpServerRefSchema = z.object({
    name: z.string().min(1),
    url: z.url(),
-   transport: z.enum(['http', 'sse']),
+   transport: mcpTransportSchema,
    headers: z.record(z.string(), z.string()),
+   /**
+    * Server-side tool names the agent may use; null exposes every tool the
+    * server lists (a server the workspace registered itself). A plugin's
+    * server always carries its admin-approved list, and nothing else of it
+    * reaches the agent.
+    */
+   allowedTools: z.array(z.string().min(1)).nullable(),
 });
 
 export const taskEnvelopeSchema = z.object({
@@ -98,6 +112,7 @@ export type TranscriptMessage = z.infer<typeof transcriptMessageSchema>;
 export type RepoPlan = z.infer<typeof repoPlanSchema>;
 export type SkillRef = z.infer<typeof skillRefSchema>;
 export type McpServerRef = z.infer<typeof mcpServerRefSchema>;
+export type McpTransport = z.infer<typeof mcpTransportSchema>;
 
 const REDACTED = '[redacted]';
 

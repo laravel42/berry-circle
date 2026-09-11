@@ -77,7 +77,7 @@ describe('the envelope carries the agent’s extensions', { skip: url ? false : 
       assert.deepEqual(envelope.agent.skills.map((s) => s.name), ['ext-skill']);
       // SKILL.md survives the parse: the schema keeps only name and files.
       assert.ok(envelope.agent.skills[0]?.files.some((file) => file.path === 'SKILL.md'));
-      assert.deepEqual(envelope.agent.mcpServers.map((s) => [s.name, s.transport]), [['direct', 'http']]);
+      assert.deepEqual(envelope.agent.mcpServers.map((s) => [s.name, s.transport]), [['direct', 'streamable_http']]);
       // A gateway-routed server with no gateway is left out, and said so by name.
       assert.deepEqual(skipped.at(-1), ['gated']);
    });

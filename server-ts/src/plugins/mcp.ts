@@ -1,3 +1,4 @@
+import type { McpTransport } from '../runtime/envelope.ts';
 import type { PluginRepository } from './repository.ts';
 import type { PluginRuntimeStore } from './runtime-store.ts';
 
@@ -13,7 +14,7 @@ import type { PluginRuntimeStore } from './runtime-store.ts';
 export interface PluginMcpServer {
    name: string;
    url: string;
-   transport: 'streamable_http';
+   transport: McpTransport;
    headers: Record<string, string>;
    allowedTools: string[];
    installationId: string;

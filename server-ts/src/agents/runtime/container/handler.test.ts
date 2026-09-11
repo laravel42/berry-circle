@@ -7,6 +7,7 @@ import { tool, type Message } from '@strands-agents/sdk';
 import { z } from 'zod';
 import type { TaskEnvelope } from '../../../runtime/envelope.ts';
 import type { LifecycleEvent } from '../../../runtime/lifecycle.ts';
+import { fakeMcpServer } from '../mcp-clients.test.ts';
 import { textOf } from '../plugins/accounting.ts';
 import { ScriptedModel, call, say, throwing, type ScriptedTurn } from '../scripted-model.ts';
 import { handleInvocation, toConversation, type HandlerDeps } from './handler.ts';
@@ -176,11 +177,40 @@ test('an agent task writes its skills into the session workspace and connects it
          agent: {
             ...envelope().agent,
             skills: [{ name: 'lint', files: [{ path: 'SKILL.md', content: manifest }] }],
-            mcpServers: [{ name: 'docs', url: 'https://docs.test/mcp', transport: 'http', headers: {} }],
+            mcpServers: [
+               { name: 'docs', url: 'https://docs.test/mcp', transport: 'streamable_http', headers: {}, allowedTools: null },
+            ],
          },
       })
    );
    assert.equal(events.at(-1)!.type, 'task.completed');
    assert.equal(readFileSync(join(deps.workRoot, SESSION, '.claude/skills/lint/SKILL.md'), 'utf8'), manifest);
    assert.deepEqual(loaded, ['docs']);
+});
+
+test('a plugin server’s approved tool runs; an unapproved tool on the same server never reaches it', async () => {
+   const fake = await fakeMcpServer(['say_hello', 'delete_everything']);
+   try {
+      const { model, run } = harness([
+         call('plugin-relay_say_hello', {}),
+         call('plugin-relay_delete_everything', {}),
+         say('done'),
+      ]);
+      const events = await run(
+         envelope({
+            agent: {
+               ...envelope().agent,
+               mcpServers: [
+                  { name: 'plugin-relay', url: fake.url, transport: 'streamable_http', headers: {}, allowedTools: ['say_hello'] },
+               ],
+            },
+         })
+      );
+      assert.equal(events.at(-1)!.type, 'task.completed');
+      assert.deepEqual(fake.called, ['say_hello']);
+      assert.match(JSON.stringify(model.received[1]), /say_hello ran/);
+      assert.doesNotMatch(JSON.stringify(model.received[2]), /delete_everything ran/);
+   } finally {
+      await fake.close();
+   }
 });

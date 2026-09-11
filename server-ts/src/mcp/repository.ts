@@ -3,7 +3,9 @@ import { toRFC3339, type Queryable, type Sql } from '../db/pool.ts';
 import { Conflict, NotFound } from '../identity/errors.ts';
 import type { Sealer } from '../integrations/sealing.ts';
 
-export type McpTransport = 'streamable_http' | 'sse';
+import type { McpTransport } from '../runtime/envelope.ts';
+
+export type { McpTransport };
 
 export interface McpServer {
    id: string;

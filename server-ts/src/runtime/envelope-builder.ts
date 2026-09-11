@@ -9,10 +9,13 @@ import { buildMessage, lastRejection } from '../agents/prompt.ts';
 import { repositoryForIssue } from '../agents/repository-context.ts';
 import { loadIssue } from '../agents/repository-run.ts';
 import type { Dispatch } from '../runs/ledger.ts';
-import type { RepoPlan, TaskEnvelope, TranscriptMessage } from './envelope.ts';
+import type { McpServerRef, RepoPlan, TaskEnvelope, TranscriptMessage } from './envelope.ts';
 import { runtimeSessionIdFor, sessionKeyFor } from './session-id.ts';
 import { buildTranscript } from './transcript.ts';
 import { loadAgentExtensions, type ExtensionDeps } from '../agents/extensions.ts';
+import { pluginMcpServers } from '../plugins/mcp.ts';
+import type { PluginRepository } from '../plugins/repository.ts';
+import type { PluginRuntimeStore } from '../plugins/runtime-store.ts';
 
 export interface CompletionSpec {
    purpose: string;
@@ -71,6 +74,12 @@ export interface EnvelopeDeps {
     * Absent: the agent carries none of them.
     */
    extensions?: Omit<ExtensionDeps, 'sql'> | undefined;
+   /**
+    * The workspace's enabled plugins' MCP servers, approved tools only
+    * (workstream G). `ttlMs` bounds the plugin token minted into each
+    * envelope. Absent: an agent carries no plugin tools.
+    */
+   plugins?: { plugins: PluginRepository; runtime: PluginRuntimeStore; ttlMs: number } | undefined;
    /** Servers left out for want of a gateway, by name only. */
    onSkipped?: ((names: string[]) => void) | undefined;
 }
@@ -123,6 +132,7 @@ export class EnvelopeBuilder {
               )
             : null;
       if (extensions && extensions.skipped.length > 0) this.#deps.onSkipped?.(extensions.skipped);
+      const mcpServers = await this.#mcpServers(task, extensions?.mcpServers ?? []);
       const instructions = extensions?.squadBriefing
          ? `${agent.instructions}\n\n<berry_squad_briefing>\n${extensions.squadBriefing}\n</berry_squad_briefing>`
          : agent.instructions;
@@ -141,7 +151,7 @@ export class EnvelopeBuilder {
             // EnvelopeSkill and EnvelopeMcpServer are SkillRef and McpServerRef
             // field for field: no mapping, and tsc refuses a drift.
             skills: extensions?.skills ?? [],
-            mcpServers: extensions?.mcpServers ?? [],
+            mcpServers,
             permissions: agent.permissions,
             maxTokens: null,
             temperature: null,
@@ -224,6 +234,35 @@ export class EnvelopeBuilder {
             completion: null,
          },
       };
+   }
+
+   /**
+    * The agent's own servers, then its workspace's approved plugin servers.
+    *
+    * Plugin tokens are minted here and only here, straight into the envelope
+    * — the one place secrets are opened (spec §11) — and only for an agent
+    * task: a completion is one model call and gets none. Each plugin server
+    * carries its approved tools as `allowedTools`, which the runtime enforces.
+    * A plugin whose server name an agent's own server already uses is left
+    * out rather than shadowing it.
+    */
+   async #mcpServers(task: TaskRow, own: McpServerRef[]): Promise<McpServerRef[]> {
+      const plugins = this.#deps.plugins;
+      if (task.kind !== 'agent' || !plugins) return own;
+      const taken = new Set(own.map((server) => server.name));
+      const fromPlugins = await pluginMcpServers(plugins, task.workspaceId, plugins.ttlMs);
+      return [
+         ...own,
+         ...fromPlugins
+            .filter((server) => !taken.has(server.name))
+            .map((server) => ({
+               name: server.name,
+               url: server.url,
+               transport: server.transport,
+               headers: server.headers,
+               allowedTools: server.allowedTools,
+            })),
+      ];
    }
 
    /** The issue context `claimDispatch` reads, without the claim: building an envelope changes no run state. */

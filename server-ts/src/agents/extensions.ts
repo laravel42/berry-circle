@@ -1,5 +1,6 @@
 import type { Sql } from '../db/pool.ts';
 import type { McpServerRepository } from '../mcp/repository.ts';
+import type { McpTransport } from '../runtime/envelope.ts';
 import type { SkillRepository } from '../skills/repository.ts';
 import { squadBriefing } from '../squads/briefing.ts';
 import type { AgentProfileRepository } from './profile.ts';
@@ -14,16 +15,15 @@ export interface EnvelopeSkill {
 export interface EnvelopeMcpServer {
    name: string;
    url: string;
-   transport: 'http' | 'sse';
+   transport: McpTransport;
    headers: Record<string, string>;
+   /** Null: a server the workspace registered exposes all its tools. */
+   allowedTools: string[] | null;
 }
 
 export function skillManifest(skill: { name: string; description: string; content: string }): string {
    return `---\nname: ${skill.name}\ndescription: ${JSON.stringify(skill.description)}\n---\n${skill.content}`;
 }
-
-const wireTransport = (transport: 'streamable_http' | 'sse'): 'http' | 'sse' =>
-   transport === 'sse' ? 'sse' : 'http';
 
 export interface AgentExtensions {
    skills: EnvelopeSkill[];
@@ -75,15 +75,17 @@ export async function loadAgentExtensions(
          mcpServers.push({
             name: server.name,
             url: server.url,
-            transport: wireTransport(server.transport),
+            transport: server.transport,
             headers: server.headers,
+            allowedTools: null,
          });
       } else if (deps.gateway) {
          mcpServers.push({
             name: server.name,
             url: deps.gateway.url,
-            transport: 'http',
+            transport: 'streamable_http',
             headers: await deps.gateway.headers(),
+            allowedTools: null,
          });
       } else {
          skipped.push(server.name);

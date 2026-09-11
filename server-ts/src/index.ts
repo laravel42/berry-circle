@@ -8,6 +8,11 @@ import { serve } from '@hono/node-server';
  * changes when someone remembers to change it.
  */
 const VERSION = (process.env.BERRY_VERSION ?? '').trim() || '0.1.0-dev';
+/**
+ * How long a plugin MCP token minted into an envelope lives: no run outlives
+ * its AgentCore session, and no session outlives eight hours (runtime-control.ts).
+ */
+const PLUGIN_MCP_TOKEN_TTL_MS = 8 * 60 * 60 * 1000;
 
 import { loadConfig } from './config/config.ts';
 import { checkDatabase, closeDatabase, openDatabase } from './db/pool.ts';
@@ -460,6 +465,10 @@ const executor = defaultTarget
            ...(scm.provisioning ? { gitCredential: scm.gitCredential } : {}),
            github: (token) => new GitHubClient({ token }),
            extensions: { skills: skillRepository, mcp: mcpRepository, profile: agentProfiles, gateway: gatewayRoute },
+           // Plugin tools need the sealing key: without it no plugin is installed.
+           ...(pluginRepository
+              ? { plugins: { plugins: pluginRepository, runtime: pluginRuntime, ttlMs: PLUGIN_MCP_TOKEN_TTL_MS } }
+              : {}),
            onSkipped: (names) => logger.warn('mcp server skipped: no gateway', { names }),
         }),
         memory: runMemory ?? nullRunMemory(),

@@ -103,7 +103,7 @@ describe('agent extensions', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
          withoutGateway.mcpServers.map((s) => s.name),
          ['direct']
       );
-      assert.equal(withoutGateway.mcpServers[0]?.transport, 'http');
+      assert.equal(withoutGateway.mcpServers[0]?.transport, 'streamable_http');
       assert.deepEqual(withoutGateway.mcpServers[0]?.headers, { K: 'v' });
       assert.deepEqual(withoutGateway.skipped, ['gated']);
       assert.deepEqual(withoutGateway.env, { TOKEN: 't' });
@@ -121,7 +121,13 @@ describe('agent extensions', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
       );
       assert.deepEqual(
          withGateway.mcpServers.find((s) => s.name === 'gated'),
-         { name: 'gated', url: 'https://gw.test/mcp', transport: 'http', headers: { authorization: 'Bearer gw' } }
+         {
+            name: 'gated',
+            url: 'https://gw.test/mcp',
+            transport: 'streamable_http',
+            headers: { authorization: 'Bearer gw' },
+            allowedTools: null,
+         }
       );
       assert.deepEqual(withGateway.skipped, []);
       assert.equal(withGateway.squadBriefing, null);

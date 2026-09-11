@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Sql } from '../db/pool.ts';
 import { Conflict, NotFound } from '../identity/errors.ts';
 import type { McpServerRepository } from '../mcp/repository.ts';
+import { mcpTransportSchema } from '../runtime/envelope.ts';
 import type { SkillRepository } from '../skills/repository.ts';
 import type { AgentRepository } from './repository.ts';
 import type { CompleteFn } from './seams.ts';
@@ -31,7 +32,7 @@ export const agentDraftSchema = z.object({
                .url()
                .max(2000)
                .refine((u) => /^https?:\/\//.test(u), 'url must be http(s)'),
-            transport: z.enum(['streamable_http', 'sse']).default('streamable_http'),
+            transport: mcpTransportSchema.default('streamable_http'),
          })
       )
       .max(10)
