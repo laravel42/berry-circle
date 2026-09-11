@@ -104,14 +104,22 @@ Every row below is the same numbering as the audit.
 
 ### What the shell stands in for
 
-Two actions in the registry have no owner on this branch and are registered
-with a local stand-in, so the binding, the settings row and the conflict
-checking are all real while the handler is a no-op that publishes an event:
+Three actions in the registry have no owner on this branch. They are registered
+here anyway — so the binding, the settings row and the conflict checking are
+all real — and the handler announces the moment on `window` instead of doing
+anything (`frontend/lib/shell-events.ts`):
 
-- `chat.toggleFloating` (mod+J) — F4's floating chat.
-- `issue.find` (mod+F) — F2's find-in-issue.
+- `chat.toggleFloating` (mod+J) fires `berry:chat-toggle` — F4's floating chat.
+- `issue.find` (mod+F) fires `berry:issue-find` — F2's find-in-issue.
+- `composer.send` (mod+Enter) fires `berry:composer-send` — whichever composer
+  has focus.
 
-Both are listed in the workstream's merge notes.
+The palette's fold and unfold commands work the same way, firing
+`berry:comments-fold` with `{ folded }` for whoever renders an issue's
+comments.
+
+Each is listed in the workstream's merge notes, with the exact call the owning
+area needs to make.
 
 ### Backend added
 
