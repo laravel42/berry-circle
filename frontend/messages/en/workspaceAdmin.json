@@ -1,0 +1,36 @@
+{
+   "groups": {
+      "personal": "personal",
+      "workspace": "workspace",
+      "issueConfig": "issue config",
+      "connections": "connections"
+   },
+   "nav": {
+      "preferences": "preferences",
+      "profile": "profile",
+      "notifications": "notifications",
+      "security": "security & access",
+      "connectedAccounts": "connected accounts",
+      "agents": "agents",
+      "runtimes": "runtimes",
+      "labels": "task labels",
+      "statuses": "statuses",
+      "properties": "task fields",
+      "quickActions": "quick actions",
+      "joinLinks": "join links",
+      "repositories": "repositories",
+      "integrations": "integrations",
+      "mcp": "MCP servers",
+      "plugins": "plugins"
+   },
+   "jump": {
+      "label": "Settings pages",
+      "current": "Settings"
+   },
+   "save": {
+      "saving": "Saving…",
+      "saved": "Saved",
+      "failed": "Not saved",
+      "retry": "Try again"
+   }
+}

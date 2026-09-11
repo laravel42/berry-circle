@@ -1,0 +1,36 @@
+{
+   "groups": {
+      "personal": "개인",
+      "workspace": "워크스페이스",
+      "issueConfig": "작업 설정",
+      "connections": "연결"
+   },
+   "nav": {
+      "preferences": "환경설정",
+      "profile": "프로필",
+      "notifications": "알림",
+      "security": "보안 및 액세스",
+      "connectedAccounts": "연결된 계정",
+      "agents": "에이전트",
+      "runtimes": "런타임",
+      "labels": "작업 라벨",
+      "statuses": "상태",
+      "properties": "작업 필드",
+      "quickActions": "빠른 작업",
+      "joinLinks": "참여 링크",
+      "repositories": "저장소",
+      "integrations": "통합",
+      "mcp": "MCP 서버",
+      "plugins": "플러그인"
+   },
+   "jump": {
+      "label": "설정 페이지",
+      "current": "설정"
+   },
+   "save": {
+      "saving": "저장하는 중…",
+      "saved": "저장됨",
+      "failed": "저장되지 않음",
+      "retry": "다시 시도"
+   }
+}

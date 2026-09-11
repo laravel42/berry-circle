@@ -1,0 +1,36 @@
+{
+   "groups": {
+      "personal": "个人",
+      "workspace": "工作区",
+      "issueConfig": "任务配置",
+      "connections": "连接"
+   },
+   "nav": {
+      "preferences": "偏好设置",
+      "profile": "个人资料",
+      "notifications": "通知",
+      "security": "安全与访问",
+      "connectedAccounts": "已连接账户",
+      "agents": "智能体",
+      "runtimes": "运行时",
+      "labels": "任务标签",
+      "statuses": "状态",
+      "properties": "任务字段",
+      "quickActions": "快捷操作",
+      "joinLinks": "加入链接",
+      "repositories": "代码仓库",
+      "integrations": "集成",
+      "mcp": "MCP 服务器",
+      "plugins": "插件"
+   },
+   "jump": {
+      "label": "设置页面",
+      "current": "设置"
+   },
+   "save": {
+      "saving": "正在保存…",
+      "saved": "已保存",
+      "failed": "未保存",
+      "retry": "重试"
+   }
+}

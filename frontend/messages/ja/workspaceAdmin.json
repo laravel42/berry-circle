@@ -1,0 +1,36 @@
+{
+   "groups": {
+      "personal": "個人",
+      "workspace": "ワークスペース",
+      "issueConfig": "タスク設定",
+      "connections": "連携"
+   },
+   "nav": {
+      "preferences": "環境設定",
+      "profile": "プロフィール",
+      "notifications": "通知",
+      "security": "セキュリティとアクセス",
+      "connectedAccounts": "連携アカウント",
+      "agents": "エージェント",
+      "runtimes": "ランタイム",
+      "labels": "タスクラベル",
+      "statuses": "ステータス",
+      "properties": "タスクフィールド",
+      "quickActions": "クイックアクション",
+      "joinLinks": "参加リンク",
+      "repositories": "リポジトリ",
+      "integrations": "インテグレーション",
+      "mcp": "MCP サーバー",
+      "plugins": "プラグイン"
+   },
+   "jump": {
+      "label": "設定ページ",
+      "current": "設定"
+   },
+   "save": {
+      "saving": "保存しています…",
+      "saved": "保存しました",
+      "failed": "保存されていません",
+      "retry": "再試行"
+   }
+}
