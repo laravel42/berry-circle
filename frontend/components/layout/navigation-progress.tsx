@@ -26,10 +26,6 @@ export function NavigationProgress() {
    const pathname = usePathname();
    const search = useSearchParams();
    const [progress, setProgress] = useState<number | null>(null);
-   const timers = useRef<{
-      creep?: ReturnType<typeof setInterval>;
-      done?: ReturnType<typeof setTimeout>;
-   }>({});
 
    // The route we were on when the bar started. The bar ends when the rendered
    // route differs from it, which is the only reliable "arrived" signal.
