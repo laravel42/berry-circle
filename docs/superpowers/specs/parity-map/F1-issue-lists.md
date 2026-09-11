@@ -4,124 +4,120 @@ Workstream F1 owns the task lists (`my-issues`, the project task surfaces, saved
 views), the view and table components under `frontend/components/common/issues`
 (everything except `details/`), and the saved-view screens.
 
-This is the audit of what the branch `fe/F1-issue-lists` (cut from
-`feat/multica-parity`) actually contains, item by item, in Berry's own words.
-Status is one of **present**, **partial** (with what is missing) or **missing**.
+This file was written as an audit of what the branch inherited, and is now the
+record of what it ships. Every item below reads **present** or **not built**
+with the reason it was left.
 
-## Where the behaviour lives today
+## Where the behaviour lives
 
-- `frontend/components/common/my-issues/my-issues.tsx` — the live "tasks" page.
-- `frontend/components/common/issues/*` — list rows, board cards, table,
-  swimlanes, gantt, filter bar, batch toolbar, context menu.
-- `frontend/components/common/issues/all-issues.tsx` — a second copy of the page
-  body that nothing imports; the board/table/lanes/gantt switch only exists here.
-- `frontend/components/common/views/*` + `frontend/app/[orgId]/views` — the saved
-  views list and the view detail page.
-- `frontend/components/common/projects/*` — the projects list/board/timeline and
-  the project detail panel.
-- State: `store/filter-store.ts` (URL), `store/display-settings-store.ts` and
-  `store/view-store.ts` (localStorage), `store/issue-selection-store.ts`.
-- Server: `/api/v1/views` (CRUD + `/preferences` + `/query`), `/api/v1/issues`
-  (`/batch`, `/batch-delete`, `/quick`, `/assignee-frequency`), custom fields
-  under `/api/v1/catalogs/:workspaceId/issue-properties`. All of it exists.
-
-Two facts shape most of the gaps below: `toUiIssue` in `frontend/lib/issues.ts`
-drops `createdBy` and `updatedAt` and always sets `labels: []`, so creator,
-updated-at and label filters have nothing to filter on; and the board loads the
-whole task list in one go, so there is no paging anywhere.
+- `frontend/components/common/my-issues/*` — the tasks page and its scopes.
+- `frontend/components/common/issues/*` — rows, cards, table, swimlanes, gantt,
+  grouping, filters, selection, the working-agents chip, load states.
+- `frontend/components/common/views/*` — the saved-views bar, the save/edit
+  dialog, the views page, the view detail body.
+- `frontend/components/common/projects/*` — the projects list and the project
+  detail panel.
+- State: `store/filter-store.ts` and the layout/display params (URL),
+  `store/display-settings-store.ts` and `store/view-store.ts` (browser),
+  `store/issue-selection-store.ts`, `store/projects-filter-store.ts` (URL).
+- Server, all of it pre-existing: `/api/v1/views` (CRUD, `/preferences`,
+  `/query`), `/api/v1/issues` (`/batch`, `/batch-delete`, `/quick`,
+  `/children`, `/parent`, `/assignee-frequency`), the issue-property catalogue,
+  and `/api/v1/pins`. **No endpoint was added.**
 
 ## Issues list
 
 | Item | Status |
 | --- | --- |
-| Scope switch all / members / agents | **partial** — `my-issues` has all/members/agent tabs in the URL; the project task surface and saved views have no scope switch. |
-| my-issues scopes: all, assigned, created, my agents & squads | **partial** — only "all", "members" and "agent" exist. "Assigned to me" and "created by me" are not there (no creator on the task model), and squads are not a scope. |
-| Everything synced to the URL | **partial** — filters and the my-issues tab are in the URL; the view mode, grouping, ordering and display properties are localStorage only, so a link does not reproduce what the sender saw. |
-| View modes board, list, table, swimlane, gantt | **partial** — all five components exist and `all-issues.tsx` switches between them, but that file is unreferenced. The live page renders list/board only, and the project pages render neither switch. |
-| The mode is remembered | **present** — `view-store` persists it. |
+| Scope switch on the tasks page: all, assigned, created, my agents & squads | **present** — URL-backed; the agent scope covers the workspace's agents and the rosters of the squads this person is in. |
+| Scope switch on the project tab and on saved views | **not built** — a project tab is already scoped to its project and a saved view to its own query; a second scope control there would fight the one the view saves. |
+| Everything synced to the URL | **present** — filters, scope, layout, grouping, ordering and direction all read from the URL first and fall back to the stored settings, so a link reproduces the sender's list without overwriting the reader's defaults. |
+| View modes board, list, table, swimlane, gantt | **present** on the tasks page, the project task tab and a saved view. |
+| The mode is remembered | **present** |
 
 ## Filter menu
 
 | Item | Status |
 | --- | --- |
-| Status | **partial** — the section exists; no counts. |
+| Status, with counts | **present** — counts come from the filtered data itself. |
 | Priority | **present** |
-| Assignee (members, agents, squads, no assignee) | **partial** — members plus "unassigned"; agents and squads are absent even though both are loaded elsewhere. |
-| Creator | **missing** |
-| Project, including "no project" | **partial** — projects are listed; there is no "no project" choice. |
-| Label | **partial** — the section is built from the workspace labels, but tasks carry no labels, so it matches nothing. |
-| Date created / updated (today, 3 days, 7 days, custom range) | **missing** — the filter library supports date columns; no date column is declared. |
-| Custom properties (is, contains, before, after, empty) | **missing** |
-| Every section searchable | **present** — each value list is a `Command`. |
-| One reset | **present** — the Clear action on the chip row. |
-| Chips are removable | **present** |
-| Chip bar: save as a new view | **partial** — "Save as view" lives inside the Display popover, not on the chip bar. |
-| Chip bar: save into the current view | **missing** |
-| Working-agents chip (count, hover list, click to filter) | **missing** |
+| Assignee: members, agents, squads, no assignee | **present** — squads are their own section, matching whatever the leader or the roster holds. |
+| Creator | **present** — the task model now carries the creator the API already sent. |
+| Project, including "no project" | **present** |
+| Label | **present** as a section; tasks still carry no labels from the list endpoint, so it matches nothing until that lands (outside F1). |
+| Date created / updated: today, 3 days, 7 days, custom range | **present** |
+| Custom properties: is, contains, before, after, empty | **present** — answered by the view query and applied as one intersection, capped at the 200 ids that query returns. |
+| Every section searchable | **present** |
+| One reset | **present** |
+| Removable chips | **present** |
+| Chip bar saves as a new view | **present** |
+| Chip bar saves into the current view | **present** — sends the revision it read. |
+| Working-agents chip: count, hover list, click to filter | **present** |
 
 ## Display options
 
 | Item | Status |
 | --- | --- |
-| Grouping per mode | **partial** — one global grouping (status / assignee / priority / project / none) applied to list and board. The table does not group at all, and swimlanes are hard-wired to assignee rows and status columns. |
-| Ordering: manual, status, priority, dates, created, updated, title, custom property | **partial** — priority, created and title only. |
-| Ascending / descending | **missing** |
-| Sub-issue toggle | **partial** — the switch exists and is persisted, but nothing reads `showSubIssues`, so sub-tasks always show. |
+| Grouping per mode | **present** — status / assignee / priority / project / none, plus parent and a workspace field for the table and swimlanes. |
+| Ordering: manual, status, priority, dates, created, updated, title | **present** |
+| Ordering by a custom property | **not built** — field values are not on the list payload, and the view query can group by a field but not order by one. |
+| Ascending / descending | **present** |
+| Sub-issue toggle | **present** — and it now hides sub-tasks instead of only remembering the switch. |
 | Card property toggles | **present** |
-| Table: hierarchy nesting | **missing** |
-| Table: searchable column picker | **partial** — a checkbox list with no search. |
+| Table: hierarchy nesting | **present** |
+| Table: searchable column picker | **present** |
 | Table: hide columns | **present** |
-| Table: drag to reorder columns | **missing** |
-| Table: footer calculations (count, sum, average) | **missing** |
-| Table: title and identifier search | **missing** |
-| Table: CSV export of all or selected rows, with a toast | **missing** |
-| Board: hide columns | **partial** — columns emptied by a filter collapse into a "hidden columns" strip automatically; a person cannot hide a column themselves. |
-| Board: restore hidden columns | **missing** |
+| Table: drag to reorder columns | **present** |
+| Table: footer count, sum, average | **present** — sum and average over the numeric columns. |
+| Table: title and identifier search | **present** |
+| Table: CSV export of all or selected rows, with a toast | **present** |
+| Board: hide columns | **present** |
+| Board: restore hidden columns | **present** — in the same strip that lists the filter-emptied ones. |
 
 ## Saved views
 
 | Item | Status |
 | --- | --- |
-| Saved-views tab bar | **missing** — there is a Views *page* with rows, and no tab strip above the list. |
-| Drag to reorder tabs, overflow menu | **missing** |
-| Tab menu: edit, pin/unpin, hide/show, delete with confirm | **partial** — the Views page has a pin toggle and a delete button that deletes with no confirmation. |
-| Manage-views dialog (order and visibility per user) | **missing** — the server already stores per-person view preferences. |
-| Save/edit dialog: name, private or shared, filters, layout, display defaults, scope | **partial** — name, private/shared, current filters and the layout; no display defaults, no scope, and no way to edit an existing view. |
-| Conflict toast when someone else edited the view | **missing** — the API returns a revision conflict; the frontend never calls PATCH. |
-| A missing view shows a toast and exits | **partial** — the page renders the words "View not found" and stays there. |
-| Uses `/api/v1/issue-views` (ours: `/api/v1/views`) | **present** |
+| Tabs with drag reorder and an overflow menu | **present** |
+| Tab menu: edit, pin/unpin to the sidebar, hide/show, delete with a confirm | **present** |
+| Manage-views dialog, order and visibility per user | **present** — both live in that person's view preferences on the server. |
+| Save/edit dialog: name, private or shared, filters, layout, display defaults, scope | **present** |
+| Conflict toast when someone else edited the view | **present** |
+| A missing view shows an info toast and exits | **present** |
+| Uses the existing saved-view endpoints | **present** |
 
 ## Inline edits
 
 | Item | Status |
 | --- | --- |
-| Status, priority, assignee on rows and cards | **present** |
-| Dates, labels, project, custom properties on rows and cards | **missing** |
-| Table title rename, Enter saves | **partial** — double-click then Enter saves; Escape does not cancel. |
-| Quick-add row | **partial** — a quick-add input exists on the unused all-issues body, not in the table or on the live page. |
-| Add button on each group header pre-filling the group value | **partial** — the button is there and pre-fills a status; grouping by assignee, priority or project pre-fills nothing. |
+| Rows and cards: status, priority, assignee | **present** |
+| Rows and cards: dates, labels, project | **present** — inline in the table, through the right-click menu on rows and cards. |
+| Custom properties inline | **present** in the table; **not built** on cards — a card would need a popover per field, and the values are only readable in bulk through the grouped query the table already runs. |
+| Table title rename: Enter saves, Escape cancels | **present** |
+| Quick-add row | **present** — in the table and above every list. |
+| Add button on each group header | **present**; pre-filling a non-status group value is **not built** — the create modal accepts a default status and nothing else. |
 
 ## Context menu
 
 | Item | Status |
 | --- | --- |
-| Status, priority, assignee submenus | **present** |
-| Quick date picks (today, tomorrow, next week, clear) | **missing** — one "set due date in a week" item. |
-| Open in new tab | **missing** |
-| Pin | **missing** |
-| Copy link | **partial** — the row menu copies the title only; the detail overflow menu copies a link. |
-| Relations: create sub-issue, set parent, remove parent, add existing sub-issue | **missing** from the menu (the API and the detail panel have them). |
-| Delete | **present** — with a confirmation dialog. |
-| Several menu entries are decorative | noted — "convert into", "make a copy", "remind me", "mark as" and friends only raise a toast. |
+| Status, priority, assignee submenus | **present** — agents beside members. |
+| Quick date picks: today, tomorrow, next week, clear | **present** |
+| Open in new tab | **present** |
+| Pin | **present** |
+| Copy link | **present** |
+| Relations: create sub-issue, set parent, remove parent, add existing sub-issue | **present** |
+| Delete | **present**, with a confirmation. |
 
 ## Selection
 
 | Item | Status |
 | --- | --- |
-| Checkboxes | **partial** — table rows only; list rows and board cards have none. |
-| Shift-range selection | **missing** |
-| Select all | **missing** |
-| Bulk toolbar: count, clear, status, priority, assignee, delete | **partial** — all present, but it is only mounted on the unused all-issues body, the delete confirmation is `window.confirm`, and assigning to an agent does not go through a run confirmation. |
+| Checkboxes on rows, cards and table rows | **present** |
+| Shift-range selection | **present** |
+| Select all | **present** — over what the filters are showing. |
+| Bulk toolbar: count, clear, status, priority, assignee, delete with a confirm | **present** |
+| Assigning to an agent goes through a run confirmation | **present**, against a local stand-in — see the wiring note below. |
 | Uses the batch endpoints | **present** |
 
 ## Drag and drop
@@ -129,63 +125,80 @@ whole task list in one go, so there is no paging anywhere.
 | Item | Status |
 | --- | --- |
 | Board: reorder within a column | **present** |
-| Board: move across columns to change the grouped field | **partial** — works when grouping by status; dropping into an assignee/priority/project column does nothing. |
-| List: move between groups | **missing** |
-| Swimlanes: move cells, reorder lanes | **missing** |
-| Table: reorder columns | **missing** |
-| Auto-scroll near the board edge | **missing** |
+| Board: move across columns to change the grouped field | **present** — status, assignee, priority and project all write. |
+| List: move between groups | **present** |
+| Swimlanes: move cells, reorder lanes | **present** |
+| Table: reorder columns | **present** |
+| Auto-scroll near the board edge | **present** |
 
 ## Loading
 
 | Item | Status |
 | --- | --- |
-| Load more with retry | **missing** — every task is fetched up front. |
-| Per-group loading in the table | **missing** |
-| Virtualized large board columns | **missing** — the table is virtualized; board columns are not. |
+| Load more with retry | **not built** — the list endpoint is drained in full (up to twenty pages) on first load, so there is no cursor left to continue from. The retry half exists: a failed load says so and can be run again. |
+| Per-group loading in the table | **not built** as a per-group fetch, for the same reason; the group header shows the list-level loading marker while a load is in flight. |
+| Virtualized large board columns | **present** — past forty cards a column renders only what is in view. |
 
 ## Gantt
 
 | Item | Status |
 | --- | --- |
-| Zoom by day, week, month | **missing** — one fixed day scale. |
-| Toggle to show completed issues | **missing** |
-| Today line | **missing** |
-| Shaded weekends | **missing** |
-| Warning when dates are inverted | **missing** |
+| Zoom by day, week, month | **present** |
+| Toggle to show completed | **present** |
+| Today line | **present** |
+| Shaded weekends | **present** |
+| Warning when dates are inverted | **present** — counted and named rather than drawn backwards. |
 
 ## States
 
 | Item | Status |
 | --- | --- |
-| Skeleton per mode | **missing** |
-| Status-catalogue error with retry | **missing** — statuses are a local constant, and a failed task load silently yields an empty list. |
-| Filters-empty state with a clear button | **partial** — a footer says how many rows the filters hid and offers "clear filters", but an all-empty result shows the generic empty state instead. |
+| Skeleton per mode | **present** |
+| Status-catalogue error with retry | **present** as the list-load error with retry. Berry's statuses are a local catalogue, so the failure this covers is the task list itself, which used to fail silently into an empty board. |
+| Filters-empty state with a clear button | **present** |
 | Workspace-empty state | **present** |
-| Toast when a grouped property was deleted | **missing** |
+| Toast when a grouped property was deleted | **present** — and the grouping falls back to status. |
 
 ## Projects
 
 | Item | Status |
 | --- | --- |
-| List: table or cards | **partial** — list, board and timeline; the board is closer to columns than to a card grid. |
-| Search | **missing** |
-| Filters: status, priority, lead | **partial** — health and priority only. |
+| List: table or cards | **present** in substance — rows (list), cards (board) and a timeline; **not built** as a separate card grid beside the table. |
+| Search | **present** |
+| Filters: status, priority, lead (and health) | **present** |
 | Sort | **present** |
 | Column visibility | **present** |
-| Inline edits | **present** — status, priority, lead, target date, health. |
-| Row menu (pin, delete with confirm) | **partial** — `ProjectActionsMenu` exists with a delete confirmation but is not mounted on a row, and it has no pin. |
-| Bulk pin | **missing** — projects have no selection at all. |
-| Detail sidebar: emoji icon, title, status, priority, lead, dates, progress | **present** (the icon is a glyph, not an emoji picker). |
-| Description marked as agent context | **missing** |
-| Resources: attach or remove a GitHub repo from workspace repos | **present** |
-| Pin, copy link, delete on the detail | **partial** — delete and copy link (through the actions menu); no pin. |
+| Inline edits | **present** |
+| Row menu: pin, delete with a confirm | **present** |
+| Bulk pin | **present** |
+| Detail sidebar: title, status, priority, lead, dates, progress | **present** |
+| Detail sidebar: emoji icon | **not built** — a project's icon is a glyph from the icon set, and an emoji picker would be a second, conflicting identity for the same field. |
+| Description marked as agent context | **present** |
+| Resources: attach or remove a GitHub repo | **present** (inherited) |
+| Pin, copy link, delete on the detail | **present** |
 
-## Summary
+## Not built, in one place
 
-Roughly a third of the checklist is already here in some form, mostly the parts
-that were easy to reach from the Circle template: the list and board, the filter
-chips, the batch endpoints, project inline edits. What is thin is everything that
-makes the list a working surface rather than a display: per-mode display
-settings, table work (columns, export, calculations, hierarchy), selection,
-saved-view management, the gantt, the loading and error states, and the small
-per-row affordances (dates, labels, quick picks, relations).
+1. A scope switch on the project task tab and on saved views.
+2. Ordering by a custom property.
+3. Load more, and per-group loading as a per-group fetch.
+4. Pre-filling a non-status value from a group header's add button.
+5. Custom-property editing on board cards.
+6. A separate card grid for projects.
+7. An emoji icon picker on a project.
+
+## Wiring left for the merge
+
+- `components/common/issues/run-confirm-dialog.tsx` is a local stand-in for the
+  agent workstream's run confirmation. The call site in `batch-toolbar.tsx`
+  passes the agent, the task count and a confirm callback; swap the component,
+  keep the props.
+- The `issueLists` namespace is registered in `frontend/lib/i18n/locales.ts`,
+  `frontend/i18n/messages-en.ts` and `scripts/check-locale-catalogues.py` — one
+  line each, and the likeliest conflict with another workstream's namespace.
+- `components/data-table-filter/components/filter-value.tsx` (vendored) gained
+  the three date shortcuts. The rest of that file is untouched and deliberately
+  left in its own formatting.
+- `hooks/use-hydrate-workspace-data.ts`, `store/issues-store.ts` and
+  `lib/issues.ts` carry the list's load state, the retry, and the creator and
+  updated-at fields the list now reads.
