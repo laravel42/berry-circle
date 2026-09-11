@@ -124,6 +124,7 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
          // the confirmed scope re-derived through the join, not the raw param.
          const rows = await db.list((q) => q.sql`
             SELECT issue.id, issue.title, issue.board_id, board.name AS board_name,
+                   issue.status::text AS status,
                    berry_issue_identifier(board.workspace_id, issue.number) AS identifier
               FROM issues AS issue
               JOIN boards AS board ON board.id = issue.board_id
@@ -142,6 +143,10 @@ function searchRoute(options: WorkspaceReadOptions): Hono<{ Variables: AuthVaria
                identifier: (row.identifier as string | null) ?? null,
                boardId: row.board_id as string,
                agentId: null,
+               // What state the task is in. A palette that cannot tell a
+               // cancelled task from a live one offers them as equals, which
+               // is how a closed task gets reopened by mistake.
+               status: (row.status as string | null) ?? null,
             });
          }
       }

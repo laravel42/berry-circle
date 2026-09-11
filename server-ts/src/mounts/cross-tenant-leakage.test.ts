@@ -53,6 +53,8 @@ import { PluginRuntimeStore } from '../plugins/runtime-store.ts';
 import { pluginMounts } from './plugins.ts';
 import { publicApiMounts } from './public-api.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
+import { SecretsRepository } from '../identity/secrets.ts';
+import { secretsMounts } from './secrets.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -86,6 +88,8 @@ interface World {
    w1RepoUrl: string;
    w2RepoUrl: string;
    w2RepoId: string;
+   /** An open invitation into W2, addressed to nobody in this test. */
+   w2InvitationId: string;
 }
 
 describe(
@@ -121,6 +125,9 @@ describe(
          );
          registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
          registry.registerAll(usageMounts({ sessions, sql }));
+         // The personal invitation routes: not workspace-scoped, scoped to the
+         // caller's own address, which is the guarantee tested below.
+         registry.registerAll(secretsMounts({ sessions, secrets: new SecretsRepository(sql) }));
          registry.registerAll(
             githubMounts({
                sessions,
@@ -200,6 +207,19 @@ describe(
          await sql`
             INSERT INTO workspace_memberships (workspace_id, user_id, role)
             VALUES (${world.w2Id}, ${u2Id}, 'owner')`;
+
+         // An open invitation into W2, addressed to a third party. U1 is not
+         // that party, so it is none of U1's business — in the list or out of it.
+         const [w2Invitation] = await sql`
+            INSERT INTO workspace_invitations
+               (id, workspace_id, email, role, invited_by, token_hash,
+                idempotency_key_hash, request_fingerprint, expires_at)
+            VALUES (${randomUUID()}, ${world.w2Id}, ${`leak-invitee-${suffix}@berry.test`},
+                    'member', ${u2Id}, ${Buffer.alloc(32, 1)}, ${Buffer.alloc(32, 2)},
+                    ${Buffer.alloc(32, 3)},
+                    ${new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()})
+            RETURNING id`;
+         world.w2InvitationId = w2Invitation!.id as string;
 
          // Identifiable labels in each workspace. The names are distinct and
          // searchable so a leak would be visible by name, not only by id.
@@ -321,6 +341,7 @@ describe(
             for (const ws of world.workspaceIds) {
                await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
                await deleteWorkspaceAgents(sql, [ws]);
+               await sql`DELETE FROM workspace_invitations WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM saved_issue_views WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
@@ -365,6 +386,50 @@ describe(
             })
          );
       }
+
+      /** Authenticated POST as U1, with an idempotency key and the fixed id. */
+      function postAsU1(path: string): Promise<Response> {
+         return Promise.resolve(
+            app.request(path, {
+               method: 'POST',
+               headers: {
+                  authorization: `Bearer ${world.u1Token}`,
+                  'content-type': 'application/json',
+                  'Idempotency-Key': randomUUID(),
+                  'x-request-id': REQUEST_ID,
+               },
+               body: JSON.stringify({}),
+            })
+         );
+      }
+
+      test('invitations: a W2 invitation is invisible to U1 and cannot be joined or declined', async () => {
+         // (a) U1's own pending list never carries it.
+         const pending = await getAsU1('/api/v1/invitations/pending');
+         assert.equal(pending.status, 200);
+         assert.equal((await pending.text()).includes(world.w2InvitationId), false);
+
+         // (b) Acting on it is the same 404 as acting on one that never existed.
+         const join = await postAsU1(`/api/v1/invitations/${world.w2InvitationId}/join`);
+         const absentJoin = await postAsU1(`/api/v1/invitations/${randomUUID()}/join`);
+         assert.equal(join.status, 404);
+         assert.equal(await join.text(), await absentJoin.text());
+
+         const decline = await postAsU1(`/api/v1/invitations/${world.w2InvitationId}/decline`);
+         assert.equal(decline.status, 404);
+
+         // (c) W2 is unchanged: the invitation still stands and U1 is still out.
+         const [row] = await sql`
+            SELECT accepted_at, revoked_at FROM workspace_invitations
+             WHERE id = ${world.w2InvitationId}`;
+         assert.equal(row!.accepted_at, null, 'the W2 invitation was not accepted');
+         assert.equal(row!.revoked_at, null, 'the W2 invitation was not revoked');
+         const u1Id = world.userIds[0] ?? '';
+         const [membership] = await sql`
+            SELECT 1 FROM workspace_memberships
+             WHERE workspace_id = ${world.w2Id} AND user_id = ${u1Id}`;
+         assert.equal(membership, undefined, 'U1 did not become a member of W2');
+      });
 
       test('runtimes: W1 lists none of W2 and cannot open or change W2 runtime', async () => {
          const list = await getAsU1('/api/v1/runtimes');

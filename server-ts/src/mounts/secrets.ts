@@ -191,6 +191,42 @@ function invitationRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariab
       return response;
    });
 
+   /**
+    * The same open invitations, named, for a switcher that offers them inline.
+    * Unpaged: an account with more than a screenful of pending invitations is
+    * not a case worth a cursor.
+    */
+   route.get('/pending', async (context) => {
+      const found = await domain('Invitation', () =>
+         secrets.listPendingInvitations(context.get('user').id, 50)
+      );
+      return json({ nodes: found });
+   });
+
+   /** Accept from that list — the session is the proof, not a token. */
+   route.post('/:invitationId/join', async (context) => {
+      const invitationId = pathId(context.req.param('invitationId'), 'Invitation');
+      requireIdempotencyKey(context.req.raw.headers);
+
+      const member = await domain('Invitation', () =>
+         secrets.joinInvitation(context.get('user').id, invitationId)
+      );
+      const response = json(serializeMember(member));
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+   });
+
+   /** Decline it. A foreign or absent id is the same 404 as a made-up one. */
+   route.post('/:invitationId/decline', async (context) => {
+      const invitationId = pathId(context.req.param('invitationId'), 'Invitation');
+      requireIdempotencyKey(context.req.raw.headers);
+
+      await domain('Invitation', () =>
+         secrets.declineInvitation(context.get('user').id, invitationId)
+      );
+      return new Response(null, { status: 204 });
+   });
+
    return route;
 }
 

@@ -891,6 +891,7 @@ if (auth) registry.registerAll(betterAuthMounts(auth));
 registry.registerAll(
    platformMounts({
       database: () => checkDatabase(sql),
+      version: VERSION,
       metrics: {
          sql,
          // Null rather than zero on a server that does not dispatch: "this
