@@ -6,7 +6,7 @@ import { useIssuesStore } from '@/store/issues-store';
 import { useViewStore } from '@/store/view-store';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { cn } from '@/lib/utils';
-import { ChevronDown, Plus } from 'lucide-react';
+import { ChevronDown, EyeOff, Plus } from 'lucide-react';
 import { FC, ReactNode, useRef } from 'react';
 import { useDrop } from 'react-dnd';
 import { AnimatePresence, motion } from 'motion/react';
@@ -33,6 +33,8 @@ interface GroupIssuesProps {
    /** Issues of the group, already sorted upstream. */
    issues: Issue[];
    count: number;
+   /** Board only: take this column off the board until it is restored. */
+   onHide?: () => void;
 }
 
 /** Circle board/list header tint — ~6% alpha on board, ~3% on list. */
@@ -48,12 +50,14 @@ function GroupHeaderBar({
    isViewTypeGrid,
    showChevron,
    canCollapse,
+   onHide,
 }: {
    group: IssueGroupDescriptor;
    count: number;
    isViewTypeGrid: boolean;
    showChevron: boolean;
    canCollapse: boolean;
+   onHide?: () => void;
 }) {
    const { openModal } = useCreateIssueStore();
 
@@ -96,7 +100,24 @@ function GroupHeaderBar({
             style={{ backgroundColor: statusHeaderTint(group.color, true) }}
          >
             <div className="flex min-w-0 items-center gap-2">{label}</div>
-            {createButton}
+            <div className="flex shrink-0 items-center">
+               {onHide ? (
+                  <Button
+                     className="size-5"
+                     size="icon"
+                     variant="ghost"
+                     aria-label={`Hide ${group.name}`}
+                     title={`Hide ${group.name}`}
+                     onClick={(event) => {
+                        event.stopPropagation();
+                        onHide();
+                     }}
+                  >
+                     <EyeOff className="size-3.5" />
+                  </Button>
+               ) : null}
+               {createButton}
+            </div>
          </div>
       );
    }
@@ -131,7 +152,7 @@ function GroupHeaderBar({
    );
 }
 
-export function GroupIssues({ group, issues, count }: GroupIssuesProps) {
+export function GroupIssues({ group, issues, count, onHide }: GroupIssuesProps) {
    const { viewType } = useViewStore();
    const isViewTypeGrid = viewType === 'grid';
    const showChevron = !isViewTypeGrid;
@@ -144,6 +165,7 @@ export function GroupIssues({ group, issues, count }: GroupIssuesProps) {
          isViewTypeGrid={isViewTypeGrid}
          showChevron={showChevron}
          canCollapse={canCollapse}
+         onHide={onHide}
       />
    );
 

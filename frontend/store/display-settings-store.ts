@@ -1,19 +1,19 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import type { ViewType } from './view-store';
 
-export type GroupingKey = 'status' | 'assignee' | 'priority' | 'project' | 'none';
-export type OrderingKey = 'priority' | 'created' | 'title';
+/** What a list is grouped by. `property:<id>` groups by a workspace field. */
+export type GroupingKey =
+   'status' | 'assignee' | 'priority' | 'project' | 'parent' | 'none' | `property:${string}`;
+
+export type OrderingKey =
+   'manual' | 'status' | 'priority' | 'dueDate' | 'created' | 'updated' | 'title';
+
+export type SortDirection = 'asc' | 'desc';
 export type CompletedIssuesFilter = 'all' | 'none';
 
 export type DisplayPropertyKey =
-   | 'id'
-   | 'status'
-   | 'priority'
-   | 'assignee'
-   | 'labels'
-   | 'project'
-   | 'dueDate'
-   | 'created';
+   'id' | 'status' | 'priority' | 'assignee' | 'labels' | 'project' | 'dueDate' | 'created';
 
 export const DISPLAY_PROPERTIES: { key: DisplayPropertyKey; label: string }[] = [
    { key: 'id', label: 'ID' },
@@ -37,47 +37,74 @@ const DEFAULT_DISPLAY_PROPERTIES: Record<DisplayPropertyKey, boolean> = {
    created: true,
 };
 
+/**
+ * Grouping is per layout, not global.
+ *
+ * A board grouped by status and a swimlane grid grouped by assignee are the
+ * same list asking two different questions, and forcing one answer on both
+ * meant switching layout silently re-grouped the other one.
+ */
+const DEFAULT_GROUPING: Record<ViewType, GroupingKey> = {
+   list: 'status',
+   grid: 'status',
+   table: 'status',
+   swimlane: 'assignee',
+   gantt: 'none',
+};
+
 interface DisplaySettingsState {
-   grouping: GroupingKey;
+   groupingByMode: Record<ViewType, GroupingKey>;
    ordering: OrderingKey;
+   direction: SortDirection;
    orderCompletedByRecency: boolean;
    completedIssues: CompletedIssuesFilter;
    showSubIssues: boolean;
    showEmptyGroups: boolean;
    displayProperties: Record<DisplayPropertyKey, boolean>;
+   /** Board columns hidden by hand, by group id. */
+   hiddenBoardColumns: string[];
 
-   setGrouping: (grouping: GroupingKey) => void;
+   setGrouping: (mode: ViewType, grouping: GroupingKey) => void;
    setOrdering: (ordering: OrderingKey) => void;
+   setDirection: (direction: SortDirection) => void;
    setOrderCompletedByRecency: (value: boolean) => void;
    setCompletedIssues: (value: CompletedIssuesFilter) => void;
    setShowSubIssues: (value: boolean) => void;
    setShowEmptyGroups: (value: boolean) => void;
    toggleDisplayProperty: (key: DisplayPropertyKey) => void;
+   hideBoardColumn: (groupId: string) => void;
+   restoreBoardColumn: (groupId: string) => void;
+   restoreAllBoardColumns: () => void;
    resetDisplaySettings: () => void;
 }
 
 const DEFAULTS = {
-   grouping: 'status' as GroupingKey,
+   groupingByMode: DEFAULT_GROUPING,
    ordering: 'priority' as OrderingKey,
+   direction: 'asc' as SortDirection,
    orderCompletedByRecency: false,
    completedIssues: 'all' as CompletedIssuesFilter,
    showSubIssues: true,
    showEmptyGroups: false,
    displayProperties: DEFAULT_DISPLAY_PROPERTIES,
+   hiddenBoardColumns: [] as string[],
 };
 
 /**
- * View display settings (Linear's "Display" popover): grouping, ordering,
- * completed-issue visibility and per-row display properties.
- * Persisted to localStorage.
+ * Display settings of the task lists: grouping per layout, ordering and its
+ * direction, completed-task visibility, sub-tasks, hidden board columns and
+ * the per-row properties. Persisted; the URL overrides it per link (see
+ * `use-issue-list-view`).
  */
 export const useDisplaySettingsStore = create<DisplaySettingsState>()(
    persist(
       (set) => ({
          ...DEFAULTS,
 
-         setGrouping: (grouping) => set({ grouping }),
+         setGrouping: (mode, grouping) =>
+            set((state) => ({ groupingByMode: { ...state.groupingByMode, [mode]: grouping } })),
          setOrdering: (ordering) => set({ ordering }),
+         setDirection: (direction) => set({ direction }),
          setOrderCompletedByRecency: (orderCompletedByRecency) => set({ orderCompletedByRecency }),
          setCompletedIssues: (completedIssues) => set({ completedIssues }),
          setShowSubIssues: (showSubIssues) => set({ showSubIssues }),
@@ -89,10 +116,24 @@ export const useDisplaySettingsStore = create<DisplaySettingsState>()(
                   [key]: !state.displayProperties[key],
                },
             })),
+         hideBoardColumn: (groupId) =>
+            set((state) => ({
+               hiddenBoardColumns: state.hiddenBoardColumns.includes(groupId)
+                  ? state.hiddenBoardColumns
+                  : [...state.hiddenBoardColumns, groupId],
+            })),
+         restoreBoardColumn: (groupId) =>
+            set((state) => ({
+               hiddenBoardColumns: state.hiddenBoardColumns.filter((entry) => entry !== groupId),
+            })),
+         restoreAllBoardColumns: () => set({ hiddenBoardColumns: [] }),
          resetDisplaySettings: () => set({ ...DEFAULTS }),
       }),
       {
-         name: 'display-settings',
+         // Bumped with the shape: a stored v1 record has a single `grouping`
+         // string where this one wants a map, and merging the two would leave
+         // the board grouped by undefined.
+         name: 'display-settings-v2',
          storage: createJSONStorage(() => localStorage),
       }
    )
