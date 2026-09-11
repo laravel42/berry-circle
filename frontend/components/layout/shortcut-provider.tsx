@@ -63,6 +63,21 @@ export function shortcutIsClaimed(id: string): boolean {
    return (handlers.get(id)?.length ?? 0) > 0;
 }
 
+/**
+ * Stop acting on keystrokes until told otherwise.
+ *
+ * There is exactly one caller: the settings page, while it is recording a new
+ * combination. Someone pressing C to bind C must not also create a task. The
+ * recorder stops the event in the capture phase as well, so this is the second
+ * of two locks rather than the only one — and it is the one that still holds
+ * if a keystroke reaches the listener by another path.
+ */
+let suspended = false;
+
+export function setShortcutsSuspended(value: boolean): void {
+   suspended = value;
+}
+
 export function useShortcut(
    id: string,
    handler: Handler,
@@ -115,6 +130,7 @@ export function ShortcutProvider({ children }: { children?: React.ReactNode }) {
 
    useEffect(() => {
       const onKeyDown = (event: KeyboardEvent) => {
+         if (suspended) return;
          // Mid-composition, a keystroke belongs to the input method: a Japanese
          // or Chinese writer pressing C is choosing a candidate, not creating a
          // task. `keyCode === 229` is the same fact on browsers that do not set
