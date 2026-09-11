@@ -1,0 +1,105 @@
+{
+   "title": "收件箱",
+   "description": "你离开期间，与你工作有关的动态。",
+   "views": {
+      "active": "收件箱",
+      "archived": "归档"
+   },
+   "list": {
+      "unread": "未读",
+      "shortcutHint": "上下键移动，E 归档",
+      "selectHint": "选择一条通知即可查看。"
+   },
+   "filters": {
+      "status": "状态",
+      "priority": "优先级",
+      "sender": "来源",
+      "unreadOnly": "仅未读",
+      "clear": "清除筛选",
+      "anySender": "全部来源",
+      "unknownSender": "未知来源",
+      "agents": "智能体",
+      "system": "Berry",
+      "active": "{count} 个筛选条件"
+   },
+   "states": {
+      "loading": "正在加载通知…",
+      "empty": "暂时没有动态。",
+      "emptyBody": "你关注的工作的指派、评论与智能体结果都会出现在这里。",
+      "noMatches": "没有符合筛选条件的通知。",
+      "emptyArchive": "归档为空。",
+      "emptyArchiveBody": "你归档的通知会保存在这里。",
+      "error": "无法加载归档。",
+      "errorBody": "请求没有返回，数据没有丢失。",
+      "retry": "重试"
+   },
+   "actions": {
+      "markRead": "标记为已读",
+      "markUnread": "标记为未读",
+      "archive": "归档",
+      "unarchive": "移回收件箱",
+      "openInNewTab": "在新标签页打开",
+      "rowMenu": "通知操作",
+      "bulkMenu": "批量操作",
+      "markAllRead": "全部标记为已读",
+      "archiveAll": "全部归档",
+      "archiveRead": "归档已读",
+      "archiveCompleted": "归档已完成",
+      "back": "返回列表",
+      "retryRun": "使用原始上下文重试"
+   },
+   "detail": {
+      "prompt": "原始提示词",
+      "comment": "相关评论",
+      "noBody": "这条通知没有更多内容。",
+      "issueDeleted": "该任务已不存在。",
+      "issueDeletedBody": "这条通知指向的任务已被删除。",
+      "backToInbox": "返回收件箱"
+   },
+   "toasts": {
+      "archived": "已归档",
+      "unarchived": "已移回收件箱",
+      "archivedMany": "已归档 {count} 条",
+      "allRead": "已全部标记为已读",
+      "failed": "操作未成功，请重试。",
+      "retryStarted": "任务已重新运行。",
+      "retryFailed": "无法启动运行。"
+   },
+   "drawer": {
+      "title": "通知",
+      "description": "你离开期间，与你工作有关的动态。",
+      "markAllRead": "全部标记为已读",
+      "empty": "暂时没有动态。",
+      "unread": "未读",
+      "openInbox": "打开收件箱"
+   },
+   "toast": {
+      "open": "打开",
+      "more": "另有 {count} 条"
+   },
+   "types": {
+      "comment": "新评论",
+      "mention": "有人提到你",
+      "assignment": "指派给你",
+      "unassigned": "取消指派",
+      "subscribed": "已订阅",
+      "fieldChange": "字段变更",
+      "reviewRequested": "请求评审",
+      "reaction": "新的表情回应",
+      "status": "状态变更",
+      "reopened": "重新打开",
+      "closed": "已关闭",
+      "edited": "已编辑",
+      "created": "已创建",
+      "upload": "附件上传",
+      "approval": "审批",
+      "goal": "目标",
+      "workflow": "工作流",
+      "plan": "计划",
+      "runCompleted": "运行完成",
+      "runFailed": "运行失败",
+      "agentBlocked": "智能体受阻",
+      "agentCompleted": "智能体完成",
+      "autopilotPaused": "自动驾驶已暂停"
+   }
+}

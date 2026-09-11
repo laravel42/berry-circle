@@ -1,48 +1,89 @@
 import React from 'react';
 import {
-   MessageCircle,
    AtSign,
-   UserPlus,
-   GitPullRequest,
-   RotateCcw,
-   X,
+   CircleCheck,
+   CircleSlash,
    Edit,
+   GitPullRequest,
+   Hand,
+   MessageCircle,
+   PauseCircle,
    Plus,
-   Upload,
+   RotateCcw,
    ShieldCheck,
-   Target,
+   Smile,
    Sparkles,
+   SquarePen,
+   Target,
+   Upload,
+   UserMinus,
+   UserPlus,
+   X,
 } from 'lucide-react';
 import { NotificationType } from '@/data/inbox';
 import { cn } from '@/lib/utils';
 
+/**
+ * The mark on a notification row.
+ *
+ * Colour comes from the semantic state tokens rather than raw palette values,
+ * so the meaning survives both themes: agent work is `actor-agent`, a person's
+ * is `actor-human`, and anything waiting on you or gone wrong takes the
+ * warning and danger tones it would take anywhere else in the product.
+ */
+const TONE: Record<NotificationType, string> = {
+   comment: 'text-actor-human',
+   mention: 'text-status-warning',
+   assignment: 'text-actor-human',
+   unassigned: 'text-status-neutral',
+   subscribed: 'text-status-neutral',
+   fieldChange: 'text-status-neutral',
+   reviewRequested: 'text-status-warning',
+   reaction: 'text-actor-human',
+   status: 'text-status-info',
+   reopened: 'text-status-warning',
+   closed: 'text-status-neutral',
+   edited: 'text-status-neutral',
+   created: 'text-status-info',
+   upload: 'text-status-neutral',
+   approval: 'text-status-warning',
+   goal: 'text-status-info',
+   workflow: 'text-actor-agent',
+   plan: 'text-status-info',
+   runCompleted: 'text-status-success',
+   runFailed: 'text-status-danger',
+   agentBlocked: 'text-status-warning',
+   agentCompleted: 'text-status-success',
+   autopilotPaused: 'text-status-neutral',
+};
+
+const ICON: Record<NotificationType, React.ComponentType<{ className?: string }>> = {
+   comment: MessageCircle,
+   mention: AtSign,
+   assignment: UserPlus,
+   unassigned: UserMinus,
+   subscribed: Target,
+   fieldChange: SquarePen,
+   reviewRequested: GitPullRequest,
+   reaction: Smile,
+   status: GitPullRequest,
+   reopened: RotateCcw,
+   closed: X,
+   edited: Edit,
+   created: Plus,
+   upload: Upload,
+   approval: ShieldCheck,
+   goal: Target,
+   workflow: Sparkles,
+   plan: Sparkles,
+   runCompleted: CircleCheck,
+   runFailed: CircleSlash,
+   agentBlocked: Hand,
+   agentCompleted: CircleCheck,
+   autopilotPaused: PauseCircle,
+};
+
 export function getNotificationIcon(type: NotificationType, className?: string) {
-   switch (type) {
-      case 'comment':
-         return <MessageCircle className={cn('text-blue-500', className)} />;
-      case 'mention':
-         return <AtSign className={cn('text-orange-500', className)} />;
-      case 'assignment':
-         return <UserPlus className={cn('text-green-500', className)} />;
-      case 'status':
-         return <GitPullRequest className={cn('text-purple-500', className)} />;
-      case 'reopened':
-         return <RotateCcw className={cn('text-yellow-500', className)} />;
-      case 'closed':
-         return <X className={cn('text-gray-500', className)} />;
-      case 'edited':
-         return <Edit className={cn('text-indigo-500', className)} />;
-      case 'created':
-         return <Plus className={cn('text-emerald-500', className)} />;
-      case 'upload':
-         return <Upload className={cn('text-pink-500', className)} />;
-      case 'approval':
-         return <ShieldCheck className={cn('text-status-warning', className)} />;
-      case 'goal':
-         return <Target className={cn('text-status-info', className)} />;
-      case 'plan':
-         return <Sparkles className={cn('text-status-info', className)} />;
-      default:
-         return <MessageCircle className={cn('text-blue-500', className)} />;
-   }
+   const Icon = ICON[type] ?? MessageCircle;
+   return <Icon className={cn(TONE[type] ?? 'text-status-neutral', className)} />;
 }
