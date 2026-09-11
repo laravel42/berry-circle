@@ -30,6 +30,16 @@ export interface View {
    createdAt: string;
    updatedAt: string;
    filter: ViewFilter;
+   /** Who can see it. Private views are the owner's alone. */
+   visibility: 'private' | 'workspace';
+   /** Optimistic-concurrency counter; a save must send the one it read. */
+   revision: number;
+   /** The saved filter chips, exactly as the filter bar stores them. */
+   savedFilters: unknown[];
+   /** Saved layout and display defaults (`layout`, `grouping`, `ordering`, …). */
+   display: Record<string, unknown>;
+   /** The scope the view was saved from (`all`, `assigned`, …). */
+   scope?: string;
 }
 
 /** Apply an issue view's declarative filter to the issue list. */
