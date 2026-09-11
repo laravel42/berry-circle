@@ -79,7 +79,7 @@ Every row below is the same numbering as the audit.
 | 2 | Pinned section: status icons, drag to reorder, unpin, show 5 then more, 404 pins dropped | present |
 | 3 | Work and manage sections | present |
 | 4 | New-issue button with a draft dot | present |
-| 5 | Help menu with docs, changelog, feedback and the server version | present |
+| 5 | Help menu with docs, changelog, feedback and the server version | present — the three links are build-time settings (`NEXT_PUBLIC_DOCS_URL`, `NEXT_PUBLIC_CHANGELOG_URL`, `NEXT_PUBLIC_FEEDBACK_URL`); unset, a row renders disabled rather than pointing at somebody else's site. The version comes from the server that answered. |
 | 6 | Workspace list | present |
 | 7 | Unread dots on other workspaces | present |
 | 8 | Create workspace links to `/workspaces/new` | present |
