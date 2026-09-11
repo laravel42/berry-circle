@@ -14,6 +14,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { AssigneeUser } from './assignee-user';
 import { LabelBadge } from './label-badge';
 import { ProjectBadge } from './project-badge';
+import { SelectionCheckbox } from './selection-checkbox';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { IssueContextMenu } from './issue-context-menu';
 import { WORKSPACE_SLUG } from '@/lib/config';
@@ -189,20 +190,21 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                         <GripVertical className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
                      </div>
                      <div className="min-w-0 flex-1">
-                        {displayProperties.id || displayProperties.assignee ? (
-                           <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                           <span className="flex min-w-0 items-center gap-1.5">
+                              <SelectionCheckbox issueId={issue.id} order={columnIssueIds} />
                               {displayProperties.id ? (
-                                 <span className="text-subtle-foreground">
-                                    {issue.identifier}
-                                 </span>
-                              ) : (
-                                 <span />
-                              )}
-                              {displayProperties.assignee ? (
-                                 <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
+                                 <span className="text-subtle-foreground">{issue.identifier}</span>
                               ) : null}
-                           </div>
-                        ) : null}
+                           </span>
+                           {displayProperties.assignee ? (
+                              <AssigneeUser
+                                 user={issue.assignee}
+                                 issueId={issue.id}
+                                 placeholderForAgents
+                              />
+                           ) : null}
+                        </div>
                         <Link
                            href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}
                            className="rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"

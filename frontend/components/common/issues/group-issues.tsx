@@ -180,10 +180,11 @@ export function GroupIssues({ group, issues, count, onHide }: GroupIssuesProps) 
       );
    }
 
+   const orderIds = issues.map((issue) => issue.id);
    const rows = (
       <div className="space-y-0">
          {issues.map((issue) => (
-            <IssueLine key={issue.id} issue={issue} layoutId={true} />
+            <IssueLine key={issue.id} issue={issue} layoutId={true} order={orderIds} />
          ))}
       </div>
    );

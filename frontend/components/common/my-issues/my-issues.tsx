@@ -4,7 +4,9 @@ import {
    applyIssueFilters,
    usePropertyFilterMatches,
 } from '@/components/common/issues/issue-filter-columns';
+import { BatchToolbar } from '@/components/common/issues/batch-toolbar';
 import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
+import { QuickCreate } from '@/components/common/issues/quick-create';
 import { GroupedIssuesView } from '@/components/common/issues/grouped-issues-view';
 import { InsightsPanel } from '@/components/common/issues/insights-panel';
 import { SearchIssues } from '@/components/common/issues/search-issues';
@@ -56,6 +58,8 @@ export default function MyIssues() {
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">
          <IssueFilterBar />
+         <QuickCreate />
+         <BatchToolbar visibleIds={displayedIssues.map((issue) => issue.id)} />
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
             <div className="flex-1 min-w-0 h-full overflow-hidden">
                <GroupedIssuesView

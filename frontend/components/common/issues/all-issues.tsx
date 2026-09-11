@@ -69,7 +69,7 @@ export default function AllIssues({ categories }: AllIssuesProps) {
       <div className="w-full h-full flex flex-col overflow-hidden">
          <IssueFilterBar />
          <QuickCreate />
-         <BatchToolbar />
+         <BatchToolbar visibleIds={displayedIssues.map((issue) => issue.id)} />
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
             <div className="flex-1 min-w-0 h-full overflow-hidden">
                {viewType === 'table' ? (

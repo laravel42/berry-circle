@@ -9,6 +9,7 @@ import { AssigneeUser } from './assignee-user';
 import { LabelBadge } from './label-badge';
 import { PrioritySelector } from './priority-selector';
 import { ProjectBadge } from './project-badge';
+import { SelectionCheckbox } from './selection-checkbox';
 import { StatusSelector } from './status-selector';
 import { motion } from 'motion/react';
 
@@ -17,7 +18,16 @@ import { cn } from '@/lib/utils';
 import { IssueContextMenu } from './issue-context-menu';
 import { WORKSPACE_SLUG } from '@/lib/config';
 
-export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?: boolean }) {
+export function IssueLine({
+   issue,
+   layoutId = false,
+   order = [],
+}: {
+   issue: Issue;
+   layoutId?: boolean;
+   /** Ids of the rows around this one, so a shift-click knows what "between" means. */
+   order?: string[];
+}) {
    const { orgId } = useParams<{ orgId: string }>();
    const { displayProperties } = useDisplaySettingsStore();
 
@@ -35,6 +45,7 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                )}
             >
                <div className="flex items-center gap-0.5">
+                  <SelectionCheckbox issueId={issue.id} order={order} className="mr-1.5" />
                   {displayProperties.priority && (
                      <PrioritySelector priority={issue.priority} issueId={issue.id} />
                   )}
