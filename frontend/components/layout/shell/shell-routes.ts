@@ -122,10 +122,15 @@ const WORK: ShellRouteDef[] = [
 
 const MANAGE: ShellRouteDef[] = [
    {
+      // The id stays `runs` because persisted tabs and sidebar prefs key on
+      // it. The item opens the runtimes page; the run ledger it used to open
+      // is still reached from runtime and agent detail and the command
+      // palette, and `match` keeps the item lit while it is open.
       id: 'runs',
       label: 'runtimes',
       labelKey: 'runtimes',
-      href: '/runs',
+      href: '/runtimes',
+      match: ['/runtimes/', '/runs'],
       prefsKey: 'agent',
       live: 'runs',
       icon: '<path d="M3 12h3l2-6 3 12 3-8 2 2h5" />',

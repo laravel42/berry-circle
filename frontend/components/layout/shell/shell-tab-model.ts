@@ -18,7 +18,7 @@ const SECTION_LABELS: Record<string, string> = {
    'issue': 'tasks',
    'agents': 'agents',
    'members': 'agents',
-   'runs': 'runtimes',
+   'runs': 'runs',
    'project': 'projects',
    'plan': 'plans',
    'goal': 'goals',
