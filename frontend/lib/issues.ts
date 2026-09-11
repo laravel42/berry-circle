@@ -126,6 +126,8 @@ export type IssuePatchBody = {
    description?: string | null;
    assignee?: { type: 'user' | 'agent'; id: string } | null;
    goalId?: string | null;
+   /** ISO date, or null to clear it. */
+   dueDate?: string | null;
 };
 
 /**

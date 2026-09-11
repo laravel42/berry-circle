@@ -73,7 +73,11 @@ export default function AllIssues({ categories }: AllIssuesProps) {
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
             <div className="flex-1 min-w-0 h-full overflow-hidden">
                {viewType === 'table' ? (
-                  <IssueTable issues={displayedIssues} />
+                  <IssueTable
+                     issues={displayedIssues}
+                     statuses={statuses}
+                     totalIssues={scopedIssues}
+                  />
                ) : viewType === 'swimlane' ? (
                   <IssueSwimlanes issues={displayedIssues} statuses={statuses} />
                ) : viewType === 'gantt' ? (

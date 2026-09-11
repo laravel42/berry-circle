@@ -106,6 +106,52 @@ export function usePropertyGrouping(grouping: GroupingKey): PropertyGrouping | n
    return propertyId ? result : null;
 }
 
+/**
+ * The value each task holds for a set of workspace fields, keyed
+ * `property:<id>|<issueId>`.
+ *
+ * One grouped query per field rather than one read per task: a table of forty
+ * rows showing two fields is two requests instead of eighty.
+ */
+export function usePropertyValues(propertyIds: string[]): Map<string, string> {
+   const workspaceId = useSessionStore((state) => state.workspace?.id ?? '');
+   const [values, setValues] = useState<Map<string, string>>(new Map());
+   const key = propertyIds.join(',');
+
+   useEffect(() => {
+      const ids = key ? key.split(',') : [];
+      if (!workspaceId || ids.length === 0) {
+         setValues(new Map());
+         return;
+      }
+      let cancelled = false;
+      void Promise.all(
+         ids.map((propertyId) =>
+            queryIssues({ workspaceId, groupBy: { propertyId }, perGroup: 200 })
+               .then((result) => ({ propertyId, result }))
+               .catch(() => ({ propertyId, result: null }))
+         )
+      ).then((loaded) => {
+         if (cancelled) return;
+         const next = new Map<string, string>();
+         for (const { propertyId, result } of loaded) {
+            for (const group of result?.groups ?? []) {
+               if (!group.key || group.key === 'none') continue;
+               for (const issueId of group.issueIds) {
+                  next.set(`property:${propertyId}|${issueId}`, group.key);
+               }
+            }
+         }
+         setValues(next);
+      });
+      return () => {
+         cancelled = true;
+      };
+   }, [workspaceId, key]);
+
+   return values;
+}
+
 /** The workspace's custom fields, for the grouping menu. */
 export function useWorkspaceProperties(): PropertyDefinition[] {
    const workspaceId = useSessionStore((state) => state.workspace?.id ?? '');
