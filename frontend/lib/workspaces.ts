@@ -98,17 +98,25 @@ export async function selectWorkspace(workspaceId: string): Promise<WorkspaceSum
    return parsed.data;
 }
 
-/** Accept a single-use invitation; returns the new membership. */
+/**
+ * Accept a single-use invitation; returns the new membership.
+ *
+ * The token comes from the invitation link. It is optional because an
+ * invitation addressed to the signed-in account needs no further proof — the
+ * server requires the invited address to be the caller's own — which is what
+ * lets the invitations page accept several at once without holding tokens it
+ * was never given.
+ */
 export async function acceptInvitation(
    invitationId: string,
-   token: string
+   token: string | null = null
 ): Promise<AcceptedMembership> {
    const json: unknown = await apiFetch(
       `/api/v1/invitations/${encodeURIComponent(invitationId)}/accept`,
       {
          method: 'POST',
          headers: { 'Idempotency-Key': newIdempotencyKey() },
-         body: JSON.stringify({ token }),
+         body: JSON.stringify(token === null ? {} : { token }),
       }
    );
    const parsed = memberSchema.safeParse(json);
@@ -268,6 +276,8 @@ export async function removeMember(workspaceId: string, userId: string): Promise
 const invitationSchema = z.object({
    id: z.string(),
    workspaceId: z.string(),
+   /** Carried on the invitation: an invitee cannot look a workspace up yet. */
+   workspaceName: z.string().nullish(),
    email: z.string(),
    role: z.string(),
    invitedBy: z.string().nullish(),
@@ -310,6 +320,20 @@ export async function createWorkspaceInvitation(
       .safeParse(json);
    if (!parsed.success) throw new Error('Invitation response was not recognized');
    return { invitation: parsed.data.invitation, token: parsed.data.token ?? null };
+}
+
+/**
+ * The invitations waiting for the signed-in account.
+ *
+ * The server returns only what is still open, unexpired, unrevoked and
+ * addressed to this account, so anything absent from it is something there is
+ * nothing useful to say about.
+ */
+export async function listMyInvitations(): Promise<WorkspaceInvitation[]> {
+   const json: unknown = await apiFetch('/api/v1/invitations?first=100');
+   const parsed = z.object({ nodes: z.array(invitationSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Invitation list was not recognized');
+   return parsed.data.nodes;
 }
 
 export async function revokeWorkspaceInvitation(

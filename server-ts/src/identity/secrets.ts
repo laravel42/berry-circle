@@ -48,6 +48,15 @@ export interface PersonalToken {
 export interface Invitation {
    id: string;
    workspaceId: string;
+   /**
+    * The workspace's display name.
+    *
+    * Carried on the invitation because the person reading their own
+    * invitations is not a member of the workspace yet, so they cannot look it
+    * up — an id is not something anyone can decide about. Null only where the
+    * row is built from a write that did not join it.
+    */
+   workspaceName: string | null;
    email: string;
    role: string;
    invitedBy: string;
@@ -167,7 +176,9 @@ export class SecretsRepository {
    ): Promise<Invitation[]> {
       await this.authorize(workspaceId, userId, 'invitations.read');
       const rows = await this.sql`
-         SELECT ${this.sql.unsafe(INVITATION_COLUMNS)}
+         SELECT ${this.sql.unsafe(INVITATION_COLUMNS)},
+                (SELECT workspace.name FROM workspaces AS workspace
+                  WHERE workspace.id = workspace_invitations.workspace_id) AS workspace_name
            FROM workspace_invitations
           WHERE workspace_id = ${workspaceId}
             AND (NOT ${after !== null}::boolean OR
@@ -189,7 +200,9 @@ export class SecretsRepository {
       const now = this.now();
 
       const rows = await this.sql`
-         SELECT ${this.sql.unsafe(INVITATION_COLUMNS)}
+         SELECT ${this.sql.unsafe(INVITATION_COLUMNS)},
+                (SELECT workspace.name FROM workspaces AS workspace
+                  WHERE workspace.id = workspace_invitations.workspace_id) AS workspace_name
            FROM workspace_invitations
           WHERE email = ${email}
             AND accepted_at IS NULL
@@ -316,22 +329,36 @@ export class SecretsRepository {
     * whether it worked, never why it did not, so this cannot be used to
     * enumerate invitations or confirm who was invited.
     */
-   async acceptInvitation(userId: string, invitationId: string, token: string): Promise<Membership> {
+   async acceptInvitation(
+      userId: string,
+      invitationId: string,
+      token: string | null
+   ): Promise<Membership> {
+      // The token proves the invitation reached whoever holds the link, and it
+      // is optional rather than required: an invitation addressed to *this
+      // account* is proof enough on its own, because the address is checked
+      // against the caller's own below either way. That is what lets someone
+      // accept an invitation from their own list, which never held a token.
+      // A token that is supplied must still be valid, so presenting a wrong
+      // one is never a way in.
+      //
       // Everything after the fixed-length prefix is the secret. No separator
       // check: base64url contains '_', and one here refused 48% of the tokens
       // this service issues.
-      if (!token.startsWith(INVITATION_TOKEN_PREFIX)) throw new InvitationInvalid();
-      const secret = token.slice(INVITATION_TOKEN_PREFIX.length);
-      try {
-         if (parseAuthorization(`Bearer ${secret}`) !== secret) throw new InvitationInvalid();
-      } catch {
-         throw new InvitationInvalid();
+      if (token !== null) {
+         if (!token.startsWith(INVITATION_TOKEN_PREFIX)) throw new InvitationInvalid();
+         const secret = token.slice(INVITATION_TOKEN_PREFIX.length);
+         try {
+            if (parseAuthorization(`Bearer ${secret}`) !== secret) throw new InvitationInvalid();
+         } catch {
+            throw new InvitationInvalid();
+         }
       }
 
       const [user] = await this.sql`SELECT email FROM users WHERE id = ${userId}`;
       if (!user) throw new NotFound();
       const userEmail = (user.email as string).toLowerCase();
-      const presented = createHash('sha256').update(token).digest();
+      const presented = token === null ? null : createHash('sha256').update(token).digest();
       const now = this.now();
 
       return this.sql.begin(async (tx) => {
@@ -345,7 +372,10 @@ export class SecretsRepository {
              FOR UPDATE OF invitation`;
          if (!row) throw new InvitationInvalid();
 
-         const validHash = constantTimeEqual(row.token_hash as Buffer, presented);
+         // Without a token the address is the whole proof, which is why the
+         // email comparison below guards both paths rather than only this one.
+         const validHash =
+            presented === null || constantTimeEqual(row.token_hash as Buffer, presented);
          if (
             !validHash ||
             row.email !== userEmail ||
@@ -468,6 +498,7 @@ function toInvitation(row: Record<string, unknown>): Invitation {
    return {
       id: row.id as string,
       workspaceId: row.workspace_id as string,
+      workspaceName: (row.workspace_name as string | null) ?? null,
       email: row.email as string,
       role: row.role as string,
       invitedBy: row.invited_by as string,

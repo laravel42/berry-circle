@@ -175,15 +175,22 @@ function invitationRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariab
       requireIdempotencyKey(context.req.raw.headers);
       void raw;
 
-      // 53 = the ten-character prefix plus a 43-character secret. Checked here
-      // so a token of the wrong shape never reaches the lookup.
-      if (value.token === undefined || !boundedLength(value.token, 53, 53)) {
+      // The token proves the invitation reached whoever holds the link, and a
+      // link still carries one. It is optional because an invitation addressed
+      // to the signed-in account needs no such proof: the repository requires
+      // the invited address to equal the caller's own, so the account *is* the
+      // recipient. That is what lets someone accept the invitations waiting for
+      // them from a list, which cannot hand out tokens it never had.
+      //
+      // 53 = the ten-character prefix plus a 43-character secret. A token of
+      // any other shape is refused rather than reaching the lookup.
+      if (value.token !== undefined && !boundedLength(value.token, 53, 53)) {
          assertValid([fieldError('/token', 'invalid', 'Invitation token is invalid.')]);
       }
 
       const member = await withHeaders({ 'Cache-Control': 'no-store' }, () =>
          domain('Invitation', () =>
-            secrets.acceptInvitation(context.get('user').id, invitationId, value.token as string)
+            secrets.acceptInvitation(context.get('user').id, invitationId, value.token ?? null)
          )
       );
       const response = json(serializeMember(member));
@@ -383,6 +390,10 @@ function serializeInvitation(invitation: Invitation): Record<string, unknown> {
       acceptedAt: invitation.acceptedAt,
       revokedAt: invitation.revokedAt,
       createdAt: invitation.createdAt,
+      // Appended, so the fields verified against the Go baselines keep their
+      // order. Someone reading their own invitations is not a member yet and
+      // cannot look the workspace up, so its name travels with the invitation.
+      workspaceName: invitation.workspaceName,
    };
 }
 
