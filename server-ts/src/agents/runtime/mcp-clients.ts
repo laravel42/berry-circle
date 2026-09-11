@@ -13,7 +13,9 @@ import type { McpServerRef } from '../../runtime/envelope.ts';
  * A server with an allowlist (a plugin's, carrying its admin-approved tools)
  * is filtered twice: Strands lists only those tools to the model, and the
  * permission table admits only those names, so an unapproved tool is neither
- * offered nor callable.
+ * offered nor callable. A server without one (the agent's own, or the
+ * workspace's) was configured by an admin: every tool it lists at load is
+ * admitted.
  */
 
 export type EnvelopeMcpServerLike = McpServerRef;
@@ -42,10 +44,41 @@ export function mcpServerConfigs(servers: EnvelopeMcpServerLike[]): Record<strin
 }
 
 /** Permission-table entries for allowlisted tools, under the agent-facing `<server>_<tool>` name. */
-export function mcpToolPermissions(servers: EnvelopeMcpServerLike[]): Record<string, null> {
+/**
+ * The agent-facing names each loaded server listed, keyed by server name
+ * (Strands names each client after its config key). A server that failed to
+ * connect lists nothing, and neither does one whose listing throws.
+ */
+export async function listedMcpTools(clients: McpClient[]): Promise<Record<string, string[]>> {
+   const listed: Record<string, string[]> = {};
+   await Promise.all(
+      clients.map(async (client) => {
+         const tools = await client.listTools().catch(() => []);
+         listed[client.clientName] = tools.map((tool) => tool.name);
+      })
+   );
+   return listed;
+}
+
+/**
+ * Permission-table entries, under the agent-facing `<server>_<tool>` name.
+ *
+ * A server with an allowlist (a plugin's) admits exactly its approved tools,
+ * whatever it lists. A server without one (the agent's own, or the
+ * workspace's) was configured by an admin, so every tool it listed at load is
+ * admitted; one that failed to load listed nothing and admits nothing.
+ */
+export function mcpToolPermissions(servers: EnvelopeMcpServerLike[], listed: Record<string, string[]> = {}): Record<string, null> {
    const entries: Record<string, null> = {};
    for (const server of servers) {
-      for (const tool of server.allowedTools ?? []) entries[`${server.name}_${tool}`] = null;
+      if (server.allowedTools) {
+         for (const tool of server.allowedTools) entries[`${server.name}_${tool}`] = null;
+         continue;
+      }
+      const prefix = `${server.name}_`;
+      for (const name of listed[server.name] ?? []) {
+         if (name.startsWith(prefix)) entries[name] = null;
+      }
    }
    return entries;
 }

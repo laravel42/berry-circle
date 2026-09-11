@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
-import { loadMcpClients, mcpServerConfigs, mcpToolPermissions } from './mcp-clients.ts';
+import { listedMcpTools, loadMcpClients, mcpServerConfigs, mcpToolPermissions } from './mcp-clients.ts';
 
 /**
  * A minimal streamable-HTTP MCP server on loopback, answering in plain JSON.
@@ -92,6 +92,44 @@ test('only allowlisted MCP tools enter the permission table, under their agent-f
       ]),
       { 'plugin-relay_say_hello': null }
    );
+});
+
+test('every tool an agent or workspace server lists at load enters the table, under its agent-facing name', async () => {
+   const fake = await fakeMcpServer(['lookup', 'search']);
+   const servers = [{ name: 'docs', url: fake.url, transport: 'streamable_http' as const, headers: {}, allowedTools: null }];
+   const clients = await loadMcpClients(servers);
+   try {
+      const listed = await listedMcpTools(clients);
+      assert.deepEqual(listed, { docs: ['docs_lookup', 'docs_search'] });
+      assert.deepEqual(mcpToolPermissions(servers, listed), { docs_lookup: null, docs_search: null });
+   } finally {
+      await Promise.all(clients.map((client) => client.disconnect().catch(() => undefined)));
+      await fake.close();
+   }
+});
+
+test('a plugin server stays allowlist-only even when its listing names an unapproved tool', () => {
+   assert.deepEqual(
+      mcpToolPermissions(
+         [{ name: 'plugin-relay', url: 'https://r.test/mcp', transport: 'streamable_http', headers: {}, allowedTools: ['say_hello'] }],
+         { 'plugin-relay': ['plugin-relay_say_hello', 'plugin-relay_delete_everything'] }
+      ),
+      { 'plugin-relay_say_hello': null }
+   );
+});
+
+test('a server that fails to load contributes no permissions', async () => {
+   const fake = await fakeMcpServer(['lookup']);
+   await fake.close();
+   const servers = [{ name: 'dead', url: fake.url, transport: 'streamable_http' as const, headers: {}, allowedTools: null }];
+   const clients = await loadMcpClients(servers);
+   try {
+      const listed = await listedMcpTools(clients);
+      assert.deepEqual(listed, { dead: [] });
+      assert.deepEqual(mcpToolPermissions(servers, listed), {});
+   } finally {
+      await Promise.all(clients.map((client) => client.disconnect().catch(() => undefined)));
+   }
 });
 
 test('an unapproved tool on the same server is never listed to the agent', async () => {

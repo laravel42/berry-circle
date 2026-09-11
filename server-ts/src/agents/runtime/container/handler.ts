@@ -5,7 +5,7 @@ import type { TaskEnvelope } from '../../../runtime/envelope.ts';
 import type { TaskDelivery } from '../../../runtime/lifecycle.ts';
 import type { ExecutionSession } from '../../../execution/driver.ts';
 import { runCommandTool, WORKDIR_KEY } from '../command-tool.ts';
-import { permissionsOf } from '../../permissions.ts';
+import { permissionsOf, type Permission } from '../../permissions.ts';
 import { buildRunAgent } from '../agent.ts';
 import { classify } from '../failure.ts';
 import type { ModelFactory } from '../model.ts';
@@ -28,7 +28,7 @@ import {
    type BerryApi,
 } from './remote-tools.ts';
 import type { SessionRegistry } from './sessions.ts';
-import { loadMcpClients, mcpToolPermissions, type EnvelopeMcpServerLike } from '../mcp-clients.ts';
+import { listedMcpTools, loadMcpClients, mcpToolPermissions, type EnvelopeMcpServerLike } from '../mcp-clients.ts';
 import { writeSkills } from '../skill-files.ts';
 
 /**
@@ -127,16 +127,11 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
             },
          }),
       ];
-      // Fail-closed stays: a name missing from the table is refused. Berry's
-      // own tools are admitted by name, and Berry enforces their scope.
-      // An allowlisted MCP tool (a plugin's approved tool) is admitted by its
-      // prefixed name; it goes first so it can never override a built-in's
-      // requirement by sharing its name.
-      const table = {
-         ...mcpToolPermissions(envelope.agent.mcpServers),
-         ...TOOL_PERMISSIONS,
-         ...Object.fromEntries(remote.map((t) => [t.name, null])),
-      };
+      const table = toolTable(
+         envelope.agent.mcpServers,
+         await listedMcpTools(mcpClients),
+         remote.map((t) => t.name)
+      );
 
       const directory = deps.repository
          ? await deps.repository.prepare({ envelope, session: workspace, warm, emit })
@@ -208,6 +203,25 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
    } finally {
       await Promise.all(mcpClients.map((client) => client.disconnect().catch(() => undefined)));
    }
+}
+
+/**
+ * The permission table. Fail-closed stays: a name missing from it is refused.
+ * Berry's own tools are admitted by name, and Berry enforces their scope. MCP
+ * tools are admitted by their prefixed name: a plugin's approved tools, and
+ * every tool an admin-configured server listed at load. They go first so an
+ * MCP tool can never override a built-in's requirement by sharing its name.
+ */
+export function toolTable(
+   servers: EnvelopeMcpServerLike[],
+   listed: Record<string, string[]>,
+   remoteNames: string[]
+): Record<string, Permission | null> {
+   return {
+      ...mcpToolPermissions(servers, listed),
+      ...TOOL_PERMISSIONS,
+      ...Object.fromEntries(remoteNames.map((name) => [name, null])),
+   };
 }
 
 function emitUsage(emit: Emit, envelope: TaskEnvelope, accounting: AccountingPlugin): void {

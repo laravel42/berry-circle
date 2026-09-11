@@ -10,7 +10,7 @@ import type { LifecycleEvent } from '../../../runtime/lifecycle.ts';
 import { fakeMcpServer } from '../mcp-clients.test.ts';
 import { textOf } from '../plugins/accounting.ts';
 import { ScriptedModel, call, say, throwing, type ScriptedTurn } from '../scripted-model.ts';
-import { handleInvocation, toConversation, type HandlerDeps } from './handler.ts';
+import { handleInvocation, toConversation, toolTable, type HandlerDeps } from './handler.ts';
 import { SessionRegistry } from './sessions.ts';
 
 const SESSION = `berry-${'a'.repeat(64)}`;
@@ -186,6 +186,52 @@ test('an agent task writes its skills into the session workspace and connects it
    assert.equal(events.at(-1)!.type, 'task.completed');
    assert.equal(readFileSync(join(deps.workRoot, SESSION, '.claude/skills/lint/SKILL.md'), 'utf8'), manifest);
    assert.deepEqual(loaded, ['docs']);
+});
+
+test('a tool from the agent’s own MCP server is listed and runs end to end', async () => {
+   const fake = await fakeMcpServer(['lookup']);
+   try {
+      const { model, run } = harness([call('docs_lookup', {}), say('done')]);
+      const events = await run(
+         envelope({
+            agent: {
+               ...envelope().agent,
+               mcpServers: [{ name: 'docs', url: fake.url, transport: 'streamable_http', headers: {}, allowedTools: null }],
+            },
+         })
+      );
+      assert.equal(events.at(-1)!.type, 'task.completed');
+      assert.deepEqual(fake.called, ['lookup']);
+      assert.match(JSON.stringify(model.received[1]), /lookup ran/);
+   } finally {
+      await fake.close();
+   }
+});
+
+test('a server that fails to load leaves its tools refused, and the task still completes', async () => {
+   const fake = await fakeMcpServer(['lookup']);
+   await fake.close();
+   const { model, run } = harness([call('dead_lookup', {}), say('done')]);
+   const events = await run(
+      envelope({
+         agent: {
+            ...envelope().agent,
+            mcpServers: [{ name: 'dead', url: fake.url, transport: 'streamable_http', headers: {}, allowedTools: null }],
+         },
+      })
+   );
+   assert.equal(events.at(-1)!.type, 'task.completed');
+   assert.doesNotMatch(JSON.stringify(model.received[1]), /lookup ran/);
+});
+
+test('an MCP tool named like a built-in cannot override the built-in’s rule', () => {
+   const table = toolTable(
+      [{ name: 'run', url: 'https://r.test/mcp', transport: 'streamable_http', headers: {}, allowedTools: null }],
+      { run: ['run_command', 'run_other'] },
+      []
+   );
+   assert.equal(table['run_command'], 'run_commands');
+   assert.equal(table['run_other'], null);
 });
 
 test('a plugin server’s approved tool runs; an unapproved tool on the same server never reaches it', async () => {
