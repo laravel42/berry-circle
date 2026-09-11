@@ -38,6 +38,9 @@ import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { runtimeMounts } from './runtimes.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { issueMounts } from './issues.ts';
+import { issueTrackingRoutes } from './issue-tracking.ts';
+import { IdempotencyStore } from '../http/idempotency.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { GitHubSettingsRepository } from '../scm/github-settings.ts';
 import { PullRequestStore } from '../scm/pull-requests.ts';
@@ -86,6 +89,8 @@ interface World {
    w1RepoUrl: string;
    w2RepoUrl: string;
    w2RepoId: string;
+   w1IssueId: string;
+   w2IssueId: string;
 }
 
 describe(
@@ -117,6 +122,23 @@ describe(
                boards,
                catalogExtensions: workCatalogRoutes(),
                viewExtensions: savedViewRoutes({ sql }),
+            })
+         );
+         // The issues mount, carrying its work-tracking routes — which is
+         // where an issue's labels are read and written (workstream F2).
+         const leakIssues = new IssueRepository(sql);
+         registry.registerAll(
+            issueMounts({
+               sessions,
+               issues: leakIssues,
+               boards,
+               idempotency: new IdempotencyStore(sql),
+               tracking: issueTrackingRoutes({
+                  sql,
+                  issues: leakIssues,
+                  boards,
+                  comments: new CommentRepository(sql),
+               }),
             })
          );
          registry.registerAll(runtimeMounts({ sessions, sql, sealer: null, health: async () => {} }));
@@ -258,6 +280,26 @@ describe(
             VALUES (${world.w2Id}, ${world.w2RepoUrl}, ${u2Id})
             RETURNING id`;
          world.w2RepoId = w2Repo!.id as string;
+
+         // One task on each board, so an issue-scoped route has a real target
+         // in both tenants. W2's carries a label, which is exactly the row a
+         // leak would expose.
+         const seedIssue = async (boardId: string, creatorId: string, title: string): Promise<string> => {
+            const id = randomUUID();
+            const [counter] = await sql`
+               UPDATE boards SET issue_counter = issue_counter + 1 WHERE id = ${boardId}
+               RETURNING issue_counter`;
+            await sql`
+               INSERT INTO issues (id, board_id, number, title, status, created_by)
+               VALUES (${id}, ${boardId}, ${Number(counter!.issue_counter)}, ${title},
+                       'backlog'::issue_status, ${creatorId})`;
+            return id;
+         };
+         world.w1IssueId = await seedIssue(world.w1BoardId, u1Id, `w1-task-${suffix}`);
+         world.w2IssueId = await seedIssue(world.w2BoardId, u2Id, `w2-task-${suffix}`);
+         await sql`
+            INSERT INTO issue_label_memberships (workspace_id, issue_id, label_id, assigned_by)
+            VALUES (${world.w2Id}, ${world.w2IssueId}, ${world.w2LabelId}, ${u2Id})`;
          await sql`
             INSERT INTO github_workspace_settings (workspace_id, enabled, updated_by)
             VALUES (${world.w2Id}, false, ${u2Id})`;
@@ -324,6 +366,10 @@ describe(
                await sql`DELETE FROM saved_issue_views WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
+               // Before the boards they hang off; memberships cascade with them.
+               await sql`
+                  DELETE FROM issues
+                   WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${ws})`;
                await sql`DELETE FROM boards WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM workspaces WHERE id = ${ws}`;
@@ -337,6 +383,60 @@ describe(
             }
          }
          await closeDatabase(sql);
+      });
+
+      /**
+       * Workstream F2: the labels on a task.
+       *
+       * Both routes hang under `/api/v1/issues/:issueRef`, so they inherit the
+       * find-before-permission order — and this asserts it end to end: W2's
+       * task reads as a plain 404, identical to a uuid that names nothing, and
+       * a write aimed at it changes no row in W2. The last case is the one a
+       * label brings with it: W1's own task must not be able to borrow a label
+       * belonging to another tenant, which would put a W2 row on a W1 task
+       * without ever touching a W2 issue.
+       */
+      test('(b)+(c) an issue\'s labels do not cross a workspace boundary', async () => {
+         const putAsU1 = (path: string, body: unknown): Promise<Response> =>
+            Promise.resolve(
+               app.request(path, {
+                  method: 'PUT',
+                  headers: {
+                     'authorization': `Bearer ${world.u1Token}`,
+                     'content-type': 'application/json',
+                     'x-request-id': REQUEST_ID,
+                  },
+                  body: JSON.stringify(body),
+               })
+            );
+
+         const own = await getAsU1(`/api/v1/issues/${world.w1IssueId}/labels`);
+         assert.equal(own.status, 200);
+         assert.deepEqual(((await own.json()) as { nodes: unknown[] }).nodes, []);
+
+         const foreign = await getAsU1(`/api/v1/issues/${world.w2IssueId}/labels`);
+         const absent = await getAsU1(`/api/v1/issues/${randomUUID()}/labels`);
+         assert.equal(foreign.status, 404);
+         assert.equal(absent.status, 404);
+         assert.deepEqual(await foreign.json(), await absent.json());
+
+         const clearForeign = await putAsU1(`/api/v1/issues/${world.w2IssueId}/labels`, {
+            labelIds: [],
+         });
+         assert.equal(clearForeign.status, 404);
+         const [kept] = await sql`
+            SELECT count(*)::int AS n FROM issue_label_memberships
+             WHERE issue_id = ${world.w2IssueId}`;
+         assert.equal(Number(kept!.n), 1, "W2's label is still on W2's task");
+
+         const borrow = await putAsU1(`/api/v1/issues/${world.w1IssueId}/labels`, {
+            labelIds: [world.w2LabelId],
+         });
+         assert.equal(borrow.status, 404);
+         const [borrowed] = await sql`
+            SELECT count(*)::int AS n FROM issue_label_memberships
+             WHERE issue_id = ${world.w1IssueId}`;
+         assert.equal(Number(borrowed!.n), 0);
       });
 
       /** Authenticated GET as U1, with the fixed request id. */

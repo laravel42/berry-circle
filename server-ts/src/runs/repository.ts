@@ -40,6 +40,7 @@ export class NoAgentAssigned extends Error {
 const RUN_COLUMNS = `r.id, r.issue_id, r.board_id, COALESCE(r.workspace_id, b.workspace_id) AS workspace_id, r.agent_id, r.status,
    r.sequence, r.summary, r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros,
    r.currency, r.failure_code, r.failure_message, r.failure_retryable, r.dispatch_state,
+   r.source, r.requested_by,
    r.created_at, r.started_at, r.completed_at`;
 
 // LEFT: a chat or completion run has no board.
@@ -257,6 +258,8 @@ function toRun(row: Record<string, unknown>): Run {
                  message: (row.failure_message as string | null) ?? '',
                  retryable: Boolean(row.failure_retryable),
               },
+      source: (row.source as string | null) ?? 'assignment',
+      requestedBy: (row.requested_by as string | null) ?? null,
       dispatchState: row.dispatch_state as string,
       createdAt: toRFC3339(row.created_at as string)!,
       startedAt: toRFC3339(row.started_at as string | null),

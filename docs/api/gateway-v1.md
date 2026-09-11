@@ -338,6 +338,8 @@ The gateway MUST NOT expose provider configuration, credentials, system prompts,
 | `summary` | string or null | yes | Safe final summary; null before available |
 | `usage` | `RunUsage` | yes | Cumulative normalized usage |
 | `failure` | `RunFailure` or null | yes | Present only when `status` is `failed` |
+| `source` | string | yes | What asked for the run: `assignment`, `mention`, `chat`, `autopilot`, `squad`, `quick_action`, `builder`, `completion` |
+| `requestedBy` | `ActorRef` or null | yes | The person who asked; null when an agent, an autopilot or a schedule did |
 | `createdAt` | `Timestamp` | yes | Dispatch accepted time |
 | `startedAt` | `Timestamp` or null | yes | Execution start time |
 | `completedAt` | `Timestamp` or null | yes | Terminal transition time |
@@ -376,6 +378,8 @@ The gateway MUST NOT expose provider configuration, credentials, system prompts,
     "currency": null
   },
   "failure": null,
+  "source": "assignment",
+  "requestedBy": { "type": "user", "id": "1f0f0b2e-6f3a-4f6c-9a1e-0b6a1f2c3d4e" },
   "createdAt": "2026-08-22T06:42:00.000Z",
   "startedAt": "2026-08-22T06:42:01.000Z",
   "completedAt": null
