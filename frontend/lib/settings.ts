@@ -295,6 +295,11 @@ const labelSchema = z.object({
    createdAt: z.string(),
    updatedAt: z.string(),
    archivedAt: z.string().nullable(),
+   /**
+    * How many tasks carry it. Optional so a server that predates the count
+    * still parses; absent reads as "not answered", not as zero.
+    */
+   usageCount: z.number().optional(),
 });
 
 export type WorkspaceLabel = z.infer<typeof labelSchema>;
@@ -357,14 +362,20 @@ const statusSchema = z.object({
    color: z.string(),
    sortOrder: z.number(),
    isSystem: z.boolean(),
+   /** Optional so a server that does not answer it still parses. */
+   archivedAt: z.string().nullish(),
 });
 
 export type WorkspaceStatus = z.infer<typeof statusSchema>;
 
-export async function loadStatuses(workspaceId: string): Promise<WorkspaceStatus[]> {
+export async function loadStatuses(
+   workspaceId: string,
+   includeArchived = false
+): Promise<WorkspaceStatus[]> {
+   const query = includeArchived ? '?includeArchived=true' : '';
    return parse(
       z.object({ nodes: z.array(statusSchema) }),
-      await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses`),
+      await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses${query}`),
       'Statuses'
    ).nodes;
 }
@@ -379,7 +390,13 @@ export async function loadStatuses(workspaceId: string): Promise<WorkspaceStatus
 export async function updateStatus(
    workspaceId: string,
    statusId: string,
-   patch: { name?: string; color?: string }
+   patch: {
+      name?: string;
+      color?: string;
+      description?: string | null;
+      /** `false` restores an archived status; archiving is `archiveStatus`. */
+      archived?: false;
+   }
 ): Promise<WorkspaceStatus> {
    return parse(
       statusSchema,
@@ -411,7 +428,12 @@ export const STATUS_CATEGORIES = [
 
 export async function createStatus(
    workspaceId: string,
-   input: { name: string; category: (typeof STATUS_CATEGORIES)[number]; color: string }
+   input: {
+      name: string;
+      category: (typeof STATUS_CATEGORIES)[number];
+      color: string;
+      description?: string | null;
+   }
 ): Promise<WorkspaceStatus> {
    return parse(
       statusSchema,
