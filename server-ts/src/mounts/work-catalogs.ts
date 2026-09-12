@@ -24,6 +24,7 @@ import {
 import {
    archiveQuickAction,
    createQuickAction,
+   deleteQuickAction,
    listQuickActions,
    quickActionCreateSchema,
    quickActionPatchSchema,
@@ -120,7 +121,8 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
    // ---------------------------------------------------------- quick actions
    route.get('/:workspaceId/quick-actions', async (context) => {
       const db = context.get('scoped');
-      const nodes = await db.list((q) => listQuickActions(q.sql, q.workspaceId, db.ctx.userId));
+      const includeArchived = new URL(context.req.url).searchParams.get('includeArchived') === 'true';
+      const nodes = await db.list((q) => listQuickActions(q.sql, q.workspaceId, db.ctx.userId, includeArchived));
       return json({ nodes });
    });
 
@@ -156,6 +158,24 @@ export function workCatalogRoutes(): Hono<{ Variables: ScopedVariables }> {
             'product.write',
             (tx, ctx) =>
                archiveQuickAction(tx, { workspaceId: ctx.workspaceId, actionId, actorId: ctx.userId, moderator: MODERATOR_ROLES.has(ctx.role) }),
+            { table: 'quick_action_definitions', id: actionId }
+         )
+         .catch(rethrowWork('Quick action'));
+      return new Response(null, { status: 204 });
+   });
+
+   /**
+    * Remove an archived action for good. Its own verb rather than a second
+    * DELETE, so the reversible and the irreversible are never the same click.
+    */
+   route.post('/:workspaceId/quick-actions/:actionId/delete', async (context) => {
+      const db = context.get('scoped');
+      const actionId = pathId(context.req.param('actionId'), 'Quick action');
+      await db
+         .mutate(
+            'product.write',
+            (tx, ctx) =>
+               deleteQuickAction(tx, { workspaceId: ctx.workspaceId, actionId, actorId: ctx.userId, moderator: MODERATOR_ROLES.has(ctx.role) }),
             { table: 'quick_action_definitions', id: actionId }
          )
          .catch(rethrowWork('Quick action'));

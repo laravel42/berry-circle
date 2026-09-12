@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { AuthCard } from '@/components/auth/auth-card';
 import { CreateOrJoin } from '@/components/onboarding/create-or-join';
+import { OnboardingSteps } from '@/components/onboarding/onboarding-steps';
+import { loadOnboarding } from '@/lib/onboarding';
 import { BerryMark } from '@/components/brand/berry-mark';
 import { Button } from '@/components/ui/button';
 import { getGuideAgent } from '@/lib/agents';
@@ -49,6 +51,28 @@ export default function OnboardingPage() {
 
    const [phase, setPhase] = useState<Phase>('resolving');
    const [error, setError] = useState<string | null>(null);
+   /**
+    * Whether to run the guided steps rather than the short create-or-join.
+    *
+    * Read from the account, where the server has modelled it all along: it is
+    * first run only, and adding a second workspace from the switcher is not
+    * first run. A read that fails leaves it off, so a broken call costs a
+    * welcome screen rather than the ability to make a workspace.
+    */
+   const [guided, setGuided] = useState(false);
+
+   useEffect(() => {
+      if (status !== 'ready' || addIntent) return;
+      let cancelled = false;
+      void loadOnboarding()
+         .then((state) => {
+            if (!cancelled) setGuided(!state.completed && !state.skipped);
+         })
+         .catch(() => undefined);
+      return () => {
+         cancelled = true;
+      };
+   }, [status, addIntent]);
 
    useEffect(() => {
       // The gate owns the anonymous and booting cases; only a ready session
@@ -129,12 +153,19 @@ export default function OnboardingPage() {
 
    if (ready) {
       return (
-         <AuthCard title="Your workspace is ready" description="Start with your tasks, or ask the Guide how Berry works.">
+         <AuthCard
+            title="Your workspace is ready"
+            description="Start with your tasks, or ask the Guide how Berry works."
+         >
             <div className="flex flex-col gap-2">
-               <Button onClick={() => router.replace(workspacePath(ready.slug))}>Go to my tasks</Button>
+               <Button onClick={() => router.replace(workspacePath(ready.slug))}>
+                  Go to my tasks
+               </Button>
                <Button
                   variant="secondary"
-                  onClick={() => router.push(`/${ready.slug}/chat?agent=${encodeURIComponent(ready.guideId)}`)}
+                  onClick={() =>
+                     router.push(`/${ready.slug}/chat?agent=${encodeURIComponent(ready.guideId)}`)
+                  }
                >
                   Questions? Ask the Guide
                </Button>
@@ -144,6 +175,21 @@ export default function OnboardingPage() {
    }
 
    if (phase === 'choose') {
+      // First run gets the steps; somebody who has been through them once —
+      // or who came here from the switcher to add a second workspace — gets
+      // the short form, because they already know what all of it is.
+      if (guided) {
+         return (
+            <>
+               {error ? (
+                  <p role="alert" className="mb-4 text-destructive-foreground">
+                     {error}
+                  </p>
+               ) : null}
+               <OnboardingSteps onEntered={enterWorkspace} onSkipped={() => setGuided(false)} />
+            </>
+         );
+      }
       return (
          <AuthCard
             title="Set up your workspace"

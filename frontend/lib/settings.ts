@@ -18,6 +18,8 @@ const profileSchema = z.object({
    email: z.string(),
    name: z.string(),
    avatarUrl: z.string().nullish(),
+   /** "About you", given to agents as context. Nullish for a server without it. */
+   description: z.string().nullish(),
 });
 
 const userSettingsSchema = z.object({
@@ -35,10 +37,11 @@ export async function loadProfile(): Promise<Profile> {
    return parse(profileSchema, await apiFetch('/api/v1/me'), 'Profile');
 }
 
-/** `avatarUrl: null` clears it; omitting it leaves what is there. */
+/** A null clears that field; omitting it leaves what is there. */
 export async function saveProfile(patch: {
    name?: string;
    avatarUrl?: string | null;
+   description?: string | null;
 }): Promise<Profile> {
    return parse(
       profileSchema,
@@ -92,20 +95,28 @@ export async function revokeSession(sessionId: string): Promise<void> {
  */
 export function describeDevice(userAgent: string | null): string {
    if (!userAgent) return 'Unknown device';
-   const browser =
-      /Edg\//.test(userAgent) ? 'Edge'
-      : /OPR\//.test(userAgent) ? 'Opera'
-      : /Chrome\//.test(userAgent) ? 'Chrome'
-      : /Safari\//.test(userAgent) ? 'Safari'
-      : /Firefox\//.test(userAgent) ? 'Firefox'
-      : 'A browser';
-   const platform =
-      /Mac OS X|Macintosh/.test(userAgent) ? 'macOS'
-      : /Windows/.test(userAgent) ? 'Windows'
-      : /Android/.test(userAgent) ? 'Android'
-      : /iPhone|iPad/.test(userAgent) ? 'iOS'
-      : /Linux/.test(userAgent) ? 'Linux'
-      : null;
+   const browser = /Edg\//.test(userAgent)
+      ? 'Edge'
+      : /OPR\//.test(userAgent)
+        ? 'Opera'
+        : /Chrome\//.test(userAgent)
+          ? 'Chrome'
+          : /Safari\//.test(userAgent)
+            ? 'Safari'
+            : /Firefox\//.test(userAgent)
+              ? 'Firefox'
+              : 'A browser';
+   const platform = /Mac OS X|Macintosh/.test(userAgent)
+      ? 'macOS'
+      : /Windows/.test(userAgent)
+        ? 'Windows'
+        : /Android/.test(userAgent)
+          ? 'Android'
+          : /iPhone|iPad/.test(userAgent)
+            ? 'iOS'
+            : /Linux/.test(userAgent)
+              ? 'Linux'
+              : null;
    return platform ? `${browser} on ${platform}` : browser;
 }
 
@@ -154,12 +165,17 @@ export const API_SCOPES = [
  */
 export async function createToken(
    name: string,
-   scopes: string[] | null = null
+   scopes: string[] | null = null,
+   expiresInDays: number | null = null
 ): Promise<{ secret: string | null; record: PersonalToken }> {
+   const body: Record<string, unknown> = { name };
+   if (scopes !== null) body.scopes = scopes;
+   if (expiresInDays !== null) body.expiresAt = expiryFromNow(expiresInDays);
+
    const json: unknown = await apiFetch('/api/v1/tokens', {
       method: 'POST',
       headers: { 'idempotency-key': crypto.randomUUID() },
-      body: JSON.stringify(scopes === null ? { name } : { name, scopes }),
+      body: JSON.stringify(body),
    });
    const parsed = parse(
       z.object({ personalToken: tokenSchema, token: z.string().optional() }),
@@ -171,6 +187,20 @@ export async function createToken(
 
 export async function revokeToken(tokenId: string): Promise<void> {
    await apiFetch(`/api/v1/tokens/${encodeURIComponent(tokenId)}`, { method: 'DELETE' });
+}
+
+/** The expiry choices a key can be given. `null` is a key that never expires. */
+export const TOKEN_EXPIRY_DAYS = [30, 90, 365, null] as const;
+
+/**
+ * An RFC 3339 expiry `days` from now.
+ *
+ * A minute is held back because the server refuses anything beyond 365 days
+ * from *its* clock: a "1 year" key computed here and sent over a slow link
+ * would otherwise land a fraction past the bound and be refused outright.
+ */
+function expiryFromNow(days: number): string {
+   return new Date(Date.now() + days * 86_400_000 - 60_000).toISOString();
 }
 
 // ------------------------------------------------------------ notifications
@@ -265,6 +295,11 @@ const labelSchema = z.object({
    createdAt: z.string(),
    updatedAt: z.string(),
    archivedAt: z.string().nullable(),
+   /**
+    * How many tasks carry it. Optional so a server that predates the count
+    * still parses; absent reads as "not answered", not as zero.
+    */
+   usageCount: z.number().optional(),
 });
 
 export type WorkspaceLabel = z.infer<typeof labelSchema>;
@@ -327,14 +362,20 @@ const statusSchema = z.object({
    color: z.string(),
    sortOrder: z.number(),
    isSystem: z.boolean(),
+   /** Optional so a server that does not answer it still parses. */
+   archivedAt: z.string().nullish(),
 });
 
 export type WorkspaceStatus = z.infer<typeof statusSchema>;
 
-export async function loadStatuses(workspaceId: string): Promise<WorkspaceStatus[]> {
+export async function loadStatuses(
+   workspaceId: string,
+   includeArchived = false
+): Promise<WorkspaceStatus[]> {
+   const query = includeArchived ? '?includeArchived=true' : '';
    return parse(
       z.object({ nodes: z.array(statusSchema) }),
-      await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses`),
+      await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses${query}`),
       'Statuses'
    ).nodes;
 }
@@ -349,7 +390,13 @@ export async function loadStatuses(workspaceId: string): Promise<WorkspaceStatus
 export async function updateStatus(
    workspaceId: string,
    statusId: string,
-   patch: { name?: string; color?: string }
+   patch: {
+      name?: string;
+      color?: string;
+      description?: string | null;
+      /** `false` restores an archived status; archiving is `archiveStatus`. */
+      archived?: false;
+   }
 ): Promise<WorkspaceStatus> {
    return parse(
       statusSchema,
@@ -381,7 +428,12 @@ export const STATUS_CATEGORIES = [
 
 export async function createStatus(
    workspaceId: string,
-   input: { name: string; category: (typeof STATUS_CATEGORIES)[number]; color: string }
+   input: {
+      name: string;
+      category: (typeof STATUS_CATEGORIES)[number];
+      color: string;
+      description?: string | null;
+   }
 ): Promise<WorkspaceStatus> {
    return parse(
       statusSchema,
@@ -400,7 +452,10 @@ export async function archiveStatus(workspaceId: string, statusId: string): Prom
    );
 }
 
-export async function reorderStatuses(workspaceId: string, ids: string[]): Promise<WorkspaceStatus[]> {
+export async function reorderStatuses(
+   workspaceId: string,
+   ids: string[]
+): Promise<WorkspaceStatus[]> {
    return parse(
       z.object({ nodes: z.array(statusSchema) }),
       await apiFetch(`/api/v1/catalogs/${encodeURIComponent(workspaceId)}/issue-statuses/order`, {

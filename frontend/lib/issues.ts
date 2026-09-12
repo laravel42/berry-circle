@@ -234,6 +234,9 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
    // could only ever have said "unknown".
    issue.createdBy = apiIssue.createdBy ? toUiUser(apiIssue.createdBy) : null;
    issue.updatedAt = apiIssue.updatedAt;
+   // Only a person: an agent-authored task is not somebody's "created" tab.
+   issue.createdById =
+      apiIssue.createdBy && apiIssue.createdBy.type === 'user' ? apiIssue.createdBy.id : null;
 
    return issue;
 }

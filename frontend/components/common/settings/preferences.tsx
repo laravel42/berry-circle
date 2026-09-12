@@ -7,6 +7,7 @@ import { writeLocaleCookie } from '@/lib/i18n/client-locale';
 import { LOCALE_NAMES, LOCALES, isLocale } from '@/lib/i18n/locales';
 import { loadUserSettings, saveUserSettings, type UserSettings } from '@/lib/settings';
 import { useSessionStore } from '@/store/session-store';
+import { CREATE_FIELDS, useUiPrefsStore } from '@/store/ui-prefs-store';
 import { useLocale, useTranslations } from 'next-intl';
 import { useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
@@ -27,7 +28,9 @@ import { useSettingsResource } from './use-settings-resource';
  */
 export default function Preferences() {
    const t = useTranslations('settings.preferences');
+   const t5 = useTranslations('workspaceAdmin.preferences');
    const rendered = useLocale();
+   const ui = useUiPrefsStore();
    const router = useRouter();
    const setPreferredLocale = useSessionStore((state) => state.setPreferredLocale);
    const [customizeOpen, setCustomizeOpen] = useState(false);
@@ -35,13 +38,21 @@ export default function Preferences() {
 
    // The browser's own list, which is the only list guaranteed to match what
    // the server will accept — it validates against the same IANA database.
+   //
+   // The browser's zone leads it, and says so. Hoisting it without a label
+   // made it a row among several hundred identical-looking ones, so the
+   // commonest answer — "wherever I am" — was the hardest one to find.
+   const browserZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, []);
    const zones = useMemo(() => {
       const supported =
          typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : [];
-      const here = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const current = settings.value?.timezone;
-      return [...new Set([current, here, 'UTC', ...supported].filter(Boolean))] as string[];
-   }, [settings.value?.timezone]);
+      return [...new Set([current, browserZone, 'UTC', ...supported].filter(Boolean))] as string[];
+   }, [settings.value?.timezone, browserZone]);
+   const zoneLabels = useMemo(
+      () => ({ [browserZone]: t5('timezoneBrowser', { zone: browserZone }) }),
+      [browserZone, t5]
+   );
 
    const change = (patch: Partial<UserSettings>) => {
       if (!settings.value) return;
@@ -81,10 +92,50 @@ export default function Preferences() {
                   trailing={
                      <SelectMenu
                         options={zones}
+                        labels={zoneLabels}
                         value={settings.value?.timezone ?? 'UTC'}
                         disabled={settings.loading || settings.saving}
                         onChange={(timezone) => change({ timezone })}
                      />
+                  }
+               />
+               <SettingsRow
+                  title={t5('stickyCommentBar')}
+                  description={t5('stickyCommentBarDescription')}
+                  trailing={
+                     <Switch
+                        checked={ui.stickyCommentBar}
+                        onCheckedChange={ui.setStickyCommentBar}
+                     />
+                  }
+               />
+            </SettingsCard>
+         </SettingsSection>
+
+         <SettingsSection title={t5('issue')} description={t5('issueDescription')}>
+            <SettingsCard>
+               {CREATE_FIELDS.map((field) => (
+                  <SettingsRow
+                     key={field}
+                     title={t5(`createField_${field}`)}
+                     trailing={
+                        <Switch
+                           checked={ui.createFields[field]}
+                           onCheckedChange={(shown) => ui.setCreateField(field, shown)}
+                        />
+                     }
+                  />
+               ))}
+            </SettingsCard>
+         </SettingsSection>
+
+         <SettingsSection title={t5('chat')}>
+            <SettingsCard>
+               <SettingsRow
+                  title={t5('floatingChat')}
+                  description={t5('floatingChatDescription')}
+                  trailing={
+                     <Switch checked={ui.floatingChat} onCheckedChange={ui.setFloatingChat} />
                   }
                />
             </SettingsCard>

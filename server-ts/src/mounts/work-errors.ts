@@ -1,13 +1,19 @@
 import { ApiError } from '../http/errors.ts';
 import { Conflict, Forbidden, NotFound } from '../identity/errors.ts';
 import { InvalidTransition } from '../core/issues.ts';
-import { InvalidPropertyValue, PropertyKindMismatch, PropertyNameTaken } from '../work/properties.ts';
+import {
+   InvalidPropertyValue,
+   MAX_ACTIVE_PROPERTIES,
+   PropertyKindMismatch,
+   PropertyNameTaken,
+   TooManyProperties,
+} from '../work/properties.ts';
 import { MetadataTooLarge } from '../work/metadata.ts';
 import { HierarchyCycle, ParentNotFound } from '../work/hierarchy.ts';
 import { NotAThreadRoot } from '../work/comment-resolution.ts';
 import { StatusNameTaken, StatusOrderMismatch, SystemStatusProtected } from '../work/statuses.ts';
 import { ViewRevisionConflict } from '../work/views.ts';
-import { QuickActionNameTaken } from '../work/quick-actions.ts';
+import { QuickActionNameTaken, QuickActionNotArchived } from '../work/quick-actions.ts';
 import { JoinLinkInvalid } from '../work/join-links.ts';
 
 /** Work-tracking domain failures in the API's words, mapped once. */
@@ -23,6 +29,13 @@ export function rethrowWork(resource: string): (error: unknown) => never {
          throw new ApiError(422, 'VALIDATION_FAILED', 'The request is invalid.', {
             fields: [{ path: '/options', code: 'invalid_value', message: 'Only a select has options.' }],
          });
+      }
+      if (error instanceof TooManyProperties) {
+         throw new ApiError(
+            409,
+            'CONFLICT',
+            `A workspace has at most ${MAX_ACTIVE_PROPERTIES} active properties. Archive one first.`
+         );
       }
       if (error instanceof MetadataTooLarge) {
          throw new ApiError(422, 'METADATA_TOO_LARGE', 'Metadata holds at most 50 keys and 16 KB.');
@@ -45,6 +58,9 @@ export function rethrowWork(resource: string): (error: unknown) => never {
       }
       if (error instanceof SystemStatusProtected) {
          throw new ApiError(409, 'STATUS_PROTECTED', 'A built-in status cannot be archived.');
+      }
+      if (error instanceof QuickActionNotArchived) {
+         throw new ApiError(409, 'CONFLICT', 'Archive a quick action before deleting it.');
       }
       if (error instanceof StatusOrderMismatch) {
          throw new ApiError(422, 'STATUS_ORDER_MISMATCH', 'The order must list every active status once.');

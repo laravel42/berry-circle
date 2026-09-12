@@ -7,11 +7,10 @@ import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
 import { SearchIssues } from '@/components/common/issues/search-issues';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Issue, issueCreatorIndex } from '@/data/issues';
+import { Issue, issuesCreatedBy } from '@/data/issues';
 import { priorities } from '@/data/priorities';
 import { statusUserColors, User } from '@/data/users';
 import { useLabelsStore } from '@/store/labels-store';
-import { useMembersStore } from '@/store/members-store';
 import { useProjectsStore } from '@/store/projects-store';
 import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
@@ -22,12 +21,6 @@ import { useViewStore } from '@/store/view-store';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { parseAsString, useQueryState } from 'nuqs';
 import { useEffect, useMemo, useState } from 'react';
-
-const presenceLabel: Record<User['status'], string> = {
-   online: 'Online now',
-   away: 'Away as of 11 minutes ago',
-   offline: 'Offline',
-};
 
 interface BreakdownRow {
    key: string;
@@ -101,7 +94,6 @@ function useClientTimes(member: User) {
  */
 export default function MemberProfile({ member }: { member: User }) {
    const { issues } = useIssuesStore();
-   const members = useMembersStore((state) => state.members);
    const workspaceLabels = useLabelsStore((state) => state.labels);
    const workspaceProjects = useProjectsStore((state) => state.projects);
    const [activeTab] = useQueryState('tab', parseAsString.withDefault('assigned'));
@@ -114,23 +106,15 @@ export default function MemberProfile({ member }: { member: User }) {
    const isSearching = isSearchOpen && searchQuery.trim() !== '';
    const isViewTypeGrid = viewType === 'grid';
 
-   const memberIndex = Math.max(
-      0,
-      members.findIndex((candidate) => candidate.id === member.id)
-   );
-
    const scopedIssues = useMemo(() => {
-      if (activeTab === 'created') {
-         return issues.filter((issue) => issueCreatorIndex(issue, members.length) === memberIndex);
-      }
+      if (activeTab === 'created') return issuesCreatedBy(issues, member.id);
       return issues.filter((issue) => issue.assignee?.id === member.id);
-   }, [issues, activeTab, member.id, memberIndex, members.length]);
+   }, [issues, activeTab, member.id]);
 
    const displayedIssues = useMemo(
       () => applyIssueFilters(scopedIssues, filters),
       [scopedIssues, filters]
    );
-
 
    const memberProjects = useMemo(() => {
       const led = workspaceProjects.filter((project) => project.lead.id === member.id);
@@ -178,9 +162,7 @@ export default function MemberProfile({ member }: { member: User }) {
    }, [displayedIssues]);
 
    const projectRows = useMemo<BreakdownRow[]>(() => {
-      const counts = countBy(displayedIssues, (issue) =>
-         issue.project ? [issue.project.id] : []
-      );
+      const counts = countBy(displayedIssues, (issue) => (issue.project ? [issue.project.id] : []));
       return workspaceProjects
          .filter((project) => counts.has(project.id))
          .map((project) => ({
@@ -206,107 +188,111 @@ export default function MemberProfile({ member }: { member: User }) {
       <div className="w-full h-full flex flex-col overflow-hidden">
          <IssueFilterBar />
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
-         {/* Issues */}
-         <div className="flex-1 min-w-0 h-full overflow-hidden">
-            <GroupedIssuesView
-               issues={displayedIssues}
-               totalIssues={scopedIssues}
-               statuses={displayOrderedStatus}
-               isViewTypeGrid={isViewTypeGrid}
-            />
-         </div>
-
-         {openPanel === 'insights' && (
-            <aside className="hidden lg:flex w-[420px] shrink-0 border-l h-full overflow-hidden bg-container">
-               <InsightsPanel issues={displayedIssues} />
-            </aside>
-         )}
-
-         {/* Profile panel */}
-         {openPanel !== 'hidden' && openPanel !== 'insights' && (
-         <aside className="hidden lg:flex flex-col w-[340px] shrink-0 border-l h-full overflow-y-auto bg-container">
-            <div className="px-5 pt-5 pb-4 border-b">
-               <div className="flex items-center gap-3">
-                  <div className="relative">
-                     <Avatar className="size-11">
-                        <AvatarImage src={member.avatarUrl} alt={member.name} />
-                        <AvatarFallback>{member.name[0]}</AvatarFallback>
-                     </Avatar>
-                     <span
-                        className="border-background absolute -end-0.5 -bottom-0.5 size-3 rounded-full border-2"
-                        style={{ backgroundColor: statusUserColors[member.status] }}
-                     />
-                  </div>
-                  <div className="min-w-0">
-                     <h2 className="font-semibold truncate">{member.name}</h2>
-                     <p className="text-muted-foreground truncate">
-                        {member.name} · {presenceLabel[member.status]}
-                     </p>
-                  </div>
-               </div>
+            {/* Issues */}
+            <div className="flex-1 min-w-0 h-full overflow-hidden">
+               <GroupedIssuesView
+                  issues={displayedIssues}
+                  totalIssues={scopedIssues}
+                  statuses={displayOrderedStatus}
+                  isViewTypeGrid={isViewTypeGrid}
+               />
             </div>
 
-            <div className="px-5 py-4 border-b flex flex-col gap-2.5">
-               <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0">Email</span>
-                  <span className="truncate">{member.email}</span>
-               </div>
-               <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0">Local time</span>
-                  <span>{localTime ?? '—'}</span>
-               </div>
-               <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0">Joined</span>
-                  <span>{joinedAgo ?? '—'}</span>
-               </div>
-               <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0">Role</span>
-                  <span>{member.role}</span>
-               </div>
-               <div className="flex items-start justify-between gap-4">
-                  <span className="text-muted-foreground shrink-0 pt-0.5">Projects</span>
-                  <div className="flex flex-col items-end gap-1 min-w-0">
-                     {memberProjects.slice(0, 4).map((project) => (
-                        <span key={project.id} className="inline-flex items-center gap-1.5 min-w-0">
-                           <project.icon className="size-3.5 text-muted-foreground shrink-0" />
-                           <span className="truncate max-w-44">{project.name}</span>
-                        </span>
-                     ))}
-                     {memberProjects.length > 4 && (
-                        <span className="text-muted-foreground">
-                           +{memberProjects.length - 4} more
-                        </span>
-                     )}
-                  </div>
-               </div>
-            </div>
+            {openPanel === 'insights' && (
+               <aside className="hidden lg:flex w-[420px] shrink-0 border-l h-full overflow-hidden bg-container">
+                  <InsightsPanel issues={displayedIssues} />
+               </aside>
+            )}
 
-            <div className="px-5 py-4">
-               <Tabs defaultValue="labels">
-                  <TabsList className="h-8 bg-transparent gap-1 p-0">
-                     <TabsTrigger value="labels" className="px-2.5 rounded-full">
-                        Labels
-                     </TabsTrigger>
-                     <TabsTrigger value="priority" className="px-2.5 rounded-full">
-                        Priority
-                     </TabsTrigger>
-                     <TabsTrigger value="projects" className="px-2.5 rounded-full">
-                        Projects
-                     </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="labels">
-                     <BreakdownList rows={labelRows} />
-                  </TabsContent>
-                  <TabsContent value="priority">
-                     <BreakdownList rows={priorityRows} />
-                  </TabsContent>
-                  <TabsContent value="projects">
-                     <BreakdownList rows={projectRows} />
-                  </TabsContent>
-               </Tabs>
-            </div>
-         </aside>
-         )}
+            {/* Profile panel */}
+            {openPanel !== 'hidden' && openPanel !== 'insights' && (
+               <aside className="hidden lg:flex flex-col w-[340px] shrink-0 border-l h-full overflow-y-auto bg-container">
+                  <div className="px-5 pt-5 pb-4 border-b">
+                     <div className="flex items-center gap-3">
+                        <div className="relative">
+                           <Avatar className="size-11">
+                              <AvatarImage src={member.avatarUrl} alt={member.name} />
+                              <AvatarFallback>{member.name[0]}</AvatarFallback>
+                           </Avatar>
+                           <span
+                              className="border-background absolute -end-0.5 -bottom-0.5 size-3 rounded-full border-2"
+                              style={{ backgroundColor: statusUserColors[member.status] }}
+                           />
+                        </div>
+                        <div className="min-w-0">
+                           <h2 className="font-semibold truncate">{member.name}</h2>
+                           {/* Presence is not tracked anywhere in Berry, so this
+                         said "Away as of 11 minutes ago" to everyone forever.
+                         The address is a fact; that was not. */}
+                           <p className="text-muted-foreground truncate">{member.email}</p>
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="px-5 py-4 border-b flex flex-col gap-2.5">
+                     <div className="flex items-start justify-between gap-4">
+                        <span className="text-muted-foreground shrink-0">Email</span>
+                        <span className="truncate">{member.email}</span>
+                     </div>
+                     <div className="flex items-start justify-between gap-4">
+                        <span className="text-muted-foreground shrink-0">Local time</span>
+                        <span>{localTime ?? '—'}</span>
+                     </div>
+                     <div className="flex items-start justify-between gap-4">
+                        <span className="text-muted-foreground shrink-0">Joined</span>
+                        <span>{joinedAgo ?? '—'}</span>
+                     </div>
+                     <div className="flex items-start justify-between gap-4">
+                        <span className="text-muted-foreground shrink-0">Role</span>
+                        <span>{member.role}</span>
+                     </div>
+                     <div className="flex items-start justify-between gap-4">
+                        <span className="text-muted-foreground shrink-0 pt-0.5">Projects</span>
+                        <div className="flex flex-col items-end gap-1 min-w-0">
+                           {memberProjects.slice(0, 4).map((project) => (
+                              <span
+                                 key={project.id}
+                                 className="inline-flex items-center gap-1.5 min-w-0"
+                              >
+                                 <project.icon className="size-3.5 text-muted-foreground shrink-0" />
+                                 <span className="truncate max-w-44">{project.name}</span>
+                              </span>
+                           ))}
+                           {memberProjects.length > 4 && (
+                              <span className="text-muted-foreground">
+                                 +{memberProjects.length - 4} more
+                              </span>
+                           )}
+                        </div>
+                     </div>
+                  </div>
+
+                  <div className="px-5 py-4">
+                     <Tabs defaultValue="labels">
+                        <TabsList className="h-8 bg-transparent gap-1 p-0">
+                           <TabsTrigger value="labels" className="px-2.5 rounded-full">
+                              Labels
+                           </TabsTrigger>
+                           <TabsTrigger value="priority" className="px-2.5 rounded-full">
+                              Priority
+                           </TabsTrigger>
+                           <TabsTrigger value="projects" className="px-2.5 rounded-full">
+                              Projects
+                           </TabsTrigger>
+                        </TabsList>
+                        <TabsContent value="labels">
+                           <BreakdownList rows={labelRows} />
+                        </TabsContent>
+                        <TabsContent value="priority">
+                           <BreakdownList rows={priorityRows} />
+                        </TabsContent>
+                        <TabsContent value="projects">
+                           <BreakdownList rows={projectRows} />
+                        </TabsContent>
+                     </Tabs>
+                  </div>
+               </aside>
+            )}
          </div>
       </div>
    );

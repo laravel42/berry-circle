@@ -34,6 +34,7 @@ import { cn } from '@/lib/utils';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useSessionStore } from '@/store/session-store';
+import { useUiPrefsStore } from '@/store/ui-prefs-store';
 import { RiEditLine } from '@remixicon/react';
 import { CheckIcon, ChevronRight, Paperclip, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -81,6 +82,11 @@ export function CreateNewIssue() {
    const runConfirm = useRunConfirm();
 
    const [mode, setMode] = useState<Mode>('manual');
+
+   // Preferences → Tasks decides which of these selectors are worth the
+   // room. A hidden one is not a missing value: the form still carries its
+   // default and still sends it, so the task is created exactly as before.
+   const createFields = useUiPrefsStore((state) => state.createFields);
    const [pending, setPending] = useState(false);
    const [squad, setSquad] = useState<Squad | null>(null);
    const [squads, setSquads] = useState<Squad[]>([]);
@@ -365,33 +371,41 @@ export function CreateNewIssue() {
                   />
 
                   <div className="flex w-full flex-wrap items-center justify-start gap-1.5">
-                     <StatusSelector
-                        status={uiStatus}
-                        onChange={(next) => setDraft({ statusId: next.id })}
-                     />
-                     <PrioritySelector
-                        priority={uiPriority}
-                        onChange={(next) => setDraft({ priorityId: next.id })}
-                     />
-                     <AssigneeSelector
-                        assignee={null}
-                        onChange={(next) =>
-                           setDraft({
-                              assignee: next
-                                 ? {
-                                      type: next.role === 'Application' ? 'agent' : 'user',
-                                      id: next.id,
-                                      name: next.name,
-                                   }
-                                 : null,
-                           })
-                        }
-                        onSquadChange={setSquad}
-                     />
-                     <ProjectSelector
-                        project={undefined}
-                        onChange={(next) => setDraft({ projectId: next?.id ?? null })}
-                     />
+                     {createFields.status ? (
+                        <StatusSelector
+                           status={uiStatus}
+                           onChange={(next) => setDraft({ statusId: next.id })}
+                        />
+                     ) : null}
+                     {createFields.priority ? (
+                        <PrioritySelector
+                           priority={uiPriority}
+                           onChange={(next) => setDraft({ priorityId: next.id })}
+                        />
+                     ) : null}
+                     {createFields.assignee ? (
+                        <AssigneeSelector
+                           assignee={null}
+                           onChange={(next) =>
+                              setDraft({
+                                 assignee: next
+                                    ? {
+                                         type: next.role === 'Application' ? 'agent' : 'user',
+                                         id: next.id,
+                                         name: next.name,
+                                      }
+                                    : null,
+                              })
+                           }
+                           onSquadChange={setSquad}
+                        />
+                     ) : null}
+                     {createFields.project ? (
+                        <ProjectSelector
+                           project={undefined}
+                           onChange={(next) => setDraft({ projectId: next?.id ?? null })}
+                        />
+                     ) : null}
 
                      <Input
                         type="date"

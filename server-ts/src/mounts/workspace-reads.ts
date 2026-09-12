@@ -383,7 +383,10 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
 
       // `q.scope` is `workspace_id = ctx.workspaceId`, the re-derived scope.
       const rows = await db.list((q) => q.sql`
-         SELECT id, workspace_id, name, description, color, created_at, updated_at, archived_at
+         SELECT id, workspace_id, name, description, color, created_at, updated_at, archived_at,
+                (SELECT count(*) FROM issue_label_memberships AS membership
+                  WHERE membership.workspace_id = issue_labels.workspace_id
+                    AND membership.label_id = issue_labels.id) AS usage_count
            FROM issue_labels
           WHERE ${q.scope}
             AND (${after === null} OR (created_at, id) <
@@ -404,6 +407,11 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
             // a task still has to be nameable, and the caller decides whether
             // to offer it for a new one.
             archivedAt: toRFC3339(row.archived_at as string | null),
+            // How many tasks carry it. Appended, so the field order the wire
+            // contract checks is kept. Counted rather than stored: a label is
+            // added and removed often enough that a cached number would be
+            // wrong more often than it was right.
+            usageCount: Number(row.usage_count ?? 0),
          }))
       );
    });
@@ -493,11 +501,17 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
     */
    route.get('/:workspaceId/issue-statuses', async (context) => {
       const db = context.get('scoped');
+      // Archived statuses are off by default, because every caller but the
+      // settings page wants the statuses a task can be put into now. The
+      // settings page asks for them so that archiving is something a reader
+      // can see the result of, and undo.
+      const includeArchived =
+         new URL(context.req.url).searchParams.get('includeArchived') === 'true';
       // `q.scope` is `workspace_id = ctx.workspaceId`, the re-derived scope.
       const rows = await db.list((q) => q.sql`
          SELECT id, key, name, description, category, color, sort_order, is_system, archived_at
            FROM issue_status_definitions
-          WHERE ${q.scope} AND archived_at IS NULL
+          WHERE ${q.scope} AND (${includeArchived}::boolean OR archived_at IS NULL)
           ORDER BY sort_order ASC, key ASC`);
       return json({
          nodes: rows.map((row) => ({
@@ -509,6 +523,8 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
             color: row.color as string,
             sortOrder: Number(row.sort_order),
             isSystem: Boolean(row.is_system),
+            // Appended, so the field order the wire contract checks is kept.
+            archivedAt: toRFC3339(row.archived_at as string | null),
          })),
       });
    });
@@ -522,7 +538,14 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
          description?: string;
          color?: string;
          sortOrder?: number;
-      }>(context, { name: 'string', description: 'string', color: 'string', sortOrder: 'number' });
+         archived?: boolean;
+      }>(context, {
+         name: 'string',
+         description: 'string',
+         color: 'string',
+         sortOrder: 'number',
+         archived: 'boolean',
+      });
 
       const problems = [];
       const name = value.name === undefined ? null : value.name.trim();
@@ -535,6 +558,12 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
       if (value.sortOrder !== undefined && (!Number.isInteger(value.sortOrder) || value.sortOrder < 0)) {
          problems.push(fieldError('/sortOrder', 'invalid_value', 'sortOrder is a whole number.'));
       }
+      // Only `false` — bringing a status back. Archiving is the DELETE route,
+      // which also has to detach the tasks that are in the status; doing it
+      // from a patch would archive it and leave them pointing at nothing.
+      if (value.archived !== undefined && value.archived !== false) {
+         problems.push(fieldError('/archived', 'invalid_value', 'archived can only be set to false.'));
+      }
       if (problems.length > 0) assertValid(problems);
 
       // Neither `key` nor `category` is patchable, whatever is sent: the board
@@ -544,13 +573,14 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
       const row = await db.mutate('settings.write', async (tx, ctx) => {
          const [updated] = await tx`
             UPDATE issue_status_definitions
-               SET name = COALESCE(${name}, name),
+               SET archived_at = CASE WHEN ${value.archived === false} THEN NULL ELSE archived_at END,
+                   name = COALESCE(${name}, name),
                    description = CASE WHEN ${'description' in value} THEN ${value.description ?? null} ELSE description END,
                    color = COALESCE(${value.color ?? null}, color),
                    sort_order = COALESCE(${value.sortOrder ?? null}, sort_order),
                    updated_at = now()
              WHERE id = ${statusId} AND workspace_id = ${ctx.workspaceId}
-             RETURNING id, key, name, description, category, color, sort_order, is_system`;
+             RETURNING id, key, name, description, category, color, sort_order, is_system, archived_at`;
          if (!updated) throw ApiError.notFound('Status');
          return updated;
       }, { table: 'issue_status_definitions', id: statusId }).catch(rethrowScoped('Status'));
@@ -563,6 +593,7 @@ function catalogsRoute(options: WorkspaceReadOptions): Hono<{ Variables: ScopedV
          color: row.color as string,
          sortOrder: Number(row.sort_order),
          isSystem: Boolean(row.is_system),
+         archivedAt: toRFC3339(row.archived_at as string | null),
       });
    });
 

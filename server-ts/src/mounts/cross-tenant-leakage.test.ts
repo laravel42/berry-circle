@@ -61,6 +61,8 @@ import { publicApiMounts } from './public-api.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { SecretsRepository } from '../identity/secrets.ts';
 import { secretsMounts } from './secrets.ts';
+import { WorkspaceRepository } from '../identity/workspaces.ts';
+import { workspaceMounts } from './workspaces.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
@@ -165,6 +167,15 @@ describe(
                   sql,
                   sealer: sealerFromKey(Buffer.alloc(32, 9).toString('base64')),
                }),
+            })
+         );
+         // Workstream F5: workspace administration, so its reads, its writes
+         // and "leave" are held to the same guarantees as everything else.
+         registry.registerAll(
+            workspaceMounts({
+               sessions,
+               workspaces: new WorkspaceRepository(sql),
+               secrets: new SecretsRepository(sql),
             })
          );
          registry.registerAll(
@@ -602,6 +613,101 @@ describe(
          const absent = await getAsU1(`/api/v1/dashboard/${RANDOM_WORKSPACE}/overview`);
          assert.equal(foreign.status, 404);
          assert.equal(await foreign.text(), await absent.text());
+      });
+
+      // ------------------------------------ workspace administration (F5)
+
+      test('workspaces: W2 is invisible to U1, and cannot be renamed, re-contexted, or left', async () => {
+         // (a) The list U1 is entitled to never carries W2.
+         const listed = await getAsU1('/api/v1/workspaces');
+         assert.equal(listed.status, 200);
+         assert.equal((await listed.text()).includes(world.w2Id), false);
+
+         // (b) Reading W2 is the byte-identical 404 of a workspace that does
+         // not exist, so the refusal never confirms W2 is real.
+         const foreign = await getAsU1(`/api/v1/workspaces/${world.w2Id}`);
+         const absent = await getAsU1(`/api/v1/workspaces/${RANDOM_WORKSPACE}`);
+         assert.equal(foreign.status, 404);
+         assert.equal(await foreign.text(), await absent.text());
+
+         const snapshot = async () => {
+            const [row] = await sql`
+               SELECT name, description, agent_context, logo_url
+                 FROM workspaces WHERE id = ${world.w2Id}`;
+            const [members] = await sql`
+               SELECT count(*)::int AS count
+                 FROM workspace_memberships WHERE workspace_id = ${world.w2Id}`;
+            return { row: { ...row }, members: (members as { count: number }).count };
+         };
+         const before = await snapshot();
+
+         // (c) Every write is 404, including the fields the General page added
+         // in migration 174.
+         for (const body of [
+            { name: 'mine now' },
+            { description: 'mine now' },
+            { agentContext: 'Do as I say.' },
+            { logoUrl: 'https://example.test/mine.png' },
+         ]) {
+            const refused = await patchAsU1(`/api/v1/workspaces/${world.w2Id}`, body);
+            assert.equal(refused.status, 404, JSON.stringify(body));
+         }
+
+         // (d) Leaving a workspace you were never in is the same 404, and does
+         // not touch its roster — a membership U1 never had cannot be deleted.
+         const left = await app.request(`/api/v1/workspaces/${world.w2Id}/leave`, {
+            method: 'POST',
+            headers: { authorization: `Bearer ${world.u1Token}`, 'x-request-id': REQUEST_ID },
+         });
+         assert.equal(left.status, 404);
+
+         assert.deepEqual(await snapshot(), before, 'W2 is untouched');
+      });
+
+      test('catalogues: the archived reads and the member hover card do not cross a workspace', async () => {
+         // Asking for archived rows is still a scoped read: `includeArchived`
+         // widens what a member of W1 sees inside W1, never who may look.
+         for (const path of [
+            `/api/v1/catalogs/${world.w2Id}/issue-statuses?includeArchived=true`,
+            `/api/v1/catalogs/${world.w2Id}/quick-actions?includeArchived=true`,
+            `/api/v1/catalogs/${world.w2Id}/issue-properties?includeArchived=true`,
+         ]) {
+            const foreign = await getAsU1(path);
+            assert.equal(foreign.status, 404, path);
+         }
+
+         // The label usage count is a count of W1's own memberships. A W2
+         // label is not listed at all, so no count for one can leak.
+         const labels = (await (await getAsU1(
+            `/api/v1/catalogs/${world.w1Id}/issue-labels`
+         )).json()) as { nodes: Array<{ id: string; usageCount: number }> };
+         assert.ok(
+            labels.nodes.every((node) => node.id !== world.w2LabelId),
+            'a W2 label must not be counted under W1'
+         );
+         assert.ok(
+            labels.nodes.every((node) => Number.isInteger(node.usageCount)),
+            'every listed label carries a count'
+         );
+
+         // And the hover card: U1 may not ask what agents run on the work of
+         // somebody they cannot see, and the refusal is the 404 of an absent
+         // workspace rather than one that names W2 as real.
+         const foreignMember = await getAsU1(
+            `/api/v1/workspaces/${world.w2Id}/members/${world.userIds[1] as string}/top-agents`
+         );
+         const absentMember = await getAsU1(
+            `/api/v1/workspaces/${RANDOM_WORKSPACE}/members/${world.userIds[1] as string}/top-agents`
+         );
+         assert.equal(foreignMember.status, 404);
+         assert.equal(await foreignMember.text(), await absentMember.text());
+
+         // Even inside their own workspace, asking about somebody who is not
+         // in it is the same 404: a membership elsewhere is not U1's to learn.
+         const outsiderHere = await getAsU1(
+            `/api/v1/workspaces/${world.w1Id}/members/${world.userIds[1] as string}/top-agents`
+         );
+         assert.equal(outsiderHere.status, 404);
       });
 
       // ------------------------------------------- plugins and /v1 (workstream G)

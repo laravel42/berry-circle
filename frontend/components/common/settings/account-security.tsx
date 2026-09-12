@@ -1,69 +1,28 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import {
-   API_SCOPES,
-   createToken,
-   describeDevice,
-   loadSessions,
-   loadTokens,
-   revokeSession,
-   revokeToken,
-   type AccountSession,
-   type PersonalToken,
-} from '@/lib/settings';
-import { KeyRound, Loader2, Monitor } from 'lucide-react';
-import { useState } from 'react';
-import { toast } from 'sonner';
+import { describeDevice, loadSessions, revokeSession, type AccountSession } from '@/lib/settings';
+import { Monitor } from 'lucide-react';
 import { SettingsCard, SettingsRow, SettingsSection, SettingsShell } from './shared';
 import { useSettingsResource } from './use-settings-resource';
 
 /**
- * Personal "Security & access": where this account is signed in, and the keys
- * that can act as it.
+ * Personal "Security & access": where this account is signed in.
  *
  * The passkey and commit-signing sections this page used to show are gone.
  * Berry has neither, and a button that opens nothing on a security page is
  * worse than an absent one — it suggests a protection that is not there.
+ *
+ * API keys moved to their own page. They had grown a creation form with an
+ * expiry, a scope picker and a one-time secret to hand over carefully, which
+ * is a page's worth of decisions rather than a section under a device list.
  */
 export default function AccountSecurity() {
    const sessions = useSettingsResource<AccountSession[]>(loadSessions);
-   const tokens = useSettingsResource<PersonalToken[]>(loadTokens);
-   const [creating, setCreating] = useState(false);
-   const [name, setName] = useState('');
-   /** Public API scopes for the next key; null means full access. */
-   const [scopes, setScopes] = useState<string[] | null>(null);
-   /** Shown once. The server keeps a hash, so this is the only time it exists. */
-   const [secret, setSecret] = useState<string | null>(null);
 
    const signOut = async (session: AccountSession) => {
       const rest = (sessions.value ?? []).filter((entry) => entry.id !== session.id);
       await sessions.mutate(rest, () => revokeSession(session.id));
-   };
-
-   const create = async () => {
-      const trimmed = name.trim();
-      if (trimmed === '') return;
-      setCreating(true);
-      try {
-         const { secret: issued, record } = await createToken(trimmed, scopes);
-         tokens.set([record, ...(tokens.value ?? [])]);
-         setName('');
-         setScopes(null);
-         setSecret(issued);
-         if (!issued) toast.error('That key already existed; its secret cannot be shown again.');
-      } catch (cause) {
-         toast.error(cause instanceof Error ? cause.message : 'The key could not be created.');
-      } finally {
-         setCreating(false);
-      }
-   };
-
-   const revoke = async (token: PersonalToken) => {
-      const rest = (tokens.value ?? []).filter((entry) => entry.id !== token.id);
-      await tokens.mutate(rest, () => revokeToken(token.id));
    };
 
    return (
@@ -103,114 +62,6 @@ export default function AccountSecurity() {
                   ))
                )}
             </SettingsCard>
-         </SettingsSection>
-
-         <SettingsSection
-            title="Personal API keys"
-            description={tokens.error ?? 'Use the API to build your own integrations'}
-         >
-            <SettingsCard>
-               {(tokens.value ?? []).map((token) => (
-                  <SettingsRow
-                     key={token.id}
-                     icon={<KeyRound className="size-4" />}
-                     title={token.name}
-                     description={`${token.prefix}… · ${
-                        token.scopes ? token.scopes.join(', ') : 'full access'
-                     } · ${token.lastUsedAt ? `last used ${when(token.lastUsedAt)}` : 'never used'}`}
-                     trailing={
-                        <Button
-                           size="xs"
-                           variant="ghost"
-                           className="text-status-danger hover:text-status-danger"
-                           disabled={tokens.saving}
-                           onClick={() => void revoke(token)}
-                        >
-                           Revoke
-                        </Button>
-                     }
-                  />
-               ))}
-               <SettingsRow
-                  title={(tokens.value ?? []).length === 0 ? 'No API keys' : 'New key'}
-                  trailing={
-                     <span className="flex items-center gap-2">
-                        <Input
-                           value={name}
-                           placeholder="What is it for?"
-                           className="h-8 w-44"
-                           onChange={(event) => setName(event.target.value)}
-                           onKeyDown={(event) => {
-                              if (event.key === 'Enter') void create();
-                           }}
-                        />
-                        <Button
-                           size="xs"
-                           variant="ghost"
-                           disabled={creating || name.trim() === ''}
-                           onClick={() => void create()}
-                        >
-                           {creating ? <Loader2 className="size-3.5 animate-spin" /> : 'Create'}
-                        </Button>
-                     </span>
-                  }
-               />
-               <SettingsRow
-                  title="Access"
-                  description={
-                     scopes === null
-                        ? 'Full access, like signing in as you'
-                        : 'Only the public API scopes ticked here'
-                  }
-                  trailing={
-                     <span className="flex flex-wrap items-center gap-3">
-                        <label className="flex items-center gap-1.5">
-                           <Checkbox
-                              checked={scopes === null}
-                              onCheckedChange={(checked) => setScopes(checked === true ? null : [])}
-                           />
-                           full
-                        </label>
-                        {API_SCOPES.map((scope) => (
-                           <label key={scope} className="flex items-center gap-1.5">
-                              <Checkbox
-                                 disabled={scopes === null}
-                                 checked={scopes?.includes(scope) ?? false}
-                                 onCheckedChange={(checked) =>
-                                    setScopes((current) => {
-                                       const list = (current ?? []).filter(
-                                          (entry) => entry !== scope
-                                       );
-                                       return checked === true ? [...list, scope] : list;
-                                    })
-                                 }
-                              />
-                              {scope}
-                           </label>
-                        ))}
-                     </span>
-                  }
-               />
-            </SettingsCard>
-            {secret ? (
-               <div className="mt-2 rounded-md border border-status-warning/40 bg-container px-4 py-3">
-                  <p className="font-medium">Copy this now — it is not shown again.</p>
-                  <code className="mt-1.5 block break-all font-mono text-muted-foreground">
-                     {secret}
-                  </code>
-                  <Button
-                     size="xs"
-                     variant="ghost"
-                     className="mt-2 -ml-2"
-                     onClick={() => {
-                        void navigator.clipboard?.writeText(secret);
-                        setSecret(null);
-                     }}
-                  >
-                     Copy and dismiss
-                  </Button>
-               </div>
-            ) : null}
          </SettingsSection>
       </SettingsShell>
    );

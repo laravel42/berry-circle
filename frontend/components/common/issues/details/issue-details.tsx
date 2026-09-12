@@ -11,6 +11,7 @@ import { forgetIssue, rememberIssue } from '@/lib/recent-issues';
 import { cn } from '@/lib/utils';
 import { useIssueViewStore } from '@/store/issue-view-store';
 import { useIssuesStore } from '@/store/issues-store';
+import { useUiPrefsStore } from '@/store/ui-prefs-store';
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
@@ -160,6 +161,11 @@ export default function IssueDetails({ issueRef }: { issueRef?: string } = {}) {
 
    const activity = useIssueActivity(issue?.identifier ?? '', issue?.id);
 
+   // Preferences → General. Pinned, the comment box is always one click away;
+   // unpinned, it sits at the end of the activity where a long thread can be
+   // read without a bar over the last line of it.
+   const stickyCommentBar = useUiPrefsStore((state) => state.stickyCommentBar);
+
    // The fragment may name a comment that had not loaded when the page did.
    useEffect(() => {
       if (highlighted) goToHash();
@@ -257,19 +263,30 @@ export default function IssueDetails({ issueRef }: { issueRef?: string } = {}) {
                         onCommentPosted={activity.addComment}
                         onRunChanged={activity.upsertRun}
                      />
+                     {stickyCommentBar ? null : (
+                        <div className="mt-6">
+                           <ActivityCommentComposer
+                              issueRef={issue.identifier}
+                              onPosted={activity.addComment}
+                              className="border-0 bg-transparent p-0 sm:px-0"
+                           />
+                        </div>
+                     )}
                   </div>
                </div>
             </div>
 
-            <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
-               <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
-                  <ActivityCommentComposer
-                     issueRef={issue.identifier}
-                     onPosted={activity.addComment}
-                     className="border-0 bg-transparent p-0 sm:px-0"
-                  />
+            {stickyCommentBar ? (
+               <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
+                  <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
+                     <ActivityCommentComposer
+                        issueRef={issue.identifier}
+                        onPosted={activity.addComment}
+                        className="border-0 bg-transparent p-0 sm:px-0"
+                     />
+                  </div>
                </div>
-            </div>
+            ) : null}
          </div>
 
          {sidebarOpen ? (

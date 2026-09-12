@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { ChevronLeft } from 'lucide-react';
 
 import { settingsNav } from '@/components/layout/sidebar/nav-settings';
@@ -22,8 +23,9 @@ import { isNavItemActive } from '@/lib/nav-active';
  */
 export function ShellRailSettings({ orgId }: { orgId: string }) {
    const pathname = usePathname() ?? '';
+   const t = useTranslations('workspaceAdmin');
 
-   const link = (href: string, active: boolean) =>
+   const link = (active: boolean) =>
       [
          'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',
          active
@@ -44,24 +46,24 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
          </div>
 
          {settingsNav.map((group) => (
-            <div key={group.label}>
+            <div key={group.labelKey}>
                <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
-                  {group.label}
+                  {t(`groups.${group.labelKey}`)}
                </div>
                <ul className="flex flex-col gap-px px-2">
                   {group.items.map((item) => {
                      const href = `/${orgId}${item.url}`;
                      const active = isNavItemActive(pathname, href);
                      return (
-                        <li key={`${group.label}-${item.name}`}>
+                        <li key={`${group.labelKey}-${item.labelKey}`}>
                            <Link
                               data-shell-nav
                               href={href}
                               aria-current={active ? 'page' : undefined}
-                              className={link(href, active)}
+                              className={link(active)}
                            >
                               <item.icon className="size-[15px] flex-none" />
-                              {item.name}
+                              {t(`nav.${item.labelKey}`)}
                            </Link>
                         </li>
                      );
@@ -69,7 +71,6 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
                </ul>
             </div>
          ))}
-
       </>
    );
 }

@@ -49,6 +49,11 @@ const WORKSPACE_KEYS = [
    'role',
    'createdAt',
    'updatedAt',
+   // Appended by the workspace "General" page (migration 174). Listed here, as
+   // the comment above requires, so gaining them is a deliberate contract
+   // change rather than something a serializer did quietly.
+   'logoUrl',
+   'agentContext',
 ] as const;
 const WORKSPACE_SETTINGS_KEYS = ['issuePrefix', 'defaultRole', 'allowMemberInvites'] as const;
 const MEMBER_KEYS = [
@@ -141,6 +146,8 @@ const workspaceArb: fc.Arbitrary<Workspace> = fc.record({
    role: fc.constantFrom('owner', 'admin', 'member', 'viewer'),
    createdAt: rfc3339,
    updatedAt: rfc3339,
+   logoUrl: nullableString,
+   agentContext: nullableString,
 });
 
 const memberArb: fc.Arbitrary<Membership> = fc.record({

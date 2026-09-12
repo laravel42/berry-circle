@@ -10,7 +10,12 @@ import {
    decodeTimeCursor,
    parsePageQuery,
 } from '../http/cursor.ts';
-import { boundedLength, validIssuePrefix, validWorkspaceSlug } from '../http/validation.ts';
+import {
+   boundedLength,
+   validAvatar,
+   validIssuePrefix,
+   validWorkspaceSlug,
+} from '../http/validation.ts';
 import { domain } from '../identity/errors.ts';
 import { validRole, type Role } from '../identity/roles.ts';
 import type { Membership, WorkspaceRepository } from '../identity/workspaces.ts';
@@ -144,11 +149,21 @@ export function workspaceMounts(options: WorkspaceOptions): Mount[] {
          name: 'string',
          slug: 'string',
          description: 'raw',
+         logoUrl: 'raw',
+         agentContext: 'raw',
       });
 
       const fields: FieldError[] = [];
-      const patch: { name?: string; slug?: string; descriptionSet: boolean; description?: string | null } =
-         { descriptionSet: false };
+      const patch: {
+         name?: string;
+         slug?: string;
+         descriptionSet: boolean;
+         description?: string | null;
+         logoUrlSet: boolean;
+         logoUrl?: string | null;
+         agentContextSet: boolean;
+         agentContext?: string | null;
+      } = { descriptionSet: false, logoUrlSet: false, agentContextSet: false };
       if (value.name !== undefined) {
          const trimmed = value.name.trim();
          if (!boundedLength(trimmed, 1, 100)) {
@@ -178,9 +193,47 @@ export function workspaceMounts(options: WorkspaceOptions): Mount[] {
          patch.descriptionSet = true;
          patch.description = description.value;
       }
+      // Present-and-null clears the logo; absent leaves it. The address is
+      // checked the way an avatar's is — absolute HTTP(S), no credentials —
+      // because it is loaded into a page the same way.
+      if ('logoUrl' in value) {
+         patch.logoUrlSet = true;
+         if (value.logoUrl !== null) {
+            if (typeof value.logoUrl !== 'string' || !validAvatar(value.logoUrl)) {
+               fields.push(
+                  fieldError(
+                     '/logoUrl',
+                     'invalid_url',
+                     'Logo URL must be null or an absolute HTTP(S) URL.'
+                  )
+               );
+            } else {
+               patch.logoUrl = value.logoUrl;
+            }
+         }
+      }
+      // Whitespace-only is a clear: someone who empties the box means the
+      // workspace has no standing instruction, not that it has a blank one.
+      const agentContext = nullableString(
+         value.agentContext,
+         10_000,
+         '/agentContext',
+         fields,
+         'Agent context'
+      );
+      if (agentContext.ok && agentContext.set) {
+         patch.agentContextSet = true;
+         patch.agentContext = agentContext.value === '' ? null : agentContext.value;
+      }
       // Unlike the profile patch, Go only marks a field present here once it
       // has validated, so an invalid name alone also reads as an empty patch.
-      if (patch.name === undefined && patch.slug === undefined && !patch.descriptionSet) {
+      if (
+         patch.name === undefined &&
+         patch.slug === undefined &&
+         !patch.descriptionSet &&
+         !patch.logoUrlSet &&
+         !patch.agentContextSet
+      ) {
          fields.push(fieldError('/', 'empty_patch', 'At least one workspace field is required.'));
       }
       assertValid(fields);
@@ -207,6 +260,22 @@ export function workspaceMounts(options: WorkspaceOptions): Mount[] {
       const userId = context.get('user').id;
       await domain('Workspace', () => workspaces.select(userId, workspaceId));
       return json(serializeWorkspace(await domain('Workspace', () => workspaces.get(workspaceId, userId))));
+   });
+
+   /**
+    * Leaving is not removing yourself.
+    *
+    * `DELETE /:workspaceId/members/:userId` needs `members.manage`, so a plain
+    * member could not use it to get out of a workspace. This asks the
+    * repository for the one act a member may always perform on their own
+    * membership — subject to the last-owner rule, which is why a sole owner
+    * gets 409 rather than being allowed to abandon the workspace.
+    */
+   route.post('/:workspaceId/leave', async (context) => {
+      const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
+      await requireEmptyBody(context.req.raw);
+      await domain('Workspace', () => workspaces.leave(context.get('user').id, workspaceId));
+      return new Response(null, { status: 204 });
    });
 
    route.get('/:workspaceId/settings', async (context) => {
@@ -288,6 +357,21 @@ export function workspaceMounts(options: WorkspaceOptions): Mount[] {
       });
    });
 
+   /**
+    * What the hover card over a member's name shows beside their role and
+    * address: the two agents that turn up most on their work.
+    */
+   route.get('/:workspaceId/members/:userId/top-agents', async (context) => {
+      const nodes = await domain('Member', () =>
+         workspaces.topAgentsForMember(
+            context.get('user').id,
+            pathId(context.req.param('workspaceId'), 'Workspace'),
+            pathId(context.req.param('userId'), 'Member')
+         )
+      );
+      return json({ nodes });
+   });
+
    route.patch('/:workspaceId/members/:userId', async (context) => {
       const workspaceId = pathId(context.req.param('workspaceId'), 'Workspace');
       const targetId = pathId(context.req.param('userId'), 'Member');
@@ -331,7 +415,11 @@ interface CreateBody {
    slug?: string;
    description?: unknown;
 }
-type UpdateBody = CreateBody;
+
+interface UpdateBody extends CreateBody {
+   logoUrl?: unknown;
+   agentContext?: unknown;
+}
 
 interface SettingsBody {
    issuePrefix?: string;
@@ -359,13 +447,20 @@ function nullableString(
    raw: unknown,
    maximum: number,
    path: string,
-   fields: FieldError[]
+   fields: FieldError[],
+   what = 'Description'
 ): { ok: boolean; set: boolean; value: string | null } {
    if (raw === undefined) return { ok: true, set: false, value: null };
    if (raw === null) return { ok: true, set: true, value: null };
    if (typeof raw !== 'string' || !boundedLength(raw.trim(), 0, maximum)) {
       fields.push(
-         fieldError(path, 'invalid_length', `Description must be null or at most 5,000 characters.`)
+         fieldError(
+            path,
+            'invalid_length',
+            // Grouped the way the existing message is, so the wording a client
+            // already sees for /description is unchanged.
+            `${what} must be null or at most ${maximum.toLocaleString('en-US')} characters.`
+         )
       );
       return { ok: false, set: true, value: null };
    }
