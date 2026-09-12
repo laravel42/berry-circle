@@ -96,6 +96,8 @@ interface World {
    w1RepoUrl: string;
    w2RepoUrl: string;
    w2RepoId: string;
+   /** W2's GitHub App installation — one workspace's, and only one's. */
+   w2InstallationId: number;
    /** An open invitation into W2, addressed to nobody in this test. */
    w2InvitationId: string;
    w1IssueId: string;
@@ -329,6 +331,16 @@ describe(
             RETURNING id`;
          world.w2RepoId = w2Repo!.id as string;
 
+         // W2's GitHub account, which is the row a workspace reaching several
+         // accounts makes newly interesting: an installation belongs to exactly
+         // one workspace, so W1 must be unable to list it or disconnect it.
+         world.w2InstallationId = 6_180_000 + Math.floor(Math.random() * 100_000);
+         await sql`
+            INSERT INTO github_installations (workspace_id, installation_id, account_login,
+                   account_type, installed_by)
+            VALUES (${world.w2Id}, ${world.w2InstallationId}, ${`w2-org-${suffix}`},
+                    'Organization', ${u2Id})`;
+
          // One task on each board, so an issue-scoped route has a real target
          // in both tenants. W2's carries a label, which is exactly the row a
          // leak would expose.
@@ -492,6 +504,19 @@ describe(
       function getAsU1(path: string): Promise<Response> {
          return Promise.resolve(
             app.request(path, {
+               headers: {
+                  authorization: `Bearer ${world.u1Token}`,
+                  'x-request-id': REQUEST_ID,
+               },
+            })
+         );
+      }
+
+      /** Authenticated DELETE as U1, with the fixed request id. */
+      function deleteAsU1(path: string): Promise<Response> {
+         return Promise.resolve(
+            app.request(path, {
+               method: 'DELETE',
                headers: {
                   authorization: `Bearer ${world.u1Token}`,
                   'x-request-id': REQUEST_ID,
@@ -986,7 +1011,12 @@ describe(
 
             // (b) Every GitHub read under W2 is the byte-identical 404 of a
             // workspace that does not exist.
-            for (const path of ['settings', 'repositories', `issues/${randomUUID()}/pull-requests`]) {
+            for (const path of [
+               'settings',
+               'repositories',
+               'accounts',
+               `issues/${randomUUID()}/pull-requests`,
+            ]) {
                const foreign = await getAsU1(`/api/v1/github/${world.w2Id}/${path}`);
                const missing = await getAsU1(`/api/v1/github/${RANDOM_WORKSPACE}/${path}`);
                assert.equal(foreign.status, 404, `${path} under W2 is 404`);
@@ -1022,6 +1052,35 @@ describe(
                })
             );
             assert.equal(anonymous.status, 401);
+         }
+      );
+
+      test(
+         'GitHub: an installation belongs to one workspace — W1 cannot see or disconnect W2’s',
+         async () => {
+            // (a) W1's own accounts never name W2's installation. Read as the
+            // owner, who is the only role allowed to ask.
+            const listed = await getAsU1(`/api/v1/github/${world.w1Id}/accounts`);
+            assert.equal(listed.status, 200);
+            const body = await listed.text();
+            assert.equal(
+               body.includes(String(world.w2InstallationId)),
+               false,
+               'W2’s installation must not appear under W1'
+            );
+
+            // (c) Disconnecting it is the same 404 whether it is addressed
+            // under W1's own scope or under W2's, and the row survives both.
+            for (const workspaceId of [world.w1Id, world.w2Id]) {
+               const refused = await deleteAsU1(
+                  `/api/v1/github/${workspaceId}/accounts/${world.w2InstallationId}`
+               );
+               assert.equal(refused.status, 404, workspaceId);
+            }
+            const [row] = await sql`
+               SELECT workspace_id FROM github_installations
+                WHERE installation_id = ${world.w2InstallationId}`;
+            assert.equal(row?.workspace_id, world.w2Id, 'W2 keeps its installation');
          }
       );
 

@@ -12,7 +12,11 @@ import { allows, type Permission } from '../identity/roles.ts';
 import type { ScopedDb, WorkspaceContext } from '../identity/workspace-context.ts';
 import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubAppUnavailable, type GitHubAppRepository } from '../integrations/github-app.ts';
-import { GitHubClient, GitHubError, type RepositoryChoice } from '../integrations/github.ts';
+import { GitHubError, type GitHubClient, type RepositoryChoice } from '../integrations/github.ts';
+import {
+   listRepositoriesAcrossAccounts,
+   type AttributedRepository,
+} from '../integrations/github-repositories.ts';
 import {
    MAX_REPOSITORY_DESCRIPTION,
    RepositoryConflict,
@@ -22,7 +26,6 @@ import {
    type GitHubSettingsRepository,
 } from '../scm/github-settings.ts';
 import type { PullRequestStore } from '../scm/pull-requests.ts';
-import { githubCredential } from './integrations.ts';
 import { mountWorkspaceScope, pathId, type ScopedVariables } from './shared.ts';
 
 /**
@@ -151,6 +154,85 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
       return new Response(null, { status: 204 });
    });
 
+   /**
+    * The accounts this workspace reaches, and what each one would cost to lose.
+    *
+    * Admin-only, like the picker: answering it mints a token against every
+    * installation to ask GitHub how many repositories it was granted, and only
+    * an admin can act on the answer anyway.
+    *
+    * `listedHere` is the count of this workspace's own repositories that live
+    * under the account — the sentence a Disconnect dialog needs, because
+    * "disconnect acme" reads as harmless until it says which four repositories
+    * the agents here stop reaching.
+    */
+   route.get('/:workspaceId/accounts', async (context) => {
+      const db = context.get('scoped');
+      if (!allows(db.ctx.role, 'settings.write')) {
+         throw new ApiError(403, 'FORBIDDEN', 'Only an admin can manage connected accounts.');
+      }
+      const workspaceId = db.ctx.workspaceId;
+      if (!options.githubApp) return json({ accounts: [], installPending: false });
+      const accounts = await options.githubApp.connectedAccounts(workspaceId);
+      const listed = await options.settings.listRepositories(workspaceId);
+      return json({
+         accounts: accounts.map((account) => ({
+            installationId: account.installationId,
+            accountLogin: account.accountLogin,
+            accountType: account.accountType,
+            repositoryCount: account.repositoryCount,
+            listedHere: listed.filter(
+               (repository) => repositoryOwner(repository.url) === (account.accountLogin ?? '').toLowerCase()
+            ).length,
+            installedAt: account.installedAt,
+            installedBy: account.installedBy,
+         })),
+         // An install an owner has still to approve has no account to list, so
+         // it is said beside the list rather than in it.
+         installPending: await options.githubApp.installPending(workspaceId),
+      });
+   });
+
+   /**
+    * Disconnects one account, leaving the others.
+    *
+    * The App stays installed on GitHub — removing it there is the account
+    * owner's act — but this workspace stops minting tokens against this
+    * installation. A 404 for an installation that is not this workspace's, and
+    * the same 404 for one that does not exist: an installation belongs to
+    * exactly one workspace, and which ids exist elsewhere is not this
+    * workspace's business.
+    */
+   route.delete('/:workspaceId/accounts/:installationId', async (context) => {
+      const db = context.get('scoped');
+      const installationId = Number(context.req.param('installationId'));
+      if (!Number.isSafeInteger(installationId) || installationId <= 0) {
+         throw ApiError.notFound('Installation');
+      }
+      await mutateScoped(db, 'settings.write', async (tx, ctx) => {
+         const rows = await tx`
+            DELETE FROM github_installations
+             WHERE workspace_id = ${ctx.workspaceId} AND installation_id = ${installationId}
+            RETURNING installation_id, account_login`;
+         if (rows.length === 0) throw ApiError.notFound('Installation');
+         await writeWorkspaceEvent(tx, {
+            workspaceId: ctx.workspaceId,
+            type: 'github.connection.updated',
+            aggregateType: 'github_installation',
+            aggregateId: ctx.workspaceId,
+            payload: {
+               installed: false,
+               installationId,
+               accountLogin: rows[0]!.account_login ?? null,
+            },
+         });
+      });
+      // The cache is keyed by installation, so the token this workspace was
+      // holding for it goes with the row rather than living out its hour.
+      options.githubApp?.forgetToken(installationId);
+      return new Response(null, { status: 204 });
+   });
+
    route.get('/:workspaceId/repositories', async (context) => {
       const db = context.get('scoped');
       return json({ repositories: await options.settings.listRepositories(db.ctx.workspaceId) });
@@ -266,13 +348,23 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
       const addedIds = new Set(existing.map((row) => row.githubRepoId).filter((id) => id !== null));
       const addedUrls = new Set(existing.map((row) => row.url.toLowerCase()));
 
-      const accounts = [...new Set(listed.map(ownerOf))].sort((a, b) => a.localeCompare(b));
+      const accounts = [...new Set(listed.map(accountOf))].sort((a, b) => a.localeCompare(b));
+      // A search reaches every account; naming one narrows to it. Both are
+      // matched on the account the installation is on rather than on the
+      // repository's owner, so the two never disagree for an account that has
+      // since been renamed on GitHub.
       const matching = listed.filter(
          (repository) =>
-            (account === '' || ownerOf(repository).toLowerCase() === account.toLowerCase()) &&
+            (account === '' || accountOf(repository).toLowerCase() === account.toLowerCase()) &&
             (query === '' ||
                repository.fullName.toLowerCase().includes(query) ||
                (repository.description ?? '').toLowerCase().includes(query))
+      );
+      // Grouped by account, so the picker's sections come out of the order
+      // rather than out of a second pass in the browser.
+      matching.sort(
+         (a, b) =>
+            accountOf(a).localeCompare(accountOf(b)) || a.fullName.localeCompare(b.fullName)
       );
       const page = matching.slice(offset, offset + limit).map((repository) => {
          const url = repository.htmlUrl ?? `https://github.com/${repository.fullName}`;
@@ -280,6 +372,8 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
             id: repository.id,
             fullName: repository.fullName,
             owner: ownerOf(repository),
+            account: accountOf(repository),
+            installationId: repository.installationId,
             name: repository.name,
             description: repository.description ?? null,
             private: repository.private,
@@ -323,6 +417,30 @@ function ownerOf(repository: RepositoryChoice): string {
    return repository.owner ?? repository.fullName.split('/')[0] ?? '';
 }
 
+/**
+ * The account a stored repository URL lives under, lowercased.
+ *
+ * Both address forms a workspace can hold are read: `https://host/owner/repo`
+ * and `git@host:owner/repo.git`. An address that matches neither belongs to no
+ * account, which is the honest answer — it is a repository no installation
+ * accounts for.
+ */
+function repositoryOwner(url: string): string {
+   const ssh = /^[^@]+@[^:]+:([^/]+)\//.exec(url.trim());
+   if (ssh) return ssh[1]!.toLowerCase();
+   try {
+      const path = new URL(url.trim()).pathname.replace(/^\/+/, '');
+      return (path.split('/')[0] ?? '').toLowerCase();
+   } catch {
+      return '';
+   }
+}
+
+/** Which connected account a repository was listed under. */
+function accountOf(repository: AttributedRepository): string {
+   return repository.accountLogin || ownerOf(repository);
+}
+
 function parseOffset(raw: string | undefined): number {
    if (!raw) return 0;
    if (!/^\d{1,6}$/.test(raw)) throw ApiError.badRequest('cursor is not one this server issued.');
@@ -338,36 +456,59 @@ function parseLimit(raw: string | undefined): number {
    return value;
 }
 
-/** Who connected the App here and when, without anything that could authenticate. */
+/**
+ * Who connected the App here and when, without anything that could
+ * authenticate.
+ *
+ * `accounts` is the whole answer now that a workspace can reach several; the
+ * flat `accountLogin` and friends describe the first of them and stay for the
+ * surfaces that only ever wanted "is GitHub connected, and to whom".
+ */
 async function connectionOf(context: GitHubContext, options: GitHubMountOptions) {
    const db = context.get('scoped');
    const app = options.githubApp ? await options.githubApp.app() : null;
-   const [row] = await db.list((q) => q.sql`
+   const rows = await db.list((q) => q.sql`
       SELECT installation.installation_id, installation.account_login, installation.account_type,
              installation.created_at, installer.id AS installer_id, installer.name AS installer_name
         FROM github_installations AS installation
         LEFT JOIN users AS installer ON installer.id = installation.installed_by
-       WHERE ${q.scope}`);
+       WHERE ${q.scope}
+       ORDER BY installation.created_at, installation.installation_id`);
+   const accounts = rows.map((row) => ({
+      installationId: Number(row.installation_id),
+      accountLogin: (row.account_login as string | null) ?? null,
+      accountType: (row.account_type as string | null) ?? null,
+      installedAt: toRFC3339(row.created_at as string),
+      installedBy: row.installer_id
+         ? { id: row.installer_id as string, name: (row.installer_name as string | null) ?? null }
+         : null,
+   }));
+   const first = accounts[0];
    return {
       appConfigured: app !== null,
       appName: app?.name ?? null,
       appUrl: app?.htmlUrl ?? null,
-      installed: row !== undefined,
-      accountLogin: (row?.account_login as string | null | undefined) ?? null,
-      accountType: (row?.account_type as string | null | undefined) ?? null,
-      installedAt: row ? toRFC3339(row.created_at as string) : null,
-      installedBy:
-         row && row.installer_id
-            ? { id: row.installer_id as string, name: (row.installer_name as string | null) ?? null }
-            : null,
+      installed: accounts.length > 0,
+      accounts,
+      accountLogin: first?.accountLogin ?? null,
+      accountType: first?.accountType ?? null,
+      installedAt: first?.installedAt ?? null,
+      installedBy: first?.installedBy ?? null,
    };
 }
 
-/** Every repository the workspace's credential reaches, with the failures mapped once. */
+/**
+ * Every repository the workspace can reach, with the failures mapped once.
+ *
+ * The merging across accounts lives in the integrations layer, because the
+ * project link's picker asks the same question and a repository visible in one
+ * picker and missing from the other is exactly the disagreement two copies of
+ * it produce.
+ */
 async function listForPicker(
    workspaceId: string,
    options: GitHubMountOptions
-): Promise<RepositoryChoice[]> {
+): Promise<AttributedRepository[]> {
    if (!options.githubApp && !options.connections) {
       throw new ApiError(
          503,
@@ -375,42 +516,41 @@ async function listForPicker(
          'This deployment has no encryption key, so it cannot hold a credential.'
       );
    }
-   let credential: { token: string; kind: 'installation' | 'user' };
    try {
-      credential = await githubCredential(workspaceId, options);
-   } catch (error) {
-      if (error instanceof GitHubAppUnavailable) {
-         throw new ApiError(
-            409,
-            error.reason === 'not_installed' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
-            error.reason === 'not_installed'
-               ? 'The GitHub App is not installed for this workspace.'
-               : `The GitHub App needs attention: ${error.message}.`
-         );
-      }
-      if (error instanceof ConnectionUnavailable) {
-         throw new ApiError(
-            409,
-            error.reason === 'missing' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
-            error.reason === 'missing'
-               ? 'GitHub is not connected to this workspace.'
-               : `The GitHub connection needs attention: ${error.message}.`
-         );
-      }
-      throw error;
-   }
-   const client = options.client
-      ? options.client(credential.token)
-      : new GitHubClient({ token: credential.token });
-   try {
-      return await client.listRepositories({
-         credential: credential.kind,
+      const listing = await listRepositoriesAcrossAccounts(workspaceId, {
+         githubApp: options.githubApp,
+         connections: options.connections,
+         ...(options.client ? { client: options.client } : {}),
          maxPages: PICKER_GITHUB_PAGES,
       });
+      return listing.repositories;
    } catch (error) {
-      if (error instanceof GitHubError) {
-         throw new ApiError(502, 'PROVIDER_ERROR', `GitHub refused the request: ${error.message}`);
-      }
-      throw error;
+      throw asPickerFailure(error);
    }
+}
+
+/** The one wording for every way a listing can fail to happen. */
+function asPickerFailure(error: unknown): unknown {
+   if (error instanceof GitHubAppUnavailable) {
+      return new ApiError(
+         409,
+         error.reason === 'not_installed' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
+         error.reason === 'not_installed'
+            ? 'The GitHub App is not installed for this workspace.'
+            : `The GitHub App needs attention: ${error.message}.`
+      );
+   }
+   if (error instanceof ConnectionUnavailable) {
+      return new ApiError(
+         409,
+         error.reason === 'missing' ? 'NOT_CONNECTED' : 'CONNECTION_UNUSABLE',
+         error.reason === 'missing'
+            ? 'GitHub is not connected to this workspace.'
+            : `The GitHub connection needs attention: ${error.message}.`
+      );
+   }
+   if (error instanceof GitHubError) {
+      return new ApiError(502, 'PROVIDER_ERROR', `GitHub refused the request: ${error.message}`);
+   }
+   return error;
 }
