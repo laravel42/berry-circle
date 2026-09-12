@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { ConnectionRepository } from './connections.ts';
 import type { Sealer } from './sealing.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -55,6 +56,7 @@ describe(
          if (workspaceId) {
             await sql`DELETE FROM integration_connections WHERE workspace_id = ${workspaceId}`;
             await deleteWorkspaceAgents(sql, [workspaceId]);
+            await deleteWorkspaceBoards(sql, [workspaceId]);
             await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
             await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
          }

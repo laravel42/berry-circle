@@ -10,6 +10,7 @@ import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { SecretsRepository } from '../identity/secrets.ts';
 import { WorkspaceRepository } from '../identity/workspaces.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { workspaceMounts } from './workspaces.ts';
 
@@ -111,6 +112,7 @@ describe(
          // `agents.workspace_id` is RESTRICT rather than CASCADE, so the agents
          // have to go before the workspace can.
          await deleteWorkspaceAgents(sql, [w1, w2]);
+         await deleteWorkspaceBoards(sql, [w1, w2]);
          for (const id of [w1, w2]) {
             if (id) await sql`DELETE FROM workspaces WHERE id = ${id}`;
          }

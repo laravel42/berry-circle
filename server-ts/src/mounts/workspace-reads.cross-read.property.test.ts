@@ -13,6 +13,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -159,6 +160,7 @@ async function dropWorld(sql: Sql, world: World): Promise<void> {
    for (const workspaceId of world.workspaces) {
       await sql`DELETE FROM outbox_events WHERE workspace_id = ${workspaceId}`;
       await deleteWorkspaceAgents(sql, [workspaceId]);
+      await deleteWorkspaceBoards(sql, [workspaceId]);
       await sql`DELETE FROM issue_labels WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;

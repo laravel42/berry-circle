@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { NotFound } from '../identity/errors.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { cleanupWorld, createIssue, seedWorld, type World } from './fixture.ts';
 import { issueLabelsSchema, listIssueLabels, setIssueLabels } from './labels.ts';
 
@@ -53,6 +54,7 @@ describe('issue labels', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
             await tx`SET LOCAL session_replication_role = replica`;
             await tx`DELETE FROM agents WHERE workspace_id = ${foreignWorkspaceId}`;
          });
+         await deleteWorkspaceBoards(sql, [foreignWorkspaceId]);
          await sql`DELETE FROM workspaces WHERE id = ${foreignWorkspaceId}`;
       }
       await cleanupWorld(sql, world);

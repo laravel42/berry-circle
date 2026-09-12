@@ -14,6 +14,7 @@ import { BoardRepository } from '../core/boards.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { workspaceReadMounts } from './workspace-reads.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -175,6 +176,7 @@ describe(
                await sql`DELETE FROM outbox_events WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM issue_labels WHERE workspace_id = ${ws}`;
                await deleteWorkspaceAgents(sql, [ws]);
+               await deleteWorkspaceBoards(sql, [ws]);
                await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
                await sql`DELETE FROM workspaces WHERE id = ${ws}`;
             }

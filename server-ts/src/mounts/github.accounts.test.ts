@@ -11,9 +11,10 @@ import { Registry } from '../http/registry.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
-import { sealerFromKey } from '../integrations/sealing.ts';
+import { SHARED_APP_SEALING_KEY, sealerFromKey } from '../integrations/sealing.ts';
 import { GitHubSettingsRepository } from '../scm/github-settings.ts';
 import { PullRequestStore } from '../scm/pull-requests.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { GitHubEvents } from '../scm/github-events.ts';
 import { githubMounts } from './github.ts';
@@ -112,6 +113,13 @@ function githubStub(): { fetch: typeof globalThis.fetch; listedWith: string[] } 
    return { fetch, listedWith };
 }
 
+/** A real key, because asking GitHub anything starts by signing the App's JWT. */
+const APP_KEY = generateKeyPairSync('rsa', {
+   modulusLength: 2048,
+   privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+   publicKeyEncoding: { type: 'spki', format: 'pem' },
+}).privateKey;
+
 describe(
    'a workspace with installations on several accounts',
    { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' },
@@ -120,6 +128,15 @@ describe(
       let app: BerryApp;
       let githubApp: GitHubAppRepository;
       let stub: ReturnType<typeof githubStub>;
+      /**
+       * Whatever App row is in the database, this test can open it.
+       *
+       * `github_apps` holds one row for the whole deployment, so two test files
+       * that create an App share it — and a random sealing key per file would
+       * have each unable to open the other's private key. A fixed key is what
+       * makes the singleton survive being written by either of them.
+       */
+      const sealer = sealerFromKey(SHARED_APP_SEALING_KEY);
       let ownerToken: string;
       let strangerToken: string;
       let ownerId: string;
@@ -127,6 +144,19 @@ describe(
       let w1: string;
       let w2: string;
       const suffix = randomBytes(4).toString('hex');
+
+      function storedApp() {
+         return {
+            appId: 4182,
+            slug: `berry-acc-${suffix}`,
+            name: 'Berry Accounts',
+            clientId: 'Iv1.acc',
+            clientSecret: 'shh',
+            privateKey: APP_KEY,
+            webhookSecret: null,
+            htmlUrl: null,
+         };
+      }
 
       async function user(label: string): Promise<string> {
          const [row] = await sql`
@@ -176,27 +206,11 @@ describe(
          stub = githubStub();
          githubApp = new GitHubAppRepository({
             sql,
-            sealer: sealerFromKey(randomBytes(32).toString('base64')),
+            sealer,
             fetch: stub.fetch,
             apiBaseUrl: 'https://api.github.test',
          });
-         await githubApp.saveApp(
-            {
-               appId: 4182,
-               slug: `berry-acc-${suffix}`,
-               name: 'Berry Accounts',
-               clientId: 'Iv1.acc',
-               clientSecret: 'shh',
-               privateKey: generateKeyPairSync('rsa', {
-                  modulusLength: 2048,
-                  privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
-                  publicKeyEncoding: { type: 'spki', format: 'pem' },
-               }).privateKey,
-               webhookSecret: null,
-               htmlUrl: null,
-            },
-            ownerId
-         );
+         await githubApp.saveApp(storedApp(), ownerId);
 
          const registry = new Registry();
          registry.registerAll(
@@ -225,6 +239,10 @@ describe(
       });
 
       beforeEach(async () => {
+         // Re-asserted before every test: the App is a singleton another file's
+         // fixture may have replaced since, and a mint starts by signing with
+         // the key on that row.
+         await githubApp.saveApp(storedApp(), ownerId);
          await sql`DELETE FROM github_installations WHERE workspace_id IN (${w1}, ${w2})`;
          await sql`DELETE FROM workspace_repositories WHERE workspace_id IN (${w1}, ${w2})`;
          stub.listedWith.length = 0;
@@ -253,6 +271,9 @@ describe(
             await sql`DELETE FROM outbox_events WHERE workspace_id IN (${w1}, ${w2})`;
             await deleteWorkspaceAgents(sql, [w1, w2]);
             await sql`DELETE FROM issue_status_definitions WHERE workspace_id IN (${w1}, ${w2})`;
+            // A new workspace comes with a default board by trigger, and a
+            // board holds the workspace down by foreign key.
+            await deleteWorkspaceBoards(sql, [w1, w2]);
             await sql`DELETE FROM workspace_memberships WHERE workspace_id IN (${w1}, ${w2})`;
             await sql`DELETE FROM workspaces WHERE id IN (${w1}, ${w2})`;
             await sql`DELETE FROM users WHERE id IN (${ownerId}, ${strangerId})`;

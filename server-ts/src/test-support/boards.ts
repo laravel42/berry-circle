@@ -31,3 +31,19 @@ export async function insertBoard(
       RETURNING id`;
    return row!.id as string;
 }
+
+/**
+ * Deletes every board in the given workspaces, the default board a workspace is
+ * given by trigger (migration 183) included. Test teardown only; not a test
+ * file.
+ *
+ * `boards.workspace_id` is RESTRICT, so a workspace cannot be deleted while a
+ * board of its own remains — and since 183 every workspace has one whether its
+ * fixture asked for one or not. Issues are left to the caller: a fixture that
+ * filed them knows where they are, and the default board never holds any.
+ */
+export async function deleteWorkspaceBoards(sql: Sql, workspaceIds: readonly string[]): Promise<void> {
+   const ids = workspaceIds.filter((id): id is string => Boolean(id));
+   if (ids.length === 0) return;
+   await sql`DELETE FROM boards WHERE workspace_id IN ${sql(ids)}`;
+}

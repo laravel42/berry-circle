@@ -9,6 +9,7 @@ import fc from 'fast-check';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { InvitationInvalid } from './errors.ts';
 import { INVITATION_TOKEN_PREFIX, SecretsRepository } from './secrets.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -132,6 +133,7 @@ describe(
             // deletes it inside one transaction.
             await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
             await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
+            await deleteWorkspaceBoards(sql, [fixture.workspaceId]);
             await sql`DELETE FROM workspace_invitations WHERE workspace_id = ${fixture.workspaceId}`;
             await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
             await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;

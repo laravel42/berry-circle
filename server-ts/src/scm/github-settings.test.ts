@@ -7,6 +7,7 @@ import {
    GitHubSettingsRepository,
    normaliseRepositoryUrl,
 } from './github-settings.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 describe('what counts as a repository URL', () => {
@@ -63,6 +64,7 @@ describe(
          for (const id of workspaceIds) {
             await sql`DELETE FROM outbox_events WHERE workspace_id = ${id}`;
             await deleteWorkspaceAgents(sql, [id]);
+            await deleteWorkspaceBoards(sql, [id]);
             await sql`DELETE FROM workspaces WHERE id = ${id}`;
          }
          if (userId) await sql`DELETE FROM users WHERE id = ${userId}`;

@@ -9,6 +9,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
 import { SecretsRepository } from '../identity/secrets.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { secretsMounts } from './secrets.ts';
 
@@ -97,6 +98,7 @@ describe(
          if (!sql) return;
          if (workspaceId) {
             await deleteWorkspaceAgents(sql, [workspaceId]);
+         await deleteWorkspaceBoards(sql, [workspaceId]);
             await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
          }
          for (const id of [ownerId, inviteeId, strangerId]) {

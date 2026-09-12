@@ -35,7 +35,14 @@ describe('batch helpers', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
    });
 
    test('the default board is the workspace\'s oldest', async () => {
-      assert.equal(await defaultBoardId(sql, world.workspaceId), world.boardId);
+      // A workspace is given a board the moment it is created (migration 183),
+      // so that one is the oldest and the fixture's own board — inserted after
+      // it — does not win, however many boards come later.
+      const [given] = await sql`
+         SELECT id FROM boards WHERE workspace_id = ${world.workspaceId} AND name = 'Tasks'`;
+      assert.ok(given, 'the workspace was given no board');
+      assert.equal(await defaultBoardId(sql, world.workspaceId), given.id);
+      assert.notEqual(await defaultBoardId(sql, world.workspaceId), world.boardId);
    });
 
    test('assignee frequency counts what this person assigned, most first', async () => {

@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { GoalRepository, InvalidTransition, canTransition, type GoalStatus } from './goals.ts';
 import { Forbidden, NotFound } from '../identity/errors.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
@@ -245,6 +246,7 @@ describe('goals', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' }, 
       await sql`DELETE FROM goals WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${workspaceId}`;
       await deleteWorkspaceAgents(sql, [workspaceId]);
+      await deleteWorkspaceBoards(sql, [workspaceId]);
       await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
    });
 });

@@ -12,6 +12,7 @@ import { Registry } from '../http/registry.ts';
 import { GitHubAppRepository } from '../integrations/github-app.ts';
 import { OAuthStateStore } from '../integrations/oauth.ts';
 import { sealerFromKey } from '../integrations/sealing.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { integrationMounts } from './integrations.ts';
 
@@ -187,6 +188,7 @@ describe(
             // workspace out of the way.
             await sql`DELETE FROM outbox_events WHERE workspace_id IN (${w1Id}, ${w2Id})`;
             await deleteWorkspaceAgents(sql, [w1Id, w2Id]);
+            await deleteWorkspaceBoards(sql, [w1Id, w2Id]);
             await sql`DELETE FROM issue_status_definitions WHERE workspace_id IN (${w1Id}, ${w2Id})`;
             await sql`DELETE FROM workspaces WHERE id IN (${w1Id}, ${w2Id})`;
             await sql`DELETE FROM users WHERE id = ${u1Id}`;

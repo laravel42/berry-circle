@@ -4,6 +4,7 @@ import { after, before, describe, test } from 'node:test';
 
 import type { CatalogModel } from '../agents/catalog.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { agentName, applyFleet, chooseFleet, modelFamily } from './fleet.ts';
 
@@ -100,6 +101,7 @@ describe('seeding a fleet', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is no
    });
    after(async () => {
       await deleteWorkspaceAgents(sql, [workspaceId]);
+      await deleteWorkspaceBoards(sql, [workspaceId]);
       await sql`DELETE FROM agent_runtimes WHERE workspace_id = ${workspaceId}`;
       await sql`DELETE FROM workspaces WHERE id = ${workspaceId}`;
       await closeDatabase(sql);

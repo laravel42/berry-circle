@@ -174,6 +174,7 @@ describe(
                   await tx`DELETE FROM conversations WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM projects WHERE workspace_id = ${ws}`;
                   await deleteWorkspaceAgentsInTransaction(tx as unknown as Sql, [ws]);
+                  await tx`DELETE FROM boards WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM issue_status_definitions WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM workspace_memberships WHERE workspace_id = ${ws}`;
                   await tx`DELETE FROM workspaces WHERE id = ${ws}`;
