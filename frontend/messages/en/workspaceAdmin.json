@@ -2,7 +2,7 @@
    "groups": {
       "personal": "personal",
       "workspace": "workspace",
-      "issueConfig": "issue config",
+      "issueConfig": "task config",
       "connections": "connections"
    },
    "nav": {

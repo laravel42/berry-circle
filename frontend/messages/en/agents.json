@@ -1,7 +1,7 @@
 {
    "header": {
       "title": "Agents",
-      "description": "AI teammates that pick up issues, comment, and update status.",
+      "description": "AI teammates that pick up tasks, comment, and update status.",
       "newAgent": "New agent"
    },
    "options": {
