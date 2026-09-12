@@ -27,7 +27,10 @@ NAMESPACES = (
     "workspaceAdmin",
     "areas",
 )
-PLACEHOLDER = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)")
+# An ICU argument is `{name}` or `{name, type, ...}`. The name is followed by
+# `}` or `,` — plain prose inside a plural branch (`{Its reply is}`) is not an
+# argument, and matching it would demand translations carry an English word.
+PLACEHOLDER = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?=[},])")
 
 
 def flatten(value: object, prefix: str, out: dict[str, str], where: str) -> None:
