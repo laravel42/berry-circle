@@ -138,6 +138,16 @@ test('extra trusted origins are added, and rubbish among them is dropped', () =>
    ]);
 });
 
+test('the runtime reaches Berry at its own address, not the browser one', () => {
+   const config = loadConfig({
+      ...BASE_ENV,
+      BERRY_PUBLIC_URL: 'https://berry.test',
+      BERRY_RUNTIME_CALLBACK_URL: 'http://berry-api:4000/',
+   });
+   assert.equal(config.runtime.callbackUrl, 'http://berry-api:4000');
+   assert.equal(loadConfig({ ...BASE_ENV }).runtime.callbackUrl, null);
+});
+
 test('dev login needs both the flag and a development environment', () => {
    assert.equal(
       loadConfig({ ...BASE_ENV, APP_ENV: 'development', AUTH_ALLOW_PASSWORDLESS_LOGIN: 'true' })

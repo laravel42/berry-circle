@@ -611,6 +611,15 @@ export interface RuntimeConfig {
    concurrency: number;
    /** A task token's lifetime: the runtime's maxLifetime. */
    tokenTtlSeconds: number;
+   /**
+    * Where the runtime reaches Berry back.
+    *
+    * Not the public URL: that is the address a browser uses, and inside the
+    * runtime container "localhost" is the container itself. On Compose this is
+    * the service name; on AgentCore it is whatever address AWS can reach.
+    * Null falls back to the public URL.
+    */
+   callbackUrl: string | null;
 }
 
 function runtime(env: NodeJS.ProcessEnv): RuntimeConfig {
@@ -620,6 +629,7 @@ function runtime(env: NodeJS.ProcessEnv): RuntimeConfig {
       defaultModel: (env.BERRY_AGENT_DEFAULT_MODEL ?? '').trim() || 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
       concurrency: positive(env.BERRY_RUN_CONCURRENCY, 2),
       tokenTtlSeconds: Math.min(positive(env.BERRY_TASK_TOKEN_TTL_SECONDS, 28_800), 28_800),
+      callbackUrl: origin(env.BERRY_RUNTIME_CALLBACK_URL),
    };
 }
 

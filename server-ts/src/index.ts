@@ -501,7 +501,9 @@ const executor = defaultTarget
         builder: new EnvelopeBuilder({
            sql,
            publicUrl:
-              config.integrations.publicUrl ?? `http://${config.apiAddr.host}:${config.apiAddr.port}`,
+              config.runtime.callbackUrl ??
+              config.integrations.publicUrl ??
+              `http://${config.apiAddr.host}:${config.apiAddr.port}`,
            defaultModel: config.runtime.defaultModel,
            memory: runMemory ?? nullRunMemory(),
            sealer: config.integrationKey ? sealerFromKey(config.integrationKey) : null,

@@ -136,6 +136,9 @@ services:
       # The agent runtime berry-api dispatches tasks to when no AgentCore
       # runtime ARN is configured: the same image, run by the service below.
       BERRY_AGENT_RUNTIME_URL: "${BERRY_AGENT_RUNTIME_URL:-http://agent-runtime:8080}"
+      # Where the runtime calls Berry back. Inside that container "localhost"
+      # is itself, so this is the service name rather than the public URL.
+      BERRY_RUNTIME_CALLBACK_URL: "${BERRY_RUNTIME_CALLBACK_URL:-http://berry-api:4000}"
       # Seals provider credentials at rest. Empty leaves integrations off, so a
       # run never gets a repository — which is a working deployment, rather
       # than one that fails at the clone with a decryption error.
