@@ -6,17 +6,21 @@ import { subscribeWorkspaceEvents } from '@/lib/events';
 import {
    GITHUB_EVENTS,
    addWorkspaceRepositories,
+   describeAccount,
    describeGitHubFailure,
    isRepositoryUrl,
    listWorkspaceRepositories,
    loadGitHubSettings,
+   loadGrantedRepositories,
+   refreshGrantedRepositories,
    removeWorkspaceRepository,
    updateWorkspaceRepository,
+   type GrantedRepositories,
    type WorkspaceRepository,
 } from '@/lib/github';
 import { loadGitHubApp, startGitHubInstall, type GitHubAppState } from '@/lib/integrations';
 import { useSessionStore } from '@/store/session-store';
-import { Plus, Trash2 } from 'lucide-react';
+import { Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -74,6 +78,16 @@ function RepositoriesDirectory() {
     */
    const [access, setAccess] = useState<GitHubAppState | null>(null);
    const [installing, setInstalling] = useState(false);
+   /**
+    * What GitHub granted, as Berry recorded it — the access the list below runs
+    * on. Read from Berry rather than GitHub: the only credential that can ask
+    * GitHub is the signed-in person's own token, and this page has to work for
+    * whoever opens it.
+    */
+   const [granted, setGranted] = useState<GrantedRepositories | null>(null);
+   const [refreshing, setRefreshing] = useState(false);
+   /** A refusal from the last refresh, which is where "sign in again" is said. */
+   const [grantError, setGrantError] = useState<string | null>(null);
    const [pickerOpen, setPickerOpen] = useState(false);
    const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -92,10 +106,13 @@ function RepositoriesDirectory() {
    const load = useCallback(async () => {
       if (!workspaceId) return;
       try {
-         const [repositories, state, appState] = await Promise.all([
+         const [repositories, state, appState, grantState] = await Promise.all([
             listWorkspaceRepositories(workspaceId),
             loadGitHubSettings(workspaceId),
             loadGitHubApp().catch(() => null),
+            // Its own failure, because an unreadable grant must not empty the
+            // list of repositories somebody is editing.
+            loadGrantedRepositories(workspaceId).catch(() => null),
          ]);
          // Rows someone is editing survive a refresh; everything else takes
          // the server's word.
@@ -112,6 +129,7 @@ function RepositoriesDirectory() {
          setCanManage(state.canManage);
          setInstalled(state.connection.installed && state.settings.enabled);
          setAccess(appState);
+         setGranted(grantState);
          setError(null);
       } catch (failure) {
          setError(describeGitHubFailure(failure));
@@ -161,7 +179,9 @@ function RepositoriesDirectory() {
          if (!isRepositoryUrl(row.url)) {
             patchRow(key, {
                status: 'error',
-               message: row.url.trim() ? 'Use an https:// or ssh address.' : 'Enter a repository URL.',
+               message: row.url.trim()
+                  ? 'Use an https:// or ssh address.'
+                  : 'Enter a repository URL.',
             });
             return;
          }
@@ -171,7 +191,10 @@ function RepositoriesDirectory() {
             if (row.id === null) {
                const [created] = await addWorkspaceRepositories(workspaceId, [sent]);
                if (!created) {
-                  patchRow(key, { status: 'error', message: 'That repository is already in the list.' });
+                  patchRow(key, {
+                     status: 'error',
+                     message: 'That repository is already in the list.',
+                  });
                   return;
                }
                patchRow(key, {
@@ -182,7 +205,9 @@ function RepositoriesDirectory() {
             } else {
                const updated = await updateWorkspaceRepository(workspaceId, row.id, {
                   ...(sent.url !== row.saved.url ? { url: sent.url } : {}),
-                  ...(sent.description !== row.saved.description ? { description: sent.description } : {}),
+                  ...(sent.description !== row.saved.description
+                     ? { description: sent.description }
+                     : {}),
                });
                patchRow(key, {
                   saved: { url: updated.url, description: updated.description },
@@ -250,6 +275,27 @@ function RepositoriesDirectory() {
       }
    };
 
+   const refreshAccess = async () => {
+      if (!workspaceId) return;
+      setRefreshing(true);
+      setGrantError(null);
+      try {
+         setGranted(await refreshGrantedRepositories(workspaceId));
+      } catch (failure) {
+         setGrantError(describeGitHubFailure(failure));
+      } finally {
+         setRefreshing(false);
+      }
+   };
+
+   /** Grouped by the account the grant came through, in the order the server sent. */
+   const grantsByAccount = (granted?.accounts ?? []).map((account) => ({
+      account,
+      repositories: (granted?.repositories ?? []).filter(
+         (repository) => repository.installationId === account.installationId
+      ),
+   }));
+
    return (
       <SettingsShell
          title="Repositories"
@@ -259,38 +305,123 @@ function RepositoriesDirectory() {
             <p className="text-muted-foreground">Only workspace admins can change this list.</p>
          )}
 
-         {/* No installation: the one thing worth saying before the list, because
-             every row in it would be a repository no agent can reach. The link
-             is the same one a first login offers — skipping it there costs the
-             access, not the account. */}
-         {loaded && !error && access?.app && !access.installation && (
-            <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
-               <p className="text-muted-foreground">
-                  {access.installPending
-                     ? 'Berry has no repository access yet: an owner of that organisation was asked to approve the install, and nothing else is needed from you until they do.'
-                     : 'Berry has no repository access yet. Installing the GitHub App is where you choose which repositories it may reach.'}
-               </p>
-               {canManage && (
-                  <Button
-                     size="xs"
-                     className="mt-2"
-                     disabled={installing}
-                     onClick={() => {
-                        setInstalling(true);
-                        void startGitHubInstall()
-                           .then((url) => {
-                              window.location.href = url;
-                           })
-                           .catch((failure: unknown) => {
-                              toast.error(describeGitHubFailure(failure));
-                              setInstalling(false);
-                           });
-                     }}
-                  >
-                     {installing ? 'Opening…' : 'Install on GitHub'}
-                  </Button>
+         {/* What GitHub actually granted, before the list of repositories this
+             workspace works in: every row below it would be unreachable without
+             this, and an empty section here is the explanation for an empty
+             picker. Each state says the one thing left to do. */}
+         {loaded && !error && (
+            <section className="flex flex-col gap-2">
+               <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                     <h3 className="font-medium">Granted on GitHub</h3>
+                     <p className="text-muted-foreground">
+                        {granted?.refreshedAt
+                           ? `What the GitHub App may reach, as of ${new Date(granted.refreshedAt).toLocaleString()}.`
+                           : 'What the GitHub App may reach. Berry reads this with your own GitHub sign-in.'}
+                     </p>
+                  </div>
+                  {canManage && (
+                     <Button
+                        size="xs"
+                        variant="secondary"
+                        disabled={refreshing || !workspaceId}
+                        onClick={() => void refreshAccess()}
+                     >
+                        <RefreshCw className={refreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
+                        {refreshing ? 'Refreshing…' : 'Refresh'}
+                     </Button>
+                  )}
+               </div>
+
+               {grantError && (
+                  <p role="alert" className="text-status-danger">
+                     {grantError}
+                  </p>
                )}
-            </div>
+
+               {(granted?.claimedElsewhere ?? []).filter(Boolean).length > 0 && (
+                  <p className="text-muted-foreground">
+                     {`Installed on ${(granted?.claimedElsewhere ?? []).filter(Boolean).join(', ')} for another Berry workspace, so those repositories are not listed here.`}
+                  </p>
+               )}
+
+               {/* Nothing granted yet. Which sentence depends on why, and every
+                   one of them names the next step — including the one only an
+                   operator can take. */}
+               {(granted?.repositories.length ?? 0) === 0 && (
+                  <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+                     <p className="text-muted-foreground">
+                        {access?.installReason
+                           ? access.installReason
+                           : granted?.installPending
+                             ? 'An owner of that organisation was asked to approve the install. Nothing else is needed from you until they do.'
+                             : 'Berry has no repository access yet. Installing the GitHub App is where you choose which repositories it may reach.'}
+                     </p>
+                     {canManage && !access?.installReason && !granted?.installPending && (
+                        <Button
+                           size="xs"
+                           className="mt-2"
+                           disabled={installing}
+                           onClick={() => {
+                              setInstalling(true);
+                              void startGitHubInstall()
+                                 .then((url) => {
+                                    window.location.href = url;
+                                 })
+                                 .catch((failure: unknown) => {
+                                    toast.error(describeGitHubFailure(failure));
+                                    setInstalling(false);
+                                 });
+                           }}
+                        >
+                           {installing ? 'Opening…' : 'Install on GitHub'}
+                        </Button>
+                     )}
+                  </div>
+               )}
+
+               {grantsByAccount.map(({ account, repositories }) => (
+                  <div
+                     key={account.installationId}
+                     className="rounded-lg border bg-container px-3 py-2.5"
+                  >
+                     <p className="font-medium">
+                        {describeAccount(account)}{' '}
+                        <span className="text-muted-foreground font-normal">
+                           {`· installation ${account.installationId} · ${account.repositories} ${account.repositories === 1 ? 'repository' : 'repositories'}`}
+                        </span>
+                     </p>
+                     <ul className="mt-1 flex flex-col gap-1">
+                        {repositories.map((repository) => (
+                           <li key={repository.id} className="flex flex-wrap items-center gap-2">
+                              <a
+                                 href={repository.url}
+                                 target="_blank"
+                                 rel="noreferrer"
+                                 className="font-mono hover:underline"
+                              >
+                                 {repository.fullName}
+                              </a>
+                              {repository.private && (
+                                 <span
+                                    className="text-muted-foreground inline-flex items-center gap-1"
+                                    title="Private"
+                                 >
+                                    <Lock className="size-3" />
+                                    Private
+                                 </span>
+                              )}
+                              {repository.defaultBranch && (
+                                 <span className="text-muted-foreground font-mono">
+                                    {repository.defaultBranch}
+                                 </span>
+                              )}
+                           </li>
+                        ))}
+                     </ul>
+                  </div>
+               ))}
+            </section>
          )}
          {canManage && (
             <div className="flex flex-wrap gap-2">
@@ -322,8 +453,7 @@ function RepositoriesDirectory() {
          )}
          {loaded && !error && rows.length === 0 && (
             <p className="text-muted-foreground">
-               No repositories yet.{' '}
-               {canManage ? 'Add one by URL, or import from GitHub.' : ''}
+               No repositories yet. {canManage ? 'Add one by URL, or import from GitHub.' : ''}
             </p>
          )}
 

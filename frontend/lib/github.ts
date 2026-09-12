@@ -59,6 +59,44 @@ const settingsResponseSchema = z.object({
    connection: githubConnectionSchema,
 });
 
+/**
+ * A repository GitHub reported as granted, as Berry recorded it.
+ *
+ * Recorded rather than fetched per view: the only credential that can ask GitHub
+ * this is the signed-in person's own token, and a page must not depend on the
+ * person who granted the access still being here.
+ */
+export const grantedRepositorySchema = z.object({
+   id: z.number(),
+   fullName: z.string(),
+   owner: z.string(),
+   accountLogin: z.string().nullish(),
+   accountType: z.string().nullish(),
+   installationId: z.number(),
+   private: z.boolean(),
+   defaultBranch: z.string().nullish(),
+   url: z.string(),
+   refreshedAt: z.string(),
+});
+
+export const grantedAccountSchema = z.object({
+   accountLogin: z.string().nullish(),
+   accountType: z.string().nullish(),
+   installationId: z.number(),
+   repositories: z.number(),
+});
+
+const grantedResponseSchema = z.object({
+   repositories: z.array(grantedRepositorySchema),
+   accounts: z.array(grantedAccountSchema),
+   /** An organisation install an owner has still to approve. */
+   installPending: z.boolean().default(false),
+   canManage: z.boolean().default(false),
+   refreshedAt: z.string().nullish(),
+   /** Accounts whose installation belongs to another workspace. */
+   claimedElsewhere: z.array(z.string().nullish()).default([]),
+});
+
 export const workspaceRepositorySchema = z.object({
    id: z.string(),
    url: z.string(),
@@ -133,6 +171,9 @@ export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type PickerRepository = z.infer<typeof pickerRepositorySchema>;
 export type PickerPage = z.infer<typeof pickerPageSchema>;
 export type LinkedPullRequest = z.infer<typeof linkedPullRequestSchema>;
+export type GrantedRepository = z.infer<typeof grantedRepositorySchema>;
+export type GrantedAccount = z.infer<typeof grantedAccountSchema>;
+export type GrantedRepositories = z.infer<typeof grantedResponseSchema>;
 
 /** Realtime topics the GitHub surfaces listen for. */
 export const GITHUB_EVENTS = {
@@ -221,6 +262,28 @@ export function describeDisconnectCost(account: AccountDetail): string {
            ? `1 repository in this workspace is under ${login}, and agents here stop reaching it.`
            : `${account.listedHere} repositories in this workspace are under ${login}, and agents here stop reaching them.`;
    return `${listed} The App stays installed on GitHub; remove it there if you want it gone.`;
+}
+
+/** What GitHub granted this workspace, as Berry last recorded it. */
+export async function loadGrantedRepositories(workspaceId: string): Promise<GrantedRepositories> {
+   const json: unknown = await apiFetch(`${base(workspaceId)}/granted-repositories`);
+   return parse(grantedResponseSchema, json, 'Granted repositories');
+}
+
+/**
+ * Asks GitHub again, with the caller's own sign-in.
+ *
+ * The only way Berry learns that somebody changed what the App may see: GitHub
+ * does not tell it, and the list is a record of the last answer.
+ */
+export async function refreshGrantedRepositories(
+   workspaceId: string
+): Promise<GrantedRepositories> {
+   const json: unknown = await apiFetch(`${base(workspaceId)}/granted-repositories/refresh`, {
+      method: 'POST',
+      body: '{}',
+   });
+   return parse(grantedResponseSchema, json, 'Granted repositories');
 }
 
 export async function listWorkspaceRepositories(
@@ -324,6 +387,10 @@ export function describeGitHubFailure(error: unknown): string {
             return 'Install the GitHub App for this workspace first.';
          case 'NOT_FOUND':
             return 'That account is not connected to this workspace.';
+         case 'GITHUB_SIGN_IN_AGAIN':
+            return 'GitHub no longer accepts your sign-in. Sign out and sign in again with GitHub, then refresh.';
+         case 'GITHUB_NOT_LINKED':
+            return 'This account has no GitHub sign-in linked, so Berry cannot ask GitHub what it was granted.';
          case 'CONNECTION_UNUSABLE':
             return 'The GitHub App needs attention before it can list repositories.';
          case 'INTEGRATIONS_NOT_CONFIGURED':

@@ -44,7 +44,14 @@ export function GitHubAppSetup() {
       void loadGitHubApp()
          .then(setState)
          .catch(() =>
-            setState({ app: null, installation: null, installations: [], installPending: false })
+            setState({
+               app: null,
+               installation: null,
+               installations: [],
+               installPending: false,
+               installUrl: null,
+               installReason: null,
+            })
          );
    }, []);
 

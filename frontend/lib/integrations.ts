@@ -299,6 +299,16 @@ export interface GitHubAppState {
    installations: GitHubInstallation[];
    /** An organisation install an owner has not approved yet. */
    installPending: boolean;
+   /**
+    * Where to send someone to grant repository access, App row or not.
+    *
+    * A deployment can sign people in with an App whose credentials it was given
+    * and store no App of its own; the slug is configured there, and this is the
+    * link built from it. Null when there is no App to install at all.
+    */
+   installUrl: string | null;
+   /** Why there is no install to offer, for the operator who can fix it. */
+   installReason: string | null;
 }
 
 /**
@@ -314,16 +324,27 @@ export async function loadGitHubApp(): Promise<GitHubAppState> {
          installation: githubInstallationSchema.nullish(),
          installations: z.array(githubInstallationSchema).default([]),
          installPending: z.boolean().default(false),
+         installUrl: z.string().nullish(),
+         installReason: z.string().nullish(),
       })
       .safeParse(json);
    if (!parsed.success) {
-      return { app: null, installation: null, installations: [], installPending: false };
+      return {
+         app: null,
+         installation: null,
+         installations: [],
+         installPending: false,
+         installUrl: null,
+         installReason: null,
+      };
    }
    return {
       app: parsed.data.app ?? null,
       installation: parsed.data.installation ?? null,
       installations: parsed.data.installations,
       installPending: parsed.data.installPending,
+      installUrl: parsed.data.installUrl ?? null,
+      installReason: parsed.data.installReason ?? null,
    };
 }
 
@@ -363,12 +384,21 @@ export async function startGitHubInstall(): Promise<string> {
 }
 
 /** What a login still has to settle about repository access. */
-export type GitHubInstallStep = 'install' | 'installed' | 'offered' | 'pending' | 'no_app';
+export type GitHubInstallStep =
+   | 'install'
+   | 'installed'
+   | 'offered'
+   | 'pending'
+   | 'no_app'
+   /** No App to install: a slug an operator has not set. Said, never silent. */
+   | 'no_slug';
 
 export interface GitHubInstallNext {
    next: GitHubInstallStep;
    /** Where to send the browser; only ever set on `install`. */
    installUrl: string | null;
+   /** Why nothing was offered, when that is the answer. */
+   reason: string | null;
 }
 
 /**
@@ -382,7 +412,7 @@ export interface GitHubInstallNext {
  * logging in, so the caller reads it as "nothing to do".
  */
 export async function nextGitHubInstallStep(): Promise<GitHubInstallNext> {
-   const nothing: GitHubInstallNext = { next: 'no_app', installUrl: null };
+   const nothing: GitHubInstallNext = { next: 'no_app', installUrl: null, reason: null };
    try {
       const json: unknown = await apiFetch('/api/v1/integrations/github/app/repository-access', {
          method: 'POST',
@@ -390,12 +420,17 @@ export async function nextGitHubInstallStep(): Promise<GitHubInstallNext> {
       });
       const parsed = z
          .object({
-            next: z.enum(['install', 'installed', 'offered', 'pending', 'no_app']),
+            next: z.enum(['install', 'installed', 'offered', 'pending', 'no_app', 'no_slug']),
             installUrl: z.string().nullish(),
+            reason: z.string().nullish(),
          })
          .safeParse(json);
       if (!parsed.success) return nothing;
-      return { next: parsed.data.next, installUrl: parsed.data.installUrl ?? null };
+      return {
+         next: parsed.data.next,
+         installUrl: parsed.data.installUrl ?? null,
+         reason: parsed.data.reason ?? null,
+      };
    } catch {
       return nothing;
    }
