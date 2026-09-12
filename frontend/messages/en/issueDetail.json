@@ -216,7 +216,7 @@
       "showLess": "Show less",
       "repeated": "×{count}",
       "reply": "Reply",
-      "replies": "{count} replies",
+      "replies": "{count, plural, =1 {1 reply} other {# replies}}",
       "hideThread": "Collapse the thread",
       "showThread": "Expand the thread",
       "resolve": "Resolve",
@@ -224,7 +224,7 @@
       "resolveTitle": "Resolve this thread?",
       "resolveComment": "Add a closing comment (optional)",
       "resolveConfirm": "Resolve",
-      "resolvedSummary": "{count} resolved threads",
+      "resolvedSummary": "{count, plural, =1 {1 resolved thread} other {# resolved threads}}",
       "showResolved": "Show them",
       "hideResolved": "Hide them",
       "resolved": "resolved",
@@ -240,7 +240,7 @@
       "delete": "Delete",
       "deleteTitle": "Delete this comment?",
       "deleteBody": "It is removed for everyone.",
-      "deleteWithReplies": "Its {count} replies are deleted with it.",
+      "deleteWithReplies": "{count, plural, =1 {Its reply is} other {Its # replies are}} deleted with it.",
       "confirmDelete": "Delete",
       "saveFailed": "The comment could not be saved.",
       "deleteFailed": "The comment could not be deleted.",
@@ -273,7 +273,8 @@
       "skipped": "skipped",
       "blockedReason": "not allowed to be mentioned here",
       "partial": "Started {started} of {total} agents.",
-      "sendFailed": "The comment could not be posted."
+      "sendFailed": "The comment could not be posted.",
+      "mentionList": "Mention someone"
    },
    "subscription": {
       "subscribe": "Subscribe",

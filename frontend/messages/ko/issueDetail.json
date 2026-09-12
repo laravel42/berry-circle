@@ -273,7 +273,8 @@
       "skipped": "제외됨",
       "blockedReason": "여기에서는 언급할 수 없습니다",
       "partial": "에이전트 {total}개 중 {started}개를 시작했습니다.",
-      "sendFailed": "댓글을 남기지 못했습니다."
+      "sendFailed": "댓글을 남기지 못했습니다.",
+      "mentionList": "멘션 대상"
    },
    "subscription": {
       "subscribe": "구독",

@@ -273,7 +273,8 @@
       "skipped": "外しました",
       "blockedReason": "ここでのメンションは許可されていません",
       "partial": "{total} 体中 {started} 体を起動しました。",
-      "sendFailed": "コメントを投稿できませんでした。"
+      "sendFailed": "コメントを投稿できませんでした。",
+      "mentionList": "メンションの候補"
    },
    "subscription": {
       "subscribe": "購読する",

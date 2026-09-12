@@ -273,7 +273,8 @@
       "skipped": "已跳过",
       "blockedReason": "不允许在此被提及",
       "partial": "已启动 {total} 个智能体中的 {started} 个。",
-      "sendFailed": "无法发表评论。"
+      "sendFailed": "无法发表评论。",
+      "mentionList": "提及对象"
    },
    "subscription": {
       "subscribe": "订阅",

@@ -223,14 +223,18 @@ export function useMentionPicker(
       open && flat.length > 0 ? (
          <ul
             role="listbox"
-            aria-label={t('groupAgents')}
+            aria-label={t('mentionList')}
             className="z-20 mt-1 max-h-56 w-72 overflow-auto rounded-md border border-border bg-popover p-1 shadow-md"
          >
-            {groups.map((group) => (
+            {groups.map((group, position) => (
                <li key={group.kind}>
-                  <div className="px-2 pt-1 pb-0.5 uppercase tracking-[0.12em] text-muted-foreground">
-                     {group.label}
-                  </div>
+                  {/* `all` and the members share a label; heading it twice in a
+                      row reads as two separate People groups. */}
+                  {position > 0 && groups[position - 1].label === group.label ? null : (
+                     <div className="px-2 pt-1 pb-0.5 uppercase tracking-[0.12em] text-muted-foreground">
+                        {group.label}
+                     </div>
+                  )}
                   <ul>
                      {group.items.map((candidate) => {
                         cursor += 1;
