@@ -93,14 +93,6 @@ const WORK: ShellRouteDef[] = [
       icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
    },
    {
-      id: 'chat',
-      label: 'chat',
-      labelKey: 'chat',
-      href: '/chat',
-      prefsKey: 'chat',
-      icon: '<path d="M4 5h16v11H9l-5 4z" />',
-   },
-   {
       id: 'goals',
       label: 'goals',
       labelKey: 'goals',
