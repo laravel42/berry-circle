@@ -48,13 +48,22 @@ export interface GitHubProfile {
  * preferred whenever one is offered, because that is what links a GitHub
  * account to a user Berry already knows.
  */
-export function githubProfileToUser(profile: GitHubProfile): { email: string; name: string } {
+export function githubProfileToUser(
+   profile: GitHubProfile
+): { email: string; name: string } | { email: string; name: string; emailVerified: true } {
    const email = (profile.email ?? '').trim();
    const login = (profile.login ?? '').trim();
    const name = (profile.name ?? '').trim();
+   if (email) return { email, name: name || login };
+   // The synthesised address counts as verified: it is derived from GitHub's
+   // own login, nobody else can hold it, and it cannot collide with the
+   // address of a Berry user who signed up another way. Without this the
+   // create hook below refuses the account, because GitHub never marks this
+   // address verified — it never sent it at all.
    return {
-      email: email || (login ? `${login}@users.noreply.github.com` : ''),
+      email: login ? `${login}@users.noreply.github.com` : '',
       name: name || login,
+      emailVerified: true,
    };
 }
 

@@ -14,7 +14,15 @@ test('a private email falls back to the address GitHub hands out for it', () => 
    assert.deepEqual(githubProfileToUser({ login: 'octo', name: 'Octo Cat', email: null }), {
       email: 'octo@users.noreply.github.com',
       name: 'Octo Cat',
+      emailVerified: true,
    });
+});
+
+test('a real address keeps GitHub\'s own verdict rather than claiming it is verified', () => {
+   assert.equal(
+      'emailVerified' in githubProfileToUser({ login: 'octo', email: 'octo@berry.test' }),
+      false
+   );
 });
 
 test('a profile with no name is known by its login', () => {
