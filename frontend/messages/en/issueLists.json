@@ -111,7 +111,12 @@
       "runConfirmTitle": "Start a run for these tasks?",
       "runConfirmBody": "{name} will pick up {count} tasks and begin working.",
       "confirmRun": "Assign and run",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "changeFailed": "{count, plural, =1 {1 task} other {# tasks}} could not be changed.",
+      "changeError": "The change could not be applied.",
+      "deleteFailed": "{count, plural, =1 {1 task} other {# tasks}} could not be deleted.",
+      "deleteError": "The tasks could not be deleted.",
+      "frequentFirst": "Most assigned by you first"
    },
    "views": {
       "newView": "New view",
@@ -133,7 +138,7 @@
       "scope": "Scope",
       "layout": "Layout",
       "displayDefaults": "Display defaults",
-      "filtersSummary": "{count} filters will be saved",
+      "filtersSummary": "{count, plural, =1 {1 filter} other {# filters}} will be saved",
       "save": "Save",
       "saved": "View saved",
       "conflict": "Someone else edited this view. Reload it before saving again.",

@@ -96,11 +96,11 @@ export function BatchToolbar({ visibleIds = [] }: { visibleIds?: string[] }) {
          .then(async (result) => {
             await refresh(result.updated);
             if (result.failed.length > 0) {
-               toast.error(`${result.failed.length} task(s) could not be changed.`);
+               toast.error(t('selection.changeFailed', { count: result.failed.length }));
             }
             clear();
          })
-         .catch(() => toast.error('The change could not be applied.'));
+         .catch(() => toast.error(t('selection.changeError')));
 
    const assign = (candidate: Candidate) => {
       if (candidate.type !== 'agent') {
@@ -129,11 +129,11 @@ export function BatchToolbar({ visibleIds = [] }: { visibleIds?: string[] }) {
                issues: state.issues.filter((issue) => !result.deleted.includes(issue.id)),
             }));
             if (result.failed.length > 0) {
-               toast.error(`${result.failed.length} task(s) could not be deleted.`);
+               toast.error(t('selection.deleteFailed', { count: result.failed.length }));
             }
             clear();
          })
-         .catch(() => toast.error('The tasks could not be deleted.'));
+         .catch(() => toast.error(t('selection.deleteError')));
    };
 
    const allVisibleSelected =
@@ -189,7 +189,7 @@ export function BatchToolbar({ visibleIds = [] }: { visibleIds?: string[] }) {
                   </Button>
                </DropdownMenuTrigger>
                <DropdownMenuContent>
-                  <DropdownMenuLabel>Most assigned by you first</DropdownMenuLabel>
+                  <DropdownMenuLabel>{t('selection.frequentFirst')}</DropdownMenuLabel>
                   {candidates.map((candidate) => (
                      <DropdownMenuItem
                         key={`${candidate.type}:${candidate.id}`}

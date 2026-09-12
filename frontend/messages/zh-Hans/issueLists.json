@@ -111,7 +111,12 @@
       "runConfirmTitle": "为这些任务启动运行？",
       "runConfirmBody": "{name} 将接手 {count} 个任务并开始工作。",
       "confirmRun": "指派并运行",
-      "cancel": "取消"
+      "cancel": "取消",
+      "changeFailed": "有 {count} 个任务无法更改。",
+      "changeError": "无法应用此更改。",
+      "deleteFailed": "有 {count} 个任务无法删除。",
+      "deleteError": "无法删除这些任务。",
+      "frequentFirst": "按你最常指派的顺序"
    },
    "views": {
       "newView": "新建视图",

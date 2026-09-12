@@ -111,7 +111,12 @@
       "runConfirmTitle": "이 작업들의 실행을 시작할까요?",
       "runConfirmBody": "{name}이(가) {count}개 작업을 받아 작업을 시작합니다.",
       "confirmRun": "배정하고 실행",
-      "cancel": "취소"
+      "cancel": "취소",
+      "changeFailed": "{count}개의 작업을 변경하지 못했습니다.",
+      "changeError": "변경 사항을 적용하지 못했습니다.",
+      "deleteFailed": "{count}개의 작업을 삭제하지 못했습니다.",
+      "deleteError": "작업을 삭제하지 못했습니다.",
+      "frequentFirst": "자주 배정한 순서"
    },
    "views": {
       "newView": "새 뷰",

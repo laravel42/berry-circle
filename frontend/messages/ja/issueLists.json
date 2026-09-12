@@ -111,7 +111,12 @@
       "runConfirmTitle": "これらのタスクの実行を始めますか？",
       "runConfirmBody": "{name} が {count} 件のタスクを受け取り、作業を始めます。",
       "confirmRun": "割り当てて実行",
-      "cancel": "キャンセル"
+      "cancel": "キャンセル",
+      "changeFailed": "{count} 件のタスクを変更できませんでした。",
+      "changeError": "変更を適用できませんでした。",
+      "deleteFailed": "{count} 件のタスクを削除できませんでした。",
+      "deleteError": "タスクを削除できませんでした。",
+      "frequentFirst": "よく割り当てる順"
    },
    "views": {
       "newView": "新しいビュー",
