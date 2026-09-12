@@ -179,7 +179,7 @@ export function ShellPins({ orgId }: { orgId: string }) {
                      <Link
                         data-shell-nav
                         href={hrefFor(orgId, pin)}
-                        className="flex min-w-0 flex-1 items-center gap-2 truncate rounded py-1.5 text-[var(--shell-text-muted)] hover:text-[var(--shell-text)]"
+                        className="flex min-w-0 flex-1 items-center gap-2 truncate rounded py-2 text-[var(--shell-text-muted)] hover:text-[var(--shell-text)]"
                      >
                         <span className="flex size-4 flex-none items-center justify-center">
                            {pin.targetType === 'issue' ? (

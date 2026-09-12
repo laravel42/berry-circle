@@ -88,7 +88,7 @@ export function ShellPersonal({ orgId }: { orgId: string }) {
 
    const rowClass = (on: boolean) =>
       [
-         'flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-left transition-colors',
+         'flex w-full items-center gap-2.5 rounded px-3 py-2 text-left transition-colors',
          on
             ? 'bg-[var(--shell-surface)] text-[var(--shell-text)]'
             : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',

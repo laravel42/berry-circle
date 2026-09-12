@@ -27,7 +27,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
 
    const link = (active: boolean) =>
       [
-         'flex items-center gap-2.5 rounded px-3 py-1.5 transition-colors',
+         'flex items-center gap-2.5 rounded px-3 py-2 transition-colors',
          active
             ? 'bg-[var(--shell-surface)] text-[var(--shell-text)]'
             : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
