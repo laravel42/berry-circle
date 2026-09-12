@@ -378,6 +378,15 @@
       line-height: 1.2;
    }
 
+   /* Tab titles match the rail's items. The strip and the rail are one piece
+      of chrome, and a tab that read smaller than the menu beside it would
+      look like a caption rather than a place you can go back to. The strip is
+      a fixed 34px, which 14px at 1.2 still clears. */
+   .tabstrip [role='tab'] {
+      font-size: var(--text-base);
+      line-height: 1.2;
+   }
+
    :where(.text-xs) {
       font-weight: 400;
    }
