@@ -56,8 +56,17 @@ export interface IssueRuns {
    upsert: (run: RunRecord) => void;
 }
 
+/**
+ * One shared empty array for every task with no runs yet.
+ *
+ * The selector below feeds `useSyncExternalStore`, which compares snapshots by
+ * identity. A fresh `[]` per call is a new snapshot every render, and the
+ * subscriber re-renders forever.
+ */
+const NO_RUNS: RunRecord[] = [];
+
 export function useIssueRuns(issueId: string | undefined): IssueRuns {
-   const runs = useIssueRunsStore((state) => (issueId ? (state.byIssue[issueId] ?? []) : []));
+   const runs = useIssueRunsStore((state) => (issueId ? (state.byIssue[issueId] ?? NO_RUNS) : NO_RUNS));
    const load = useIssueRunsStore((state) => state.load);
    const upsertRun = useIssueRunsStore((state) => state.upsert);
 
