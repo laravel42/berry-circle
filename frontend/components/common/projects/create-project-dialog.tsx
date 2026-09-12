@@ -302,6 +302,7 @@ export function CreateProjectDialog() {
                         placeholder="Write a description or collect the work…"
                         aria-label="Project description"
                         className="min-h-40"
+                        aiAssist={false}
                      />
                   </div>
                </div>

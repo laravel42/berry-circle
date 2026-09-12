@@ -23,6 +23,11 @@ interface TiptapAiEditorProps {
    className?: string;
    'aria-label'?: string;
    'data-heading'?: 'h1' | 'h2' | 'h3';
+   /**
+    * The AI assist bar under the text. On by default; a form that wants plain
+    * prose turns it off, and the space the bar reserved goes with it.
+    */
+   aiAssist?: boolean;
 }
 
 type TipTapEditor = NonNullable<ReturnType<typeof useEditor>>;
@@ -38,6 +43,7 @@ export function TiptapAiEditor({
    className,
    'aria-label': ariaLabel,
    'data-heading': dataHeading,
+   aiAssist = true,
 }: TiptapAiEditorProps) {
    const [aiPrompt, setAiPrompt] = useState('');
    const [aiPending, setAiPending] = useState(false);
@@ -207,18 +213,20 @@ export function TiptapAiEditor({
                <Link2 className="size-3.5" />
             </Button>
          </BubbleMenu>
-         <EditorContent editor={editor} className="min-h-24 flex-1 pb-16" />
-         <EditorAiBar
-            prompt={aiPrompt}
-            onPromptChange={setAiPrompt}
-            onPreset={(instruction) => void runAssist(instruction)}
-            onSubmit={() => {
-               const instruction = aiPrompt.trim();
-               if (!instruction) return;
-               void runAssist(instruction).then(() => setAiPrompt(''));
-            }}
-            pending={aiPending}
-         />
+         <EditorContent editor={editor} className={cn('min-h-24 flex-1', aiAssist && 'pb-16')} />
+         {aiAssist ? (
+            <EditorAiBar
+               prompt={aiPrompt}
+               onPromptChange={setAiPrompt}
+               onPreset={(instruction) => void runAssist(instruction)}
+               onSubmit={() => {
+                  const instruction = aiPrompt.trim();
+                  if (!instruction) return;
+                  void runAssist(instruction).then(() => setAiPrompt(''));
+               }}
+               pending={aiPending}
+            />
+         ) : null}
       </div>
    );
 }
