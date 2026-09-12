@@ -13,6 +13,7 @@ import { GitHubAppRepository } from '../integrations/github-app.ts';
 import { OAuthStateStore } from '../integrations/oauth.ts';
 import { sealerFromKey } from '../integrations/sealing.ts';
 import { deleteWorkspaceBoards } from '../test-support/boards.ts';
+import { APP_SEALING_KEY } from '../test-support/github-app.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { integrationMounts } from './integrations.ts';
 
@@ -122,7 +123,9 @@ describe(
          states = new OAuthStateStore({ sql });
          githubApp = new GitHubAppRepository({
             sql,
-            sealer: sealerFromKey(randomBytes(32).toString('base64')),
+            // The shared fixture key: the App row is a deployment singleton, so a
+            // row written by another test file has to be openable here too.
+            sealer: sealerFromKey(APP_SEALING_KEY),
             fetch: githubStub({ login: 'berry-org', type: 'Organization' }),
             apiBaseUrl: 'https://api.github.test',
          });

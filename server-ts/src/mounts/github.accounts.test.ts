@@ -11,10 +11,11 @@ import { Registry } from '../http/registry.ts';
 import { IssueRepository } from '../core/issues.ts';
 import { GitHubAppRepository } from '../integrations/github-app.ts';
 import { GitHubClient } from '../integrations/github.ts';
-import { SHARED_APP_SEALING_KEY, sealerFromKey } from '../integrations/sealing.ts';
+import { sealerFromKey } from '../integrations/sealing.ts';
 import { GitHubSettingsRepository } from '../scm/github-settings.ts';
 import { PullRequestStore } from '../scm/pull-requests.ts';
 import { deleteWorkspaceBoards } from '../test-support/boards.ts';
+import { APP_SEALING_KEY } from '../test-support/github-app.ts';
 import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 import { GitHubEvents } from '../scm/github-events.ts';
 import { githubMounts } from './github.ts';
@@ -136,7 +137,7 @@ describe(
        * have each unable to open the other's private key. A fixed key is what
        * makes the singleton survive being written by either of them.
        */
-      const sealer = sealerFromKey(SHARED_APP_SEALING_KEY);
+      const sealer = sealerFromKey(APP_SEALING_KEY);
       let ownerToken: string;
       let strangerToken: string;
       let ownerId: string;
@@ -239,10 +240,12 @@ describe(
       });
 
       beforeEach(async () => {
-         // Re-asserted before every test: the App is a singleton another file's
-         // fixture may have replaced since, and a mint starts by signing with
-         // the key on that row.
-         await githubApp.saveApp(storedApp(), ownerId);
+         // The App is a deployment singleton, and a mint starts by signing with
+         // the key on that row — so a row has to be there. Written only when
+         // there is none, because another file's fixture owns the identity of
+         // the row it wrote and replacing it would break its assertions; the
+         // shared fixture sealing key is what makes either row usable here.
+         if (!(await githubApp.app())) await githubApp.saveApp(storedApp(), ownerId);
          await sql`DELETE FROM github_installations WHERE workspace_id IN (${w1}, ${w2})`;
          await sql`DELETE FROM workspace_repositories WHERE workspace_id IN (${w1}, ${w2})`;
          stub.listedWith.length = 0;
