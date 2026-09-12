@@ -25,6 +25,7 @@ const server = createRuntimeServer({
    registry: new SessionRegistry(),
    modelFactory: (spec) => bedrockModel({ ...spec, credentials: spec.credentials ?? credentials }),
    region,
+   credentials,
    workRoot: env.BERRY_RUNTIME_WORK_ROOT ?? '/mnt/workspace',
    repository: containerRepository(),
    localControl: (env.BERRY_RUNTIME_LOCAL_CONTROL ?? '').trim().toLowerCase() === 'true',

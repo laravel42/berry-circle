@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import type { AwsCredentials } from '../model.ts';
 import { join } from 'node:path';
 import type { McpClient, Tool } from '@strands-agents/sdk';
 import type { TaskEnvelope } from '../../../runtime/envelope.ts';
@@ -62,6 +63,16 @@ export interface HandlerDeps {
    registry: SessionRegistry;
    modelFactory: ModelFactory;
    region: string;
+   /**
+    * The AWS credential Polly and Nova Reel render with.
+    *
+    * Passed explicitly rather than left to the default chain: the image ships
+    * no credential file and no instance role, so a null here means every
+    * media call fails with "Could not load credentials from any providers"
+    * while the model itself works, because the model is handed the same
+    * credential through modelFactory.
+    */
+   credentials?: AwsCredentials | null;
    /** Where session workspaces live: `/mnt/workspace` in the image. */
    workRoot: string;
    fetch?: typeof fetch;
@@ -129,7 +140,7 @@ async function runAgentTask(envelope: TaskEnvelope, emit: Emit, deps: HandlerDep
          // land on the task through Berry like any other file.
          ...mediaTools({
             region: deps.region,
-            credentials: null,
+            credentials: deps.credentials ?? null,
             runId: envelope.runId,
             video: deps.videoOutput,
             save: async ({ path, bytes, contentType }) => {
