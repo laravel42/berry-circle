@@ -204,7 +204,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                            {shown.map((route) => {
                               const on = Boolean(route.href) && route.id === active;
                               const className = [
-                                 'flex items-center gap-2.5 rounded px-3 py-[7px] transition-colors',
+                                 'flex items-center gap-2.5 rounded px-3 py-1.5 transition-colors',
                                  on
                                     ? // Inset rather than a real border: a 2px edge on a rounded
                                       // pill would shift the label by two pixels on selection.
