@@ -167,6 +167,10 @@ function serializeItem(item: InboxItem): Record<string, unknown> {
       actorId: item.actorId,
       title: item.title,
       body: item.body,
+      // The inbox page reads the recorded prompt and the comment a
+      // notification is about out of here; anything else it does not
+      // recognize it leaves alone.
+      details: item.details,
       read: item.read,
       archived: item.archived,
       createdAt: item.createdAt,

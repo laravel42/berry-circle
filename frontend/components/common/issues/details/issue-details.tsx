@@ -37,11 +37,17 @@ import { SubIssues } from './sub-issues';
  * the visit is written to the recent list the rail reads. All three exist
  * because a task is usually reached from somewhere else — a search, an inbox
  * row, a message from a colleague — and arriving should leave you oriented.
+ *
+ * `issueRef` is for surfaces that show a task without being routed at it — the
+ * inbox reads it out of its own query string. Left out, the task comes from
+ * the route, exactly as before.
  */
-export default function IssueDetails() {
+export default function IssueDetails({ issueRef }: { issueRef?: string } = {}) {
    const t = useTranslations('issueDetail.state');
-   const { orgId, issueId } = useParams<{ orgId: string; issueId: string }>();
+   const params = useParams<{ orgId: string; issueId: string }>();
+   const orgId = params?.orgId;
    const org = orgId ?? WORKSPACE_SLUG;
+   const issueId = issueRef ?? params?.issueId ?? '';
    const { issues, addIssue } = useIssuesStore();
    const inDrawer = useInDetailDrawer();
    const closeDrawer = useDetailDrawerClose();
@@ -101,12 +107,13 @@ export default function IssueDetails() {
 
    // A uuid in the address bar is a working link and an unreadable one. Once
    // the task is known, the URL becomes its key — replace, not push, so Back
-   // still goes where the reader came from.
+   // still goes where the reader came from. Not when the task is being shown
+   // somewhere else (the inbox, a drawer): that address belongs to that page.
    useEffect(() => {
-      if (!issue || !issueId || issue.identifier === issueId || inDrawer) return;
+      if (!issue || !issueId || issue.identifier === issueId || inDrawer || issueRef) return;
       const hash = typeof window === 'undefined' ? '' : window.location.hash;
       router.replace(`/${org}/issue/${issue.identifier}${hash}`);
-   }, [issue, issueId, org, router, inDrawer]);
+   }, [issue, issueId, org, router, inDrawer, issueRef]);
 
    useEffect(() => {
       if (!issue) return;
@@ -160,16 +167,16 @@ export default function IssueDetails() {
 
    // Scroll position, restored on the way back in. Session-only, by design:
    // a two-day-old offset against an edited description lands nowhere.
-   const issueRef = issue?.identifier ?? '';
+   const scrollKey = issue?.identifier ?? '';
    useEffect(() => {
       const element = scroller.current;
-      if (!element || !issueRef) return;
-      const saved = scrollMemory[issueRef];
+      if (!element || !scrollKey) return;
+      const saved = scrollMemory[scrollKey];
       if (saved) element.scrollTop = saved;
       // Only on arrival at a task: re-running this on every remembered scroll
       // would fight the reader for the scrollbar.
       // eslint-disable-next-line react-hooks/exhaustive-deps
-   }, [issueRef]);
+   }, [scrollKey]);
 
    if (fetching && !issue) {
       return (
@@ -212,7 +219,7 @@ export default function IssueDetails() {
          <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden">
             <div
                ref={scroller}
-               onScroll={(event) => rememberScroll(issueRef, event.currentTarget.scrollTop)}
+               onScroll={(event) => rememberScroll(scrollKey, event.currentTarget.scrollTop)}
                className="min-h-0 flex-1 overflow-y-auto"
             >
                <div className="mx-auto max-w-3xl px-6 py-6 pb-4 sm:px-8 sm:py-8">

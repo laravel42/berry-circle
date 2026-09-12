@@ -4,6 +4,7 @@ import type { InboxItem } from '@/data/inbox';
 import { getNotificationIcon } from '@/lib/notification-utils';
 import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store';
 import { useNotificationsStore } from '@/store/notifications-store';
+import { useTranslations } from 'next-intl';
 import { useEffect } from 'react';
 import { toast } from 'sonner';
 import { destinationOf } from './notifications-drawer';
@@ -26,6 +27,7 @@ export function NotificationToasts() {
    const router = useRouter();
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId ?? '';
+   const t = useTranslations('inbox');
    const arrivals = useNotificationsStore((state) => state.arrivals);
    const clearArrivals = useNotificationsStore((state) => state.clearArrivals);
    const openDrawer = useNotificationsDrawerStore((state) => state.open);
@@ -39,7 +41,7 @@ export function NotificationToasts() {
             duration: 6000,
             onDismiss: undefined,
             action: {
-               label: 'Open',
+               label: t('toast.open'),
                onClick: () => {
                   const href = destinationOf(item, orgId);
                   if (href) router.push(href);
@@ -51,15 +53,15 @@ export function NotificationToasts() {
 
       if (arrivals.length > MAX_TOASTS) {
          const rest = arrivals.length - MAX_TOASTS;
-         toast(`and ${rest} more`, {
+         toast(t('toast.more', { count: rest }), {
             id: 'notification:overflow',
             duration: 6000,
-            action: { label: 'Open', onClick: openDrawer },
+            action: { label: t('toast.open'), onClick: openDrawer },
          });
       }
 
       clearArrivals();
-   }, [arrivals, clearArrivals, openDrawer, orgId, router]);
+   }, [arrivals, clearArrivals, openDrawer, orgId, router, t]);
 
    return null;
 }

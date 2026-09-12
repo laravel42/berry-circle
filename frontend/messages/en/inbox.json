@@ -1,0 +1,105 @@
+{
+   "title": "Inbox",
+   "description": "What happened on your work while you were elsewhere.",
+   "views": {
+      "active": "Inbox",
+      "archived": "Archive"
+   },
+   "list": {
+      "unread": "Unread",
+      "shortcutHint": "Up and down move, E archives",
+      "selectHint": "Select a notification to read it."
+   },
+   "filters": {
+      "status": "Status",
+      "priority": "Priority",
+      "sender": "Sender",
+      "unreadOnly": "Unread only",
+      "clear": "Clear filters",
+      "anySender": "Anyone",
+      "unknownSender": "Someone",
+      "agents": "Agents",
+      "system": "Berry",
+      "active": "{count} active"
+   },
+   "states": {
+      "loading": "Loading your notifications…",
+      "empty": "Nothing has happened yet.",
+      "emptyBody": "Assignments, comments and agent outcomes on work you follow arrive here.",
+      "noMatches": "No notifications match these filters.",
+      "emptyArchive": "The archive is empty.",
+      "emptyArchiveBody": "Notifications you archive are kept here.",
+      "error": "The archive could not be loaded.",
+      "errorBody": "The request did not come back. Nothing was lost.",
+      "retry": "Try again"
+   },
+   "actions": {
+      "markRead": "Mark read",
+      "markUnread": "Mark unread",
+      "archive": "Archive",
+      "unarchive": "Move to inbox",
+      "openInNewTab": "Open in new tab",
+      "rowMenu": "Notification actions",
+      "bulkMenu": "Act on everything",
+      "markAllRead": "Mark all read",
+      "archiveAll": "Archive all",
+      "archiveRead": "Archive read",
+      "archiveCompleted": "Archive completed",
+      "back": "Back to the list",
+      "retryRun": "Retry with the original context"
+   },
+   "detail": {
+      "prompt": "Original prompt",
+      "comment": "The comment this is about",
+      "noBody": "This notification carries no further detail.",
+      "issueDeleted": "That task is gone.",
+      "issueDeletedBody": "The task this notification is about has been deleted.",
+      "backToInbox": "Back to the inbox"
+   },
+   "toasts": {
+      "archived": "Archived",
+      "unarchived": "Moved back to the inbox",
+      "archivedMany": "{count} archived",
+      "allRead": "Everything marked read",
+      "failed": "That did not go through. Try again.",
+      "retryStarted": "The task is running again.",
+      "retryFailed": "The run could not be started."
+   },
+   "drawer": {
+      "title": "Notifications",
+      "description": "What happened on your work while you were elsewhere.",
+      "markAllRead": "Mark all read",
+      "empty": "Nothing has happened yet.",
+      "unread": "Unread",
+      "openInbox": "Open the inbox"
+   },
+   "toast": {
+      "open": "Open",
+      "more": "and {count} more"
+   },
+   "types": {
+      "comment": "New comment",
+      "mention": "You were mentioned",
+      "assignment": "Assigned to you",
+      "unassigned": "Unassigned",
+      "subscribed": "You were subscribed",
+      "fieldChange": "Field changed",
+      "reviewRequested": "Review requested",
+      "reaction": "New reaction",
+      "status": "Status changed",
+      "reopened": "Reopened",
+      "closed": "Closed",
+      "edited": "Edited",
+      "created": "Created",
+      "upload": "File attached",
+      "approval": "Approval",
+      "goal": "Goal",
+      "workflow": "Workflow",
+      "plan": "Plan",
+      "runCompleted": "Run completed",
+      "runFailed": "Run failed",
+      "agentBlocked": "Agent blocked",
+      "agentCompleted": "Agent finished",
+      "autopilotPaused": "Autopilot paused"
+   }
+}

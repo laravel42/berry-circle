@@ -1,0 +1,105 @@
+{
+   "title": "수신함",
+   "description": "자리를 비운 사이 내 작업에 일어난 일입니다.",
+   "views": {
+      "active": "수신함",
+      "archived": "보관함"
+   },
+   "list": {
+      "unread": "읽지 않음",
+      "shortcutHint": "위아래로 이동, E로 보관",
+      "selectHint": "알림을 선택하면 내용이 표시됩니다."
+   },
+   "filters": {
+      "status": "상태",
+      "priority": "우선순위",
+      "sender": "보낸 주체",
+      "unreadOnly": "읽지 않은 항목만",
+      "clear": "필터 지우기",
+      "anySender": "모두",
+      "unknownSender": "알 수 없는 사람",
+      "agents": "에이전트",
+      "system": "Berry",
+      "active": "필터 {count}개"
+   },
+   "states": {
+      "loading": "알림을 불러오는 중…",
+      "empty": "아직 아무 일도 없었습니다.",
+      "emptyBody": "구독 중인 작업의 배정, 댓글, 에이전트 결과가 여기에 도착합니다.",
+      "noMatches": "조건에 맞는 알림이 없습니다.",
+      "emptyArchive": "보관함이 비어 있습니다.",
+      "emptyArchiveBody": "보관한 알림은 여기에 보관됩니다.",
+      "error": "보관함을 불러오지 못했습니다.",
+      "errorBody": "응답이 오지 않았습니다. 잃어버린 것은 없습니다.",
+      "retry": "다시 시도"
+   },
+   "actions": {
+      "markRead": "읽음으로 표시",
+      "markUnread": "읽지 않음으로 표시",
+      "archive": "보관",
+      "unarchive": "수신함으로 이동",
+      "openInNewTab": "새 탭에서 열기",
+      "rowMenu": "알림 작업",
+      "bulkMenu": "전체에 적용",
+      "markAllRead": "모두 읽음으로 표시",
+      "archiveAll": "모두 보관",
+      "archiveRead": "읽은 항목 보관",
+      "archiveCompleted": "완료된 항목 보관",
+      "back": "목록으로 돌아가기",
+      "retryRun": "원래 컨텍스트로 다시 실행"
+   },
+   "detail": {
+      "prompt": "원래 프롬프트",
+      "comment": "관련 댓글",
+      "noBody": "이 알림에는 추가 내용이 없습니다.",
+      "issueDeleted": "해당 작업이 없습니다.",
+      "issueDeletedBody": "이 알림이 가리키는 작업은 삭제되었습니다.",
+      "backToInbox": "수신함으로 돌아가기"
+   },
+   "toasts": {
+      "archived": "보관했습니다",
+      "unarchived": "수신함으로 옮겼습니다",
+      "archivedMany": "{count}개를 보관했습니다",
+      "allRead": "모두 읽음으로 표시했습니다",
+      "failed": "처리하지 못했습니다. 다시 시도해 주세요.",
+      "retryStarted": "작업을 다시 실행합니다.",
+      "retryFailed": "실행을 시작하지 못했습니다."
+   },
+   "drawer": {
+      "title": "알림",
+      "description": "자리를 비운 사이 내 작업에 일어난 일입니다.",
+      "markAllRead": "모두 읽음으로 표시",
+      "empty": "아직 아무 일도 없었습니다.",
+      "unread": "읽지 않음",
+      "openInbox": "수신함 열기"
+   },
+   "toast": {
+      "open": "열기",
+      "more": "외 {count}개"
+   },
+   "types": {
+      "comment": "새 댓글",
+      "mention": "멘션됨",
+      "assignment": "나에게 배정",
+      "unassigned": "배정 해제",
+      "subscribed": "구독에 추가됨",
+      "fieldChange": "필드 변경",
+      "reviewRequested": "리뷰 요청",
+      "reaction": "새 반응",
+      "status": "상태 변경",
+      "reopened": "다시 열림",
+      "closed": "종료",
+      "edited": "편집",
+      "created": "생성",
+      "upload": "파일 첨부",
+      "approval": "승인",
+      "goal": "목표",
+      "workflow": "워크플로",
+      "plan": "플랜",
+      "runCompleted": "실행 완료",
+      "runFailed": "실행 실패",
+      "agentBlocked": "에이전트 대기",
+      "agentCompleted": "에이전트 완료",
+      "autopilotPaused": "오토파일럿 일시정지"
+   }
+}

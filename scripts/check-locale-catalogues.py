@@ -22,6 +22,7 @@ NAMESPACES = (
     "navigation",
     "issueDetail",
     "issueLists",
+    "inbox",
 )
 PLACEHOLDER = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)")
 

@@ -15,21 +15,24 @@ import { useShortcut } from '@/components/layout/shortcut-provider';
 import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { formatDistanceToNow, parseISO } from 'date-fns';
+import { useTranslations } from 'next-intl';
+import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo } from 'react';
 
 /**
  * Notifications, as a drawer rather than a page.
  *
- * The inbox used to be a destination: a rail item, a route, and a two-pane
- * reader you navigated away from your work to visit. Nothing about a
- * notification wants that. It is an interruption you glance at and act on, so
- * it now arrives beside what you were already doing and leaves again.
+ * A notification is an interruption you glance at and act on, so it arrives
+ * beside what you were already doing and leaves again. The full inbox — the
+ * archive, the filters, the keyboard — is a page, linked from the foot of
+ * this drawer for when glancing is not enough.
  */
 export function NotificationsDrawer() {
    const router = useRouter();
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId ?? '';
+   const t = useTranslations('inbox');
    const { isOpen, close } = useNotificationsDrawerStore();
    const notifications = useNotificationsStore((state) => state.notifications);
    const markAsRead = useNotificationsStore((state) => state.markAsRead);
@@ -43,7 +46,7 @@ export function NotificationsDrawer() {
    useShortcut(
       'inbox.archive',
       () => {
-         if (selected) archiveNotification(selected.id);
+         if (selected) void archiveNotification(selected.id);
       },
       { enabled: isOpen }
    );
@@ -60,7 +63,7 @@ export function NotificationsDrawer() {
    const unread = ordered.filter((item) => !item.read).length;
 
    const openNotification = (item: InboxItem) => {
-      if (!item.read) markAsRead(item.id);
+      if (!item.read) void markAsRead(item.id);
       const href = destinationOf(item, orgId);
       if (href) {
          close();
@@ -75,21 +78,19 @@ export function NotificationsDrawer() {
                 which is absolutely positioned in this corner. */}
             <SheetHeader className="flex-row items-center justify-between space-y-0 border-b py-3 pr-12 pl-5">
                <div className="min-w-0">
-                  <SheetTitle className="font-medium">Notifications</SheetTitle>
-                  <SheetDescription className="sr-only">
-                     What happened on your work while you were elsewhere.
-                  </SheetDescription>
+                  <SheetTitle className="font-medium">{t('drawer.title')}</SheetTitle>
+                  <SheetDescription className="sr-only">{t('drawer.description')}</SheetDescription>
                </div>
                {unread > 0 ? (
-                  <Button size="xs" variant="ghost" onClick={markAllAsRead}>
-                     Mark all read
+                  <Button size="xs" variant="ghost" onClick={() => void markAllAsRead()}>
+                     {t('drawer.markAllRead')}
                   </Button>
                ) : null}
             </SheetHeader>
 
             {ordered.length === 0 ? (
                <div className="flex flex-1 items-center justify-center px-6 text-center text-muted-foreground">
-                  Nothing has happened yet.
+                  {t('drawer.empty')}
                </div>
             ) : (
                <div className="min-h-0 flex-1 overflow-y-auto">
@@ -130,7 +131,7 @@ export function NotificationsDrawer() {
                         </span>
                         {item.read ? null : (
                            <span
-                              aria-label="Unread"
+                              aria-label={t('drawer.unread')}
                               className="mt-1.5 size-1.5 shrink-0 rounded-full bg-primary"
                            />
                         )}
@@ -138,6 +139,16 @@ export function NotificationsDrawer() {
                   ))}
                </div>
             )}
+
+            {orgId ? (
+               <div className="shrink-0 border-t px-5 py-3">
+                  <Button variant="ghost" size="sm" className="w-full" asChild>
+                     <Link href={`/${orgId}/inbox`} onClick={close}>
+                        {t('drawer.openInbox')}
+                     </Link>
+                  </Button>
+               </div>
+            ) : null}
          </SheetContent>
       </Sheet>
    );
