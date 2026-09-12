@@ -5,12 +5,14 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-   --font-sans: var(--font-geist-mono);
-   --font-mono: var(--font-geist-mono);
+   --font-sans: var(--font-jetbrains-mono);
+   --font-mono: var(--font-jetbrains-mono);
    --font-display: var(--font-dm-serif);
    --font-weight-normal: 300;
-   --text-xs: 0.75rem;
-   --text-xs--line-height: 1rem;
+   /* The body size. 13px with 1.2 line spacing, per the house style; every
+      other step below keeps its own measure. */
+   --text-xs: 0.8125rem;
+   --text-xs--line-height: 1.2;
    --text-sm: 0.8125rem;
    --text-sm--line-height: 1.25rem;
    --text-base: 0.875rem;
@@ -262,8 +264,8 @@
       than merely the default. */
    body {
       @apply bg-background text-foreground font-sans text-xs;
-      --font-sans: var(--font-geist-mono);
-      --font-mono: var(--font-geist-mono);
+      --font-sans: var(--font-jetbrains-mono);
+      --font-mono: var(--font-jetbrains-mono);
       --font-display: var(--font-dm-serif);
       /* 400, not the 300 that `font-normal` resolves to: this weight used to
          ride along with `.text-xs` (below) on the elements that opted into the

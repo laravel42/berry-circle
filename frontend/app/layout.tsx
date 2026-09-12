@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { DM_Serif_Display, Geist_Mono } from 'next/font/google';
+import { DM_Serif_Display, JetBrains_Mono } from 'next/font/google';
 import { Toaster } from '@/components/ui/sonner';
 import './globals.css';
 
@@ -9,8 +9,8 @@ const dmSerifDisplay = DM_Serif_Display({
    weight: '400',
 });
 
-const geistMono = Geist_Mono({
-   variable: '--font-geist-mono',
+const jetBrainsMono = JetBrains_Mono({
+   variable: '--font-jetbrains-mono',
    subsets: ['latin'],
    weight: ['300', '400', '500', '600'],
 });
@@ -39,7 +39,7 @@ export default async function RootLayout({
    return (
       <html lang={locale} suppressHydrationWarning>
          <body
-            className={`${dmSerifDisplay.variable} ${geistMono.variable} bg-background antialiased`}
+            className={`${dmSerifDisplay.variable} ${jetBrainsMono.variable} bg-background antialiased`}
             suppressHydrationWarning
          >
             <NextIntlClientProvider>
