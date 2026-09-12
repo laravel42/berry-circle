@@ -51,8 +51,11 @@
       inverting them with the content theme would make the frame compete with
       what sits inside it. Values come from the prototype verbatim so the
       implementation and the design file cannot drift apart silently. */
-   --shell-rail: #18181b;
-   --shell-canvas: #111113;
+   /* Inverted against the prototype on purpose: the rail and the tab strip
+      take the darker value and the content canvas the lighter one, so the
+      workspace reads as lit and its chrome recedes. */
+   --shell-rail: #111113;
+   --shell-canvas: #18181b;
    --shell-surface: #1a1a1d;
    --shell-hover: #222226;
    --shell-line: #26262b;
