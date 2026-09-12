@@ -4,19 +4,19 @@
       "manage": "Manage"
    },
    "nav": {
-      "tasks": "tasks",
-      "reviews": "reviews",
-      "goals": "goals",
-      "projects": "projects",
-      "runtimes": "runtimes",
-      "agents": "agents",
-      "analytics": "analytics",
-      "skills": "skills",
-      "squads": "squads",
-      "autopilots": "autopilots",
-      "dashboard": "dashboard",
-      "usage": "usage",
-      "chat": "chat"
+      "tasks": "Tasks",
+      "reviews": "Reviews",
+      "goals": "Goals",
+      "projects": "Projects",
+      "runtimes": "Runtimes",
+      "agents": "Agents",
+      "analytics": "Analytics",
+      "skills": "Skills",
+      "squads": "Squads",
+      "autopilots": "Autopilots",
+      "dashboard": "Dashboard",
+      "usage": "Usage",
+      "chat": "Chat"
    },
    "rail": {
       "workspace": "Workspace",
