@@ -119,7 +119,7 @@
       "active": "Running now",
       "showPast": "Show past runs",
       "hidePast": "Hide past runs",
-      "pastCount": "{count} past runs",
+      "pastCount": "{count, plural, =1 {1 past run} other {# past runs}}",
       "by": "asked by {name}",
       "bySystem": "started automatically",
       "cancel": "Cancel",

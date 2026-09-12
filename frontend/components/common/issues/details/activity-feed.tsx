@@ -41,7 +41,7 @@ import { listSkills, type Skill } from '@/lib/skills';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useCommentDraftStore } from '@/store/comment-draft-store';
-import { useIssueRuns } from '@/store/issue-runs-store';
+import { useIssueRuns, useIssueRunsStore } from '@/store/issue-runs-store';
 import { formatDistanceToNow, parseISO } from 'date-fns';
 import {
    Ban,
@@ -881,6 +881,10 @@ export function ActivityCommentComposer({
             if (planned > 0 && started < planned) {
                toast.message(t('partial', { started, total: planned }));
             }
+            // The mention started runs the execution log is already showing
+            // the absence of. Nothing else tells it, so it would keep saying
+            // "no runs yet" until the page was reloaded.
+            if (started > 0) useIssueRunsStore.getState().load(comment.issueId);
             setPlan(null);
          })
          .catch(() => toast.error(t('sendFailed')))
