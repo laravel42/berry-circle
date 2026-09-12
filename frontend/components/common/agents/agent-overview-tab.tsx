@@ -1,6 +1,8 @@
 'use client';
 
 import { AlertTriangle } from 'lucide-react';
+import { useAgentCoverage } from '@/hooks/use-agent-coverage';
+import { agentHasRuntime } from '@/lib/runtimes';
 import { useTranslations } from 'next-intl';
 
 import { AgentSparkline } from '@/components/common/agents/agent-sparkline';
@@ -57,6 +59,7 @@ export default function AgentOverviewTab({
    onOpenSettings,
 }: AgentOverviewTabProps) {
    const t = useTranslations('agentsChat.detail');
+   const coverage = useAgentCoverage();
    const list = useTranslations('agentsChat.list');
    const common = useTranslations('agentsChat.common');
 
@@ -85,8 +88,12 @@ export default function AgentOverviewTab({
    // Work is waiting and nothing can pick it up. Said here rather than left to
    // the runtime cell, because a queue that cannot drain is the one fact on
    // this page somebody has to act on.
+   // Only a bound runtime's status is known here; an agent on the workspace
+   // default is stalled only when there is no runtime for it at all.
    const stalled =
-      (roster?.queued ?? 0) > 0 && (!roster?.runtimeId || roster.runtimeStatus !== 'active');
+      (roster?.queued ?? 0) > 0 &&
+      (!agentHasRuntime(coverage, agent.id) ||
+         (roster?.runtimeId !== null && roster?.runtimeStatus !== 'active'));
 
    const accessLabel =
       agent.access?.assign === 'admins'

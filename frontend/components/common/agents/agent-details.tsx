@@ -1,6 +1,8 @@
 'use client';
 
 import Link from 'next/link';
+import { useAgentCoverage } from '@/hooks/use-agent-coverage';
+import { agentHasRuntime } from '@/lib/runtimes';
 import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { Archive, MessageSquare, Plus, RotateCcw } from 'lucide-react';
@@ -62,6 +64,7 @@ export default function AgentDetails({ agentId }: { agentId: string }) {
    const pathname = usePathname();
    const searchParams = useSearchParams();
    const t = useTranslations('agentsChat.detail');
+   const coverage = useAgentCoverage();
    const listCopy = useTranslations('agentsChat.list');
 
    const storedAgent = useAgentsStore((state) => state.getAgentById(agentId));
@@ -196,7 +199,7 @@ export default function AgentDetails({ agentId }: { agentId: string }) {
    const presence = agentStatusDisplay(agent.status);
    const archived = Boolean(agent.archivedAt);
    const isProtected = agent.capabilities.includes('orchestrate');
-   const needsRuntime = roster !== undefined && !roster.runtimeId && !archived;
+   const needsRuntime = roster !== undefined && !agentHasRuntime(coverage, agentId) && !archived;
 
    const tabLabel: Record<DetailTab, string> = {
       overview: t('tabOverview'),

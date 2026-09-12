@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { MoreHorizontal } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+
+import { useAgentCoverage } from '@/hooks/use-agent-coverage';
+import { agentHasRuntime } from '@/lib/runtimes';
 import { toast } from 'sonner';
 
 import {
@@ -58,6 +61,7 @@ const PAGE = 50;
  */
 export function Chat() {
    const t = useTranslations('agentsChat.chat');
+   const coverage = useAgentCoverage();
    const router = useRouter();
    const pathname = usePathname();
    const searchParams = useSearchParams();
@@ -418,7 +422,7 @@ export function Chat() {
       active?.agentId !== undefined &&
       active?.agentId !== null &&
       roster.get(active.agentId) !== undefined &&
-      !roster.get(active.agentId)?.runtimeId;
+      !agentHasRuntime(coverage, active.agentId);
 
    const banner = offline
       ? t('bannerOffline')

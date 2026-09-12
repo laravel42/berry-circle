@@ -1,6 +1,8 @@
 'use client';
 
 import { Pin, PinOff, Plus } from 'lucide-react';
+import { useAgentCoverage } from '@/hooks/use-agent-coverage';
+import { agentHasRuntime } from '@/lib/runtimes';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -62,6 +64,7 @@ export function ChatSidebar({
    onStop,
 }: ChatSidebarProps) {
    const t = useTranslations('agentsChat.chat');
+   const coverage = useAgentCoverage();
 
    const pinned = pinnedAgentIds
       .map((id) => agents.find((agent) => agent.id === id))
@@ -74,9 +77,9 @@ export function ChatSidebar({
    const agentItem = (agent: Agent) => {
       const isPinned = pinnedAgentIds.includes(agent.id);
       const entry = roster.get(agent.id);
-      // A roster that has not loaded says nothing; only a loaded one that
-      // reports no runtime is worth flagging.
-      const noRuntime = entry !== undefined && !entry.runtimeId;
+      // A roster that has not loaded says nothing, and neither does a null
+      // binding on its own: an unbound agent runs on the workspace default.
+      const noRuntime = entry !== undefined && !agentHasRuntime(coverage, agent.id);
       return (
          <DropdownMenuItem
             key={agent.id}
