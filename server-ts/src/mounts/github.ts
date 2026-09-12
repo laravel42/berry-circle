@@ -182,7 +182,8 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
             accountType: account.accountType,
             repositoryCount: account.repositoryCount,
             listedHere: listed.filter(
-               (repository) => repositoryOwner(repository.url) === (account.accountLogin ?? '').toLowerCase()
+               (repository) =>
+                  repositoryOwner(repository.url) === (account.accountLogin ?? '').toLowerCase()
             ).length,
             installedAt: account.installedAt,
             installedBy: account.installedBy,

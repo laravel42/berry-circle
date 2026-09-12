@@ -32,7 +32,11 @@ export interface RepositoryListing {
    /** What listed them, which decides how an empty list should be read. */
    kind: 'installation' | 'user';
    /** The accounts that answered, in the order they were connected. */
-   accounts: Array<{ installationId: number | null; accountLogin: string; accountType: string | null }>;
+   accounts: Array<{
+      installationId: number | null;
+      accountLogin: string;
+      accountType: string | null;
+   }>;
 }
 
 export interface RepositoryListingDeps {

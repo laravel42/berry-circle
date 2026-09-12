@@ -24,7 +24,8 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
   key and the webhook secret, sealed with `INTEGRATION_ENCRYPTION_KEY`. The manifest
   declares its own `callback_urls` — both the API and app origins — so a `redirect_uri`
   cannot be registered wrong. Tables `github_apps` (one row) and `github_installations`
-  (one per workspace) arrive in migration `040`.
+  (one per workspace then; one per account since migration `182`) arrive in migration
+  `040`.
 - Repository work runs on GitHub App installation tokens, minted per installation from
   the private key, cached until shortly before expiry, and coalesced so concurrent runs
   share one mint (`server-ts/src/integrations/github-app.ts`). Both the repository picker
@@ -262,6 +263,18 @@ and Temporal — all removed on 2026-08-28; see the `Removed` section.
 
 ### Changed
 
+- A workspace reaches repositories in several GitHub accounts at once — a personal account
+  and any number of organisations. `github_installations` is keyed by workspace *and*
+  installation (migration `182`), with a unique index on `installation_id` making
+  "an installation belongs to exactly one workspace" a database rule rather than an
+  application check. Repository listings merge across accounts and say which account each
+  repository came from; a token is minted against the installation that owns the
+  repository, so an organisation's repository is no longer fetched with a personal
+  account's token. Settings lists the connected accounts with what GitHub granted each and
+  how many of this workspace's repositories live under it, offers **Add another account**,
+  and disconnects one at a time through
+  `DELETE /api/v1/github/:workspaceId/accounts/:installationId`. Webhooks resolve by
+  installation id, which was already true and is now asserted.
 - Creating a project is how work is planned. Choosing **AI workflow** as the project lead
   generates a plan against the new project and starts it once generation succeeds, which
   is what produces the tasks; AutoGate appears only beside that lead. The plan is started
