@@ -45,6 +45,18 @@ export interface Agent {
     */
    permissions: string[];
    protected: boolean;
+   /**
+    * The member who authored this agent, or null.
+    *
+    * Null for the agents a workspace seeds by trigger, and for anything made
+    * before an agent had an author at all. A screen that needs to name someone
+    * responsible says "the workspace" rather than guessing at the reader.
+    */
+   ownerId: string | null;
+   /** Up to three openers a new chat with this agent offers. */
+   conversationStarters: string[];
+   /** Tasks it may run at once; null leaves the ceiling to the dispatcher. */
+   maxConcurrency: number | null;
    /** A seeded role such as 'guide'; null for an ordinary agent. */
    systemRole: string | null;
    archivedAt: string | null;
@@ -74,6 +86,12 @@ export interface AgentConfigPatch {
    provider?: string | null;
    model?: string | null;
    skills?: string[];
+   /** A new name. Never empty: an agent without one cannot be referred to. */
+   name?: string;
+   /** Replaces the whole set; an empty list clears them. */
+   starters?: string[];
+   /** Null clears the ceiling rather than leaving it unchanged. */
+   maxConcurrency?: number | null;
 }
 
 export interface CreateAgentInput {
@@ -85,6 +103,30 @@ export interface CreateAgentInput {
    model?: string | null;
    skills?: string[];
    avatarUrl?: string | null;
+   /** The member authoring it. Absent for anything Berry seeds itself. */
+   createdBy?: string | null;
+}
+
+/**
+ * What the agents list needs about one agent beyond its own row.
+ *
+ * Load, runtime and recent activity all live in other tables, and a list of
+ * thirty agents that fetched them per row would be thirty round trips for one
+ * screen. They are read together here instead.
+ */
+export interface AgentRosterEntry {
+   agentId: string;
+   ownerId: string | null;
+   ownerName: string | null;
+   runtimeId: string | null;
+   runtimeName: string | null;
+   runtimeStatus: string | null;
+   running: number;
+   queued: number;
+   totalRuns: number;
+   lastActiveAt: string | null;
+   /** One entry per day, oldest first, with no gaps. */
+   activity: { day: string; runs: number; failed: number }[];
 }
 
 export type Permission = 'product.read' | 'product.write' | 'workspace.admin';
@@ -102,6 +144,7 @@ const AGENT_COLUMNS = `
    agent.model_provider, agent.model_name, agent.model_tier,
    agent.manifest_limits, agent.permissions, agent.protected, agent.system_role, agent.archived_at,
    agent.labels, agent.env_names, agent.assign_scope, agent.mention_scope,
+   agent.created_by, agent.conversation_starters, agent.max_concurrency,
    agent.created_at, agent.updated_at`;
 
 /**
@@ -209,6 +252,86 @@ export class AgentRepository {
    }
 
    /**
+    * Owner, runtime, load and recent activity for every agent in a workspace.
+    *
+    * Two statements rather than one: the per-agent facts are a row each, and
+    * the activity is a bucketed group-by that would otherwise multiply them.
+    * The day series is filled in afterwards so every agent carries the same
+    * number of points and a sparkline needs no alignment logic of its own.
+    */
+   async roster(workspaceId: string, days: number): Promise<AgentRosterEntry[]> {
+      const span = Math.min(Math.max(Math.trunc(days), 1), 90);
+      const rows = await this.sql`
+         SELECT agent.id,
+                agent.created_by,
+                owner.name AS owner_name,
+                agent.runtime_id,
+                runtime.name AS runtime_name,
+                runtime.status AS runtime_status,
+                (SELECT count(*) FROM runs
+                  WHERE runs.agent_id = agent.id AND runs.status = 'running') AS running,
+                (SELECT count(*) FROM runs
+                  WHERE runs.agent_id = agent.id AND runs.status = 'queued') AS queued,
+                (SELECT count(*) FROM runs WHERE runs.agent_id = agent.id) AS total_runs,
+                (SELECT max(COALESCE(runs.completed_at, runs.started_at, runs.created_at))
+                   FROM runs WHERE runs.agent_id = agent.id) AS last_active_at
+           FROM agents AS agent
+           LEFT JOIN users AS owner ON owner.id = agent.created_by
+           LEFT JOIN agent_runtimes AS runtime ON runtime.id = agent.runtime_id
+          WHERE agent.workspace_id = ${workspaceId}
+          ORDER BY agent.name ASC, agent.id ASC
+          LIMIT 500`;
+
+      const buckets = await this.sql`
+         SELECT agent_id,
+                to_char(date_trunc('day', created_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS day,
+                count(*)::int AS runs,
+                count(*) FILTER (WHERE status = 'failed')::int AS failed
+           FROM runs
+          WHERE workspace_id = ${workspaceId}
+            AND created_at >= date_trunc('day', now() AT TIME ZONE 'UTC') - make_interval(days => ${span - 1})
+          GROUP BY 1, 2`;
+
+      const byAgent = new Map<string, Map<string, { runs: number; failed: number }>>();
+      for (const bucket of buckets) {
+         const agentId = bucket.agent_id as string;
+         const own = byAgent.get(agentId) ?? new Map();
+         own.set(bucket.day as string, { runs: Number(bucket.runs), failed: Number(bucket.failed) });
+         byAgent.set(agentId, own);
+      }
+
+      const today = new Date();
+      const series: string[] = [];
+      for (let back = span - 1; back >= 0; back -= 1) {
+         const day = new Date(
+            Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() - back)
+         );
+         series.push(day.toISOString().slice(0, 10));
+      }
+
+      return rows.map((row) => {
+         const own = byAgent.get(row.id as string);
+         return {
+            agentId: row.id as string,
+            ownerId: (row.created_by as string | null) ?? null,
+            ownerName: (row.owner_name as string | null) ?? null,
+            runtimeId: (row.runtime_id as string | null) ?? null,
+            runtimeName: (row.runtime_name as string | null) ?? null,
+            runtimeStatus: (row.runtime_status as string | null) ?? null,
+            running: Number(row.running),
+            queued: Number(row.queued),
+            totalRuns: Number(row.total_runs),
+            lastActiveAt: toRFC3339(row.last_active_at as string | null),
+            activity: series.map((day) => ({
+               day,
+               runs: own?.get(day)?.runs ?? 0,
+               failed: own?.get(day)?.failed ?? 0,
+            })),
+         };
+      });
+   }
+
+   /**
     * Creates an agent.
     *
     * There is nothing to spawn — the row is the agent. Earlier the substrate
@@ -220,10 +343,12 @@ export class AgentRepository {
       const [row] = await this.sql`
          INSERT INTO agents (
             id, workspace_id, board_id, name, description, avatar_url,
+            created_by,
             status, capabilities, skills, instructions, model_provider, model_name
          ) VALUES (
             ${id}, ${input.workspaceId}, NULL, ${input.name},
             ${input.description ?? null}, ${input.avatarUrl ?? null},
+            ${input.createdBy ?? null},
             -- Available on creation: Berry owns the agent's availability now,
             -- and nothing else will ever set it. 'unknown' would be a lie
             -- about a row whose state is entirely known.
@@ -246,6 +371,9 @@ export class AgentRepository {
       const setsDescription = patch.description !== undefined;
       const setsModel = patch.model !== undefined;
       const setsSkills = patch.skills !== undefined;
+      const setsName = patch.name !== undefined;
+      const setsStarters = patch.starters !== undefined;
+      const setsConcurrency = patch.maxConcurrency !== undefined;
 
       const updated = await this.sql`
          UPDATE agents SET
@@ -259,6 +387,13 @@ export class AgentRepository {
                THEN ${patch.model ?? null}::text ELSE model_name END,
             skills = CASE WHEN ${setsSkills}
                THEN ${patch.skills ?? []}::text[] ELSE skills END,
+            name = CASE WHEN ${setsName} THEN ${patch.name ?? ''}::text ELSE name END,
+            conversation_starters = CASE WHEN ${setsStarters}
+               THEN ${patch.starters ?? []}::text[] ELSE conversation_starters END,
+            -- Null is a value here, not an omission: clearing the ceiling and
+            -- leaving it alone are different requests.
+            max_concurrency = CASE WHEN ${setsConcurrency}
+               THEN ${patch.maxConcurrency ?? null}::integer ELSE max_concurrency END,
             -- Stamped because the prompt is now applied where it is stored:
             -- there is no upstream copy that could be behind this one.
             instructions_synced_at = CASE WHEN ${setsInstructions}
@@ -377,6 +512,9 @@ function toAgent(row: Record<string, unknown>): Agent {
       limits: row.manifest_limits ?? null,
       permissions: (row.permissions as string[] | null) ?? [],
       protected: row.protected === true,
+      ownerId: (row.created_by as string | null) ?? null,
+      conversationStarters: (row.conversation_starters as string[] | null) ?? [],
+      maxConcurrency: row.max_concurrency === null ? null : Number(row.max_concurrency),
       systemRole: (row.system_role as string | null) ?? null,
       archivedAt: toRFC3339(row.archived_at as string | null),
       labels: (row.labels as string[] | null) ?? [],

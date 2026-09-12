@@ -27,6 +27,12 @@ const agentSchema = z.object({
    access: z.object({ assign: z.string(), mention: z.string() }).optional(),
    /** A seeded role such as 'guide'. */
    systemRole: z.string().nullish(),
+   /** The member who authored it; absent for agents a workspace seeded itself. */
+   ownerId: z.string().nullish(),
+   /** Up to three openers a new chat with this agent offers. */
+   conversationStarters: z.array(z.string()).default([]),
+   /** Tasks it may run at once; null leaves the ceiling to the dispatcher. */
+   maxConcurrency: z.number().nullish(),
    archivedAt: z.string().nullish(),
    createdAt: z.string(),
    updatedAt: z.string(),
@@ -229,6 +235,19 @@ export function modelKey(model: Pick<AgentModel, 'provider' | 'id'>): string {
    return `${model.provider}/${model.id}`;
 }
 
+/**
+ * The same key read off an agent, or null when it runs on no named model.
+ *
+ * Filtering a list by model needs one string per agent that matches the one
+ * the catalogue uses, and an agent with only half a pairing has nothing to
+ * match — the two fields are set together or not at all.
+ */
+export function modelPairKey(agent: Pick<Agent, 'modelProvider' | 'modelName'>): string | null {
+   const provider = agent.modelProvider?.trim();
+   const model = agent.modelName?.trim();
+   return provider && model ? `${provider}/${model}` : null;
+}
+
 /** Cross-region routing prefixes Bedrock puts on a profile id. */
 const ROUTING_PREFIXES = ['us-gov', 'us', 'eu', 'apac', 'apne', 'global'];
 
@@ -256,10 +275,17 @@ export function modelVendor(model: Pick<AgentModel, 'id' | 'provider'>): string 
 export async function updateAgentConfig(
    agentId: string,
    config: {
+      name?: string;
       instructions?: string;
       description?: string;
-      provider?: string;
-      model?: string;
+      /** Both together, or both null to run on no named model at all. */
+      provider?: string | null;
+      model?: string | null;
+      skills?: string[];
+      /** Replaces every starter; an empty list clears them. */
+      starters?: string[];
+      /** Null clears the ceiling; omitting it leaves the stored one alone. */
+      maxConcurrency?: number | null;
    }
 ): Promise<Agent> {
    const json: unknown = await apiFetch(`/api/v1/agents/${encodeURIComponent(agentId)}/config`, {
@@ -305,9 +331,21 @@ export function pickRunnableAgent(agents: Agent[]): Agent | undefined {
  * that makes the human review gate advisory, and it is not a default.
  */
 export const AGENT_PERMISSIONS = [
-   { key: 'read_repository', label: 'Read the repository', description: 'Clone it and read its files.' },
-   { key: 'create_branches', label: 'Create branches', description: 'Push a branch named for the task.' },
-   { key: 'run_commands', label: 'Run commands', description: 'Run builds and tests in an isolated workspace.' },
+   {
+      key: 'read_repository',
+      label: 'Read the repository',
+      description: 'Clone it and read its files.',
+   },
+   {
+      key: 'create_branches',
+      label: 'Create branches',
+      description: 'Push a branch named for the task.',
+   },
+   {
+      key: 'run_commands',
+      label: 'Run commands',
+      description: 'Run builds and tests in an isolated workspace.',
+   },
    {
       key: 'open_pull_requests',
       label: 'Open pull requests',
@@ -322,10 +360,7 @@ export const AGENT_PERMISSIONS = [
 ] as const;
 
 /** Replaces the whole set; every enforcement point reads it as a set. */
-export async function setAgentPermissions(
-   agentId: string,
-   permissions: string[]
-): Promise<Agent> {
+export async function setAgentPermissions(agentId: string, permissions: string[]): Promise<Agent> {
    const json: unknown = await apiFetch(
       `/api/v1/agents/${encodeURIComponent(agentId)}/permissions`,
       { method: 'PUT', body: JSON.stringify({ permissions }) }
@@ -341,10 +376,28 @@ const runNodeSchema = z.object({
    id: z.string(),
    status: z.string(),
    issueId: z.string().nullish(),
+   /** What the run says it did, when it said anything. */
+   summary: z.string().nullish(),
+   /**
+    * Why it stopped, for a run that failed.
+    *
+    * Carried so the activity list can say what went wrong in a sentence
+    * instead of printing the word "failed" and leaving the reader to open
+    * the run ledger to find out which kind of failure it was.
+    */
+   failure: z.object({ code: z.string(), message: z.string(), retryable: z.boolean() }).nullish(),
    createdAt: z.string(),
+   startedAt: z.string().nullish(),
    completedAt: z.string().nullish(),
 });
 export type AgentTask = z.infer<typeof runNodeSchema>;
+
+/** How long a task took, or null while it has not started or finished. */
+export function agentTaskDurationMs(task: AgentTask): number | null {
+   if (!task.startedAt) return null;
+   const end = task.completedAt ?? new Date().toISOString();
+   return Math.max(0, new Date(end).getTime() - new Date(task.startedAt).getTime());
+}
 
 const parseAgent = (json: unknown): Agent => {
    const parsed = agentSchema.safeParse(json);
@@ -377,7 +430,10 @@ export async function archiveAgent(id: string): Promise<void> {
 }
 
 export async function cancelAgentTasks(id: string): Promise<number> {
-   const json: unknown = await apiFetch(agentPath(id, '/cancel-tasks'), { method: 'POST', body: '{}' });
+   const json: unknown = await apiFetch(agentPath(id, '/cancel-tasks'), {
+      method: 'POST',
+      body: '{}',
+   });
    return z.object({ cancelled: z.number() }).parse(json).cancelled;
 }
 
@@ -388,7 +444,9 @@ export async function listAgentTasks(id: string, after?: string) {
 }
 
 export const setAgentLabels = async (id: string, labels: string[]) =>
-   parseAgent(await apiFetch(agentPath(id, '/labels'), { method: 'PUT', body: JSON.stringify({ labels }) }));
+   parseAgent(
+      await apiFetch(agentPath(id, '/labels'), { method: 'PUT', body: JSON.stringify({ labels }) })
+   );
 
 /** Replaces every variable; the response carries names only. */
 export async function setAgentEnv(id: string, env: Record<string, string>): Promise<string[]> {
@@ -419,7 +477,12 @@ export const getAgentAccess = async (id: string) =>
    agentAccessSchema.parse(await apiFetch(agentPath(id, '/access')));
 
 export const setAgentAccess = async (id: string, access: AgentAccess) =>
-   parseAgent(await apiFetch(agentPath(id, '/permissions'), { method: 'PUT', body: JSON.stringify({ access }) }));
+   parseAgent(
+      await apiFetch(agentPath(id, '/permissions'), {
+         method: 'PUT',
+         body: JSON.stringify({ access }),
+      })
+   );
 
 /** The workspace's guide agent, or null when it has none (archived, say). */
 export async function getGuideAgent(): Promise<Agent | null> {
@@ -483,6 +546,69 @@ export function useAgentAvatarSrc(avatarUrl: string | null | undefined): string 
    return src;
 }
 
+// ------------------------------------------------------- roster and secrets
+
+const rosterNodeSchema = z.object({
+   agentId: z.string(),
+   ownerId: z.string().nullable(),
+   ownerName: z.string().nullable(),
+   runtimeId: z.string().nullable(),
+   runtimeName: z.string().nullable(),
+   runtimeStatus: z.string().nullable(),
+   running: z.number(),
+   queued: z.number(),
+   totalRuns: z.number(),
+   lastActiveAt: z.string().nullable(),
+   activity: z.array(z.object({ day: z.string(), runs: z.number(), failed: z.number() })),
+});
+
+/** What the list draws per row beyond the agent itself. */
+export type AgentRoster = z.infer<typeof rosterNodeSchema>;
+
+/**
+ * Owner, runtime, load and recent activity for every agent, keyed by agent id.
+ *
+ * A map rather than a list: every caller looks an agent up by id, and the row
+ * order is the list's own decision, not the server's.
+ */
+export async function loadAgentRoster(days = 7): Promise<Map<string, AgentRoster>> {
+   const json: unknown = await apiFetch(`/api/v1/agents/roster?days=${days}`);
+   const parsed = z.object({ nodes: z.array(rosterNodeSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Agent roster was not recognized');
+   return new Map(parsed.data.nodes.map((node) => [node.agentId, node]));
+}
+
+/** A row of the environment history: who, what, and which variables. */
+export const envAuditEntrySchema = z.object({
+   id: z.string(),
+   actorId: z.string().nullable(),
+   actorName: z.string().nullable(),
+   action: z.enum(['reveal', 'update']),
+   envNames: z.array(z.string()),
+   occurredAt: z.string(),
+});
+export type AgentEnvAuditEntry = z.infer<typeof envAuditEntrySchema>;
+
+/**
+ * Opens an agent's environment for editing.
+ *
+ * Deliberately not part of loading the settings tab: the server records every
+ * call, so asking for the values has to be something a person did, not
+ * something a page did on their behalf.
+ */
+export async function revealAgentEnv(id: string): Promise<Record<string, string>> {
+   const json: unknown = await apiFetch(agentPath(id, '/env/reveal'), {
+      method: 'POST',
+      body: '{}',
+   });
+   return z.object({ env: z.record(z.string()) }).parse(json).env;
+}
+
+export async function listAgentEnvAudit(id: string): Promise<AgentEnvAuditEntry[]> {
+   const json: unknown = await apiFetch(agentPath(id, '/env/audit'));
+   return z.object({ nodes: z.array(envAuditEntrySchema) }).parse(json).nodes;
+}
+
 /** Creates an agent by hand. Idempotent per call, so a retried click makes one agent. */
 export async function createAgent(input: {
    name: string;
@@ -490,6 +616,7 @@ export async function createAgent(input: {
    instructions?: string;
    provider?: string;
    model?: string;
+   skills?: string[];
 }): Promise<Agent> {
    return parseAgent(
       await apiFetch('/api/v1/agents', {

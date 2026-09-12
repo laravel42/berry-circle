@@ -37,6 +37,7 @@ export const NAMESPACES = [
    'issueDetail',
    'issueLists',
    'inbox',
+   'agentsChat',
 ] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 

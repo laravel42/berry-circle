@@ -1,4 +1,5 @@
 import agents from '@/messages/en/agents.json';
+import agentsChat from '@/messages/en/agentsChat.json';
 import common from '@/messages/en/common.json';
 import goals from '@/messages/en/goals.json';
 import inbox from '@/messages/en/inbox.json';
@@ -19,6 +20,7 @@ import tasks from '@/messages/en/tasks.json';
  */
 const messages = {
    agents,
+   agentsChat,
    common,
    goals,
    inbox,

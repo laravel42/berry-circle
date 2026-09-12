@@ -33,16 +33,29 @@ export async function getBuilderSession(id: string) {
          status: z.enum(['drafting', 'applied', 'discarded']),
          appliedAgentId: z.string().nullable(),
          drafts: z.array(
-            z.object({ id: z.string(), turn: z.number(), prompt: z.string(), draft: agentDraftSchema })
+            z.object({
+               id: z.string(),
+               turn: z.number(),
+               prompt: z.string(),
+               draft: agentDraftSchema,
+            })
          ),
       })
       .parse(json);
 }
 
-export async function sendBuilderTurn(id: string, prompt: string) {
+/**
+ * One turn of the builder.
+ *
+ * Takes a signal because drafting is the one call in this client that a person
+ * waits on for several seconds, and "stop" has to mean the request is actually
+ * abandoned rather than merely ignored when it lands.
+ */
+export async function sendBuilderTurn(id: string, prompt: string, signal?: AbortSignal) {
    const json: unknown = await apiFetch(`${base}/${encodeURIComponent(id)}/turns`, {
       method: 'POST',
       body: JSON.stringify({ prompt }),
+      ...(signal ? { signal } : {}),
    });
    return z
       .object({ draftId: z.string(), draft: agentDraftSchema, unknownSkills: z.array(z.string()) })

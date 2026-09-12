@@ -68,7 +68,19 @@ const MAX_SKILLS = 50;
 const SKILL = /^[a-z0-9-]{1,50}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
-const CONFIG_FIELDS = new Set(['instructions', 'description', 'provider', 'model', 'skills']);
+const CONFIG_FIELDS = new Set([
+   'name',
+   'instructions',
+   'description',
+   'provider',
+   'model',
+   'skills',
+   'starters',
+   'maxConcurrency',
+]);
+const MAX_STARTERS = 3;
+const MAX_STARTER = 200;
+const MAX_AGENT_CONCURRENCY = 20;
 const CREATE_FIELDS = new Set([
    'name',
    'description',
@@ -176,6 +188,30 @@ export function agentMounts(options: AgentOptions): Mount[] {
       });
    });
 
+   /**
+    * What the agents list needs beyond each agent's own row.
+    *
+    * Owner, bound runtime, current load, run total, last activity and a short
+    * daily history, for every agent at once. The list draws a sparkline and a
+    * workload cell per row; doing that from per-agent requests would be one
+    * round trip per row, and doing it from the runs the browser happens to
+    * hold would be a number that means something different on every screen.
+    *
+    * Before `/:agentId`, like every other named path on this mount.
+    */
+   route.get('/roster', async (context) => {
+      const workspaceId = currentWorkspace(context.get('user').currentWorkspaceId);
+      await agents
+         .authorizeWorkspace(context.get('user').id, workspaceId, 'product.read')
+         .catch(rethrowWorkspace);
+      const raw = new URL(context.req.url).searchParams.get('days');
+      const days = raw === null ? 7 : Number(raw);
+      if (!Number.isInteger(days) || days < 1 || days > 90) {
+         throw ApiError.badRequest('days must be an integer from 1 to 90.');
+      }
+      return json({ nodes: await agents.roster(workspaceId, days) });
+   });
+
    /** The workspace's guide agent, found by role. Before `/:agentId`, like the rest. */
    route.get('/guide', async (context) => {
       const workspaceId = currentWorkspace(context.get('user').currentWorkspaceId);
@@ -229,6 +265,7 @@ export function agentMounts(options: AgentOptions): Mount[] {
          .create({
             workspaceId,
             name: name!,
+            createdBy: context.get('user').id,
             ...(description === undefined ? {} : { description }),
             ...(instructions === undefined ? {} : { instructions }),
             ...(skills === undefined ? {} : { skills }),
@@ -263,13 +300,22 @@ export function agentMounts(options: AgentOptions): Mount[] {
       const body = await readBody(context.req.raw, CONFIG_FIELDS);
       const instructions = optionalText(body, 'instructions', MAX_INSTRUCTIONS);
       const description = optionalText(body, 'description', MAX_DESCRIPTION);
+      // Required when present: renaming to nothing is not a rename, and an
+      // agent with no name cannot be referred to anywhere it appears.
+      const name = body.name === undefined ? undefined : text(body.name, 'name', MAX_NAME, true);
       const skills = body.skills === undefined ? undefined : parseSkills(body.skills);
+      const starters = body.starters === undefined ? undefined : parseStarters(body.starters);
+      const maxConcurrency =
+         'maxConcurrency' in body ? parseConcurrency(body.maxConcurrency) : undefined;
       const pair = await parseModelPair(body, catalog, logger);
 
       if (
+         name === undefined &&
          instructions === undefined &&
          description === undefined &&
          skills === undefined &&
+         starters === undefined &&
+         maxConcurrency === undefined &&
          pair === undefined
       ) {
          throw new ApiError(400, 'NO_FIELDS', 'No configuration fields were provided.');
@@ -277,9 +323,12 @@ export function agentMounts(options: AgentOptions): Mount[] {
 
       const updated = await agents
          .setConfig(agentId, scope.workspaceId, {
+            ...(name === undefined ? {} : { name }),
             ...(instructions === undefined ? {} : { instructions }),
             ...(description === undefined ? {} : { description }),
             ...(skills === undefined ? {} : { skills }),
+            ...(starters === undefined ? {} : { starters }),
+            ...(maxConcurrency === undefined ? {} : { maxConcurrency }),
             ...(pair === undefined ? {} : pair),
          })
          .catch(rethrowAgent);
@@ -355,19 +404,57 @@ export function agentMounts(options: AgentOptions): Mount[] {
    /** Admin-only: env usually carries credentials the agent acts with. */
    route.put('/:agentId/env', async (context) => {
       const agentId = pathId(context.req.param('agentId'));
+      const user = context.get('user');
+      const scope = await agents
+         .authorizeAgent(user.id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+      const { env } = await readJson(context, envSchema);
+      const profile = requireProfile();
+      const envNames = await profile.setEnv(scope.workspaceId, agentId, env).catch(rethrowSealing);
+      // After the write, and not awaited into it: the variables are stored
+      // either way, and an audit row is the record of a change that happened.
+      await profile
+         .recordEnvWrite(scope.workspaceId, agentId, { id: user.id, name: user.name }, envNames)
+         .catch(() => undefined);
+      return json({ envNames });
+   });
+
+   /**
+    * Opens an agent's environment, and writes down that it was opened.
+    *
+    * The values are sealed, so "edit one variable" would otherwise mean
+    * retyping all of them — which is how a person ends up pasting secrets
+    * around to avoid losing the ones they cannot see. Revealing them is
+    * therefore a named act with a record, rather than something the editor
+    * does quietly on open: a POST, admin-only, and one audit row per call.
+    */
+   route.post('/:agentId/env/reveal', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
+      const user = context.get('user');
+      const scope = await agents
+         .authorizeAgent(user.id, agentId, 'workspace.admin')
+         .catch(rethrowAgent);
+      const env = await requireProfile()
+         .revealEnv(scope.workspaceId, agentId, { id: user.id, name: user.name })
+         .catch(rethrowSealing);
+      return json({ env });
+   });
+
+   /** Every reveal and every write, newest first. Admin-only, like the values. */
+   route.get('/:agentId/env/audit', async (context) => {
+      const agentId = pathId(context.req.param('agentId'));
       const scope = await agents
          .authorizeAgent(context.get('user').id, agentId, 'workspace.admin')
          .catch(rethrowAgent);
-      const { env } = await readJson(context, envSchema);
-      const envNames = await requireProfile()
-         .setEnv(scope.workspaceId, agentId, env)
-         .catch((error: unknown) => {
-            if (error instanceof SealingUnavailable) {
-               throw new ApiError(412, 'INTEGRATIONS_NOT_CONFIGURED', 'This server cannot store credentials.');
-            }
-            return rethrowAgent(error);
-         });
-      return json({ envNames });
+      const raw = new URL(context.req.url).searchParams.get('first');
+      const first = raw === null ? 50 : Number(raw);
+      if (!Number.isInteger(first) || first < 1 || first > 200) {
+         throw ApiError.badRequest('first must be an integer from 1 to 200.');
+      }
+      const nodes = await requireProfile()
+         .envAudit(scope.workspaceId, agentId, first)
+         .catch(rethrowAgent);
+      return json({ nodes });
    });
 
    route.put('/:agentId/avatar', async (context) => {
@@ -511,6 +598,11 @@ function serializeAgent(agent: Agent): Record<string, unknown> {
       modelProvider: agent.modelProvider,
       modelName: agent.modelName,
       systemRole: agent.systemRole,
+      // Who authored the agent. Null for anything a workspace seeded itself,
+      // which is a different answer from "the person reading this page".
+      ownerId: agent.ownerId,
+      conversationStarters: agent.conversationStarters,
+      maxConcurrency: agent.maxConcurrency,
       archivedAt: agent.archivedAt,
       labels: agent.labels,
       envNames: agent.envNames,
@@ -641,6 +733,47 @@ function parseSkills(value: unknown): string[] {
    return [...seen].sort();
 }
 
+/**
+ * The openers a new chat offers, in the order they are shown.
+ *
+ * Blank entries are dropped rather than refused: an editor that keeps three
+ * rows on screen sends three, and an empty one means the person did not write
+ * a third — not that the request is malformed.
+ */
+function parseStarters(value: unknown): string[] {
+   if (!Array.isArray(value)) throw startersInvalid();
+   const starters: string[] = [];
+   for (const entry of value) {
+      if (typeof entry !== 'string') throw startersInvalid();
+      const starter = entry.trim();
+      if (starter === '') continue;
+      if ([...starter].length > MAX_STARTER) throw startersInvalid();
+      starters.push(starter);
+   }
+   if (starters.length > MAX_STARTERS) throw startersInvalid();
+   return starters;
+}
+
+function startersInvalid(): ApiError {
+   return new ApiError(
+      400,
+      'STARTERS_INVALID',
+      `At most ${MAX_STARTERS} starters of up to ${MAX_STARTER} characters.`
+   );
+}
+
+/** A whole number of tasks, or null to leave the ceiling to the dispatcher. */
+function parseConcurrency(value: unknown): number | null {
+   if (value === null) return null;
+   if (typeof value !== 'number' || !Number.isInteger(value)) {
+      throw ApiError.badRequest('maxConcurrency is a whole number of tasks, or null.');
+   }
+   if (value < 1 || value > MAX_AGENT_CONCURRENCY) {
+      throw ApiError.badRequest(`maxConcurrency is from 1 to ${MAX_AGENT_CONCURRENCY}.`);
+   }
+   return value;
+}
+
 function skillsInvalid(): ApiError {
    return new ApiError(
       400,
@@ -659,7 +792,13 @@ async function parseModelPair(
    body: Record<string, unknown>,
    catalog: ModelCatalog | null,
    logger?: Logger
-): Promise<{ provider: string; model: string } | undefined> {
+): Promise<{ provider: string | null; model: string | null } | undefined> {
+   // Both sent as null clears the pairing: an agent that runs on whatever its
+   // runtime defaults to. Distinct from omitting them, which changes nothing —
+   // without this there is no way back from a model once one is chosen.
+   if ('provider' in body && 'model' in body && body.provider === null && body.model === null) {
+      return { provider: null, model: null };
+   }
    const hasProvider = 'provider' in body && body.provider !== null;
    const hasModel = 'model' in body && body.model !== null;
    if (!hasProvider && !hasModel) return undefined;
@@ -714,6 +853,14 @@ function rethrowWorkspace(error: unknown): never {
    if (error instanceof NotFound) throw ApiError.notFound('Workspace');
    if (error instanceof Forbidden) throw ApiError.forbidden();
    throw error;
+}
+
+/** A server with no sealing key cannot hold credentials; that is a 412, not a 500. */
+function rethrowSealing(error: unknown): never {
+   if (error instanceof SealingUnavailable) {
+      throw new ApiError(412, 'INTEGRATIONS_NOT_CONFIGURED', 'This server cannot store credentials.');
+   }
+   return rethrowAgent(error);
 }
 
 function rethrowAgent(error: unknown): never {

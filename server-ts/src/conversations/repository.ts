@@ -28,6 +28,15 @@ export interface ConversationSummary {
    unread: number;
    activeRunId: string | null;
    draft: string;
+   /**
+    * The start of the newest message, for a row preview.
+    *
+    * Truncated on the server: a list of fifty threads has no use for fifty
+    * whole replies, and sending them would make the list heavier than the
+    * conversation it is listing.
+    */
+   lastMessage: string | null;
+   lastMessageAuthor: 'user' | 'agent' | 'system' | null;
 }
 
 export interface ConversationMessage {
@@ -84,7 +93,9 @@ export class ConversationRepository {
                 (SELECT count(*) FROM conversation_messages AS message
                   WHERE message.conversation_id = conversation.id
                     AND message.created_at > COALESCE(me.last_read_at, 'epoch'::timestamptz)
-                    AND message.author_type <> 'user') AS unread
+                    AND message.author_type <> 'user') AS unread,
+                newest.body AS last_message,
+                newest.author_type AS last_message_author
            FROM conversations AS conversation
            JOIN conversation_participants AS me
              ON me.conversation_id = conversation.id
@@ -96,6 +107,14 @@ export class ConversationRepository {
             AND bot.participant_type = 'agent'
             AND bot.left_at IS NULL
            LEFT JOIN agents AS agent ON agent.id = bot.participant_id
+           -- One row per conversation: the newest message, trimmed to a preview.
+           LEFT JOIN LATERAL (
+              SELECT left(message.body, 200) AS body, message.author_type
+                FROM conversation_messages AS message
+               WHERE message.conversation_id = conversation.id
+               ORDER BY message.created_at DESC, message.id DESC
+               LIMIT 1
+           ) AS newest ON true
           WHERE conversation.status = 'open'
             AND (me.archived_at IS NOT NULL) = ${archived}
           ORDER BY me.pinned_at IS NULL, conversation.updated_at DESC, conversation.id DESC
@@ -113,6 +132,9 @@ export class ConversationRepository {
          unread: Number(row.unread),
          activeRunId: (row.active_run_id as string | null) ?? null,
          draft: (row.draft as string | null) ?? '',
+         lastMessage: (row.last_message as string | null) ?? null,
+         lastMessageAuthor:
+            (row.last_message_author as 'user' | 'agent' | 'system' | null) ?? null,
       }));
    }
 
