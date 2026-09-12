@@ -54,6 +54,12 @@ export interface Issue {
    stage?: number | null;
    /** A workspace status refining `status`. */
    statusId?: string | null;
+   /**
+    * Who filed the task. Null for one the server did not attribute — a task
+    * created before authorship was recorded, or by something that is not a
+    * person — and absent on a task this client built locally.
+    */
+   createdById?: string | null;
    childProgress?: { total: number; done: number };
 }
 
@@ -118,14 +124,14 @@ export function sortIssuesByPriority(issues: Issue[]): Issue[] {
 }
 
 /**
- * Deterministic pseudo-creator for an issue (the data model has no author
- * field). Used by the member profile "Created" tab.
+ * The tasks a given person filed.
+ *
+ * This used to be a hash of the identifier modulo the member count, which
+ * attributed every task in the workspace to whoever happened to sit at that
+ * index — a different person as soon as somebody joined or left. The API has
+ * carried `createdBy` all along; this reads it, and a task with no recorded
+ * author belongs to nobody rather than to an arbitrary member.
  */
-export function issueCreatorIndex(issue: Issue, memberCount: number): number {
-   if (memberCount <= 0) return 0;
-   let hash = 0;
-   for (let i = 0; i < issue.identifier.length; i++) {
-      hash = (hash * 31 + issue.identifier.charCodeAt(i)) >>> 0;
-   }
-   return hash % memberCount;
+export function issuesCreatedBy(issues: Issue[], memberId: string): Issue[] {
+   return issues.filter((issue) => issue.createdById === memberId);
 }

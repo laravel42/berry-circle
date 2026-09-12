@@ -227,6 +227,9 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
    issue.stage = apiIssue.stage ?? null;
    issue.statusId = apiIssue.statusId ?? null;
    issue.childProgress = apiIssue.childProgress ?? { total: 0, done: 0 };
+   // Only a person: an agent-authored task is not somebody's "created" tab.
+   issue.createdById =
+      apiIssue.createdBy && apiIssue.createdBy.type === 'user' ? apiIssue.createdBy.id : null;
 
    return issue;
 }
