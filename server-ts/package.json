@@ -10,6 +10,7 @@
       "start": "node --experimental-strip-types src/index.ts",
       "migrate": "node --experimental-strip-types src/migrate/index.ts",
       "seed": "node --experimental-strip-types src/seed/index.ts",
+      "seed:agents": "node --experimental-strip-types src/seed/agents.ts",
       "reset": "node --experimental-strip-types src/reset/index.ts"
    },
    "dependencies": {

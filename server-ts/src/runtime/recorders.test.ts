@@ -47,7 +47,7 @@ describe('the direct recorder', { skip: url ? false : 'BERRY_TEST_DATABASE_URL i
          await recorder.succeeded({
             summary: 'Hello again',
             usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3, costMicros: null, currency: null },
-            result: { text: 'Hello again' },
+            result: { text: 'Hello again', truncated: false, delivery: null },
          });
 
          assert.equal(seen.length, 1);
@@ -68,7 +68,7 @@ describe('the direct recorder', { skip: url ? false : 'BERRY_TEST_DATABASE_URL i
          const ending = {
             summary: 'done',
             usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, costMicros: null, currency: null },
-            result: { text: 'done' },
+            result: { text: 'done', truncated: false, delivery: null },
          };
          await recorder.succeeded(ending);
          await recorder.succeeded(ending);
