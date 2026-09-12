@@ -18,6 +18,12 @@ import {
    type AttributedRepository,
 } from '../integrations/github-repositories.ts';
 import {
+   GitHubUserUnavailable,
+   toGrantedRepository,
+   type GitHubUserAccess,
+   type GrantedRepository,
+} from '../integrations/github-user.ts';
+import {
    MAX_REPOSITORY_DESCRIPTION,
    RepositoryConflict,
    normaliseRepositoryUrl,
@@ -48,6 +54,16 @@ export interface GitHubMountOptions {
    pullRequests: Pick<PullRequestStore, 'listForIssue'>;
    githubApp: GitHubAppRepository | null;
    connections: ConnectionRepository | null;
+   /**
+    * What a signed-in person granted, read with their own token.
+    *
+    * The only listing available on a deployment with no App private key: an
+    * installation token cannot be minted there, so `/installation/repositories`
+    * is closed and the recorded grant is the whole answer. Null on a deployment
+    * that cannot open a stored token at all, which the routes report rather than
+    * answering with an empty list.
+    */
+   userAccess?: GitHubUserAccess | null;
    /** The client the picker lists with; overridden in tests. */
    client?: (token: string) => Pick<GitHubClient, 'listRepositories'>;
 }
@@ -326,6 +342,85 @@ export function githubMounts(options: GitHubMountOptions): Mount[] {
    });
 
    /**
+    * What GitHub granted this workspace, as recorded.
+    *
+    * A read of the table rather than a call to GitHub: on a deployment with no
+    * App private key there is no credential to list with except a person's own
+    * sign-in token, and a page must not depend on that person being here. Any
+    * member may read it — knowing which repositories the workspace works in is
+    * not an admin matter — and `canManage` says who may bring it up to date.
+    *
+    * `installPending` is the fourth state a list cannot express: an organisation
+    * install an owner has still to approve grants nothing yet, and nobody here
+    * need do anything but wait.
+    */
+   route.get('/:workspaceId/granted-repositories', async (context) => {
+      const db = context.get('scoped');
+      const rows = await db.list((q) => q.sql`
+         SELECT repository_id, installation_id, full_name, private, default_branch,
+                account_login, account_type, html_url, refreshed_at
+           FROM github_granted_repositories
+          WHERE ${q.scope}
+          ORDER BY account_login, full_name`);
+      const pending = await db.list((q) => q.sql`
+         SELECT 1 AS waiting FROM github_install_offers
+          WHERE ${q.scope} AND status = 'pending' LIMIT 1`);
+      return json(
+         grantedPayload(rows.map((row) => toGrantedRepository(row as never)), {
+            installPending: pending.length > 0,
+            canManage: allows(db.ctx.role, 'settings.write'),
+         })
+      );
+   });
+
+   /**
+    * Asks GitHub again, for the person asking.
+    *
+    * Needed because what the App may see is changed on GitHub, not here: someone
+    * who adds a repository to the installation has no way to tell Berry but this.
+    * It runs on the caller's own sign-in token — the only credential that can
+    * answer `/user/installations` — so a revoked one is reported as "sign in
+    * again" rather than as a workspace that was granted nothing.
+    */
+   route.post('/:workspaceId/granted-repositories/refresh', async (context) => {
+      const db = context.get('scoped');
+      if (!allows(db.ctx.role, 'settings.write')) {
+         throw new ApiError(403, 'FORBIDDEN', 'Only an admin can refresh repository access.');
+      }
+      if (!options.userAccess) {
+         throw new ApiError(
+            503,
+            'INTEGRATIONS_NOT_CONFIGURED',
+            'This deployment cannot open a stored sign-in token, so it cannot ask GitHub what was granted.'
+         );
+      }
+      let summary: Awaited<ReturnType<GitHubUserAccess['refresh']>>;
+      try {
+         summary = await options.userAccess.refresh({
+            workspaceId: db.ctx.workspaceId,
+            userId: db.ctx.userId,
+         });
+      } catch (error) {
+         throw asGrantFailure(error);
+      }
+      const pending = await db.list((q) => q.sql`
+         SELECT 1 AS waiting FROM github_install_offers
+          WHERE ${q.scope} AND status = 'pending' LIMIT 1`);
+      return json({
+         ...grantedPayload(summary.repositories, {
+            installPending: pending.length > 0,
+            canManage: true,
+         }),
+         // An account whose installation belongs to another workspace: named,
+         // because "your organisation's repositories are missing" is otherwise
+         // indistinguishable from GitHub having granted none.
+         claimedElsewhere: summary.installations
+            .filter((installation) => installation.claimedElsewhere)
+            .map((installation) => installation.accountLogin),
+      });
+   });
+
+   /**
     * The import picker: what the installation can see, filtered and paged.
     *
     * Admin-only, because it names every repository the installation reaches,
@@ -510,7 +605,18 @@ async function listForPicker(
    workspaceId: string,
    options: GitHubMountOptions
 ): Promise<AttributedRepository[]> {
+   // What a member's own sign-in token already told Berry. It is the whole
+   // answer on a deployment that cannot mint an installation token, and the
+   // fallback everywhere else — so the picker and the settings page name the
+   // same repositories rather than disagreeing by credential.
+   const recorded = async (): Promise<AttributedRepository[]> =>
+      options.userAccess
+         ? (await options.userAccess.granted(workspaceId)).map(asPickerChoice)
+         : [];
+
    if (!options.githubApp && !options.connections) {
+      const fallback = await recorded();
+      if (fallback.length > 0) return fallback;
       throw new ApiError(
          503,
          'INTEGRATIONS_NOT_CONFIGURED',
@@ -524,10 +630,107 @@ async function listForPicker(
          ...(options.client ? { client: options.client } : {}),
          maxPages: PICKER_GITHUB_PAGES,
       });
-      return listing.repositories;
+      // A live listing wins when there is one: it is newer than the record. An
+      // empty one falls back rather than being believed, because "no
+      // repositories" from a credential that cannot see any is not an answer.
+      if (listing.repositories.length > 0) return listing.repositories;
+      const fallback = await recorded();
+      return fallback.length > 0 ? fallback : listing.repositories;
    } catch (error) {
+      const fallback = await recorded();
+      if (fallback.length > 0) return fallback;
       throw asPickerFailure(error);
    }
+}
+
+/**
+ * The granted list as every caller reads it: the repositories, and the accounts
+ * they came from with their counts.
+ *
+ * The grouping is computed here rather than in a browser so both the settings
+ * page and the refresh answer say the same thing, and `refreshedAt` is the
+ * oldest row's — the honest age of a cache is the age of its stalest part.
+ */
+function grantedPayload(
+   repositories: GrantedRepository[],
+   state: { installPending: boolean; canManage: boolean }
+) {
+   const accounts = new Map<
+      string,
+      { accountLogin: string | null; accountType: string | null; installationId: number; repositories: number }
+   >();
+   for (const repository of repositories) {
+      const key = (repository.accountLogin ?? '').toLowerCase();
+      const existing = accounts.get(key);
+      if (existing) existing.repositories += 1;
+      else {
+         accounts.set(key, {
+            accountLogin: repository.accountLogin,
+            accountType: repository.accountType,
+            installationId: repository.installationId,
+            repositories: 1,
+         });
+      }
+   }
+   const refreshed = repositories.map((repository) => repository.refreshedAt).sort();
+   return {
+      repositories: repositories.map((repository) => ({
+         id: repository.repositoryId,
+         fullName: repository.fullName,
+         owner: repository.owner,
+         accountLogin: repository.accountLogin,
+         accountType: repository.accountType,
+         installationId: repository.installationId,
+         private: repository.private,
+         defaultBranch: repository.defaultBranch,
+         url: repository.htmlUrl,
+         refreshedAt: repository.refreshedAt,
+      })),
+      accounts: [...accounts.values()],
+      installPending: state.installPending,
+      canManage: state.canManage,
+      refreshedAt: refreshed[0] ?? null,
+   };
+}
+
+/**
+ * The three things that can go wrong reading a person's grants, each said as the
+ * thing to do about it. None of them is an empty list.
+ */
+function asGrantFailure(error: unknown): unknown {
+   if (error instanceof GitHubUserUnavailable) {
+      if (error.reason === 'not_linked') {
+         return new ApiError(
+            409,
+            'GITHUB_NOT_LINKED',
+            'This account has no GitHub sign-in linked, so Berry cannot ask GitHub what it was granted.'
+         );
+      }
+      if (error.reason === 'sign_in_again') {
+         return new ApiError(
+            409,
+            'GITHUB_SIGN_IN_AGAIN',
+            'GitHub no longer accepts your stored sign-in. Sign in again to refresh repository access.'
+         );
+      }
+      return new ApiError(502, 'PROVIDER_ERROR', 'GitHub did not answer. Try again in a moment.');
+   }
+   return error;
+}
+
+/** A recorded grant, as the picker's own shape. */
+function asPickerChoice(repository: GrantedRepository): AttributedRepository {
+   return {
+      id: repository.repositoryId,
+      fullName: repository.fullName,
+      name: repository.fullName.split('/')[1] ?? repository.fullName,
+      private: repository.private,
+      defaultBranch: repository.defaultBranch ?? 'main',
+      owner: repository.owner,
+      htmlUrl: repository.htmlUrl,
+      installationId: repository.installationId,
+      accountLogin: repository.accountLogin ?? repository.owner,
+   };
 }
 
 /** The one wording for every way a listing can fail to happen. */

@@ -144,6 +144,7 @@ import { agentCoreRuntimeDriver } from './execution/agentcore-runtime.ts';
 import { BedrockAgentCoreControlClient } from '@aws-sdk/client-bedrock-agentcore-control';
 import { ConnectionRepository } from './integrations/connections.ts';
 import { GitHubAppRepository } from './integrations/github-app.ts';
+import { GitHubUserAccess } from './integrations/github-user.ts';
 import { sealerFromKey, unavailableSealer } from './integrations/sealing.ts';
 import { agentAccessGuard } from './agents/access.ts';
 import { AgentBuilder } from './agents/builder.ts';
@@ -189,6 +190,19 @@ const authPool =
  */
 const githubApp = config.integrationKey
    ? new GitHubAppRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
+   : null;
+
+/**
+ * What a signed-in person granted Berry on GitHub, read with their own token.
+ *
+ * Independent of the App's own credentials on purpose: this deployment has no
+ * App private key, so it cannot mint an installation token, and a user-to-server
+ * token is the only credential that can say which repositories were granted. It
+ * needs nothing but the auth secret the token was sealed with — so a deployment
+ * that signs people in can list repositories even when it can hold no App.
+ */
+const githubUserAccess = config.auth.secret
+   ? new GitHubUserAccess({ sql, authSecret: config.auth.secret })
    : null;
 
 /**
@@ -878,6 +892,7 @@ registry.registerAll(
       // be offered on a deployment that signs people in with an App it did not
       // create. A stored App's slug wins.
       appSlug: config.auth.githubAppSlug,
+      userAccess: githubUserAccess,
       publicUrl: config.integrations.publicUrl,
       appUrl: config.integrations.appUrl,
       // Settings pages live under the workspace, so a callback needs its slug
@@ -929,7 +944,15 @@ registry.registerAll(
    })
 );
 registry.registerAll(
-   githubMounts({ sessions, sql, settings: githubSettings, pullRequests, githubApp, connections })
+   githubMounts({
+      sessions,
+      sql,
+      settings: githubSettings,
+      pullRequests,
+      githubApp,
+      connections,
+      userAccess: githubUserAccess,
+   })
 );
 registry.registerAll(usageMounts({ sessions, sql }));
 registry.registerAll(

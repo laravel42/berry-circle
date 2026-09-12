@@ -19,6 +19,7 @@ import {
    type OAuthStateStore,
 } from '../integrations/oauth.ts';
 import { BUILT_IN_PROVIDER, PROVIDERS, findProvider, needsConnection } from '../integrations/providers.ts';
+import type { GitHubUserAccess } from '../integrations/github-user.ts';
 import {
    GitHubAppUnavailable,
    buildManifest,
@@ -148,6 +149,14 @@ export interface IntegrationsOptions {
     * send anyone, and the routes below say so rather than going quiet.
     */
    appSlug?: string | null;
+   /**
+    * What a person granted, read with their own sign-in token.
+    *
+    * Used the moment an install comes back, so somebody who has just chosen
+    * repositories on GitHub finds them listed rather than an empty page and a
+    * Refresh button. Null on a deployment that cannot open a stored token.
+    */
+   userAccess?: GitHubUserAccess | null;
    /** This deployment's own origin, which the provider redirects back to. */
    publicUrl: string | null;
    /** Where to send the browser after the callback. Defaults to the API's own origin. */
@@ -964,6 +973,15 @@ async function handleInstallationCallback(
       },
       pending.userId
    );
+   // The repositories they just chose, read with their own token and recorded
+   // against this workspace — so the page they land on lists them instead of
+   // asking them to press Refresh for something they have already done. Best
+   // effort: the install happened either way, and Refresh is still there.
+   if (options.userAccess) {
+      await options.userAccess
+         .refresh({ workspaceId: pending.workspaceId, userId: pending.userId })
+         .catch(() => undefined);
+   }
    return back('installed');
 }
 

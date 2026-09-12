@@ -25,6 +25,18 @@ const url = process.env.BERRY_TEST_DATABASE_URL;
 
 const AUTH_SECRET = 'github-user-test-secret-at-least-32-chars';
 
+/**
+ * Installation ids from a fresh range each run.
+ *
+ * `github_installations` is unique on installation_id across the whole table —
+ * an installation belongs to exactly one workspace — so a fixed id would have
+ * this file and any other running beside it claiming the same installation, and
+ * the loser would read as "another workspace holds it".
+ */
+const BASE = 1_000_000 + Math.floor(Math.random() * 8_000_000);
+/** Alice's personal account, the organisation, and a second account entirely. */
+const [ANN, ACME, OTHER] = [BASE + 1, BASE + 2, BASE + 3];
+
 interface Installed {
    id: number;
    login: string;
@@ -181,7 +193,7 @@ describe(
             githubStub(
                [
                   {
-                     id: 11,
+                     id: ANN,
                      login: 'alice',
                      type: 'User',
                      repositories: [
@@ -195,7 +207,7 @@ describe(
                      ],
                   },
                   {
-                     id: 12,
+                     id: ACME,
                      login: 'acme',
                      type: 'Organization',
                      repositories: [
@@ -211,14 +223,14 @@ describe(
          assert.deepEqual(
             result.installations.map((one) => [one.installationId, one.accountLogin, one.accountType]),
             [
-               [11, 'alice', 'User'],
-               [12, 'acme', 'Organization'],
+               [ANN, 'alice', 'User'],
+               [ACME, 'acme', 'Organization'],
             ]
          );
          // Both accounts were asked: an organisation's repositories missing is
          // what a single-installation read looks like from the outside.
-         assert.ok(calls.includes('/user/installations/11/repositories'));
-         assert.ok(calls.includes('/user/installations/12/repositories'));
+         assert.ok(calls.includes(`/user/installations/${ANN}/repositories`));
+         assert.ok(calls.includes(`/user/installations/${ACME}/repositories`));
          assert.deepEqual(await grantedNames(w1Id), ['acme/api', 'acme/web', 'alice/notes']);
 
          const rows = await sql<
@@ -234,7 +246,7 @@ describe(
              FROM github_granted_repositories
             WHERE workspace_id = ${w1Id} AND full_name = 'alice/notes'`;
          assert.equal(Number(rows[0]!.repository_id), 101);
-         assert.equal(Number(rows[0]!.installation_id), 11);
+         assert.equal(Number(rows[0]!.installation_id), ANN);
          assert.equal(rows[0]!.private, true);
          assert.equal(rows[0]!.default_branch, 'main');
          assert.equal(rows[0]!.account_type, 'User');
@@ -253,12 +265,12 @@ describe(
       test('a repository belongs to one workspace, and the other cannot see it', async () => {
          const repositories = [{ id: 101, full_name: 'alice/notes' }];
          await access(
-            githubStub([{ id: 11, login: 'alice', type: 'User', repositories }])
+            githubStub([{ id: ANN, login: 'alice', type: 'User', repositories }])
          ).refresh({ workspaceId: w1Id, userId: u1Id });
          // The same repository granted to another workspace through another
          // account: two rows, and neither workspace reads the other's.
          await access(
-            githubStub([{ id: 22, login: 'alice', type: 'User', repositories }])
+            githubStub([{ id: OTHER, login: 'alice', type: 'User', repositories }])
          ).refresh({ workspaceId: w2Id, userId: u2Id });
 
          assert.deepEqual(await grantedNames(w1Id), ['alice/notes']);
@@ -266,17 +278,17 @@ describe(
          const [w1Row] = await sql<Array<{ installation_id: string }>>`
             SELECT installation_id FROM github_granted_repositories
              WHERE workspace_id = ${w1Id}`;
-         assert.equal(Number(w1Row!.installation_id), 11);
+         assert.equal(Number(w1Row!.installation_id), ANN);
          assert.deepEqual(await access(githubStub([])).granted(w2Id).then((rows) =>
             rows.map((row) => row.installationId)
-         ), [22]);
+         ), [OTHER]);
       });
 
       test('a refresh replaces the list rather than adding to it', async () => {
          const first = access(
             githubStub([
                {
-                  id: 11,
+                  id: ANN,
                   login: 'alice',
                   type: 'User',
                   repositories: [
@@ -292,7 +304,7 @@ describe(
          const second = access(
             githubStub([
                {
-                  id: 11,
+                  id: ANN,
                   login: 'alice',
                   type: 'User',
                   repositories: [{ id: 101, full_name: 'alice/notes', default_branch: 'main' }],
@@ -309,7 +321,7 @@ describe(
       test('a revoked token reads as sign in again, not as no repositories', async () => {
          await access(
             githubStub([
-               { id: 11, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
+               { id: ANN, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
             ])
          ).refresh({ workspaceId: w1Id, userId: u1Id });
 
@@ -341,25 +353,25 @@ describe(
       test('an installation another workspace already holds is never taken from it', async () => {
          await access(
             githubStub([
-               { id: 11, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
+               { id: ANN, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
             ])
          ).refresh({ workspaceId: w1Id, userId: u1Id });
 
          // U2's GitHub account can see the same installation. It belongs to W1.
          const result = await access(
             githubStub([
-               { id: 11, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
+               { id: ANN, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
             ])
          ).refresh({ workspaceId: w2Id, userId: u2Id });
 
          assert.deepEqual(
             result.installations.map((one) => [one.installationId, one.claimedElsewhere]),
-            [[11, true]]
+            [[ANN, true]]
          );
          assert.deepEqual(await grantedNames(w2Id), []);
          assert.deepEqual(await grantedNames(w1Id), ['alice/notes']);
          const rows = await sql`
-            SELECT workspace_id FROM github_installations WHERE installation_id = 11`;
+            SELECT workspace_id FROM github_installations WHERE installation_id = ${ANN}`;
          assert.equal(rows.length, 1);
          assert.equal(rows[0]!.workspace_id, w1Id);
       });
@@ -371,7 +383,7 @@ describe(
 
          await access(
             githubStub([
-               { id: 11, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
+               { id: ANN, login: 'alice', type: 'User', repositories: [{ id: 101, full_name: 'alice/notes' }] },
             ])
          ).refresh({ workspaceId: w1Id, userId: u1Id });
 

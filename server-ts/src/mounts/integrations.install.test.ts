@@ -407,9 +407,14 @@ describe(
       test("the stored App's slug is preferred over the configured one", async () => {
          const step = await accessStep();
 
-         // Both are available here; the row's slug came from GitHub itself.
+         // Both are available here; the row's slug came from GitHub itself. Read
+         // from the row rather than named, because `github_apps` is a deployment
+         // singleton and another test file's App is as valid a row as this one's.
+         const stored = await githubApp.app();
          assert.ok(
-            step.installUrl!.startsWith(`https://github.com/apps/berry-${suffix}/installations/new`),
+            step.installUrl!.startsWith(
+               `https://github.com/apps/${stored!.slug}/installations/new`
+            ),
             step.installUrl!
          );
          assert.ok(!step.installUrl!.includes(CONFIGURED_SLUG));
