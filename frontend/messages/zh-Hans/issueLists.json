@@ -158,7 +158,8 @@
       "noMatches": "没有任务符合这些筛选条件。",
       "clearFilters": "清除筛选",
       "empty": "这里还没有内容。",
-      "groupRemoved": "分组所用的字段（{name}）已被删除，已恢复按状态分组。"
+      "groupRemoved": "分组所用的字段（{name}）已被删除，已恢复按状态分组。",
+      "hiddenByFilters": "筛选条件隐藏了 {count} 个任务"
    },
    "projects": {
       "search": "搜索项目",

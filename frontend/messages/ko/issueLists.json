@@ -158,7 +158,8 @@
       "noMatches": "조건에 맞는 작업이 없습니다.",
       "clearFilters": "필터 해제",
       "empty": "아직 아무것도 없습니다.",
-      "groupRemoved": "그룹 기준 필드({name})가 삭제되어 상태 기준으로 돌아갔습니다."
+      "groupRemoved": "그룹 기준 필드({name})가 삭제되어 상태 기준으로 돌아갔습니다.",
+      "hiddenByFilters": "필터로 {count}개의 작업이 숨겨졌습니다"
    },
    "projects": {
       "search": "프로젝트 검색",

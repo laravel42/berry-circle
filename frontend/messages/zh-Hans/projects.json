@@ -3,5 +3,9 @@
       "title": "项目",
       "description": "把相关任务归入同一计划，并跟踪状态、健康度和目标日期。"
    },
-   "toggleInsights": "切换项目洞察面板"
+   "toggleInsights": "切换项目洞察面板",
+   "states": {
+      "hiddenByFilters": "筛选条件隐藏了 {count} 个项目",
+      "clearFilters": "清除筛选"
+   }
 }

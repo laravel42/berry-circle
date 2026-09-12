@@ -158,7 +158,8 @@
       "noMatches": "条件に合うタスクはありません。",
       "clearFilters": "絞り込みを解除",
       "empty": "まだ何もありません。",
-      "groupRemoved": "グループ化に使っていたフィールド（{name}）が削除されたため、ステータスに戻しました。"
+      "groupRemoved": "グループ化に使っていたフィールド（{name}）が削除されたため、ステータスに戻しました。",
+      "hiddenByFilters": "絞り込みで {count} 件のタスクが非表示です"
    },
    "projects": {
       "search": "プロジェクトを検索",

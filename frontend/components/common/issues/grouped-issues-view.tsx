@@ -73,19 +73,14 @@ function NoMatches() {
    );
 }
 
-/** Footer shown when active filters hide issues — "n issues hidden by filters". */
+/** Footer shown when active filters hide tasks — "n tasks hidden by filters". */
 function HiddenByFiltersFooter({ hiddenCount }: { hiddenCount: number }) {
    const t = useTranslations('issueLists');
    const { clearFilters } = useFilterStore();
 
    return (
       <div className="flex items-center justify-center gap-3 py-4 text-muted-foreground">
-         <span>
-            <span className="font-medium text-foreground">
-               {hiddenCount} {hiddenCount === 1 ? 'issue' : 'issues'}
-            </span>{' '}
-            hidden by filters
-         </span>
+         <span>{t('states.hiddenByFilters', { count: hiddenCount })}</span>
          <button
             type="button"
             onClick={clearFilters}

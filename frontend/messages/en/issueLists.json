@@ -158,7 +158,8 @@
       "noMatches": "No task matches these filters.",
       "clearFilters": "Clear filters",
       "empty": "Nothing here yet.",
-      "groupRemoved": "The field this list was grouped by ({name}) is gone. Grouping went back to status."
+      "groupRemoved": "The field this list was grouped by ({name}) is gone. Grouping went back to status.",
+      "hiddenByFilters": "{count, plural, =1 {1 task} other {# tasks}} hidden by filters"
    },
    "projects": {
       "search": "Search projects",
