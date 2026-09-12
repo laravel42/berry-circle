@@ -7,166 +7,169 @@ Scope: `frontend/app/[orgId]/settings/**` (minus keyboard shortcuts, which is F6
 `/join`, `/workspaces/new`, and the no-access states.
 
 Each row records what the code on this branch actually does — the component, the store, the
-`lib/*` client, and the server route behind it — not what a screen appears to offer.
+`lib/*` client, and the server route behind it — not what a screen appears to offer. The
+**Was** column is the state at `a73d2fa`; **Now** is the state after this workstream.
 
 ---
 
 ## Settings shell
 
-| Item | State | What is there, and what is missing |
+| Item | Was | Now |
 | --- | --- | --- |
-| Tab groups (personal / workspace / issue config / connections) | **partial** | `components/layout/sidebar/nav-settings.tsx` holds the one list of settings destinations, and `shell-rail-settings.tsx` renders it into the rail. It has **two** groups, `personal` and `workspace`, not four. Issue config and connections are mixed into `workspace`. Missing destinations entirely: workspace general, members, tokens as its own tab, and the link out to F6's shortcuts page. Security and tokens are fused into one `/settings/security` page. |
-| Dropdown instead of tabs on narrow screens | **missing** | The rail is the only settings navigation. There is no responsive fallback: below the rail breakpoint a reader has no way to move between settings pages. |
-| Shared autosave (debounce, save on blur, saving / saved / failed indicator) | **partial** | `use-settings-resource.ts` gives an optimistic `mutate` that rolls back and toasts on failure, and `profile.tsx` commits on blur. There is no debounce anywhere, and no saving / saved / failed indicator — a successful write is silent, so nothing tells a reader their edit landed. |
+| Tab groups (personal / workspace / issue config / connections) | partial — two groups, with issue config and connections folded into "workspace"; no general, members or tokens entries | **present** — `nav-settings.tsx` holds four groups. Members links to `/members` rather than a settings clone, because that is the page people bookmark. |
+| Shortcuts, a link to F6's page | missing | **present** — listed under Personal at `/settings/keyboard-shortcuts`. The page itself is F6's; see the wiring note below. |
+| Dropdown instead of tabs on narrow screens | missing | **present** — `headers/settings/header-nav.tsx` renders the same `settingsNav` as a dropdown, `lg:hidden`, so it and the rail are never both the navigation. |
+| Shared autosave (debounce, save on blur, saving / saved / failed) | partial — an optimistic `mutate` with rollback, no debounce and no indicator | **present** — `use-autosave.ts` debounces, commits on blur, and reports state; `save-indicator.tsx` shows saving / saved / failed with a retry. Used throughout the General page and the profile. |
 
 ## Profile
 
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Avatar | **partial** | `profile.tsx` renders the avatar read-only. `PATCH /api/v1/me` accepts `avatarUrl` (absolute HTTP(S), no credentials) but nothing in the UI sets or clears it. |
-| Name, autosaving, blocked while blank | **present** | Commits on blur and on Enter; an empty or unchanged value reverts instead of saving. |
-| "About you", up to 2000 characters, with a counter, shared with agents | **missing** | No field, no counter, and no column — `users` has no description, `Profile` has no such member, and `PATCH /api/v1/me` accepts only `name` and `avatarUrl`. Needs a backend addition. |
+| Avatar | partial — read-only | **present** — the address is editable and autosaves; `PATCH /me` already validated it. |
+| Name, autosaving, blocked while blank | present | **present** |
+| "About you", ≤2000 characters, counter, shared with agents | missing, and no column | **present** — `users.description` (migration 173), on `GET`/`PATCH /me`, with a counter, and carried into agent context. |
 
 ## Preferences
 
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Theme | **present** | `theme-preferences.tsx`, written through to the account as well as `next-themes`. |
-| Language — saved locally, synced to the account, then reload | **present** | `preferences.tsx` writes the cookie, sets the session store, PATCHes `/me/settings`, and calls `router.refresh()`. |
-| Timezone — browser default or an IANA zone, stored on the account | **partial** | The picker is seeded from `Intl.supportedValuesOf('timeZone')` with the browser's own zone hoisted to the front, and the value is stored on the account. There is no explicit "use my browser's zone" choice — the browser zone is just another row in a list of several hundred, indistinguishable from the rest. |
-| Sticky comment bar | **missing** | No such preference anywhere. |
-| Issue — which fields show in the create toolbars | **missing** | Not offered; the create toolbars are fixed. |
-| Chat — floating chat on or off | **missing** | Not offered. |
+| Theme | present | **present** |
+| Language — local, synced to the account, then reload | present | **present** |
+| Timezone — browser default or an IANA zone, on the account | partial — the browser's zone was hoisted but unlabelled among several hundred | **present** — it leads the list and names itself as this browser's. |
+| Sticky comment bar | missing | **present** — a preference in `ui-prefs-store`, wired into the task detail: pinned, or at the end of the activity. |
+| Issue — which fields show in the create toolbars | missing | **present** — four toggles, wired into the task composer. A hidden selector still sends its default, so nothing is created differently. |
+| Chat — floating chat on or off | missing | **partial** — the preference exists and is offered; there is no floating chat surface on this branch to read it. See the wiring note. |
+
+These three are kept in the browser rather than on the account, beside the sidebar
+preferences that already live there, and each row says so. They answer questions about the
+screen in front of you; syncing them would mean one device overruling another.
 
 ## Tokens
 
-The checklist asks for a Tokens tab. Today tokens share `/settings/security` with the session
-list, under `account-security.tsx`.
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Create with a name and an expiry (30 / 90 default / 1 year / never) | **partial** | Name and API scopes only. `POST /api/v1/tokens` already accepts `expiresAt` and bounds it to 365 days, so the expiry choice is a UI gap, not a server one. |
-| Shown once, copy, "Done" enabled only after ticking "I stored it" | **partial** | The secret is shown once with a "Copy and dismiss" button. There is no acknowledgement checkbox gating dismissal, so the secret can be clicked away unread. |
-| List shows prefix, created, last used, expiry | **partial** | Prefix, scopes and last-used are shown. Created and expiry are fetched (`tokenSchema` carries both) but never rendered. |
-| Revoke, with a confirm | **partial** | Revoke works and rolls back on failure. There is no confirm — one click on an irreversible action. |
+| Its own tab | no — fused into `/settings/security` | **present** — `/settings/tokens`, `api-tokens.tsx`. |
+| Create with a name and an expiry (30 / 90 default / 1 year / never) | partial — name only | **present** — the server already bounded `expiresAt` to 365 days. |
+| Shown once, copy, "Done" gated on "I stored it" | partial — dismissable unread | **present** |
+| List shows prefix, created, last used, expiry | partial — created and expiry fetched, never rendered | **present** |
+| Revoke, with a confirm | partial — no confirm | **present** |
 
 ## Workspace general
 
-The whole page is **missing**. There is no `/settings/general` route and no component. What
-exists is only server-side:
+The page did not exist; only the endpoints did.
 
-- `PATCH /api/v1/workspaces/:id` — name, slug, description, gated on `workspace.update`.
-- `PATCH /api/v1/workspaces/:id/settings` — `issuePrefix`, `defaultRole`, `allowMemberInvites`,
-  gated on `settings.write`.
-- `DELETE /api/v1/workspaces/:id` — soft delete, gated on `workspace.delete` (owner only), and
-  it clears `last_workspace_id` for everyone pointing at it.
-
-Per checklist item:
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Logo | **missing** | No column, no endpoint, no UI. Needs a backend addition. |
-| Name, description, autosaving | **missing** (UI) | The endpoint exists; nothing calls it. |
-| Context field for agents | **missing** | No column, no endpoint, no UI. Needs a backend addition. |
-| Slug read-only | **missing** | Never surfaced. The endpoint does accept a slug patch, so "read-only" is a UI decision to make. |
-| Issue prefix: A–Z 0–9, ≤10, live example, confirm that it renumbers every issue | **missing** (UI); **server differs** | `validIssuePrefix` is `/^[A-Z][A-Z0-9]{1,11}$/` — 2 to 12 characters, first must be a letter. That is wider than the checklist's ≤10. Tightening the server would refuse prefixes already stored, so the ≤10 bound belongs in the UI. Renumbering needs no data migration: identifiers are derived at query time from `w.settings->>'issuePrefix'` (`core/issues.ts`, `berry_issue_identifier`), so changing the prefix renames every issue reference the moment it is saved — which is exactly why the confirm is load-bearing. |
-| Only owners and admins can edit | **partial** | Enforced server-side by `workspace.update` / `settings.write`. No UI exists to reflect it. |
-| Danger zone — leave workspace, disabled for the sole owner | **missing**, and **no backend** | `DELETE /workspaces/:id/members/:userId` requires `members.manage`, which a plain member does not have, so a member cannot remove themselves. There is no leave endpoint. Needs a backend addition. |
-| Danger zone — delete workspace, owner only, type the name, dialog locked while deleting, then land on the next workspace or onboarding | **missing** (UI) | `DELETE /api/v1/workspaces/:id` exists and is owner-gated. Nothing calls it. |
+| Logo | missing, no column | **present** — `workspaces.logo_url` (migration 174), an address rather than an upload, bounded as `validAvatar` already bounds a user's. |
+| Name, description, autosaving | missing (UI) | **present** |
+| Context field for agents | missing, no column | **present** — `workspaces.agent_context` (migration 174), the workspace-wide half of what an agent is told. |
+| Slug read-only | missing | **present** — shown, not editable. |
+| Issue prefix: A–Z 0–9, ≤10, live example, confirm that it renumbers | missing (UI) | **present** — the ≤10 bound is the UI's, since the server's `validIssuePrefix` allows up to 12 and tightening it would refuse prefixes already stored. The confirm is load-bearing: identifiers are derived at query time, so every task reference changes the moment it saves. |
+| Only owners and admins can edit | partial — server-side only | **present** — the page reflects it rather than offering fields whose save will 403. |
+| Danger zone — leave, disabled for the sole owner | missing, no endpoint | **present** — `POST /workspaces/:id/leave`, because `DELETE …/members/:userId` needs `members.manage` and a member does not have it. The last-owner rule still holds (409). |
+| Danger zone — delete, owner only, type the name, locked while deleting, then next workspace or onboarding | missing (UI) | **present** |
 
 ## Members
 
-`/[orgId]/members` renders `components/common/members/members.tsx`, fed by `members-store`.
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Role badges | **partial** | `member-line.tsx` shows a role, but through `lib/members.ts`'s `roleToUi`, which collapses the four real roles into the template's `Member / Admin / Guest / Application`. **Owner and viewer have no representation at all** — an owner renders as "Member". The row also carries inherited template behaviour that is wrong here: `hashString(user.id) % 4 === 0` shows a quarter of members by email for no reason, `joinedLabel` hard-codes the year 2026, and an "Application" role is rendered that the server never returns. |
-| Change role; only an owner may grant owner; the last owner cannot be demoted | **missing** (UI) | Fully implemented server-side in `identity/workspaces.ts#updateMemberRole`, under row locks, with `LastOwner` → 409. No UI. |
-| Remove, with a confirm | **missing** (UI) | `removeMember` exists with the same owner protections. No UI. |
-| Invite by email with a role (member or admin) | **missing** (UI) | `POST /api/v1/workspaces/:id/invitations` exists — validates the address, refuses `owner`, defaults to a 7-day expiry, bounded to 30 days. No UI. |
-| Pending invitations, with revoke | **missing** (UI) | `GET` and `DELETE .../invitations[/:id]` exist. No UI. |
-| Join links, kept and linked from here | **partial** | `/settings/join-links` exists and works. Members does not link to it. |
-| Updates live | **missing** | The list is hydrated once; nothing re-reads it. |
+| Role badges | partial — four real roles collapsed into a template's four, so an owner rendered as "Member"; a quarter of rows shown by email at random; the year hard-coded to 2026; an "Application" role the server never returns | **present** — the four real roles, the real joined date, no invented rows. |
+| Change role; only an owner grants owner; the last owner cannot be demoted | missing (UI) | **present** — the server enforced it under row locks all along. |
+| Remove, with a confirm | missing (UI) | **present** |
+| Invite by email with a role | missing (UI) | **present** |
+| Pending invitations, with revoke | missing (UI) | **present** |
+| Join links, kept and linked from here | partial — the page existed, unlinked | **present** |
+| Updates live | missing | **present**, as honestly as a page without a subscription can be: both lists are re-read whenever the tab is looked at again. A change made elsewhere is correct here on return, not while the tab sits in the background. |
 
 ## Statuses
 
-`/settings/project-statuses` → `project-statuses-settings.tsx`.
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Grouped by category, with a note on each category's agent behaviour | **partial** | All seven categories exist server-side and each status prints `Board column: <category>` as a caption, but the list is flat — statuses are not grouped, and there is no note about what a category means to an agent. |
-| Add a custom status: name, category (fixed after creation), description, colour | **partial** | Name and category only. Colour is hard-coded `#8b5cf6`; description is never sent. `statusCreateSchema` accepts both. Category is correctly unpatchable server-side. |
-| Edit | **partial** | Rename only. `PATCH` accepts name, description, color and sortOrder. |
-| Archive, with a confirm, plus an archived toggle | **partial** | Archive works and system statuses are protected. No confirm. No archived toggle — `GET .../issue-statuses` filters `archived_at IS NULL` unconditionally and takes no `includeArchived`, so archived statuses cannot be listed at all. |
-| Drag to reorder within a category | **partial** | Up/down arrow buttons over the flat list, so a move can cross a category boundary. `PUT .../issue-statuses/order` requires the ids to name every active status exactly once. |
-| Admins only; everyone else read-only | **missing** | Every control renders for every role. A member's write simply 403s and rolls back. |
+| Grouped by category, with a note on each category's agent behaviour | partial — flat, with `Board column: …` as a caption | **present** — grouped, each group saying what its category makes an agent do. |
+| Add: name, category (fixed), description, colour | partial — name and category; colour hard-coded, description never sent | **present** |
+| Edit | partial — rename only | **present** — name, description and colour. |
+| Archive, with a confirm, plus an archived toggle | partial — no confirm, and archived rows could not be listed at all | **present** — `?includeArchived=true` on the read, a confirm that says the tasks are moved out, and restore through `PATCH { archived: false }`. Only `false`: archiving also detaches the tasks, which the DELETE route does. |
+| Drag to reorder within a category | partial — arrows over a flat list, so a move could cross a category | **present** |
+| Admins only; everyone else read-only | missing — every control rendered for every role | **present** |
 
 ## Labels
 
-`/settings/issue-labels` → `issue-labels-settings.tsx`.
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Issue labels | **present** | Create, rename, recolour, archive, all against `/catalogs/:id/issue-labels`. |
-| Skill labels | **missing** | Skills carry a `labels: string[]` (`lib/skills.ts`) but they are free strings with no catalogue, and this page does not mention them. |
-| Filter by name | **present** | |
-| Usage counts | **missing** | No endpoint returns one. `issue_label_memberships` exists and would answer it with a join. Needs a backend addition. |
-| Create or edit with a colour picker | **partial** | Clicking the swatch cycles a fixed eight-colour palette. There is no picker, and no way to reach a colour outside the palette. |
-| Deleting confirms with the usage count | **missing** | "Remove" archives immediately, with no confirm and no count. |
+| Issue labels | present | **present** |
+| Skill labels | missing | **present** — as what they are: free text on each skill, not a catalogue. The tab lists which are in use and how often and says where they come from; a "create" button would create nothing. |
+| Filter by name | present | **present** |
+| Usage counts | missing, no endpoint | **present** — counted on the catalogue read from `issue_label_memberships`, not stored: a label moves often enough that a cached number would be wrong more than right. |
+| Create or edit with a colour picker | partial — the swatch cycled eight fixed colours | **present** — the palette plus any colour. |
+| Deleting confirms with the usage count | missing | **present** |
 
 ## Properties
 
-`/settings/issue-properties` → `issue-properties-settings.tsx`.
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| At most 20 active, with a counter | **missing** | Neither bound nor counter, client or server. |
-| Types fixed after creation | **present** | `propertyPatchSchema` has no `kind`, deliberately. |
-| At least one option for select types | **present** | `propertyCreateSchema.superRefine` requires it, and the Add button disables without it. |
-| Archive | **present** | |
-| Restore | **missing** | `DELETE` archives; nothing un-archives. `propertyPatchSchema` carries no `archived`. Needs a backend addition. |
-| Archived hidden from pickers, values kept | **partial** | The list hides archived rows by default and `GET` takes `includeArchived`, and values are kept because archiving is a soft delete. Untestable from the UI while restore does not exist. |
+| At most 20 active, with a counter | missing, client and server | **present** — `MAX_ACTIVE_PROPERTIES`, enforced on create and on restore, with the count beside the heading and the Add button disabled at the bound. |
+| Types fixed after creation | present | **present**, and now said on the form rather than discovered. |
+| At least one option for select types | present | **present** |
+| Archive | present | **present** |
+| Restore | missing | **present** — `PATCH { archived: false }`, bounded exactly as creating is. |
+| Archived hidden from pickers, values kept | partial — true, but untestable while restore did not exist | **present** |
 
 ## Quick actions
 
-`/settings/quick-actions` → `quick-actions-settings.tsx`.
-
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| Sorted by usage, with a "stale" flag after 90 days | **missing** | Sorted by name (`ORDER BY lower(name), id`). Nothing records a use: `quick_action_definitions` has no usage count and no last-used timestamp. Needs a backend addition. |
-| Visibility: team or just me | **present** | `workspace` / `private`, and `listQuickActions` only returns another person's row when it is shared. |
-| Warn when the target agent can't be triggered by everyone | **missing** | Agent access scopes exist in the agent layer; this page never consults them. |
-| Template variables are rejected | **missing** | The opposite is true today: `renderPrompt` fills `{{issue.identifier}}`, `{{issue.title}}` and `{{issue.description}}`, and the page advertises them. Read as "a variable Berry cannot fill must be refused rather than shipped to an agent literally", nothing validates the prompt at all. |
-| Archive | **present** | Author or a moderator (owner/admin). |
-| Restore, delete | **missing** | Archive is one-way; there is no hard delete. Needs a backend addition. |
+| Sorted by usage, stale after 90 days | missing — sorted by name; nothing recorded a use | **present** — `use_count` and `last_used_at` (migration 175), incremented when the action is reached for, before the run is enqueued: a run the queue later refuses was still a use. |
+| Visibility: team or just me | present | **present** |
+| Warn when the target agent can't be triggered by everyone | missing | **present** — a shared action pointing at an agent whose `access.assign` is not `everyone` says so before it is saved. |
+| Template variables are rejected | missing | **present** — anything but `issue.identifier`, `issue.title` and `issue.description` is refused, in the form and on the server. Unfilled, it would not fail at run time; it would reach the agent as two braces and a word, read as instructions. |
+| Archive | present | **present** |
+| Restore, delete | missing | **present** — restore through the patch; delete is `POST …/delete` and only accepts an already-archived action, so the irreversible click is never the first. |
 
 ## Pages
 
-| Item | State | Detail |
+| Item | Was | Now |
 | --- | --- | --- |
-| `/[orgId]/members/[id]` — avatar, role, email, the member's issues (assigned or created, search, the same views) | **partial**, and at the wrong path | The page is `/[orgId]/profiles/[memberId]`. It shows avatar, email, role, local time and joined, and offers assigned/created tabs, search, filters and the shared grouped views. But the "created" scope is `issueCreatorIndex(issue, members.length)` — an index derived from the position of the member in the list, i.e. a template artefact that attributes issues to whoever happens to sit at that index, not to their author. The presence dot and "Away as of 11 minutes ago" are likewise invented; nothing tracks presence. |
-| Member hover card — role, email, top 2 agents by runs | **missing** | No hover card. `runs.agent_id` exists, so "top agents by runs" is answerable, but no endpoint answers it. |
-| `/invitations` — batch accept with multi-select, then enter the first accepted workspace | **missing** | `GET /api/v1/invitations` (the caller's own pending invitations) and `POST /api/v1/invitations/:id/accept` both exist. No page. |
-| `/invite/[id]` — loading, not found, expired, revoked, other account, already accepted, declined, accept, decline | **missing** | The only path in is the onboarding "Join" tab, which asks a person to paste an invitation id and a 53-character token by hand. Note a deliberate server constraint: `acceptInvitation` answers **every** invalid state with the same `InvitationInvalid` so a token cannot be used to enumerate invitations — so "expired" and "revoked" cannot be distinguished from a token alone, and there is no decline endpoint. |
-| `/join` — preview signed out, join, already a member goes straight in, seat errors excluded | **partial** | `/join/[token]` previews signed out (the lookup is the one unauthenticated read), joins, and sends a 401 to sign-in. "Already a member" is not handled explicitly — the accept returns `joined: false` and the page pushes `/` either way, which lands correctly but says nothing. Seat errors are out of scope (billing). |
-| `/workspaces/new` | **missing** | No route. Creation exists only inside the onboarding create-or-join card. |
-| Onboarding — welcome; about you (role, use cases, skippable); workspace (name, slug validation, reserved names, derived and editable issue prefix); runtime (AgentCore or workspace default); skip | **partial** | `onboarding/page.tsx` resolves an existing membership or shows create-or-join. There are **no steps**: no welcome, no about-you, no runtime step, no skip. The server already models all of it and it is entirely unused — `GET`/`PATCH /api/v1/me/onboarding` with steps `welcome / aboutYou / workspace / complete`, answers `role / teamSize / goal / source`, and `skipped`. Slug is derived by `slugFromWorkspaceName` but never validated against the server's rule before submit, there is no reserved-name list, and the issue prefix is never shown — it is silently derived server-side by `prefixFromName`. |
-| No-access page that does not reveal whether the workspace exists, with "my workspaces" and "sign in as someone else"; deleted or left workspaces navigate away without flashing it | **missing** | Nothing renders this state. `app/not-found.tsx` redirects to `/`, and the workspace guard already answers 404 for a non-member and an absent workspace indistinguishably, which is the property the page has to preserve. |
+| `/[orgId]/members/[id]` — avatar, role, email, the member's tasks (assigned or created, search, the same views) | partial, and at `/profiles/[memberId]`; the "created" scope hashed the identifier modulo the member count, attributing every task to whoever sat at that index; presence was invented | **present** — the route exists under members, "created" reads the API's own `createdBy` (a task with no recorded author, or one an agent filed, belongs to nobody), and the invented presence line is gone. `/profiles/[memberId]` stays: links to it exist and the drawer intercepts it. |
+| Member hover card — role, email, top 2 agents by runs | missing, no endpoint | **present** — `GET /workspaces/:id/members/:userId/top-agents`. `runs` records the agent and the task and never who asked, so it is answered through the tasks the person filed or holds, which is the real link rather than a requester column invented to look like one. |
+| `/invitations` — batch accept with multi-select, then enter the first accepted | missing | **present**. Accepting from a list needs no token — the list was never given one — so the token became optional and the address check that already ran is the whole proof. An invitation can still only be accepted by the account it names, and a token that *is* presented must still be right. |
+| `/invite/[id]` — loading, not found, expired, revoked, other account, already accepted, declined, accept, decline | missing | **partial, deliberately.** The states shown are the states the server is willing to distinguish. `acceptInvitation` answers every unusable invitation the same way so a token cannot enumerate invitations, so expired, revoked, already-accepted and wrong-recipient cannot be told apart and are one honest screen. Declining is local: there is no decline endpoint, and inventing one that revoked the invitation would take an action away from whoever sent it. |
+| `/join` — preview signed out, join, already a member goes straight in, seat errors excluded | partial — already-a-member fell through the same silent redirect | **present**. Seat errors are billing, and out of scope. |
+| `/workspaces/new` | missing | **present** — with the address and the task prefix shown as they are derived and editable, because both are permanent and only cheap to decide before anything exists. |
+| Onboarding — welcome; about you (skippable); workspace (name, slug validation, reserved names, derived and editable prefix); runtime (AgentCore or the workspace default); skip | partial — no steps at all, and the server's own `step`/`answers`/`skipped`/`completed` unused | **present** — all four steps plus a runtime step, skip on every one, and the state kept on the account so closing the tab does not start over. Someone adding a second workspace from the switcher still gets the short create-or-join form. |
+| No-access page that does not reveal whether the workspace exists, with "my workspaces" and "sign in as someone else"; deleted or left workspaces navigate away without flashing it | missing | **present** — `WorkspaceAccess` wraps the workspace routes. A slug this session has seen in the reader's own list is treated as a departure and routes onward quietly, so pressing Leave never flashes a refusal. |
 
-## Backend additions this workstream needs
+## Backend added
 
-Only where a screen has no endpoint. Everything else above is a UI gap over a working route.
+Everything else above is UI over a route that already worked.
 
-1. **Profile description** — `users.description`, surfaced on `GET`/`PATCH /api/v1/me`, ≤2000 characters, and carried into the agent context.
-2. **Workspace context and logo** — a logo URL and an agent-context field on the workspace, on `GET`/`PATCH /api/v1/workspaces/:id`.
-3. **Leave workspace** — a member removing their own membership, which `members.manage` currently forbids, with the last-owner rule still holding.
+1. **`users.description`** (173) — "about you", ≤2000 characters, on `GET`/`PATCH /me`.
+2. **`workspaces.logo_url` and `workspaces.agent_context`** (174) — on `GET`/`PATCH /workspaces/:id`.
+3. **`POST /workspaces/:id/leave`** — a member removing their own membership, which
+   `members.manage` forbids; the last-owner rule still holds.
 4. **Label usage counts** — a count per label on the catalogue read.
-5. **Property restore** — un-archiving a property definition.
-6. **Quick action usage** — a use count and a last-used time, so "sorted by usage" and the 90-day stale flag mean something; plus restore and hard delete.
-7. **Top agents by runs, per member** — for the member hover card.
+5. **Property restore and a 20-active bound** — `PATCH { archived: false }`, bounded as create is.
+6. **Status archived reads and restore** — `?includeArchived=true`, `PATCH { archived: false }`.
+7. **Quick action usage, restore, delete, and prompt validation** (175) — `use_count`,
+   `last_used_at`, `?includeArchived=true`, `POST …/delete`, and a prompt that names a
+   variable Berry cannot fill is refused.
+8. **`GET /workspaces/:id/members/:userId/top-agents`** — for the hover card.
 
-Timezone and language are already on the user; member role rules are already enforced, and
-correctly (owner-only grants, last-owner protection, row locks). Issue-prefix renumbering needs
-no migration because identifiers are derived — the existing settings PATCH already performs it.
+Every mount goes through the workspace guard and the find-before-permission helpers, so a
+missing or foreign id is 404 and an own id without permission is 403; each is covered in
+`cross-tenant-leakage.test.ts`. Migrations stayed in block **173–176**; 176 is unused.
 
-Migrations for this workstream stay in block **173–176**.
+Timezone and language were already on the user. Member role rules were already enforced, and
+correctly — owner-only grants, last-owner protection, row locks. Issue-prefix renumbering
+needed no migration, because identifiers are derived at query time and the existing settings
+PATCH already performs it.
+
+## Not built
+
+- **Floating chat.** The preference is on the Preferences page and in the store; there is no
+  floating chat surface on this branch for it to govern. Wiring listed below.
+- **`/invite/[id]` expired / revoked / already-accepted as distinct screens.** Refused on
+  purpose: the server answers all of them identically so a token cannot be used to find out
+  whether an invitation exists or who it was for, and separate screens would mean guessing in
+  public. Declining likewise stays local — there is no decline endpoint, and adding one that
+  revoked the invitation would take the decision away from whoever sent it.
+- **Seat errors on `/join`.** Billing, and out of scope.
