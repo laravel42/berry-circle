@@ -364,15 +364,18 @@
       off, and a structural selector would break the first time a list is
       rewrapped. Note this is the sidebar in the app: `[data-slot='sidebar']`
       above belongs to the shadcn sidebar, which the shell does not render, so
-      its overrides do not reach here and the token resolves to the content
-      scale -- 0.8125rem, one step off the 0.75rem default.
+      its overrides do not reach here.
+
+      14px, a step above the 13px body: `--text-sm` now matches the body size
+      exactly, so it no longer sets the rail apart. Line spacing stays at the
+      1.2 the body uses.
 
       The items size to their content (`py-1.5`, no fixed height), so the type
       just makes the rail taller. Section headings stay at the default -- they
       label the groups, they are not destinations. */
    [data-shell-nav] {
-      font-size: var(--text-sm);
-      line-height: var(--text-sm--line-height);
+      font-size: var(--text-base);
+      line-height: 1.2;
    }
 
    :where(.text-xs) {
