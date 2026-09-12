@@ -9,6 +9,7 @@ import { Forbidden, NotFound } from '../identity/errors.ts';
 import type { BoardRepository } from '../core/boards.ts';
 import { ConnectionUnavailable, type ConnectionRepository } from '../integrations/connections.ts';
 import { GitHubClient, GitHubError } from '../integrations/github.ts';
+import { listRepositoriesAcrossAccounts } from '../integrations/github-repositories.ts';
 import {
    AuthorizationNotPending,
    ExchangeFailed,
@@ -230,7 +231,12 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          return json({ app: null, installation: null, installPending: false });
       }
       const app = await options.githubApp.app();
-      const installation = app ? await options.githubApp.installation(workspaceId) : null;
+      const installations = app ? await options.githubApp.installations(workspaceId) : [];
+      // The first account answers the old singular field, which the surfaces
+      // that only ask "is GitHub connected" still read. `installations` is the
+      // whole answer: a workspace reaches a personal account and its
+      // organisations at once, and "Add another account" appends to this list.
+      const installation = installations[0] ?? null;
       // A fourth state, and the one a settings page would otherwise have to
       // describe as a failure: an organisation install an owner has not
       // approved yet. Nothing is installed, and nobody need do anything but
@@ -241,6 +247,11 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
             : false;
       return json({
          installPending,
+         installations: installations.map((row) => ({
+            installationId: row.installationId,
+            accountLogin: row.accountLogin,
+            accountType: row.accountType,
+         })),
          app: app && {
             appId: app.appId,
             slug: app.slug,
@@ -458,9 +469,15 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          );
       }
 
-      let credential: { token: string; kind: 'installation' | 'user' };
+      // Merged across the workspace's accounts: a personal account and an
+      // organisation are both ordinary, and a listing that used one token would
+      // show whichever account happened to be first and hide the rest.
+      let listing: Awaited<ReturnType<typeof listRepositoriesAcrossAccounts>>;
       try {
-         credential = await githubCredential(workspaceId, options);
+         listing = await listRepositoriesAcrossAccounts(workspaceId, {
+            githubApp: options.githubApp,
+            connections: options.connections,
+         });
       } catch (error) {
          if (error instanceof GitHubAppUnavailable) {
             throw new ApiError(
@@ -480,25 +497,17 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
                   : `The GitHub connection needs attention: ${error.message}.`
             );
          }
+         if (error instanceof GitHubError) {
+            throw new ApiError(502, 'PROVIDER_ERROR', `GitHub refused the request: ${error.message}`);
+         }
          throw error;
       }
 
-      const client = new GitHubClient({ token: credential.token });
-      const repositories = await client
-         .listRepositories({ credential: credential.kind })
-         .catch((error: unknown) => {
-            if (error instanceof GitHubError) {
-               throw new ApiError(
-                  502,
-                  'PROVIDER_ERROR',
-                  `GitHub refused the request: ${error.message}`
-               );
-            }
-            throw error;
-         });
-
-      const accounts = [...new Set(repositories.map((repository) => repository.fullName.split('/')[0]!))];
-      const viaApp = credential.kind === 'installation';
+      const repositories = listing.repositories;
+      const accounts = [...new Set(listing.accounts.map((account) => account.accountLogin))].filter(
+         (login) => login !== ''
+      );
+      const viaApp = listing.kind === 'installation';
       // A run clones, commits and pushes, so `contents: write` is the grant
       // that decides whether linking a repository leads anywhere. It is asked
       // of the installation because the per-repository `permissions` object is
@@ -885,10 +894,17 @@ async function handleInstallationCallback(
  */
 export async function githubCredential(
    workspaceId: string,
-   options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>
+   options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>,
+   /**
+    * The account holding the repository this credential is for, when the caller
+    * knows it. A workspace reaches several accounts at once and each
+    * installation sees only its own, so without it the first account's token is
+    * minted — which cannot see an organisation's repository at all.
+    */
+   owner?: string | null
 ): Promise<{ token: string; kind: 'installation' | 'user' }> {
    if (options.githubApp && (await options.githubApp.app())) {
-      return { token: await options.githubApp.token(workspaceId), kind: 'installation' };
+      return { token: await options.githubApp.token(workspaceId, owner), kind: 'installation' };
    }
    if (!options.connections) {
       throw new GitHubAppUnavailable('this deployment has no GitHub App', 'no_app');
@@ -898,10 +914,11 @@ export async function githubCredential(
 
 export async function githubToken(
    workspaceId: string,
-   options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>
+   options: Pick<IntegrationsOptions, 'connections' | 'githubApp'>,
+   owner?: string | null
 ): Promise<string> {
    if (options.githubApp && (await options.githubApp.app())) {
-      return options.githubApp.token(workspaceId);
+      return options.githubApp.token(workspaceId, owner);
    }
    if (!options.connections) {
       throw new GitHubAppUnavailable('this deployment has no GitHub App', 'no_app');

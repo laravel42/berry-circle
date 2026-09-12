@@ -17,7 +17,13 @@ import { ScmSync } from './sync.ts';
  * what the older credential paths can do.
  */
 export type GitCredential = (
-   workspaceId: string
+   workspaceId: string,
+   /**
+    * The account holding the repository, when the caller knows it. A workspace
+    * reaches several accounts at once and each installation sees only its own,
+    * so this is what decides which installation mints.
+    */
+   owner?: string | null
 ) => Promise<{ username: string; password: string; canPush?: boolean }>;
 
 /**
@@ -83,14 +89,14 @@ export async function createScm(options: {
       const app = githubApp;
       const provisioning = new ScmProvisioning({
          provider: (workspaceId: string) =>
-            new GitHubProvider({ token: () => app.token(workspaceId) }),
+            new GitHubProvider({ token: (owner) => app.token(workspaceId, owner) }),
          providerId: 'github',
          links,
          logger,
       });
-      gitCredential = (workspaceId: string) =>
+      gitCredential = (workspaceId: string, owner?: string | null) =>
          app
-            .access(workspaceId)
+            .access(workspaceId, owner)
             .then((access) => ({ username: 'x-access-token', password: access.token, canPush: access.canPush }));
       return {
          links,

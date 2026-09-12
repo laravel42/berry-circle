@@ -28,8 +28,15 @@ import {
  */
 
 export interface GitHubProviderOptions {
-   /** Mints an installation token for the workspace this call is for. */
-   token: () => Promise<string>;
+   /**
+    * Mints an installation token for the workspace this call is for.
+    *
+    * The account is passed when the call names one, because a workspace can be
+    * installed on a personal account and on organisations at once and each
+    * installation sees only its own — a token minted against the wrong one
+    * answers 404 for a repository that is plainly there.
+    */
+   token: (owner?: string | null) => Promise<string>;
    fetch?: typeof globalThis.fetch;
    apiBase?: string;
    timeoutMs?: number;
@@ -40,7 +47,7 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 
 export class GitHubProvider implements ScmProvider {
    readonly id = 'github' as const;
-   readonly #token: () => Promise<string>;
+   readonly #token: (owner?: string | null) => Promise<string>;
    readonly #fetch: typeof globalThis.fetch;
    readonly #api: string;
    readonly #timeoutMs: number;
@@ -270,7 +277,7 @@ export class GitHubProvider implements ScmProvider {
    }
 
    async #call(method: string, path: string, body?: unknown): Promise<Response> {
-      const token = await this.#token();
+      const token = await this.#token(accountInPath(path));
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
       try {
@@ -380,4 +387,18 @@ function toReview(payload: Record<string, unknown>): ScmReview {
       reviewer: typeof user?.login === 'string' ? user.login : null,
       submittedAt: typeof payload.submitted_at === 'string' ? payload.submitted_at : null,
    };
+}
+
+/**
+ * The account a request is about, read off its own path.
+ *
+ * Taken from the path rather than passed down through every method because the
+ * path already carries it — `/repos/{owner}/…` and `/orgs/{login}` are GitHub's
+ * own shapes — and one place that derives it cannot disagree with itself the
+ * way twenty call sites would. A path naming no account (`/user`, say) gets the
+ * workspace's first installation, which is the only sensible default.
+ */
+function accountInPath(path: string): string | null {
+   const match = /^\/(?:repos|orgs|users)\/([^/]+)/.exec(path);
+   return match ? decodeURIComponent(match[1]!) : null;
 }

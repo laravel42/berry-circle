@@ -59,7 +59,11 @@ export interface RepositoryRunDeps {
     * still holds — for the length of a call, and never written down.
     */
    gitCredential?:
-      | ((workspaceId: string) => Promise<{ username: string; password: string; canPush?: boolean }>)
+      | ((
+           workspaceId: string,
+           /** The account holding the repository, so the right installation mints. */
+           owner?: string | null
+        ) => Promise<{ username: string; password: string; canPush?: boolean }>)
       | undefined;
 }
 
@@ -112,9 +116,12 @@ export async function prepareRepository(
    input.permissions.require('read_repository');
    input.permissions.require('create_branches');
 
-   const credential = await runCredential(deps, input.dispatch.workspaceId);
-   const token = credential.token;
    const { owner, name } = parseRepository(repository.fullName);
+   // The owner decides which installation mints the token: a workspace can
+   // reach a personal account and an organisation at once, and an installation
+   // on one cannot see the other's repositories at all.
+   const credential = await runCredential(deps, input.dispatch.workspaceId, owner);
+   const token = credential.token;
 
    // Asked before the work rather than after: an agent that spends ten minutes
    // building something and then cannot push has wasted the tokens and the wait.
@@ -174,7 +181,11 @@ export async function deliverRepository(
    }
 ): Promise<void> {
    const { dispatch, prepared, summary } = input;
-   const { token } = await runCredential(deps, dispatch.workspaceId);
+   const { token } = await runCredential(
+      deps,
+      dispatch.workspaceId,
+      parseRepository(prepared.repository.fullName).owner
+   );
    const title = `${prepared.issue.reference}: ${prepared.issue.title}`;
 
    // Before the checks and the commit: the files the agent saved are part of
@@ -368,16 +379,20 @@ export function pullRequestBody(
  * The App is asked only when one exists, so a deployment that has not created
  * one keeps working exactly as before.
  */
-async function runCredential(deps: RepositoryRunDeps, workspaceId: string): Promise<RunCredential> {
+async function runCredential(
+   deps: RepositoryRunDeps,
+   workspaceId: string,
+   owner: string
+): Promise<RunCredential> {
    // Identity first when it is configured: it is the credential the rest of
    // the integration already uses, and asking the App as well would keep a
    // second lifecycle alive for no reason.
    if (deps.gitCredential) {
-      const minted = await deps.gitCredential(workspaceId);
+      const minted = await deps.gitCredential(workspaceId, owner);
       return { token: minted.password, canPush: minted.canPush ?? null };
    }
    if (deps.githubApp && (await deps.githubApp.app())) {
-      const access = await deps.githubApp.access(workspaceId);
+      const access = await deps.githubApp.access(workspaceId, owner);
       return { token: access.token, canPush: access.canPush };
    }
    if (!deps.connections) {

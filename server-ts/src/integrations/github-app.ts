@@ -45,6 +45,20 @@ export interface Installation {
 }
 
 /**
+ * A connected account, as a settings page needs it.
+ *
+ * `repositoryCount` is asked of GitHub and is therefore allowed to be null: an
+ * account whose count could not be read is still connected, and reporting it as
+ * zero would read as "grant it some repositories" for an account that has
+ * plenty.
+ */
+export interface ConnectedAccount extends Installation {
+   installedAt: string;
+   installedBy: { id: string; name: string | null } | null;
+   repositoryCount: number | null;
+}
+
+/**
  * That a person has already been sent to GitHub to install the App.
  *
  * The point of the row is the login *after* the one that made it. Somebody who
@@ -99,6 +113,22 @@ export function appJwt(appId: number, privateKey: string, now: Date = new Date()
    );
    const signature = createSign('RSA-SHA256').update(`${header}.${payload}`).sign(privateKey);
    return `${header}.${payload}.${base64url(signature)}`;
+}
+
+interface InstallationRow {
+   workspace_id: string;
+   installation_id: string;
+   account_login: string | null;
+   account_type: string | null;
+}
+
+function toInstallation(row: InstallationRow): Installation {
+   return {
+      workspaceId: row.workspace_id,
+      installationId: Number(row.installation_id),
+      accountLogin: row.account_login,
+      accountType: row.account_type,
+   };
 }
 
 interface AppRow {
@@ -175,8 +205,11 @@ export class GitHubAppRepository {
     * every repository. `contents: write` is what a run needs to push, and this
     * is the only place that answer is truthful.
     */
-   async grantedPermissions(workspaceId: string): Promise<Record<string, string> | null> {
-      const installed = await this.installation(workspaceId);
+   async grantedPermissions(
+      workspaceId: string,
+      owner?: string | null
+   ): Promise<Record<string, string> | null> {
+      const installed = await this.installation(workspaceId, owner);
       if (!installed) return null;
       const jwt = await this.#jwt();
       const response = await this.#fetch(
@@ -297,7 +330,12 @@ export class GitHubAppRepository {
    }
 
    /**
-    * Records where a workspace installed the App.
+    * Records an account a workspace installed the App on.
+    *
+    * One row per account rather than one per workspace: a workspace reaching a
+    * personal account and an organisation at once is the ordinary case, and the
+    * old key made the second install replace the first — quietly turning every
+    * repository imported from the first into one no agent could reach.
     *
     * Every outstanding offer for the workspace goes with it: the installation
     * is the answer they were all waiting for, and a `pending` row left behind
@@ -310,38 +348,142 @@ export class GitHubAppRepository {
                 account_type, installed_by)
          VALUES (${input.workspaceId}, ${input.installationId}, ${input.accountLogin},
                  ${input.accountType}, ${installedBy})
-         ON CONFLICT (workspace_id) DO UPDATE
-            SET installation_id = EXCLUDED.installation_id,
-                account_login = EXCLUDED.account_login,
+         ON CONFLICT (workspace_id, installation_id) DO UPDATE
+            SET account_login = EXCLUDED.account_login,
                 account_type = EXCLUDED.account_type, updated_at = now()`;
       await this.#sql`DELETE FROM github_install_offers WHERE workspace_id = ${input.workspaceId}`;
       this.#tokens.delete(input.installationId);
    }
 
-   async installation(workspaceId: string): Promise<Installation | null> {
-      const [row] = await this.#sql<
-         Array<{
-            workspace_id: string;
-            installation_id: string;
-            account_login: string | null;
-            account_type: string | null;
-         }>
-      >`
-         SELECT workspace_id, installation_id, account_login, account_type
-           FROM github_installations WHERE workspace_id = ${workspaceId}`;
-      if (!row) return null;
-      return {
-         workspaceId: row.workspace_id,
-         installationId: Number(row.installation_id),
-         accountLogin: row.account_login,
-         accountType: row.account_type,
-      };
+   /**
+    * Drops a cached mint, for a route that removed the installation itself.
+    *
+    * A token lives an hour, and an installation this workspace has just
+    * disconnected must stop working now rather than when it lapses.
+    */
+   forgetToken(installationId: number): void {
+      this.#tokens.delete(installationId);
    }
 
-   async removeInstallation(workspaceId: string): Promise<void> {
-      const existing = await this.installation(workspaceId);
-      await this.#sql`DELETE FROM github_installations WHERE workspace_id = ${workspaceId}`;
-      if (existing) this.#tokens.delete(existing.installationId);
+   /** Every account this workspace reaches, oldest first. */
+   async installations(workspaceId: string): Promise<Installation[]> {
+      const rows = await this.#sql<Array<InstallationRow>>`
+         SELECT workspace_id, installation_id, account_login, account_type
+           FROM github_installations WHERE workspace_id = ${workspaceId}
+          ORDER BY created_at, installation_id`;
+      return rows.map(toInstallation);
+   }
+
+   /**
+    * The installation a piece of work runs against.
+    *
+    * With `owner`, the account that actually holds the repository — which is
+    * the only honest answer once a workspace has more than one, because a token
+    * minted against the wrong installation cannot see the repository at all and
+    * fails as a 404 that reads like a deleted repository.
+    *
+    * Without one, the first account connected. That is for the callers that
+    * genuinely have no repository in hand (an App-wide capability check, say),
+    * and it is the same answer the single-installation schema gave.
+    */
+   async installation(workspaceId: string, owner?: string | null): Promise<Installation | null> {
+      const wanted = (owner ?? '').trim().toLowerCase();
+      if (wanted !== '') {
+         const [row] = await this.#sql<Array<InstallationRow>>`
+            SELECT workspace_id, installation_id, account_login, account_type
+              FROM github_installations
+             WHERE workspace_id = ${workspaceId} AND lower(account_login) = ${wanted}
+             ORDER BY created_at, installation_id LIMIT 1`;
+         return row ? toInstallation(row) : null;
+      }
+      const [row] = await this.#sql<Array<InstallationRow>>`
+         SELECT workspace_id, installation_id, account_login, account_type
+           FROM github_installations WHERE workspace_id = ${workspaceId}
+          ORDER BY created_at, installation_id LIMIT 1`;
+      return row ? toInstallation(row) : null;
+   }
+
+   /**
+    * The workspace's accounts as a settings page shows them, with what each one
+    * reaches on GitHub.
+    *
+    * The counts are asked in parallel and a failure is a null rather than a
+    * refusal: one account GitHub would not answer for must not hide the others,
+    * which are the ones somebody came to this page to disconnect.
+    */
+   async connectedAccounts(workspaceId: string): Promise<ConnectedAccount[]> {
+      const rows = await this.#sql<
+         Array<
+            InstallationRow & {
+               created_at: Date | string;
+               installer_id: string | null;
+               installer_name: string | null;
+            }
+         >
+      >`
+         SELECT installation.workspace_id, installation.installation_id,
+                installation.account_login, installation.account_type, installation.created_at,
+                installer.id AS installer_id, installer.name AS installer_name
+           FROM github_installations AS installation
+           LEFT JOIN users AS installer ON installer.id = installation.installed_by
+          WHERE installation.workspace_id = ${workspaceId}
+          ORDER BY installation.created_at, installation.installation_id`;
+      return Promise.all(
+         rows.map(async (row) => ({
+            ...toInstallation(row),
+            installedAt: new Date(row.created_at).toISOString(),
+            installedBy: row.installer_id
+               ? { id: row.installer_id, name: row.installer_name }
+               : null,
+            repositoryCount: await this.repositoryCount(Number(row.installation_id)),
+         }))
+      );
+   }
+
+   /**
+    * How many repositories an installation was granted, or null when GitHub
+    * would not say. One repository is asked for and only the total read.
+    */
+   async repositoryCount(installationId: number): Promise<number | null> {
+      let token: string;
+      try {
+         token = (await this.#access(installationId)).token;
+      } catch {
+         return null;
+      }
+      const response = await this.#fetch(
+         new URL('/installation/repositories?per_page=1', this.#api),
+         {
+            headers: {
+               accept: 'application/vnd.github+json',
+               authorization: `Bearer ${token}`,
+               'x-github-api-version': '2022-11-28',
+            },
+         }
+      ).catch(() => null);
+      if (!response?.ok) return null;
+      const body = (await response.json().catch(() => ({}))) as { total_count?: unknown };
+      return typeof body.total_count === 'number' ? body.total_count : null;
+   }
+
+   /**
+    * Forgets one account, or every account when none is named.
+    *
+    * Answers with how many rows went, so a route can tell "there was nothing
+    * there" (a 404) from "it is gone now" without reading the table twice.
+    */
+   async removeInstallation(workspaceId: string, installationId?: number): Promise<number> {
+      const removed =
+         installationId === undefined
+            ? await this.#sql<Array<{ installation_id: string }>>`
+                 DELETE FROM github_installations WHERE workspace_id = ${workspaceId}
+                 RETURNING installation_id`
+            : await this.#sql<Array<{ installation_id: string }>>`
+                 DELETE FROM github_installations
+                  WHERE workspace_id = ${workspaceId} AND installation_id = ${installationId}
+                 RETURNING installation_id`;
+      for (const row of removed) this.#tokens.delete(Number(row.installation_id));
+      return removed.length;
    }
 
    /**
@@ -402,32 +544,46 @@ export class GitHubAppRepository {
     * when several runs ask at once — GitHub rate-limits the exchange, and two
     * runs starting together should not each spend one.
     */
-   async token(workspaceId: string): Promise<string> {
-      return (await this.access(workspaceId)).token;
+   async token(workspaceId: string, owner?: string | null): Promise<string> {
+      return (await this.access(workspaceId, owner)).token;
    }
 
-   /** The token together with what it may do. */
-   async access(workspaceId: string): Promise<InstallationAccess> {
-      const installation = await this.installation(workspaceId);
+   /**
+    * The token together with what it may do.
+    *
+    * `owner` is the account holding the repository the work is for, and naming
+    * it is how a workspace with several accounts gets the right token: an
+    * installation on `ann` cannot see `acme/api` at all. An owner no
+    * installation here covers is refused rather than served the first account's
+    * token — the alternative is a token for repositories nobody granted.
+    */
+   async access(workspaceId: string, owner?: string | null): Promise<InstallationAccess> {
+      const installation = await this.installation(workspaceId, owner);
       if (!installation) {
          throw new GitHubAppUnavailable(
-            'the GitHub App is not installed for this workspace',
+            owner
+               ? `no GitHub account connected here holds ${owner}'s repositories`
+               : 'the GitHub App is not installed for this workspace',
             'not_installed'
          );
       }
+      return this.#access(installation.installationId);
+   }
 
-      const cached = this.#tokens.get(installation.installationId);
+   /** The cached, de-duplicated mint for one installation. */
+   async #access(installationId: number): Promise<InstallationAccess> {
+      const cached = this.#tokens.get(installationId);
       if (cached && cached.expiresAtMs - this.#margin > this.#clock().getTime()) {
          return { token: cached.token, canPush: cached.canPush };
       }
 
-      const inFlight = this.#minting.get(installation.installationId);
+      const inFlight = this.#minting.get(installationId);
       if (inFlight) return inFlight;
 
-      const pending = this.#mint(installation.installationId).finally(() => {
-         this.#minting.delete(installation.installationId);
+      const pending = this.#mint(installationId).finally(() => {
+         this.#minting.delete(installationId);
       });
-      this.#minting.set(installation.installationId, pending);
+      this.#minting.set(installationId, pending);
       return pending;
    }
 

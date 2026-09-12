@@ -738,12 +738,18 @@ async function resolveRepository(
       );
    }
 
+   const slash = fullName.indexOf('/');
+   const owner = fullName.slice(0, slash);
+   const name = fullName.slice(slash + 1);
+
    // The same credential the picker lists with: App token first, else the
    // OAuth connection. Resolving through it means what a person can link is
-   // exactly what they were shown.
+   // exactly what they were shown — and against the installation that holds
+   // this repository's account, since a workspace can reach several and only
+   // one of them can see it.
    let token: string;
    try {
-      token = (await githubCredential(workspaceId, options)).token;
+      token = (await githubCredential(workspaceId, options, owner)).token;
    } catch (error) {
       if (error instanceof GitHubAppUnavailable) {
          throw new ApiError(
@@ -765,10 +771,6 @@ async function resolveRepository(
       }
       throw error;
    }
-
-   const slash = fullName.indexOf('/');
-   const owner = fullName.slice(0, slash);
-   const name = fullName.slice(slash + 1);
 
    let repository;
    try {
