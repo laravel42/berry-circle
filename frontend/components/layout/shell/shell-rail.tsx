@@ -208,7 +208,7 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                                  on
                                     ? // Inset rather than a real border: a 2px edge on a rounded
                                       // pill would shift the label by two pixels on selection.
-                                      'bg-[var(--shell-surface)] text-[var(--shell-text)] shadow-[inset_2px_0_0_var(--shell-accent)]'
+                                      'bg-[var(--shell-surface)] text-[var(--shell-text)]'
                                     : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
                               ].join(' ');
                               const inner = (
