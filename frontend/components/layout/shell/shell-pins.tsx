@@ -139,10 +139,10 @@ export function ShellPins({ orgId }: { orgId: string }) {
 
    return (
       <div>
-         <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+         <div className="px-6 pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
             {t('pinned')}
          </div>
-         <ul ref={listRef} className="flex flex-col gap-px px-2">
+         <ul ref={listRef} className="flex flex-col gap-1 px-3">
             {shown.map((pin, index) => {
                // The status mark comes from the task the board already loaded.
                // A pin carries a title, not a status, and asking the server for
@@ -215,7 +215,7 @@ export function ShellPins({ orgId }: { orgId: string }) {
             <button
                type="button"
                onClick={() => setExpanded((value) => !value)}
-               className="mx-2 mt-px flex w-[calc(100%-1rem)] items-center rounded px-2.5 py-1 text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
+               className="mx-3 mt-px flex w-[calc(100%-1.5rem)] items-center rounded px-3 py-1 text-[var(--shell-text-dim)] transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]"
             >
                {expanded ? t('showLess') : t('showMore')}
             </button>

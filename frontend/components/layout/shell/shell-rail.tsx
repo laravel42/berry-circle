@@ -132,13 +132,13 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
              chevrons-up-down glyph reads as a switcher everywhere else in the
              product, and settings and log out have no other home. Collapse
              moves to its own control at the foot of the rail. */}
-               <div className="flex items-center gap-1 px-2 pt-3">
+               <div className="flex items-center gap-1 px-3 pt-3">
                   <DropdownMenu>
                      <DropdownMenuTrigger asChild>
                         <button
                            type="button"
                            aria-label={t('rail.workspaceMenu')}
-                           className="group/ws flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-2.5 py-2.5 text-left transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)] data-[state=open]:bg-[var(--shell-hover)] data-[state=open]:text-[var(--shell-text)]"
+                           className="group/ws flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded px-3 py-2.5 text-left transition-colors hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)] data-[state=open]:bg-[var(--shell-hover)] data-[state=open]:text-[var(--shell-text)]"
                         >
                            <BerryMark size={24} />
                            <span
@@ -196,15 +196,15 @@ export function ShellRail({ orgId, active, onToggle, settingsMode }: ShellRailPr
                   return (
                      <div key={section.heading ?? 'primary'}>
                         {section.heading ? (
-                           <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+                           <div className="px-6 pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
                               {section.headingKey ? t(`sections.${section.headingKey}`) : null}
                            </div>
                         ) : null}
-                        <ul className="flex flex-col gap-px px-2">
+                        <ul className="flex flex-col gap-1 px-3">
                            {shown.map((route) => {
                               const on = Boolean(route.href) && route.id === active;
                               const className = [
-                                 'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',
+                                 'flex items-center gap-2.5 rounded px-3 py-1.5 transition-colors',
                                  on
                                     ? // Inset rather than a real border: a 2px edge on a rounded
                                       // pill would shift the label by two pixels on selection.

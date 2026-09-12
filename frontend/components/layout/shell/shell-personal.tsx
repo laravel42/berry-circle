@@ -88,7 +88,7 @@ export function ShellPersonal({ orgId }: { orgId: string }) {
 
    const rowClass = (on: boolean) =>
       [
-         'flex w-full items-center gap-2.5 rounded px-2.5 py-1.5 text-left transition-colors',
+         'flex w-full items-center gap-2.5 rounded px-3 py-1.5 text-left transition-colors',
          on
             ? 'bg-[var(--shell-surface)] text-[var(--shell-text)] shadow-[inset_2px_0_0_var(--shell-accent)]'
             : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
@@ -99,10 +99,10 @@ export function ShellPersonal({ orgId }: { orgId: string }) {
 
    return (
       <div>
-         <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+         <div className="px-6 pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
             {t('personal')}
          </div>
-         <ul className="flex flex-col gap-px px-2">
+         <ul className="flex flex-col gap-1 px-3">
             <li>
                <button
                   type="button"

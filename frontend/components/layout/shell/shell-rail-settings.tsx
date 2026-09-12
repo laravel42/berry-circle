@@ -27,7 +27,7 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
 
    const link = (active: boolean) =>
       [
-         'flex items-center gap-2.5 rounded px-2.5 py-1.5 transition-colors',
+         'flex items-center gap-2.5 rounded px-3 py-1.5 transition-colors',
          active
             ? 'bg-[var(--shell-surface)] text-[var(--shell-text)]'
             : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
@@ -47,10 +47,10 @@ export function ShellRailSettings({ orgId }: { orgId: string }) {
 
          {settingsNav.map((group) => (
             <div key={group.labelKey}>
-               <div className="px-[18px] pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+               <div className="px-6 pt-[18px] pb-[7px] uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
                   {t(`groups.${group.labelKey}`)}
                </div>
-               <ul className="flex flex-col gap-px px-2">
+               <ul className="flex flex-col gap-1 px-3">
                   {group.items.map((item) => {
                      const href = `/${orgId}${item.url}`;
                      const active = isNavItemActive(pathname, href);
