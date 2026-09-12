@@ -876,6 +876,12 @@ registry.registerAll(
       githubApp,
       publicUrl: config.integrations.publicUrl,
       appUrl: config.integrations.appUrl,
+      // Settings pages live under the workspace, so a callback needs its slug
+      // to send the browser back to a page that exists.
+      workspaceSlug: async (workspaceId: string) => {
+         const [row] = await sql`SELECT slug FROM workspaces WHERE id = ${workspaceId}`;
+         return (row?.slug as string | undefined) ?? null;
+      },
       firstRunSetup,
    })
 );

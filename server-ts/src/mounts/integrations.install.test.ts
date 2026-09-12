@@ -164,6 +164,10 @@ describe(
                githubApp,
                publicUrl: 'http://localhost:4000',
                appUrl: 'http://localhost:3000',
+               workspaceSlug: async (id: string) => {
+                  const [row] = await sql`SELECT slug FROM workspaces WHERE id = ${id}`;
+                  return (row?.slug as string | undefined) ?? null;
+               },
                firstRunSetup: null,
             })
          );
@@ -312,6 +316,22 @@ describe(
          // The offer was what they were waiting on; it goes with the answer.
          assert.equal(await offerStatus(), null);
          assert.equal((await accessStep()).next, 'installed');
+      });
+
+      test('the browser lands on a settings page that exists', async () => {
+         const state = await states.start({
+            workspaceId: w1Id,
+            userId: u1Id,
+            provider: 'github_install',
+            redirectUri: 'https://github.com/apps/berry/installations/new',
+            scopes: [],
+         });
+         const response = await app.request(
+            `/api/v1/integrations/github/installation/callback?installation_id=4242&state=${encodeURIComponent(state.state)}`
+         );
+         const location = new URL(response.headers.get('location') ?? '');
+         const [slug] = await sql`SELECT slug FROM workspaces WHERE id = ${w1Id}`;
+         assert.equal(location.pathname, `/${slug!.slug as string}/settings/integrations`);
       });
 
       test('the state cannot be replayed', async () => {

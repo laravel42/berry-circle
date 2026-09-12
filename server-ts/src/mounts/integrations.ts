@@ -46,7 +46,19 @@ import {
  */
 
 /** Where the browser is sent back to after the provider is done with it. */
-const SETTINGS_PATH = '/settings/integrations';
+/**
+ * Settings live under the workspace: `/{slug}/settings/integrations`. Sending a
+ * browser to a bare `/settings/integrations` lands it on a 404, which is what
+ * every GitHub return did until the slug was resolved here.
+ *
+ * With no workspace to name — a state that never had one — the root is the
+ * honest destination: the app decides from there where the person belongs.
+ */
+const SETTINGS_PATH = '/';
+
+function settingsPath(slug: string | null): string {
+   return slug ? `/${slug}/settings/integrations` : SETTINGS_PATH;
+}
 
 /**
  * Where an install that began at sign-in comes back to.
@@ -99,6 +111,8 @@ export interface IntegrationsOptions {
    publicUrl: string | null;
    /** Where to send the browser after the callback. Defaults to the API's own origin. */
    appUrl?: string | null;
+   /** A workspace's slug, for the settings page a callback returns to. */
+   workspaceSlug?: (workspaceId: string) => Promise<string | null>;
    /**
     * The one-time way in for a deployment nobody can sign into yet.
     *
@@ -550,16 +564,26 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
  * expires. A cookie would be the weaker check here, because a cross-site
  * redirect may not carry one at all.
  */
+async function slugOf(options: IntegrationsOptions, workspaceId: string): Promise<string | null> {
+   if (!options.workspaceSlug) return null;
+   // A failed lookup is not worth failing a callback over: the person still
+   // lands somewhere real, one level up from where they meant to be.
+   return options.workspaceSlug(workspaceId).catch(() => null);
+}
+
 async function handleCallback(
    context: { req: { url: string; param: (key: string) => string | undefined } },
    options: IntegrationsOptions
 ): Promise<Response> {
    const providerId = context.req.param('provider') ?? '';
    const url = new URL(context.req.url);
+   // Filled in once the state names a workspace; until then the root, because
+   // the settings page is a page inside a workspace.
+   let landing = SETTINGS_PATH;
    const back = (status: string): Response =>
       redirectTo(
          new URL(
-            `${SETTINGS_PATH}?integration=${encodeURIComponent(providerId)}&status=${encodeURIComponent(status)}`,
+            `${landing}?integration=${encodeURIComponent(providerId)}&status=${encodeURIComponent(status)}`,
             options.appUrl || options.publicUrl || url.origin
          ).toString()
       );
@@ -585,6 +609,7 @@ async function handleCallback(
    // A connection belongs to a workspace and records who made it. Only the
    // first-run App setup starts a state without either, and it is not this flow.
    if (pending.workspaceId === null || pending.userId === null) return back('invalid_state');
+   landing = settingsPath(await slugOf(options, pending.workspaceId));
 
    const credentials = credentialsFor(providerId, options);
    if (!credentials) return back('exchange_failed');
@@ -829,6 +854,7 @@ async function handleInstallationCallback(
       return back('invalid_state');
    }
    if (pending.provider === SIGN_IN_INSTALL_PROVIDER) landing = SIGN_IN_PATH;
+   else if (pending.workspaceId !== null) landing = settingsPath(await slugOf(options, pending.workspaceId));
    // An installation is recorded against a workspace and a person, so a state
    // naming neither cannot be the one that installed it.
    if (pending.workspaceId === null || pending.userId === null) return back('invalid_state');
