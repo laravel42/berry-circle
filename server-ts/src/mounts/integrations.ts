@@ -73,6 +73,38 @@ const SIGN_IN_PATH = '/onboarding';
 const INSTALL_PROVIDER = 'github_install';
 
 /**
+ * Which App an install is offered on, and why one cannot be.
+ *
+ * The stored App's slug is preferred because GitHub itself supplied it: a
+ * deployment that created its own App knows its name for certain. The
+ * configured slug is for the other shape — sign-in credentials handed to Berry
+ * for an App somebody else created — where the name is the only part of the App
+ * Berry can be told without a secret.
+ */
+export function installSlug(
+   app: Pick<StoredApp, 'slug'> | null,
+   configured: string | null | undefined
+): string | null {
+   const stored = (app?.slug ?? '').trim();
+   if (stored !== '') return stored;
+   const fallback = (configured ?? '').trim();
+   return fallback === '' ? null : fallback;
+}
+
+/**
+ * What to tell somebody when there is no App to install at all.
+ *
+ * Named rather than silent, and it names the variable an operator sets: the
+ * person reading it cannot fix this, and the one who can needs to know which
+ * setting is missing.
+ */
+export const NO_APP_SLUG_REASON =
+   'This deployment has no GitHub App to install. Set BERRY_GITHUB_APP_SLUG to the App name from https://github.com/apps/<slug>, or create an App from Settings → Integrations.';
+
+/** A deployment that cannot hold an App at all, rather than one missing a slug. */
+const NO_APP_REASON = 'This deployment cannot install a GitHub App: it has no App storage configured.';
+
+/**
  * An install offered by the login itself, told apart from the one above only so
  * the browser can be sent back to where it actually came from.
  */
@@ -107,6 +139,15 @@ export interface IntegrationsOptions {
     * unattended run.
     */
    githubApp: GitHubAppRepository | null;
+   /**
+    * The App's slug from configuration, for a deployment that signs people in
+    * with an App whose credentials it was handed rather than one it created.
+    *
+    * A stored App's slug wins — it came from GitHub — and this is the fallback
+    * that lets the install still be *offered*. With neither there is nowhere to
+    * send anyone, and the routes below say so rather than going quiet.
+    */
+   appSlug?: string | null;
    /** This deployment's own origin, which the provider redirects back to. */
    publicUrl: string | null;
    /** Where to send the browser after the callback. Defaults to the API's own origin. */
@@ -245,7 +286,10 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          return json({ app: null, installation: null, installPending: false });
       }
       const app = await options.githubApp.app();
-      const installations = app ? await options.githubApp.installations(workspaceId) : [];
+      // Not conditional on the App row any more: a workspace's installations are
+      // also read from the person's own token, which works on a deployment that
+      // was handed an App's sign-in credentials and stores no App of its own.
+      const installations = await options.githubApp.installations(workspaceId);
       // The first account answers the old singular field, which the surfaces
       // that only ask "is GitHub connected" still read. `installations` is the
       // whole answer: a workspace reaches a personal account and its
@@ -256,11 +300,15 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
       // approved yet. Nothing is installed, and nobody need do anything but
       // wait — which is only sayable because the request was recorded.
       const installPending =
-         app !== null && installation === null
-            ? await options.githubApp.installPending(workspaceId)
-            : false;
+         installation === null ? await options.githubApp.installPending(workspaceId) : false;
+      const slug = installSlug(app, options.appSlug);
       return json({
          installPending,
+         // Said beside the App rather than inside it: there is an install to
+         // offer whenever a slug can be found, App row or not — and when none
+         // can be, the reason is the answer.
+         installUrl: slug === null ? null : `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`,
+         installReason: slug === null ? NO_APP_SLUG_REASON : null,
          installations: installations.map((row) => ({
             installationId: row.installationId,
             accountLogin: row.accountLogin,
@@ -311,13 +359,13 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
       if (!options.githubApp || !options.states) {
          throw new ApiError(503, 'PROVIDER_NOT_CONFIGURED', 'This deployment cannot store an App.');
       }
-      const app = await options.githubApp.app();
-      if (!app) {
-         throw new ApiError(409, 'GITHUB_APP_MISSING', 'Create the GitHub App first.');
+      const slug = installSlug(await options.githubApp.app(), options.appSlug);
+      if (slug === null) {
+         throw new ApiError(409, 'GITHUB_APP_MISSING', NO_APP_SLUG_REASON);
       }
       return json({
          installUrl: await startInstall(options, {
-            app,
+            slug,
             workspaceId,
             userId: context.get('user').id,
             provider: INSTALL_PROVIDER,
@@ -343,25 +391,35 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
     */
    route.post('/github/app/repository-access', async (context) => {
       const workspaceId = await requireWorkspace(context, options, 'settings.write');
-      const nothingToDo = json({ next: 'no_app', installUrl: null });
-      if (!options.githubApp || !options.states) return nothingToDo;
-      const app = await options.githubApp.app();
-      if (!app) return nothingToDo;
+      if (!options.githubApp || !options.states) {
+         return json({ next: 'no_app', installUrl: null, reason: NO_APP_REASON });
+      }
 
+      // Asked before the slug, because an installed workspace must not be told
+      // about a setting it does not need — and because an installation can be
+      // recorded from the person's own token on a deployment that stores no App.
       if (await options.githubApp.installation(workspaceId)) {
-         return json({ next: 'installed', installUrl: null });
+         return json({ next: 'installed', installUrl: null, reason: null });
       }
       const userId = context.get('user').id;
       const offered = await options.githubApp.installOffer(workspaceId, userId);
       // Asked already: they either declined GitHub's form or are waiting on an
       // owner. Either way they are not sent back, which is what keeps a login
       // from becoming a loop.
-      if (offered) return json({ next: offered.status, installUrl: null });
+      if (offered) return json({ next: offered.status, installUrl: null, reason: null });
+
+      const slug = installSlug(await options.githubApp.app(), options.appSlug);
+      // Nowhere to send them, and saying so is the whole of the answer: an empty
+      // repository list nobody explained is how an operator misses a setting.
+      if (slug === null) {
+         return json({ next: 'no_slug', installUrl: null, reason: NO_APP_SLUG_REASON });
+      }
 
       return json({
          next: 'install',
+         reason: null,
          installUrl: await startInstall(options, {
-            app,
+            slug,
             workspaceId,
             userId,
             provider: SIGN_IN_INSTALL_PROVIDER,
@@ -672,9 +730,9 @@ function requireProvider(id: string | undefined) {
  */
 async function startInstall(
    options: IntegrationsOptions,
-   input: { app: StoredApp; workspaceId: string; userId: string; provider: string }
+   input: { slug: string; workspaceId: string; userId: string; provider: string }
 ): Promise<string> {
-   const installPath = `https://github.com/apps/${encodeURIComponent(input.app.slug)}/installations/new`;
+   const installPath = `https://github.com/apps/${encodeURIComponent(input.slug)}/installations/new`;
    const pending = await options.states!.start({
       workspaceId: input.workspaceId,
       userId: input.userId,

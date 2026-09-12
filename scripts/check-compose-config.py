@@ -54,6 +54,7 @@ def render_compose() -> dict[str, Any]:
             "BERRY_AUTH_GITHUB_CLIENT_ID": "",
             "BERRY_AUTH_GITHUB_CLIENT_SECRET": "",
             "BERRY_AUTH_SECRET": "",
+            "BERRY_GITHUB_APP_SLUG": "",
             "BERRY_DATABASE_URL": (
                 "postgres://berry:berry@postgres:5432/berry?sslmode=disable"
             ),

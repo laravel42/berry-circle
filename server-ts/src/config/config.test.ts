@@ -180,3 +180,25 @@ test('the runtime section needs no Bedrock region: the server calls no model', (
    const config = loadConfig({ ...base, BERRY_BEDROCK_REGION: '', AWS_REGION: '' });
    assert.equal(config.runtime.defaultModel, 'us.anthropic.claude-haiku-4-5-20251001-v1:0');
 });
+
+/**
+ * The App's slug, which is how an install can be offered before Berry holds an
+ * App of its own. It names a public page — https://github.com/apps/<slug> — so
+ * it is configuration rather than a secret, and a malformed one is refused here
+ * rather than becoming a link that 404s on GitHub.
+ */
+test('the App slug is read from the environment and is not a secret', () => {
+   const config = loadConfig({ ...BASE_ENV, BERRY_GITHUB_APP_SLUG: 'berry-circle' });
+   assert.equal(config.auth.githubAppSlug, 'berry-circle');
+});
+
+test('an unset App slug is null rather than an empty string', () => {
+   assert.equal(loadConfig({ ...BASE_ENV, BERRY_GITHUB_APP_SLUG: '' }).auth.githubAppSlug, null);
+});
+
+test('a slug that could not be a GitHub App name is refused', () => {
+   assert.throws(
+      () => loadConfig({ ...BASE_ENV, BERRY_GITHUB_APP_SLUG: 'https://github.com/apps/berry' }),
+      (error: unknown) => error instanceof ConfigError && /BERRY_GITHUB_APP_SLUG/.test(error.message)
+   );
+});

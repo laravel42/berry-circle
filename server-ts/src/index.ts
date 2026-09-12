@@ -874,6 +874,10 @@ registry.registerAll(
       states: connections ? new OAuthStateStore({ sql }) : null,
       github: config.integrations.github,
       githubApp,
+      // Not a secret, and not stored: the App's public name, so an install can
+      // be offered on a deployment that signs people in with an App it did not
+      // create. A stored App's slug wins.
+      appSlug: config.auth.githubAppSlug,
       publicUrl: config.integrations.publicUrl,
       appUrl: config.integrations.appUrl,
       // Settings pages live under the workspace, so a callback needs its slug

@@ -30,6 +30,27 @@ import { integrationMounts } from './integrations.ts';
 
 const url = process.env.BERRY_TEST_DATABASE_URL;
 
+/** The slug an operator would configure for an App Berry did not create. */
+const CONFIGURED_SLUG = 'berry-configured-slug';
+
+/**
+ * The same repository, answering "no App is stored".
+ *
+ * `github_apps` holds one row for the whole deployment, so a test cannot delete
+ * it to make the point without answering for every other test file that writes
+ * one. Methods are bound to the real instance because they read private fields,
+ * which a proxy is not the brand of.
+ */
+function withoutStoredApp(real: GitHubAppRepository): GitHubAppRepository {
+   return new Proxy(real, {
+      get(target, property, receiver) {
+         if (property === 'app') return async () => null;
+         const value = Reflect.get(target, property, receiver);
+         return typeof value === 'function' ? value.bind(target) : value;
+      },
+   });
+}
+
 /** GitHub's answer when the App asks what an installation is. */
 function githubStub(account: { login: string; type: string }): typeof globalThis.fetch {
    return (async (input: string | URL | Request) => {
@@ -50,6 +71,10 @@ describe(
    () => {
       let sql: Sql;
       let app: BerryApp;
+      /** The same mount with a configured slug and no App of its own. */
+      let slugOnlyApp: BerryApp;
+      /** And the same again with neither, which is the state that must speak up. */
+      let noSlugApp: BerryApp;
       let states: OAuthStateStore;
       let githubApp: GitHubAppRepository;
       let u1Token: string;
@@ -149,29 +174,38 @@ describe(
             u1Id
          );
 
-         const registry = new Registry();
-         registry.registerAll(
-            integrationMounts({
-               sessions: new SessionService({
-                  sql,
-                  auth: null,
-                  bearer: [personalTokenResolver(sql)],
-               }),
-               boards: new BoardRepository(sql),
-               connections: null,
-               states,
-               github: null,
-               githubApp,
-               publicUrl: 'http://localhost:4000',
-               appUrl: 'http://localhost:3000',
-               workspaceSlug: async (id: string) => {
-                  const [row] = await sql`SELECT slug FROM workspaces WHERE id = ${id}`;
-                  return (row?.slug as string | undefined) ?? null;
-               },
-               firstRunSetup: null,
-            })
-         );
-         app = createApp(registry);
+         const mount = (overrides: {
+            githubApp: GitHubAppRepository;
+            appSlug: string | null;
+         }): BerryApp => {
+            const registry = new Registry();
+            registry.registerAll(
+               integrationMounts({
+                  sessions: new SessionService({
+                     sql,
+                     auth: null,
+                     bearer: [personalTokenResolver(sql)],
+                  }),
+                  boards: new BoardRepository(sql),
+                  connections: null,
+                  states,
+                  github: null,
+                  githubApp: overrides.githubApp,
+                  appSlug: overrides.appSlug,
+                  publicUrl: 'http://localhost:4000',
+                  appUrl: 'http://localhost:3000',
+                  workspaceSlug: async (id: string) => {
+                     const [row] = await sql`SELECT slug FROM workspaces WHERE id = ${id}`;
+                     return (row?.slug as string | undefined) ?? null;
+                  },
+                  firstRunSetup: null,
+               })
+            );
+            return createApp(registry);
+         };
+         app = mount({ githubApp, appSlug: CONFIGURED_SLUG });
+         slugOnlyApp = mount({ githubApp: withoutStoredApp(githubApp), appSlug: CONFIGURED_SLUG });
+         noSlugApp = mount({ githubApp: withoutStoredApp(githubApp), appSlug: null });
       });
 
       beforeEach(async () => {
@@ -368,6 +402,86 @@ describe(
 
          assert.equal(status, 'install_not_permitted');
          assert.equal(await githubApp.installation(w2Id), null);
+      });
+
+      test("the stored App's slug is preferred over the configured one", async () => {
+         const step = await accessStep();
+
+         // Both are available here; the row's slug came from GitHub itself.
+         assert.ok(
+            step.installUrl!.startsWith(`https://github.com/apps/berry-${suffix}/installations/new`),
+            step.installUrl!
+         );
+         assert.ok(!step.installUrl!.includes(CONFIGURED_SLUG));
+      });
+
+      test('a deployment with no App of its own offers the configured slug', async () => {
+         const response = await slugOnlyApp.request(
+            '/api/v1/integrations/github/app/repository-access',
+            {
+               method: 'POST',
+               headers: { authorization: `Bearer ${u1Token}`, 'content-type': 'application/json' },
+               body: '{}',
+            }
+         );
+         const body = (await response.json()) as {
+            next: string;
+            installUrl: string | null;
+            reason: string | null;
+         };
+
+         assert.equal(response.status, 200);
+         assert.equal(body.next, 'install');
+         assert.ok(
+            body.installUrl!.startsWith(
+               `https://github.com/apps/${CONFIGURED_SLUG}/installations/new`
+            ),
+            body.installUrl!
+         );
+         // And the offer is recorded, so this login is the only one that detours.
+         assert.equal(await offerStatus(), 'offered');
+      });
+
+      test('no App and no slug skips the install and says which setting is missing', async () => {
+         const response = await noSlugApp.request(
+            '/api/v1/integrations/github/app/repository-access',
+            {
+               method: 'POST',
+               headers: { authorization: `Bearer ${u1Token}`, 'content-type': 'application/json' },
+               body: '{}',
+            }
+         );
+         const body = (await response.json()) as {
+            next: string;
+            installUrl: string | null;
+            reason: string | null;
+         };
+
+         // A usable account either way: nothing here is an error.
+         assert.equal(response.status, 200);
+         assert.equal(body.next, 'no_slug');
+         assert.equal(body.installUrl, null);
+         assert.match(body.reason ?? '', /BERRY_GITHUB_APP_SLUG/);
+         // Nobody was sent anywhere, so nobody has been asked.
+         assert.equal(await offerStatus(), null);
+      });
+
+      test('the App resource carries the install link and the reason there is none', async () => {
+         const withSlug = (await (
+            await slugOnlyApp.request('/api/v1/integrations/github/app', {
+               headers: { authorization: `Bearer ${u1Token}` },
+            })
+         ).json()) as { installUrl: string | null; installReason: string | null };
+         const without = (await (
+            await noSlugApp.request('/api/v1/integrations/github/app', {
+               headers: { authorization: `Bearer ${u1Token}` },
+            })
+         ).json()) as { installUrl: string | null; installReason: string | null };
+
+         assert.ok(withSlug.installUrl?.includes(CONFIGURED_SLUG), String(withSlug.installUrl));
+         assert.equal(withSlug.installReason, null);
+         assert.equal(without.installUrl, null);
+         assert.match(without.installReason ?? '', /BERRY_GITHUB_APP_SLUG/);
       });
    }
 );

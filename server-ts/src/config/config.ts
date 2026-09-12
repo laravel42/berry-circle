@@ -190,6 +190,16 @@ export interface AuthConfig {
    trustedOrigins: string[];
    /** The sign-in OAuth App. Separate from integrations.github. */
    github: { clientId: string; clientSecret: string } | null;
+   /**
+    * The GitHub App's slug — the name in `https://github.com/apps/<slug>`.
+    *
+    * Not a secret: it names a public page, and it is here only so that an
+    * install can be *offered* on a deployment that signs people in with an App
+    * whose credentials it was given rather than an App it created for itself.
+    * Without it there is no install URL to send anyone to, and a `github_apps`
+    * row — when there is one — wins, because that slug came from GitHub.
+    */
+   githubAppSlug: string | null;
    /** Development-only known-email login (dev-login route + testUtils plugin). */
    devLogin: boolean;
 }
@@ -560,6 +570,16 @@ function auth(env: NodeJS.ProcessEnv, _appEnv: string, problems: string[]): Auth
       problems.push('BERRY_AUTH_SECRET is required when GitHub sign-in is configured');
    }
 
+   // A GitHub App slug is what GitHub puts in a URL path: letters, digits and
+   // dashes. Checked rather than trusted, because the failure of a wrong one is
+   // an install link that 404s on GitHub — which reads as Berry being broken.
+   const slug = (env.BERRY_GITHUB_APP_SLUG ?? '').trim();
+   if (slug && !/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,98}[A-Za-z0-9])?$/.test(slug)) {
+      problems.push(
+         'BERRY_GITHUB_APP_SLUG must be the App name from https://github.com/apps/<slug>, not a URL'
+      );
+   }
+
    const appUrl = origin(env.BERRY_APP_URL);
    const publicUrl = origin(env.BERRY_PUBLIC_URL);
    const baseUrl = appUrl ?? publicUrl ?? (development ? 'http://localhost:3000' : null);
@@ -585,6 +605,7 @@ function auth(env: NodeJS.ProcessEnv, _appEnv: string, problems: string[]): Auth
       baseUrl,
       trustedOrigins,
       github,
+      githubAppSlug: slug === '' ? null : slug,
       devLogin: development && boolean(env.AUTH_ALLOW_PASSWORDLESS_LOGIN, true),
    };
 }
