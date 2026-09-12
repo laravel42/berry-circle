@@ -21,6 +21,7 @@ NAMESPACES = (
     "common", "settings", "shell", "tasks", "projects", "goals", "reviews", "agents", "runtimes",
     "navigation",
     "issueDetail",
+    "issueLists",
 )
 PLACEHOLDER = re.compile(r"\{\s*([A-Za-z_][A-Za-z0-9_]*)")
 

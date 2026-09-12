@@ -2,6 +2,7 @@ import agents from '@/messages/en/agents.json';
 import common from '@/messages/en/common.json';
 import goals from '@/messages/en/goals.json';
 import issueDetail from '@/messages/en/issueDetail.json';
+import issueLists from '@/messages/en/issueLists.json';
 import navigation from '@/messages/en/navigation.json';
 import projects from '@/messages/en/projects.json';
 import reviews from '@/messages/en/reviews.json';
@@ -20,6 +21,7 @@ const messages = {
    common,
    goals,
    issueDetail,
+   issueLists,
    navigation,
    projects,
    reviews,

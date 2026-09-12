@@ -45,7 +45,9 @@ function parseViewFilter(query: unknown, currentUserId?: string): ViewFilter {
       if (priorityIds.length > 0) filter.priorityIds = priorityIds;
    }
    if (Array.isArray(record.labelIds)) {
-      const labelIds = record.labelIds.filter((value): value is string => typeof value === 'string');
+      const labelIds = record.labelIds.filter(
+         (value): value is string => typeof value === 'string'
+      );
       if (labelIds.length > 0) filter.labelIds = labelIds;
    }
 
@@ -85,6 +87,12 @@ export function toUiView(
       filter.unassigned = false;
    }
 
+   const record = query && typeof query === 'object' ? (query as Record<string, unknown>) : {};
+   const display =
+      saved.display && typeof saved.display === 'object'
+         ? (saved.display as Record<string, unknown>)
+         : {};
+
    return {
       id: saved.id,
       name: saved.name,
@@ -95,6 +103,14 @@ export function toUiView(
       createdAt: saved.createdAt.slice(0, 10),
       updatedAt: saved.updatedAt.slice(0, 10),
       filter,
+      visibility: saved.visibility === 'workspace' ? 'workspace' : 'private',
+      revision: saved.revision,
+      // Kept whole rather than folded into `filter`: the filter bar's chips
+      // are richer than the declarative filter above, and a view that loses
+      // half its conditions on load is worse than one that does not open.
+      savedFilters: Array.isArray(record.filters) ? (record.filters as unknown[]) : [],
+      display,
+      scope: typeof record.scope === 'string' ? record.scope : undefined,
    };
 }
 
@@ -134,17 +150,28 @@ export async function createSavedView(input: {
    query: Record<string, unknown>;
    display: Record<string, unknown>;
 }): Promise<SavedView> {
-   const parsed = savedViewSchema.safeParse(await apiFetch('/api/v1/views', { method: 'POST', body: JSON.stringify(input) }));
+   const parsed = savedViewSchema.safeParse(
+      await apiFetch('/api/v1/views', { method: 'POST', body: JSON.stringify(input) })
+   );
    if (!parsed.success) throw new Error('View response was not recognized');
    return parsed.data;
 }
 
 export async function updateSavedView(
    viewId: string,
-   patch: { name?: string; visibility?: 'private' | 'workspace'; query?: Record<string, unknown>; display?: Record<string, unknown>; revision: number }
+   patch: {
+      name?: string;
+      visibility?: 'private' | 'workspace';
+      query?: Record<string, unknown>;
+      display?: Record<string, unknown>;
+      revision: number;
+   }
 ): Promise<SavedView> {
    const parsed = savedViewSchema.safeParse(
-      await apiFetch(`/api/v1/views/${encodeURIComponent(viewId)}`, { method: 'PATCH', body: JSON.stringify(patch) })
+      await apiFetch(`/api/v1/views/${encodeURIComponent(viewId)}`, {
+         method: 'PATCH',
+         body: JSON.stringify(patch),
+      })
    );
    if (!parsed.success) throw new Error('View response was not recognized');
    return parsed.data;
@@ -154,9 +181,14 @@ export async function deleteSavedView(viewId: string): Promise<void> {
    await apiFetch(`/api/v1/views/${encodeURIComponent(viewId)}`, { method: 'DELETE' });
 }
 
-const preferencesSchema = z.object({ activeViewId: z.string().nullable(), preferences: z.record(z.unknown()) });
+const preferencesSchema = z.object({
+   activeViewId: z.string().nullable(),
+   preferences: z.record(z.unknown()),
+});
 
-export async function loadViewPreferences(workspaceId: string): Promise<z.infer<typeof preferencesSchema>> {
+export async function loadViewPreferences(
+   workspaceId: string
+): Promise<z.infer<typeof preferencesSchema>> {
    const parsed = preferencesSchema.safeParse(
       await apiFetch(`/api/v1/views/preferences?workspaceId=${encodeURIComponent(workspaceId)}`)
    );

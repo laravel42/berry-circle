@@ -31,6 +31,11 @@ export interface Issue {
    priority: Priority;
    labels: LabelInterface[];
    createdAt: string;
+   /** Last write of any kind: the detail page's "updated", and what the list
+    *  date filters and ordering read. */
+   updatedAt?: string;
+   /** Who opened the task: a member, or an agent that filed it. */
+   creator?: User | null;
    /** Cycle the issue belongs to. Empty string = no cycle (backlog stock). */
    cycleId: string;
    project?: Project;
@@ -57,8 +62,6 @@ export interface Issue {
    childProgress?: { total: number; done: number };
    /** Who filed it. Absent on a task created before the field was carried. */
    createdBy?: User | null;
-   /** Last write of any kind, which is what the detail page's "updated" means. */
-   updatedAt?: string;
 }
 
 /**

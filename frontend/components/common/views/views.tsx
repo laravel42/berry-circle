@@ -1,7 +1,24 @@
 'use client';
 
+import {
+   AlertDialog,
+   AlertDialogAction,
+   AlertDialogCancel,
+   AlertDialogContent,
+   AlertDialogDescription,
+   AlertDialogFooter,
+   AlertDialogHeader,
+   AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import {
+   DropdownMenu,
+   DropdownMenuContent,
+   DropdownMenuItem,
+   DropdownMenuSeparator,
+   DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
    Select,
@@ -17,12 +34,14 @@ import { deleteSavedView, loadWorkspaceViews } from '@/lib/views';
 import { useSessionStore } from '@/store/session-store';
 import { useViewsStore } from '@/store/views-store';
 import { useViewsDisplayStore, ViewsOrdering } from '@/store/views-display-store';
-import { ArrowDown, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowDown, MoreHorizontal, Plus, SlidersHorizontal } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { SaveViewDialog } from './save-view-dialog';
 
 const TABS = ['issues', 'projects'] as const;
 
@@ -51,7 +70,7 @@ function DisplayOptions() {
    return (
       <Popover>
          <PopoverTrigger asChild>
-            <Button size="xs" variant="ghost">
+            <Button size="xs" variant="ghost" aria-label="Display options">
                <SlidersHorizontal className="size-4" />
             </Button>
          </PopoverTrigger>
@@ -102,8 +121,20 @@ function DisplayOptions() {
    );
 }
 
-function ViewRow({ view, orgId, onDelete }: { view: View; orgId: string; onDelete: () => void }) {
+function ViewRow({
+   view,
+   orgId,
+   onEdit,
+   onDelete,
+}: {
+   view: View;
+   orgId: string;
+   onEdit: () => void;
+   onDelete: () => void;
+}) {
+   const t = useTranslations('issueLists');
    const { displayProperties } = useViewsDisplayStore();
+
    return (
       <div className="flex items-center gap-1 pr-4 border-b border-border/50 hover:bg-sidebar/50 transition-colors">
          <Link
@@ -138,15 +169,38 @@ function ViewRow({ view, orgId, onDelete }: { view: View; orgId: string; onDelet
             )}
          </Link>
          <PinToggle targetType="view" targetId={view.id} />
-         <Button size="xs" variant="ghost" aria-label="Delete view" onClick={onDelete}>
-            <Trash2 className="size-3.5" />
-         </Button>
+         <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+               <Button
+                  size="icon"
+                  variant="ghost"
+                  className="size-8"
+                  aria-label={`${view.name} menu`}
+               >
+                  <MoreHorizontal className="size-4" />
+               </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+               <DropdownMenuItem onClick={onEdit}>{t('views.edit')}</DropdownMenuItem>
+               <DropdownMenuSeparator />
+               <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={(event) => {
+                     event.preventDefault();
+                     onDelete();
+                  }}
+               >
+                  {t('views.delete')}
+               </DropdownMenuItem>
+            </DropdownMenuContent>
+         </DropdownMenu>
       </div>
    );
 }
 
 /** "Views" page: the workspace's saved issue / project views. */
 export default function Views() {
+   const t = useTranslations('issueLists');
    const { orgId } = useParams<{ orgId: string }>();
    const [tab, setTab] = useQueryState('tab', parseAsStringLiteral(TABS).withDefault('issues'));
    const { ordering } = useViewsDisplayStore();
@@ -154,16 +208,21 @@ export default function Views() {
    const workspaceId = useSessionStore((state) => state.workspace?.id ?? '');
    const user = useSessionStore((state) => state.user);
    const hydrateViews = useViewsStore((state) => state.hydrateViews);
+   const [editing, setEditing] = useState<View | undefined>();
+   const [creating, setCreating] = useState(false);
+   const [deleting, setDeleting] = useState<View | undefined>();
 
    useEffect(() => {
       if (!workspaceId || !user) return;
       void loadWorkspaceViews(workspaceId, user).then(hydrateViews);
    }, [workspaceId, user, hydrateViews]);
 
-   const remove = (viewId: string) =>
-      void deleteSavedView(viewId)
-         .then(() => hydrateViews(savedViews.filter((view) => view.id !== viewId)))
+   const remove = (view: View) => {
+      setDeleting(undefined);
+      void deleteSavedView(view.id)
+         .then(() => hydrateViews(savedViews.filter((entry) => entry.id !== view.id)))
          .catch(() => toast.error('You cannot delete this view.'));
+   };
 
    const list = useMemo(() => {
       const source = savedViews.filter((view) =>
@@ -195,35 +254,70 @@ export default function Views() {
                   </button>
                ))}
             </div>
-            <DisplayOptions />
+            <div className="flex items-center gap-1">
+               <Button size="xs" variant="ghost" onClick={() => setCreating(true)}>
+                  <Plus className="mr-1 size-3.5" />
+                  {t('views.newView')}
+               </Button>
+               <DisplayOptions />
+            </div>
          </div>
 
          <div className="flex items-center gap-1 px-6 py-1.5 text-muted-foreground border-b">
-            Name
+            {t('views.name')}
             <ArrowDown className="size-3" />
          </div>
 
-         <div className="flex items-center justify-between px-6 py-2 bg-sidebar/60 border-b border-border/50">
-            <span className="flex items-center gap-2">
-               <span className="inline-flex size-5 items-center justify-center rounded bg-primary text-primary-foreground font-semibold">
-                  LN
-               </span>
-               <span className="font-medium">Berry</span>
-               <span className="text-muted-foreground">· Workspace</span>
-            </span>
-            <Button size="xs" variant="ghost">
-               <Plus className="size-3.5" />
-            </Button>
-         </div>
-
          {list.map((view) => (
-            <ViewRow key={view.id} view={view} orgId={orgId} onDelete={() => remove(view.id)} />
+            <ViewRow
+               key={view.id}
+               view={view}
+               orgId={orgId}
+               onEdit={() => setEditing(view)}
+               onDelete={() => setDeleting(view)}
+            />
          ))}
          {list.length === 0 && (
             <div className="flex items-center justify-center py-16 text-muted-foreground">
-               No views yet
+               {t('states.empty')}
             </div>
          )}
+
+         <SaveViewDialog open={creating} onOpenChange={setCreating} />
+         <SaveViewDialog
+            open={editing !== undefined}
+            onOpenChange={(open) => {
+               if (!open) setEditing(undefined);
+            }}
+            view={editing}
+         />
+
+         <AlertDialog
+            open={deleting !== undefined}
+            onOpenChange={(open) => {
+               if (!open) setDeleting(undefined);
+            }}
+         >
+            <AlertDialogContent>
+               <AlertDialogHeader>
+                  <AlertDialogTitle>
+                     {t('views.deleteTitle', { name: deleting?.name ?? '' })}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>{t('views.deleteBody')}</AlertDialogDescription>
+               </AlertDialogHeader>
+               <AlertDialogFooter>
+                  <AlertDialogCancel>{t('selection.cancel')}</AlertDialogCancel>
+                  <AlertDialogAction
+                     onClick={(event) => {
+                        event.preventDefault();
+                        if (deleting) remove(deleting);
+                     }}
+                  >
+                     {t('views.delete')}
+                  </AlertDialogAction>
+               </AlertDialogFooter>
+            </AlertDialogContent>
+         </AlertDialog>
       </div>
    );
 }

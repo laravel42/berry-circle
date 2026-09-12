@@ -2,6 +2,13 @@
 
 import { useState } from 'react';
 import { SaveViewDialog } from '@/components/common/views/save-view-dialog';
+import {
+   groupingKeysForMode,
+   modeTakesPropertyGrouping,
+   ORDERING_KEYS,
+   useIssueListView,
+} from '@/components/common/issues/use-issue-list-view';
+import { useWorkspaceProperties } from '@/components/common/issues/issue-grouping';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -21,10 +28,11 @@ import {
    OrderingKey,
    useDisplaySettingsStore,
 } from '@/store/display-settings-store';
-import { useViewStore } from '@/store/view-store';
+import type { ViewType } from '@/store/view-store';
 import {
-   ArrowUpNarrowWide,
+   ArrowDownWideNarrow,
    ArrowUpDown,
+   ArrowUpNarrowWide,
    CalendarRange,
    LayoutGrid,
    LayoutList,
@@ -32,38 +40,31 @@ import {
    SlidersHorizontal,
    Table2,
 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
-const GROUPINGS: { value: GroupingKey; label: string }[] = [
-   { value: 'status', label: 'Status' },
-   { value: 'assignee', label: 'Assignee' },
-   { value: 'priority', label: 'Priority' },
-   { value: 'project', label: 'Project' },
-   { value: 'none', label: 'No grouping' },
-];
-
-const ORDERINGS: { value: OrderingKey; label: string }[] = [
-   { value: 'priority', label: 'Priority' },
-   { value: 'created', label: 'Created' },
-   { value: 'title', label: 'Title' },
+const LAYOUTS: { value: ViewType; icon: React.ElementType }[] = [
+   { value: 'list', icon: LayoutList },
+   { value: 'grid', icon: LayoutGrid },
+   { value: 'table', icon: Table2 },
+   { value: 'swimlane', icon: Rows3 },
+   { value: 'gantt', icon: CalendarRange },
 ];
 
 /**
- * Linear-style "Display" popover: list/board switch, grouping, ordering,
- * completed-issue visibility, list options and display property chips.
+ * The Display popover of a task list: layout, grouping (per layout), ordering
+ * and its direction, what counts as visible, and the per-row properties.
  */
 export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
-   const { viewType, setViewType } = useViewStore();
+   const t = useTranslations('issueLists');
+   const view = useIssueListView();
+   const properties = useWorkspaceProperties();
    const [saveOpen, setSaveOpen] = useState(false);
    const {
-      grouping,
-      ordering,
       orderCompletedByRecency,
       completedIssues,
       showSubIssues,
       showEmptyGroups,
       displayProperties,
-      setGrouping,
-      setOrdering,
       setOrderCompletedByRecency,
       setCompletedIssues,
       setShowSubIssues,
@@ -73,10 +74,41 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
    } = useDisplaySettingsStore();
 
    const isDefault =
-      grouping === 'status' &&
-      ordering === 'priority' &&
+      view.grouping === 'status' &&
+      view.ordering === 'priority' &&
+      view.direction === 'asc' &&
       completedIssues === 'all' &&
       !showEmptyGroups;
+
+   const groupings = groupingKeysForMode(view.mode);
+   const takesProperties = modeTakesPropertyGrouping(view.mode);
+
+   // Spelled out rather than built from the key: `t()` is typed against the
+   // English catalogue, and a template-literal key is not a key it can check.
+   const layoutLabel: Record<ViewType, string> = {
+      list: t('mode.list'),
+      grid: t('mode.board'),
+      table: t('mode.table'),
+      swimlane: t('mode.swimlane'),
+      gantt: t('mode.gantt'),
+   };
+   const groupingLabel: Record<string, string> = {
+      status: t('display.status'),
+      assignee: t('display.assignee'),
+      priority: t('display.priority'),
+      project: t('display.project'),
+      parent: t('display.parent'),
+      none: t('display.none'),
+   };
+   const orderingLabel: Record<OrderingKey, string> = {
+      manual: t('display.manual'),
+      status: t('display.status'),
+      priority: t('display.priority'),
+      dueDate: t('display.dueDate'),
+      created: t('display.created'),
+      updated: t('display.updated'),
+      title: t('display.title'),
+   };
 
    return (
       <>
@@ -90,36 +122,28 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                >
                   <SlidersHorizontal className={cn('size-4', !iconOnly && 'mr-1')} />
                   {iconOnly ? null : 'Display'}
-                  {(!isDefault || viewType !== 'list') && (
+                  {(!isDefault || view.mode !== 'list') && (
                      <span className="absolute right-0 top-0 w-2 h-2 bg-orange-500 rounded-full" />
                   )}
                </Button>
             </PopoverTrigger>
             <PopoverContent className="w-80 p-0" align="end">
-               {/* List / Board switch */}
+               {/* Layout */}
                <div className="p-3">
                   <div className="grid grid-cols-5 gap-1 bg-accent/50 rounded-md p-1">
-                     {(
-                        [
-                           ['list', 'List', LayoutList],
-                           ['grid', 'Board', LayoutGrid],
-                           ['table', 'Table', Table2],
-                           ['swimlane', 'Lanes', Rows3],
-                           ['gantt', 'Gantt', CalendarRange],
-                        ] as const
-                     ).map(([type, label, Icon]) => (
+                     {LAYOUTS.map((layout) => (
                         <button
-                           key={type}
-                           onClick={() => setViewType(type)}
+                           key={layout.value}
+                           onClick={() => view.setMode(layout.value)}
                            className={cn(
                               'flex flex-col items-center justify-center gap-0.5 h-12 rounded font-medium transition-colors',
-                              viewType === type
+                              view.mode === layout.value
                                  ? 'bg-background shadow-sm'
                                  : 'text-muted-foreground'
                            )}
                         >
-                           <Icon className="size-3.5" />
-                           {label}
+                           <layout.icon className="size-3.5" />
+                           {layoutLabel[layout.value]}
                         </button>
                      ))}
                   </div>
@@ -130,30 +154,30 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                   <div className="flex items-center justify-between gap-2">
                      <span className="flex items-center gap-1.5 text-muted-foreground">
                         <ArrowUpDown className="size-3.5" />
-                        Grouping
+                        {t('display.grouping')}
                      </span>
-                     <Select value={grouping} onValueChange={(v) => setGrouping(v as GroupingKey)}>
+                     <Select
+                        value={view.grouping}
+                        onValueChange={(value) => view.setGrouping(value as GroupingKey)}
+                     >
                         <SelectTrigger className="h-7 w-36">
                            <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                           {GROUPINGS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                 {option.label}
+                           {groupings.map((key) => (
+                              <SelectItem key={key} value={key}>
+                                 {groupingLabel[key] ?? key}
                               </SelectItem>
                            ))}
-                        </SelectContent>
-                     </Select>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2">
-                     <span className="text-muted-foreground pl-5">Sub-grouping</span>
-                     <Select value="none" disabled>
-                        <SelectTrigger className="h-7 w-36">
-                           <SelectValue placeholder="No grouping" />
-                        </SelectTrigger>
-                        <SelectContent>
-                           <SelectItem value="none">No grouping</SelectItem>
+                           {takesProperties &&
+                              properties.map((definition) => (
+                                 <SelectItem
+                                    key={definition.id}
+                                    value={`property:${definition.id}`}
+                                 >
+                                    {definition.name}
+                                 </SelectItem>
+                              ))}
                         </SelectContent>
                      </Select>
                   </div>
@@ -161,20 +185,49 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                   <div className="flex items-center justify-between gap-2">
                      <span className="flex items-center gap-1.5 text-muted-foreground">
                         <ArrowUpNarrowWide className="size-3.5" />
-                        Ordering
+                        {t('display.ordering')}
                      </span>
-                     <Select value={ordering} onValueChange={(v) => setOrdering(v as OrderingKey)}>
-                        <SelectTrigger className="h-7 w-36">
-                           <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                           {ORDERINGS.map((option) => (
-                              <SelectItem key={option.value} value={option.value}>
-                                 {option.label}
-                              </SelectItem>
-                           ))}
-                        </SelectContent>
-                     </Select>
+                     <div className="flex items-center gap-1">
+                        <Select
+                           value={view.ordering}
+                           onValueChange={(value) => view.setOrdering(value as OrderingKey)}
+                        >
+                           <SelectTrigger className="h-7 w-28">
+                              <SelectValue />
+                           </SelectTrigger>
+                           <SelectContent>
+                              {ORDERING_KEYS.map((key) => (
+                                 <SelectItem key={key} value={key}>
+                                    {orderingLabel[key]}
+                                 </SelectItem>
+                              ))}
+                           </SelectContent>
+                        </Select>
+                        <Button
+                           size="icon"
+                           variant="ghost"
+                           className="size-7"
+                           aria-label={
+                              view.direction === 'asc'
+                                 ? t('display.ascending')
+                                 : t('display.descending')
+                           }
+                           title={
+                              view.direction === 'asc'
+                                 ? t('display.ascending')
+                                 : t('display.descending')
+                           }
+                           onClick={() =>
+                              view.setDirection(view.direction === 'asc' ? 'desc' : 'asc')
+                           }
+                        >
+                           {view.direction === 'asc' ? (
+                              <ArrowUpNarrowWide className="size-3.5" />
+                           ) : (
+                              <ArrowDownWideNarrow className="size-3.5" />
+                           )}
+                        </Button>
+                     </div>
                   </div>
 
                   <div className="flex items-center justify-between">
@@ -197,7 +250,9 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                      <span className="text-muted-foreground">Completed tasks</span>
                      <Select
                         value={completedIssues}
-                        onValueChange={(v) => setCompletedIssues(v as CompletedIssuesFilter)}
+                        onValueChange={(value) =>
+                           setCompletedIssues(value as CompletedIssuesFilter)
+                        }
                      >
                         <SelectTrigger className="h-7 w-36">
                            <SelectValue />
@@ -211,7 +266,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
 
                   <div className="flex items-center justify-between">
                      <Label htmlFor="show-sub-issues" className="text-muted-foreground font-normal">
-                        Show sub-tasks
+                        {t('display.subIssues')}
                      </Label>
                      <Switch
                         id="show-sub-issues"
@@ -237,7 +292,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                      />
                   </div>
 
-                  <span className="text-muted-foreground mt-1">Display properties</span>
+                  <span className="text-muted-foreground mt-1">{t('display.cardProperties')}</span>
                   <div className="flex flex-wrap gap-1.5">
                      {DISPLAY_PROPERTIES.map((property) => (
                         <button
@@ -261,7 +316,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                      onClick={resetDisplaySettings}
                      className="text-muted-foreground hover:text-foreground"
                   >
-                     Reset
+                     {t('display.reset')}
                   </button>
                   <button className="text-indigo-500 dark:text-indigo-400 hover:underline">
                      Set default for everyone
@@ -274,7 +329,7 @@ export function DisplayOptions({ iconOnly = false }: { iconOnly?: boolean }) {
                      className="w-full"
                      onClick={() => setSaveOpen(true)}
                   >
-                     Save as view
+                     {t('filters.saveAsView')}
                   </Button>
                </div>
             </PopoverContent>

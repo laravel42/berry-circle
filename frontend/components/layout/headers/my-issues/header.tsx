@@ -2,8 +2,9 @@
 
 import {
    DEFAULT_MY_ISSUES_TAB,
-   MY_ISSUES_TAB_ITEMS,
+   MY_ISSUES_TABS,
    useMyIssuesTab,
+   type MyIssuesTab,
 } from '@/components/common/my-issues/use-my-issues';
 import { IssueFilterTrigger } from '@/components/common/issues/issue-filter-trigger';
 import { Button } from '@/components/ui/button';
@@ -35,23 +36,31 @@ function HeaderNav() {
 
 function HeaderOptions() {
    const t = useTranslations('tasks');
+   const lists = useTranslations('issueLists');
    const [tab, setTab] = useMyIssuesTab();
    const { openPanel, togglePanel } = useRightPanelStore();
+
+   // Written out rather than built from the tab id: `t()` is typed against the
+   // English catalogue, which cannot check a key assembled at runtime.
+   const label: Record<MyIssuesTab, string> = {
+      all: lists('scope.all'),
+      assigned: lists('scope.assigned'),
+      created: lists('scope.created'),
+      agents: lists('scope.agents'),
+   };
 
    return (
       <div className="mb-1 flex h-10 w-full items-center justify-between border-b px-6 py-1.5">
          <div className="flex items-center gap-3">
             <div className="flex items-center gap-1">
-               {MY_ISSUES_TAB_ITEMS.map((item) => {
-                  const isActive = tab === item.value;
+               {MY_ISSUES_TABS.map((value) => {
+                  const isActive = tab === value;
                   return (
                      <button
-                        key={item.value}
+                        key={value}
                         type="button"
                         aria-current={isActive ? 'page' : undefined}
-                        onClick={() =>
-                           void setTab(item.value === DEFAULT_MY_ISSUES_TAB ? null : item.value)
-                        }
+                        onClick={() => void setTab(value === DEFAULT_MY_ISSUES_TAB ? null : value)}
                         className={cn(
                            'inline-flex h-7 cursor-pointer items-center rounded-sm border px-3.5 font-medium transition-colors',
                            isActive
@@ -59,7 +68,7 @@ function HeaderOptions() {
                               : 'border-border/40 text-muted-foreground hover:border-border/60 hover:bg-accent/50 hover:text-foreground'
                         )}
                      >
-                        {t(`tabs.${item.value}`)}
+                        {label[value]}
                      </button>
                   );
                })}

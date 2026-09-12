@@ -4,8 +4,15 @@ import { useProjectsDisplayStore } from '@/store/projects-display-store';
 import ProjectLine from './project-line';
 import { ProjectGroup } from './projects';
 
-/** Projects "List" view: grouped table (team sections by default). */
-export default function ProjectsList({ groups }: { groups: ProjectGroup[] }) {
+interface ProjectsListProps {
+   groups: ProjectGroup[];
+   /** Ids currently selected; omitted when the surface offers no selection. */
+   selected?: string[];
+   onToggleSelected?: (projectId: string) => void;
+}
+
+/** Projects "List" view: grouped table (status sections by default). */
+export default function ProjectsList({ groups, selected, onToggleSelected }: ProjectsListProps) {
    const { grouping, displayProperties } = useProjectsDisplayStore();
 
    return (
@@ -40,7 +47,14 @@ export default function ProjectsList({ groups }: { groups: ProjectGroup[] }) {
                   </div>
                )}
                {group.projects.map((project) => (
-                  <ProjectLine key={project.id} project={project} />
+                  <ProjectLine
+                     key={project.id}
+                     project={project}
+                     selected={selected?.includes(project.id)}
+                     onToggleSelected={
+                        onToggleSelected ? () => onToggleSelected(project.id) : undefined
+                     }
+                  />
                ))}
                {group.projects.length === 0 && (
                   <div className="px-6 py-3 text-muted-foreground border-b border-border/40">
