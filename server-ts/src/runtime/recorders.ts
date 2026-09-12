@@ -1,5 +1,7 @@
 import type { Sql } from '../db/pool.ts';
 import { RunTerminal, type Failure, type RunLedger, type Usage } from '../runs/ledger.ts';
+import { RunRepository } from '../runs/repository.ts';
+import { notifyRunTerminal } from '../runs/terminal-hooks.ts';
 import type { TaskMessage, TaskResult } from './lifecycle.ts';
 
 /**
@@ -7,8 +9,13 @@ import type { TaskMessage, TaskResult } from './lifecycle.ts';
  *
  * Issue runs go through the ledger, as they always have: the run stream, the
  * task timeline and the review gate read what it writes. A run with no issue
- * (a completion; a chat task until workstream D gives chats a stream) has no
- * board to publish on, so it writes its status on the row and nothing else.
+ * (a completion, a chat task) has no board to publish on, so it writes its
+ * status on the row.
+ *
+ * It also announces the end of the run, as the ledger does. That announcement
+ * is what posts a chat reply and what re-triggers a squad leader, so a path
+ * that wrote the status and said nothing left a finished chat looking
+ * unanswered even though the agent had replied.
  */
 export interface TaskRecorder {
    started(): Promise<void>;
@@ -74,6 +81,13 @@ export function ledgerRecorder(ledger: RunLedger, runId: string): TaskRecorder {
 }
 
 export function directRecorder(sql: Sql, runId: string): TaskRecorder {
+   // Only on the transition: a repeated terminal write changes no row and must
+   // not announce a second time, even though the hooks are idempotent.
+   const announce = async (rows: readonly unknown[]) => {
+      if (rows.length === 0) return;
+      const run = await new RunRepository(sql).get(runId);
+      await notifyRunTerminal(run);
+   };
    return {
       async started() {
          await sql`
@@ -85,28 +99,34 @@ export function directRecorder(sql: Sql, runId: string): TaskRecorder {
          // No stream to publish on; the result is what the caller waits for.
       },
       async succeeded({ summary, usage, result }) {
-         await sql`
+         const rows = await sql`
             UPDATE runs SET status = 'succeeded', dispatch_state = 'succeeded', summary = ${summary},
                    result = ${sql.json(result as never)},
                    input_tokens = ${usage.inputTokens}, output_tokens = ${usage.outputTokens},
                    total_tokens = ${usage.totalTokens}, completed_at = now(), updated_at = now(),
                    started_at = COALESCE(started_at, now())
-             WHERE id = ${runId} AND status IN ('queued', 'running')`;
+             WHERE id = ${runId} AND status IN ('queued', 'running')
+         RETURNING id`;
+         await announce(rows);
       },
       async failed({ failure, usage }) {
-         await sql`
+         const rows = await sql`
             UPDATE runs SET status = 'failed', dispatch_state = 'failed',
                    failure_code = ${failure.code}, failure_message = ${failure.message},
                    failure_retryable = ${failure.retryable},
                    input_tokens = ${usage.inputTokens}, output_tokens = ${usage.outputTokens},
                    total_tokens = ${usage.totalTokens}, completed_at = now(), updated_at = now()
-             WHERE id = ${runId} AND status IN ('queued', 'running')`;
+             WHERE id = ${runId} AND status IN ('queued', 'running')
+         RETURNING id`;
+         await announce(rows);
       },
       async cancelled() {
-         await sql`
+         const rows = await sql`
             UPDATE runs SET status = 'cancelled', dispatch_state = 'cancelled',
                    cancel_completed_at = now(), completed_at = now(), updated_at = now()
-             WHERE id = ${runId} AND status IN ('queued', 'running')`;
+             WHERE id = ${runId} AND status IN ('queued', 'running')
+         RETURNING id`;
+         await announce(rows);
       },
    };
 }
