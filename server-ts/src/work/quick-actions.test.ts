@@ -60,6 +60,9 @@ describe('quick actions', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
          kind: 'agent',
          source: 'quick_action',
          prompt: 'Summarise WRK-1',
+         // The person who reached for the action asked for the run, so what the
+         // agent files in it is filed in their name.
+         requestedBy: world.memberId,
       });
       await assert.rejects(
          runQuickAction(sql, enqueue, { workspaceId: world.workspaceId, actionId: '00000000-0000-4000-8000-000000000000', viewerId: world.memberId, issue }),

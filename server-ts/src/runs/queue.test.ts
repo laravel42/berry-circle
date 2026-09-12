@@ -42,9 +42,11 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
          source: 'mention',
          prompt: 'look at this',
          priority: 3,
+         requestedBy: f.userId,
       });
       const [run] = await sql`
-         SELECT status, kind, source, prompt, priority, board_id, workspace_id FROM runs WHERE id = ${runId}`;
+         SELECT status, kind, source, prompt, priority, board_id, workspace_id, requested_by
+           FROM runs WHERE id = ${runId}`;
       assert.deepEqual(
          { ...run },
          {
@@ -55,6 +57,9 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
             priority: 3,
             board_id: f.boardId,
             workspace_id: f.workspaceId,
+            // The person who asked, so what an agent files in this run carries
+            // their name (runtime/agent-tools/core-tools.ts).
+            requested_by: f.userId,
          }
       );
       const [issue] = await sql`SELECT active_run_id FROM issues WHERE id = ${issueId}`;

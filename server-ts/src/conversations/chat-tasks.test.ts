@@ -67,6 +67,9 @@ describe('chat on tasks', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
       assert.equal(calls[0]?.agentId, world.agentId);
       assert.equal(calls[0]?.prompt, 'Summarise the open tasks');
       assert.equal(calls[0]?.issueId, undefined);
+      // The sender asked for the run, so a project or a task the agent files
+      // while answering is filed in their name and not in nobody's.
+      assert.equal(calls[0]?.requestedBy, world.ownerId);
       const messages = await conversations.messages(conversationId);
       assert.equal(messages.at(-1)?.id, sent.messageId);
       const [summary] = await conversations.list(world.ownerId);

@@ -37,6 +37,9 @@ export async function sendChatMessage(
       source: 'chat',
       chatSessionId: input.conversation.id,
       prompt: input.body,
+      // The sender asked for this run, so anything the agent files in it is
+      // filed in their name rather than in nobody's.
+      requestedBy: input.userId,
    });
    return { messageId, runId };
 }

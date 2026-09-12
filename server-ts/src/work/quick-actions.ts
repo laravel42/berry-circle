@@ -21,6 +21,7 @@ export type QuickActionEnqueue = (
       chatSessionId?: string;
       autopilotRunId?: string;
       priority?: number;
+      requestedBy?: string;
    }
 ) => Promise<{ runId: string }>;
 
@@ -287,5 +288,6 @@ export async function runQuickAction(
       kind: 'agent',
       source: 'quick_action',
       prompt: renderPrompt(action.prompt, input.issue),
+      requestedBy: input.viewerId,
    });
 }

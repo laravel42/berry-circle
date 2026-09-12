@@ -375,7 +375,12 @@ export class IssueRepository {
       dueDate: string | null;
       assignee: AssigneeInput | null;
       project: string | null;
-      createdBy: string;
+      /**
+       * A users.id, or nobody. An agent is not a user, so work it files carries
+       * the person who asked for it and nothing when nobody did (an autopilot).
+       * The column is nullable, and `created_by` is the only honest answer.
+       */
+      createdBy: string | null;
    }): Promise<{ issue: Issue; events: IssueMutationEvent[] }> {
       const id = this.newId();
       const now = this.clock().toISOString();
@@ -549,7 +554,7 @@ export class IssueRepository {
          kind: 'created' | 'updated' | 'deleted';
          changedFields?: string[];
          previousStatus?: string | undefined;
-         actor: { type: string; id: string };
+         actor: { type: string; id: string | null };
          occurredAt: string;
       }
    ): Promise<IssueMutationEvent[]> {
@@ -851,7 +856,7 @@ async function setIssueProject(
    tx: Queryable,
    issueId: string,
    projectId: string | null,
-   linkedBy: string
+   linkedBy: string | null
 ): Promise<void> {
    if (projectId === null) {
       await tx`DELETE FROM issue_project_links WHERE issue_id = ${issueId}`;

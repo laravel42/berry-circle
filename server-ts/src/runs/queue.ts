@@ -34,6 +34,15 @@ export interface EnqueueTaskInput {
    chatSessionId?: string;
    autopilotRunId?: string;
    priority?: number;
+   /**
+    * The person who asked for this task, when a person did.
+    *
+    * An agent is not a user, so a row an agent writes is attributed to whoever
+    * asked for the run (`create_project`, `create_task`). A task nobody asked
+    * for — an autopilot, a trigger — leaves it null rather than borrowing an
+    * identity.
+    */
+   requestedBy?: string;
 }
 
 export class EnqueueRejected extends Error {
@@ -88,11 +97,13 @@ export async function enqueueTask(sql: Sql, input: EnqueueTaskInput): Promise<{ 
 
       await tx`
          INSERT INTO runs (id, workspace_id, issue_id, board_id, agent_id, kind, source, prompt,
-                           chat_session_id, autopilot_run_id, priority, runtime_id, instructions)
+                           chat_session_id, autopilot_run_id, priority, runtime_id, instructions,
+                           requested_by)
          VALUES (${runId}, ${input.workspaceId}, ${issueId}, ${boardId}, ${input.agentId},
                  ${input.kind}, ${input.source}, ${input.prompt ?? null},
                  ${input.chatSessionId ?? null}, ${input.autopilotRunId ?? null},
-                 ${input.priority ?? 0}, ${runtimeId}, ${input.kind === 'agent' ? (input.prompt ?? null) : null})`;
+                 ${input.priority ?? 0}, ${runtimeId}, ${input.kind === 'agent' ? (input.prompt ?? null) : null},
+                 ${input.requestedBy ?? null})`;
 
       if (input.chatSessionId) {
          // The first queued task becomes the session's active one; the reply

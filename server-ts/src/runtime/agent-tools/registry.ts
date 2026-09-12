@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Sql } from '../../db/pool.ts';
 import type { IssueRepository } from '../../core/issues.ts';
+import type { ProjectRepository } from '../../core/projects.ts';
 import type { Storage } from '../../storage/storage.ts';
 import type { TaskClaims, TaskScope } from './tokens.ts';
 
@@ -16,7 +17,8 @@ import type { TaskClaims, TaskScope } from './tokens.ts';
 export interface AgentToolContext {
    sql: Sql;
    storage: Storage | null;
-   issues: Pick<IssueRepository, 'update'>;
+   issues: Pick<IssueRepository, 'create' | 'update'>;
+   projects: Pick<ProjectRepository, 'create'>;
    task: TaskClaims;
 }
 

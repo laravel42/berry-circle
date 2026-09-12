@@ -722,7 +722,7 @@ registry.registerAll(
 );
 registry.registerAll(runMounts(runOptions));
 // Berry's tools for a running task, behind its task token (not a session).
-registry.registerAll(agentToolMounts({ sql, storage, issues }));
+registry.registerAll(agentToolMounts({ sql, storage, issues, projects }));
 const agentCore = config.agentCore;
 registry.registerAll(
    runtimeMounts({

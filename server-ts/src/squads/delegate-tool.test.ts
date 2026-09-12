@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
 import { IssueRepository } from '../core/issues.ts';
+import { ProjectRepository } from '../core/projects.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { dropAgentLayerWorld, seedAgentLayerWorld, type AgentLayerWorld } from '../mounts/agent-layer.fixture.ts';
 import type { AgentToolContext } from '../runtime/agent-tools/registry.ts';
@@ -19,6 +20,7 @@ describe('the delegate_to_member tool', { skip: url ? false : 'BERRY_TEST_DATABA
       sql,
       storage: null,
       issues,
+      projects: new ProjectRepository(sql),
       task: {
          tokenId: 'token',
          runId: 'run',

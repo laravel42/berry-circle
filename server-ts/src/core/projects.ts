@@ -174,7 +174,8 @@ export class ProjectRepository {
       targetDate: string | null;
       githubRepoId: string | null;
       githubRepoFullName: string | null;
-      createdBy: string;
+      /** A users.id, or nobody — see IssueRepository.create. */
+      createdBy: string | null;
    }): Promise<Project> {
       const now = this.now();
       const rows = await this.sql`

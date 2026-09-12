@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Sql } from '../../db/pool.ts';
 import type { IssueRepository } from '../../core/issues.ts';
+import type { ProjectRepository } from '../../core/projects.ts';
 import { json } from '../../http/app.ts';
 import { ApiError } from '../../http/errors.ts';
 import type { Mount } from '../../http/registry.ts';
@@ -19,7 +20,8 @@ import { resolveTaskToken, type TaskClaims } from './tokens.ts';
 export function agentToolMounts(options: {
    sql: Sql;
    storage: Storage | null;
-   issues: Pick<IssueRepository, 'update'>;
+   issues: Pick<IssueRepository, 'create' | 'update'>;
+   projects: Pick<ProjectRepository, 'create'>;
 }): Mount[] {
    registerCoreAgentTools();
    const route = new Hono<{ Variables: { task: TaskClaims } }>();
@@ -52,7 +54,10 @@ export function agentToolMounts(options: {
       } catch {
          throw ApiError.badRequest('the request body must be JSON');
       }
-      const outcome = await tool.run({ sql: options.sql, storage: options.storage, issues: options.issues, task }, body);
+      const outcome = await tool.run(
+         { sql: options.sql, storage: options.storage, issues: options.issues, projects: options.projects, task },
+         body
+      );
       if (!outcome.ok) throw ApiError.badRequest('the tool input is not valid', { issues: outcome.issues });
       return json({ result: outcome.result });
    });

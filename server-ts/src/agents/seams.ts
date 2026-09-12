@@ -30,6 +30,8 @@ export interface EnqueueInput {
    chatSessionId?: string;
    autopilotRunId?: string;
    priority?: number;
+   /** The person who asked, when a person did. Attributes what the run files. */
+   requestedBy?: string;
 }
 
 export type EnqueueTask = (sql: Sql, input: EnqueueInput) => Promise<{ runId: string }>;

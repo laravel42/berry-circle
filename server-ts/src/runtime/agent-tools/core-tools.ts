@@ -4,6 +4,8 @@ import { BerryArtifactService } from '../../agents/artifact-service.ts';
 import { postRunResult } from '../../runs/result-comment.ts';
 import { enqueueTask } from '../../runs/queue.ts';
 import { ApiError } from '../../http/errors.ts';
+import { defaultBoardId } from '../../work/batch.ts';
+import { setParent } from '../../work/hierarchy.ts';
 import { getAgentTool, registerAgentTool, type AgentToolContext } from './registry.ts';
 
 /**
@@ -21,6 +23,39 @@ const AGENT_STATUSES = ['todo', 'in_progress', 'in_review', 'blocked'] as const;
 function issueOf(context: AgentToolContext): string {
    if (!context.task.issueId) throw ApiError.badRequest('this task is not on an issue');
    return context.task.issueId;
+}
+
+/**
+ * The person this run is for, or nobody.
+ *
+ * `created_by` is a users.id and an agent is not a user, so a project or a task
+ * an agent files is filed in the name of whoever asked for the run. Nobody
+ * asked for an autopilot's run: the row then claims no author, rather than
+ * borrowing the system identity and telling everyone a person did this.
+ */
+async function requesterOf(context: AgentToolContext): Promise<string | null> {
+   const [run] = await context.sql`SELECT requested_by FROM runs WHERE id = ${context.task.runId}`;
+   return (run?.requested_by as string | null) ?? null;
+}
+
+/**
+ * The board a task this agent files belongs on.
+ *
+ * The run's own board when it has one, so work an agent carves out of a task
+ * lands beside it; otherwise the workspace's default board, which is what a
+ * person's quick-create uses. Every workspace has one (migration 183), so the
+ * chat case — a run on no issue at all — has somewhere to put a task.
+ */
+async function boardOf(context: AgentToolContext): Promise<string> {
+   if (context.task.boardId) {
+      const [board] = await context.sql`
+         SELECT id FROM boards
+          WHERE id = ${context.task.boardId} AND workspace_id = ${context.task.workspaceId}`;
+      if (board) return board.id as string;
+   }
+   return defaultBoardId(context.sql, context.task.workspaceId).catch(() => {
+      throw ApiError.notFound('Board');
+   });
 }
 
 async function artifactsOf(context: AgentToolContext): Promise<BerryArtifactService> {
@@ -188,6 +223,96 @@ export function registerCoreAgentTools(): void {
               JOIN projects AS p ON p.id = link.project_id AND p.deleted_at IS NULL
              WHERE link.issue_id = ${issueOf(context)} AND p.workspace_id = ${context.task.workspaceId}`;
          return { projects: rows.map((row) => ({ ...row })) };
+      },
+   });
+
+   registerAgentTool('create_project', {
+      description:
+         'Create a project in this workspace: the container tasks are filed under. ' +
+         'Use it when someone asks for a project, rather than describing one you did not create.',
+      scope: 'task:write',
+      inputSchema: z.object({
+         name: z.string().trim().min(1).max(200),
+         description: z.string().max(20_000).optional(),
+      }),
+      handler: async (context, input) => {
+         // The agent's own workspace, from the task token — never an id the
+         // model supplies, so a project cannot be filed in somebody else's.
+         const project = await context.projects.create({
+            workspaceId: context.task.workspaceId,
+            name: input.name,
+            description: input.description ?? null,
+            status: 'planned',
+            priority: 'none',
+            startDate: null,
+            targetDate: null,
+            githubRepoId: null,
+            githubRepoFullName: null,
+            createdBy: await requesterOf(context),
+         });
+         return { id: project.id, name: project.name };
+      },
+   });
+
+   registerAgentTool('create_task', {
+      description:
+         "Create a task on this workspace's board, optionally in a project or under a parent task. " +
+         'Use it when someone asks for work to be tracked, rather than saying you filed something you did not.',
+      scope: 'task:write',
+      inputSchema: z.object({
+         title: z.string().trim().min(1).max(500),
+         description: z.string().max(20_000).optional(),
+         projectId: z.uuid().optional(),
+         parentId: z.uuid().optional(),
+         status: z.enum(AGENT_STATUSES).optional(),
+      }),
+      handler: async (context, input) => {
+         const workspaceId = context.task.workspaceId;
+         // A project or a parent from another workspace is not refused, it is
+         // not found: answering differently would confirm that an id the agent
+         // cannot use exists. Both are checked before the task is created, so a
+         // refusal leaves nothing behind.
+         if (input.projectId) {
+            const [project] = await context.sql`
+               SELECT id FROM projects
+                WHERE id = ${input.projectId} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+            if (!project) throw ApiError.notFound('Project');
+         }
+         if (input.parentId) {
+            const [parent] = await context.sql`
+               SELECT issue.id FROM issues AS issue
+                 JOIN boards AS board ON board.id = issue.board_id
+                WHERE issue.id = ${input.parentId} AND board.workspace_id = ${workspaceId}
+                  AND issue.deleted_at IS NULL`;
+            if (!parent) throw ApiError.notFound('Task');
+         }
+
+         const boardId = await boardOf(context);
+         const createdBy = await requesterOf(context);
+         const { issue } = await context.issues.create({
+            boardId,
+            title: input.title,
+            description: input.description ?? null,
+            status: input.status ?? 'backlog',
+            priority: 'none',
+            sortOrder: 0,
+            dueDate: null,
+            assignee: null,
+            project: input.projectId ?? null,
+            createdBy,
+         });
+         if (input.parentId) {
+            await setParent(context.sql, { workspaceId, issueId: issue.id, parentId: input.parentId, stage: null });
+         }
+         return {
+            id: issue.id,
+            identifier: issue.identifier,
+            title: issue.title,
+            status: issue.status,
+            boardId,
+            projectId: input.projectId ?? null,
+            parentId: input.parentId ?? null,
+         };
       },
    });
 
