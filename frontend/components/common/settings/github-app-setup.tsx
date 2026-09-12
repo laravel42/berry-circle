@@ -43,7 +43,9 @@ export function GitHubAppSetup() {
    const read = useCallback(() => {
       void loadGitHubApp()
          .then(setState)
-         .catch(() => setState({ app: null, installation: null, installPending: false }));
+         .catch(() =>
+            setState({ app: null, installation: null, installations: [], installPending: false })
+         );
    }, []);
 
    useEffect(read, [read]);

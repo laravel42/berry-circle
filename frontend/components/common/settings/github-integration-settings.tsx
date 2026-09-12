@@ -10,6 +10,7 @@ import {
    AlertDialogHeader,
    AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { GitHubAccountsList } from '@/components/common/settings/github-accounts';
 import { GitHubAppSetup } from '@/components/common/settings/github-app-setup';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -23,7 +24,6 @@ import {
    type GitHubSettingsPatch,
    type GitHubSettingsState,
 } from '@/lib/github';
-import { startGitHubInstall } from '@/lib/integrations';
 import { useSessionStore } from '@/store/session-store';
 import { format, parseISO } from 'date-fns';
 import { useCallback, useEffect, useState } from 'react';
@@ -33,26 +33,27 @@ import { SettingsCard, SettingsRow } from './shared';
 type ToggleKey = keyof GitHubSettingsPatch;
 
 /** The three feature toggles, in Berry's words. */
-const FEATURES: Array<{ key: Exclude<ToggleKey, 'enabled'>; title: string; description: string }> = [
-   {
-      key: 'showLinkedPullRequests',
-      title: 'Pull requests on tasks',
-      description:
-         'Show the pull requests that name a task, with their state and checks, in the task’s sidebar.',
-   },
-   {
-      key: 'coAuthorTrailer',
-      title: 'Credit the requester on agent commits',
-      description:
-         'Agent commits add a Co-authored-by line for the person who started the run, so GitHub shows them on the commit.',
-   },
-   {
-      key: 'autoLinkPullRequests',
-      title: 'Link pull requests by task key',
-      description:
-         'Link a pull request when its branch, title or description names a task key. “Fixes KEY-12” in a merged pull request moves that task to done.',
-   },
-];
+const FEATURES: Array<{ key: Exclude<ToggleKey, 'enabled'>; title: string; description: string }> =
+   [
+      {
+         key: 'showLinkedPullRequests',
+         title: 'Pull requests on tasks',
+         description:
+            'Show the pull requests that name a task, with their state and checks, in the task’s sidebar.',
+      },
+      {
+         key: 'coAuthorTrailer',
+         title: 'Credit the requester on agent commits',
+         description:
+            'Agent commits add a Co-authored-by line for the person who started the run, so GitHub shows them on the commit.',
+      },
+      {
+         key: 'autoLinkPullRequests',
+         title: 'Link pull requests by task key',
+         description:
+            'Link a pull request when its branch, title or description names a task key. “Fixes KEY-12” in a merged pull request moves that task to done.',
+      },
+   ];
 
 function when(iso: string | null | undefined): string {
    if (!iso) return '';
@@ -77,6 +78,8 @@ export function GitHubIntegrationSettings() {
    const [error, setError] = useState<string | null>(null);
    const [busy, setBusy] = useState<ToggleKey | 'connection' | null>(null);
    const [confirming, setConfirming] = useState(false);
+   /** Bumped so the accounts list reloads when an install or uninstall lands. */
+   const [accountsKey, setAccountsKey] = useState(0);
 
    const load = useCallback(async () => {
       if (!workspaceId) return;
@@ -99,6 +102,9 @@ export function GitHubIntegrationSettings() {
             if (event.workspaceId && event.workspaceId !== workspaceId) return;
             if (event.type === GITHUB_EVENTS.settings || event.type === GITHUB_EVENTS.connection) {
                void load();
+               if (event.type === GITHUB_EVENTS.connection) {
+                  setAccountsKey((current) => current + 1);
+               }
             }
          }),
       [workspaceId, load]
@@ -116,16 +122,6 @@ export function GitHubIntegrationSettings() {
          setState(previous);
          toast.error(describeGitHubFailure(failure));
       } finally {
-         setBusy(null);
-      }
-   };
-
-   const connect = async () => {
-      setBusy('connection');
-      try {
-         window.location.href = await startGitHubInstall();
-      } catch (failure) {
-         toast.error(describeGitHubFailure(failure));
          setBusy(null);
       }
    };
@@ -161,10 +157,15 @@ export function GitHubIntegrationSettings() {
 
    const { settings, canManage, connection } = state;
    const locked = !canManage || busy !== null;
+   // A workspace reaches several accounts at once, so what this row says is how
+   // many — the accounts themselves are listed below it, each with its own
+   // Disconnect. `installedAt` is the first of them, which is when GitHub
+   // access began here.
    const connectedBy = [
-      connection.accountLogin ? `Connected to ${connection.accountLogin}` : 'Connected',
-      connection.installedBy?.name ? `by ${connection.installedBy.name}` : null,
-      connection.installedAt ? `on ${when(connection.installedAt)}` : null,
+      connection.accounts.length === 1
+         ? `Connected to ${connection.accounts[0]?.accountLogin ?? 'one account'}`
+         : `Connected to ${connection.accounts.length} accounts`,
+      connection.installedAt ? `since ${when(connection.installedAt)}` : null,
    ]
       .filter(Boolean)
       .join(' ');
@@ -201,38 +202,29 @@ export function GitHubIntegrationSettings() {
                   connection.installed
                      ? connectedBy
                      : connection.appConfigured
-                       ? 'Not connected to a GitHub account yet. Connecting is where you choose which repositories Berry can reach.'
+                       ? 'No GitHub account yet. Adding one is where you choose which repositories Berry can reach — a personal account and any organisation can each be added.'
                        : 'This deployment has no GitHub App yet.'
                }
                trailing={
-                  canManage && connection.appConfigured ? (
-                     connection.installed ? (
-                        <>
-                           <Button
-                              size="xs"
-                              variant="secondary"
-                              disabled={busy !== null}
-                              onClick={() => void connect()}
-                           >
-                              Change repositories
-                           </Button>
-                           <Button
-                              size="xs"
-                              variant="secondary"
-                              disabled={busy !== null}
-                              onClick={() => setConfirming(true)}
-                           >
-                              {busy === 'connection' ? 'Working…' : 'Disconnect'}
-                           </Button>
-                        </>
-                     ) : (
-                        <Button size="xs" disabled={busy !== null} onClick={() => void connect()}>
-                           {busy === 'connection' ? 'Opening…' : 'Connect'}
-                        </Button>
-                     )
+                  canManage && connection.appConfigured && connection.installed ? (
+                     <Button
+                        size="xs"
+                        variant="secondary"
+                        disabled={busy !== null}
+                        onClick={() => setConfirming(true)}
+                     >
+                        {busy === 'connection' ? 'Working…' : 'Disconnect all'}
+                     </Button>
                   ) : undefined
                }
             />
+            {canManage && connection.appConfigured && workspaceId && (
+               <GitHubAccountsList
+                  workspaceId={workspaceId}
+                  canManage={canManage}
+                  reloadKey={accountsKey}
+               />
+            )}
             {canManage && !connection.appConfigured && (
                <div className="px-4 pb-3">
                   <GitHubAppSetup />
@@ -259,10 +251,12 @@ export function GitHubIntegrationSettings() {
          <AlertDialog open={confirming} onOpenChange={setConfirming}>
             <AlertDialogContent>
                <AlertDialogHeader>
-                  <AlertDialogTitle>Disconnect GitHub from this workspace?</AlertDialogTitle>
+                  <AlertDialogTitle>Disconnect every GitHub account?</AlertDialogTitle>
                   <AlertDialogDescription>
-                     Agents here stop getting repository access, and GitHub events stop updating
-                     tasks. The App stays installed on GitHub; remove it there if you want it gone.
+                     All {connection.accounts.length} connected{' '}
+                     {connection.accounts.length === 1 ? 'account goes' : 'accounts go'}. Agents
+                     here stop getting repository access, and GitHub events stop updating tasks. The
+                     App stays installed on GitHub; remove it there if you want it gone.
                   </AlertDialogDescription>
                </AlertDialogHeader>
                <AlertDialogFooter>
@@ -274,7 +268,7 @@ export function GitHubIntegrationSettings() {
                         void disconnect();
                      }}
                   >
-                     Disconnect
+                     Disconnect all
                   </AlertDialogAction>
                </AlertDialogFooter>
             </AlertDialogContent>

@@ -17,15 +17,40 @@ export const githubSettingsSchema = z.object({
    updatedAt: z.string().nullish(),
 });
 
+export const installedBySchema = z.object({ id: z.string(), name: z.string().nullish() });
+
+export const connectedAccountSchema = z.object({
+   installationId: z.number(),
+   accountLogin: z.string().nullish(),
+   accountType: z.string().nullish(),
+   installedAt: z.string().nullish(),
+   installedBy: installedBySchema.nullish(),
+});
+
 export const githubConnectionSchema = z.object({
    appConfigured: z.boolean(),
    appName: z.string().nullish(),
    appUrl: z.string().nullish(),
    installed: z.boolean(),
+   /** Every account this workspace reaches, oldest first. */
+   accounts: z.array(connectedAccountSchema).default([]),
    accountLogin: z.string().nullish(),
    accountType: z.string().nullish(),
    installedAt: z.string().nullish(),
-   installedBy: z.object({ id: z.string(), name: z.string().nullish() }).nullish(),
+   installedBy: installedBySchema.nullish(),
+});
+
+/** A connected account as the settings list shows it. */
+export const accountDetailSchema = connectedAccountSchema.extend({
+   /** What GitHub granted the installation; null when GitHub would not say. */
+   repositoryCount: z.number().nullish(),
+   /** How many of this workspace's own repositories live under the account. */
+   listedHere: z.number().default(0),
+});
+
+const accountsResponseSchema = z.object({
+   accounts: z.array(accountDetailSchema),
+   installPending: z.boolean().default(false),
 });
 
 const settingsResponseSchema = z.object({
@@ -48,6 +73,10 @@ export const pickerRepositorySchema = z.object({
    id: z.number(),
    fullName: z.string(),
    owner: z.string(),
+   /** The connected account this repository was listed under. */
+   account: z.string().default(''),
+   /** Which installation would mint a token for it; null on the older path. */
+   installationId: z.number().nullish(),
    name: z.string(),
    description: z.string().nullish(),
    private: z.boolean(),
@@ -97,6 +126,8 @@ export const linkedPullRequestSchema = z.object({
 export type GitHubSettings = z.infer<typeof githubSettingsSchema>;
 export type GitHubSettingsPatch = Partial<Omit<GitHubSettings, 'updatedAt'>>;
 export type GitHubConnection = z.infer<typeof githubConnectionSchema>;
+export type ConnectedAccount = z.infer<typeof connectedAccountSchema>;
+export type AccountDetail = z.infer<typeof accountDetailSchema>;
 export type GitHubSettingsState = z.infer<typeof settingsResponseSchema>;
 export type WorkspaceRepository = z.infer<typeof workspaceRepositorySchema>;
 export type PickerRepository = z.infer<typeof pickerRepositorySchema>;
@@ -115,7 +146,7 @@ function base(workspaceId: string): string {
    return `/api/v1/github/${encodeURIComponent(workspaceId)}`;
 }
 
-function parse<T>(schema: z.ZodType<T>, value: unknown, what: string): T {
+function parse<T>(schema: z.ZodType<T, z.ZodTypeDef, unknown>, value: unknown, what: string): T {
    const parsed = schema.safeParse(value);
    if (!parsed.success) throw new Error(`${what} was not recognized`);
    return parsed.data;
@@ -142,7 +173,59 @@ export async function disconnectGitHub(workspaceId: string): Promise<void> {
    await apiFetch(`${base(workspaceId)}/installation`, { method: 'DELETE' });
 }
 
-export async function listWorkspaceRepositories(workspaceId: string): Promise<WorkspaceRepository[]> {
+/**
+ * The accounts this workspace reaches, with what each one would cost to lose.
+ *
+ * Admin-only on the server, because answering it asks GitHub how many
+ * repositories each installation was granted.
+ */
+export async function loadGitHubAccounts(
+   workspaceId: string
+): Promise<{ accounts: AccountDetail[]; installPending: boolean }> {
+   const json: unknown = await apiFetch(`${base(workspaceId)}/accounts`);
+   return parse(accountsResponseSchema, json, 'Connected accounts');
+}
+
+/** Disconnects one account; the others stay, and the App stays on GitHub. */
+export async function disconnectGitHubAccount(
+   workspaceId: string,
+   installationId: number
+): Promise<void> {
+   await apiFetch(`${base(workspaceId)}/accounts/${installationId}`, { method: 'DELETE' });
+}
+
+/** "acme (organisation)", or just the login when GitHub did not say which. */
+export function describeAccount(account: {
+   accountLogin?: string | null;
+   accountType?: string | null;
+}): string {
+   const login = account.accountLogin ?? 'Unnamed account';
+   if (account.accountType === 'Organization') return `${login} (organisation)`;
+   if (account.accountType === 'User') return `${login} (personal)`;
+   return login;
+}
+
+/**
+ * What disconnecting an account costs, in the words a dialog needs.
+ *
+ * The count of this workspace's own repositories under the account is the part
+ * worth saying: the App staying installed on GitHub is reassurance, but the
+ * repositories the agents here stop reaching is the decision.
+ */
+export function describeDisconnectCost(account: AccountDetail): string {
+   const login = account.accountLogin ?? 'this account';
+   const listed =
+      account.listedHere === 0
+         ? `No repository in this workspace is under ${login}.`
+         : account.listedHere === 1
+           ? `1 repository in this workspace is under ${login}, and agents here stop reaching it.`
+           : `${account.listedHere} repositories in this workspace are under ${login}, and agents here stop reaching them.`;
+   return `${listed} The App stays installed on GitHub; remove it there if you want it gone.`;
+}
+
+export async function listWorkspaceRepositories(
+   workspaceId: string
+): Promise<WorkspaceRepository[]> {
    const json: unknown = await apiFetch(`${base(workspaceId)}/repositories`);
    return parse(
       z.object({ repositories: z.array(workspaceRepositorySchema) }),
@@ -239,6 +322,8 @@ export function describeGitHubFailure(error: unknown): string {
             return 'Only a workspace admin can change GitHub settings.';
          case 'NOT_CONNECTED':
             return 'Install the GitHub App for this workspace first.';
+         case 'NOT_FOUND':
+            return 'That account is not connected to this workspace.';
          case 'CONNECTION_UNUSABLE':
             return 'The GitHub App needs attention before it can list repositories.';
          case 'INTEGRATIONS_NOT_CONFIGURED':

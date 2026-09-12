@@ -289,7 +289,14 @@ export type GitHubInstallation = z.infer<typeof githubInstallationSchema>;
 
 export interface GitHubAppState {
    app: GitHubApp | null;
+   /** The first account connected; null when none is. */
    installation: GitHubInstallation | null;
+   /**
+    * Every account this workspace reaches. A workspace installs the App on a
+    * personal account and on its organisations at once, so "installed" is a
+    * list rather than a fact.
+    */
+   installations: GitHubInstallation[];
    /** An organisation install an owner has not approved yet. */
    installPending: boolean;
 }
@@ -305,13 +312,17 @@ export async function loadGitHubApp(): Promise<GitHubAppState> {
       .object({
          app: githubAppSchema.nullish(),
          installation: githubInstallationSchema.nullish(),
+         installations: z.array(githubInstallationSchema).default([]),
          installPending: z.boolean().default(false),
       })
       .safeParse(json);
-   if (!parsed.success) return { app: null, installation: null, installPending: false };
+   if (!parsed.success) {
+      return { app: null, installation: null, installations: [], installPending: false };
+   }
    return {
       app: parsed.data.app ?? null,
       installation: parsed.data.installation ?? null,
+      installations: parsed.data.installations,
       installPending: parsed.data.installPending,
    };
 }
@@ -334,7 +345,13 @@ export async function startGitHubAppCreation(
    return { postUrl: parsed.data.postUrl, manifest: parsed.data.manifest };
 }
 
-/** Where to send the person to install the App on an account they own. */
+/**
+ * Where to send the person to install the App on an account they own.
+ *
+ * The same call adds the first account and every one after it: GitHub's install
+ * page is where an account is chosen, so "Add another account" is this again
+ * rather than a second flow.
+ */
 export async function startGitHubInstall(): Promise<string> {
    const json: unknown = await apiFetch('/api/v1/integrations/github/app/install', {
       method: 'POST',
@@ -384,6 +401,7 @@ export async function nextGitHubInstallStep(): Promise<GitHubInstallNext> {
    }
 }
 
+/** Forgets every account this workspace reached. */
 export async function forgetGitHubInstall(): Promise<void> {
    await apiFetch('/api/v1/integrations/github/app/install', { method: 'DELETE' });
 }
