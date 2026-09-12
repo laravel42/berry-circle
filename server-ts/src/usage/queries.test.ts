@@ -28,7 +28,24 @@ test('a window starts at UTC midnight days-1 back and ends now', () => {
       days: 7,
       from: '2026-09-04T00:00:00.000Z',
       to: '2026-09-10T15:30:00.000Z',
+      timezone: 'UTC',
    });
+});
+
+test('a window asked for in a zone starts at midnight there', () => {
+   // 15:30 UTC is already the 11th in Tokyo, so seven days back is the 5th,
+   // and its midnight is 15:00 UTC on the 4th.
+   const window = usageWindow(7, new Date('2026-09-10T15:30:00.000Z'), 'Asia/Tokyo');
+   assert.equal(window.from, '2026-09-04T15:00:00.000Z');
+   assert.equal(window.timezone, 'Asia/Tokyo');
+});
+
+test('a window spanning a clock change still starts at local midnight', () => {
+   // New York moved to daylight time at 02:00 on 8 March 2026; midnight that
+   // morning was still -05:00, which is the offset the start must use — not
+   // the -04:00 in force at the end of the window.
+   const window = usageWindow(3, new Date('2026-03-10T12:00:00.000Z'), 'America/New_York');
+   assert.equal(window.from, '2026-03-08T05:00:00.000Z');
 });
 
 const url = process.env.BERRY_TEST_DATABASE_URL;

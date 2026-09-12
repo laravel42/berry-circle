@@ -67,10 +67,25 @@ export function skillMounts(options: SkillMountOptions): Mount[] {
       const scoped = await scope(context.get('user'), false);
       const url = new URL(context.req.url);
       const agentId = url.searchParams.get('agentId');
+      const createdBy = url.searchParams.get('createdBy');
+      const source = url.searchParams.get('source');
+      const inUse = url.searchParams.get('inUse');
+      // A filter Berry cannot read is a typo, and answering the unfiltered
+      // question instead would quietly show more than was asked for.
+      if (source !== null && source !== 'manual' && source !== 'github' && source !== 'zip') {
+         throw ApiError.badRequest('source is manual, github or zip.');
+      }
+      if (inUse !== null && inUse !== 'true' && inUse !== 'false') {
+         throw ApiError.badRequest('inUse is true or false.');
+      }
       const nodes = await skills.list(scoped.ctx.workspaceId, {
          ...(url.searchParams.get('q') ? { query: url.searchParams.get('q') as string } : {}),
          ...(url.searchParams.get('label') ? { label: url.searchParams.get('label') as string } : {}),
          ...(agentId ? { agentId: pathId(agentId, 'Agent') } : {}),
+         // A malformed id is 404 here as everywhere, so an id's shape says nothing.
+         ...(createdBy ? { createdBy: pathId(createdBy, 'Skill') } : {}),
+         ...(source ? { source } : {}),
+         ...(inUse === null ? {} : { inUse: inUse === 'true' }),
       });
       return json({ nodes });
    });

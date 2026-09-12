@@ -29,6 +29,8 @@ export const autopilotSchema = z.object({
    quotaPeriod: z.enum(QUOTA_PERIODS),
    quotaMax: z.number().nullable(),
    createdBy: z.string().nullable(),
+   /** What makes it run, without fetching each autopilot's triggers in turn. */
+   triggerKinds: z.array(z.enum(['cron', 'webhook'])).default([]),
    createdAt: z.string(),
    updatedAt: z.string(),
 });
@@ -243,6 +245,17 @@ export async function rotateWebhook(
       json,
       'Rotated webhook'
    );
+}
+
+/**
+ * Who is kept in the loop. A collaborator may change the autopilot; a
+ * subscriber only hears about it. The list replaces what was there.
+ */
+export async function setAutopilotMembers(
+   id: string,
+   members: Array<{ userId: string; role: 'collaborator' | 'subscriber' }>
+): Promise<void> {
+   await apiFetch(`${at(id)}/members`, send('PUT', { members }));
 }
 
 export async function listAutopilotRuns(id: string): Promise<AutopilotRun[]> {

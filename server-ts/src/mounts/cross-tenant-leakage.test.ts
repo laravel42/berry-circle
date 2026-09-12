@@ -602,8 +602,24 @@ describe(
          assert.equal(row!.name, 'W2 runtime');
       });
 
+      test('runtimes: agent coverage never names an agent of W2', async () => {
+         const coverage = await getAsU1('/api/v1/runtimes/agent-coverage');
+         assert.equal(coverage.status, 200);
+         const body = await coverage.text();
+         const [w2Agent] = await sql`SELECT id FROM agents WHERE workspace_id = ${world.w2Id} LIMIT 1`;
+         assert.ok(w2Agent, 'W2 has at least its provisioned agent');
+         assert.equal(body.includes(w2Agent!.id as string), false);
+      });
+
       test('usage and dashboard reads under a foreign workspace are the same 404 as an absent one', async () => {
-         for (const tail of ['/summary', '/runtimes/default', `/agents/${randomUUID()}`, `/issues/${randomUUID()}`]) {
+         const tails = [
+            '/summary',
+            '/errors',
+            '/runtimes/default',
+            `/agents/${randomUUID()}`,
+            `/issues/${randomUUID()}`,
+         ];
+         for (const tail of tails) {
             const foreign = await getAsU1(`/api/v1/usage/${world.w2Id}${tail}`);
             const absent = await getAsU1(`/api/v1/usage/${RANDOM_WORKSPACE}${tail}`);
             assert.equal(foreign.status, 404, tail);
@@ -708,6 +724,23 @@ describe(
             `/api/v1/workspaces/${world.w1Id}/members/${world.userIds[1] as string}/top-agents`
          );
          assert.equal(outsiderHere.status, 404);
+      });
+
+      test("usage: W2's project cannot be used as W1's filter", async () => {
+         for (const tail of ['/summary', '/errors']) {
+            const foreign = await getAsU1(
+               `/api/v1/usage/${world.w1Id}${tail}?boardId=${world.w2BoardId}`
+            );
+            const absent = await getAsU1(
+               `/api/v1/usage/${world.w1Id}${tail}?boardId=${RANDOM_WORKSPACE}`
+            );
+            assert.equal(foreign.status, 404, tail);
+            assert.equal(await foreign.text(), await absent.text(), tail);
+         }
+         // W1's own project is readable, so the 404 above is about the tenant
+         // boundary and not about the parameter being refused outright.
+         const own = await getAsU1(`/api/v1/usage/${world.w1Id}/summary?boardId=${world.w1BoardId}`);
+         assert.equal(own.status, 200);
       });
 
       // ------------------------------------------- plugins and /v1 (workstream G)

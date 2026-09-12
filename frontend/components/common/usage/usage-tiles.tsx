@@ -1,19 +1,38 @@
-import { formatCost, formatTokens, type UsageBucket } from '@/lib/usage';
+'use client';
 
-/** Cost and the four token counts for one window, with the unpriced caveat when it applies. */
-export function UsageTiles({ totals }: { totals: UsageBucket }) {
+import { useTranslations } from 'next-intl';
+
+import {
+   formatCost,
+   formatDuration,
+   formatTokens,
+   type RunTotals,
+   type UsageBucket,
+} from '@/lib/usage';
+
+/**
+ * What a window cost and what it took: money, tokens, and — when the read
+ * carries them — the runs behind both.
+ */
+export function UsageTiles({ totals, runs }: { totals: UsageBucket; runs?: RunTotals }) {
+   const t = useTranslations('areas.usage.tiles');
    const tiles = [
-      { label: 'Cost', value: formatCost(totals.costMicros) },
-      { label: 'Input tokens', value: formatTokens(totals.inputTokens) },
-      { label: 'Output tokens', value: formatTokens(totals.outputTokens) },
+      { label: t('cost'), value: formatCost(totals.costMicros) },
+      { label: t('tokens'), value: formatTokens(totals.inputTokens + totals.outputTokens) },
       {
-         label: 'Cache read / write',
+         label: t('cache'),
          value: `${formatTokens(totals.cacheReadTokens)} / ${formatTokens(totals.cacheWriteTokens)}`,
       },
+      ...(runs
+         ? [
+              { label: t('runs'), value: String(runs.runs) },
+              { label: t('runTime'), value: formatDuration(runs.runSeconds) },
+           ]
+         : []),
    ];
    return (
       <div className="flex flex-col gap-2">
-         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             {tiles.map((tile) => (
                <div key={tile.label} className="rounded-md border px-4 py-3">
                   <p className="text-muted-foreground">{tile.label}</p>
@@ -23,8 +42,7 @@ export function UsageTiles({ totals }: { totals: UsageBucket }) {
          </div>
          {totals.unpricedEvents > 0 ? (
             <p className="text-muted-foreground">
-               {totals.unpricedEvents} of {totals.events} usage reports used a model with no
-               published price. Their tokens are counted here; their cost is not.
+               {t('unpriced', { unpriced: totals.unpricedEvents, events: totals.events })}
             </p>
          ) : null}
       </div>

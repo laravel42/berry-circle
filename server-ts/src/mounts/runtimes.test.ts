@@ -229,6 +229,35 @@ describe('/api/v1/runtimes', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
       }
    });
 
+   test('a runtime names the agents it serves, and coverage says who has one', async () => {
+      const runtimeId = await firstCustom();
+      assert.equal((await call(`/${runtimeId}/agents/${mine!.agentId}`, { method: 'PUT', body: '{}' })).status, 204);
+      try {
+         const detail = (await (await call(`/${runtimeId}`)).json()) as {
+            servingAgents: Array<{ id: string; name: string }>;
+         };
+         assert.deepEqual(
+            detail.servingAgents.map((agent) => agent.id),
+            [mine!.agentId]
+         );
+
+         const coverage = (await (await call('/agent-coverage')).json()) as {
+            defaultRuntimeId: string | null;
+            nodes: Array<{ id: string; runtimeId: string | null }>;
+         };
+         assert.equal(coverage.defaultRuntimeId, runtimeId, 'made the default earlier in this file');
+         const bound = coverage.nodes.find((node) => node.id === mine!.agentId);
+         assert.equal(bound?.runtimeId, runtimeId);
+         assert.equal(
+            coverage.nodes.some((node) => node.id === theirs!.agentId),
+            false,
+            "another workspace's agents are not covered here"
+         );
+      } finally {
+         await call(`/${runtimeId}/agents/${mine!.agentId}`, { method: 'DELETE' });
+      }
+   });
+
    test('without a session nothing answers', async () => {
       assert.equal((await app.request('/api/v1/runtimes')).status, 401);
    });

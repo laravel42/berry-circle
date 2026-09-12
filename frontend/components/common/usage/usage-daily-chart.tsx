@@ -1,22 +1,40 @@
 'use client';
 
+import { useTranslations } from 'next-intl';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { formatCost, formatTokens, totalTokens, type UsageBucket } from '@/lib/usage';
 
-/** One bar per bucket. Keys are days (`YYYY-MM-DD`) or hours (`00`..`23`). */
+export type UsageMetric = 'cost' | 'tokens' | 'reports';
+
+function value(point: UsageBucket, metric: UsageMetric): number {
+   if (metric === 'cost') return point.costMicros;
+   if (metric === 'tokens') return totalTokens(point);
+   return point.events;
+}
+
+/**
+ * One bar per bucket. Keys are days (`YYYY-MM-DD`), weeks (the day they start)
+ * or hours (`00`..`23`), and the chart draws whichever it is given.
+ */
 export function UsageDailyChart({
    points,
    metric,
 }: {
    points: UsageBucket[];
-   metric: 'cost' | 'tokens';
+   metric: UsageMetric;
 }) {
+   const t = useTranslations('areas.usage.chart');
    const data = points.map((point) => ({
       key: point.key.length === 10 ? point.key.slice(5) : point.key,
-      value: metric === 'cost' ? point.costMicros : totalTokens(point),
+      value: value(point, metric),
    }));
-   const format = metric === 'cost' ? formatCost : formatTokens;
+   const format =
+      metric === 'cost'
+         ? formatCost
+         : metric === 'tokens'
+           ? formatTokens
+           : (count: number) => String(count);
    return (
       <div className="h-48 w-full text-foreground/70">
          <ResponsiveContainer width="100%" height="100%">
@@ -31,10 +49,7 @@ export function UsageDailyChart({
                <YAxis hide />
                <Tooltip
                   cursor={{ fillOpacity: 0.08 }}
-                  formatter={(value) => [
-                     format(Number(value)),
-                     metric === 'cost' ? 'Cost' : 'Tokens',
-                  ]}
+                  formatter={(raw) => [format(Number(raw)), t(`metric_${metric}`)]}
                />
                <Bar dataKey="value" fill="currentColor" radius={[2, 2, 0, 0]} />
             </BarChart>

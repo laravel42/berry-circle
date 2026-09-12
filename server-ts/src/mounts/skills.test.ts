@@ -172,4 +172,45 @@ describe('skills mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       const res = await call(app, world.ownerToken, 'POST', `/api/v1/skills/${id}/refresh`);
       assert.equal(res.status, 409);
    });
+
+   test('a skill says who made it and which agents carry it', async () => {
+      const list = await call(app, world.ownerToken, 'GET', '/api/v1/skills?q=pdf-tools');
+      const skill = (list.body.nodes as Array<Record<string, unknown>>)[0];
+      assert.equal(skill?.createdBy, world.ownerId);
+      assert.equal(typeof skill?.creatorName, 'string');
+      // The binding made earlier in this file: one agent, switched on.
+      assert.deepEqual(
+         (skill?.agents as Array<{ id: string; enabled: boolean }>).map((a) => ({
+            id: a.id,
+            enabled: a.enabled,
+         })),
+         [{ id: world.agentId, enabled: true }]
+      );
+   });
+
+   const names = (body: Record<string, unknown>) =>
+      (body.nodes as { name: string }[]).map((node) => node.name).sort();
+
+   test('the catalogue filters by whether a skill is in use', async () => {
+      const used = await call(app, world.ownerToken, 'GET', '/api/v1/skills?inUse=true');
+      assert.deepEqual(names(used.body), ['pdf-tools']);
+      const unused = await call(app, world.ownerToken, 'GET', '/api/v1/skills?inUse=false');
+      assert.deepEqual(names(unused.body), ['imported-skill']);
+      const bad = await call(app, world.ownerToken, 'GET', '/api/v1/skills?inUse=maybe');
+      assert.equal(bad.status, 400);
+   });
+
+   test('the catalogue filters by where a skill came from and who made it', async () => {
+      const github = await call(app, world.ownerToken, 'GET', '/api/v1/skills?source=github');
+      assert.deepEqual(names(github.body), ['imported-skill']);
+      const manual = await call(app, world.ownerToken, 'GET', '/api/v1/skills?source=manual');
+      assert.deepEqual(manual.body.nodes && names(manual.body), ['pdf-tools']);
+      const bad = await call(app, world.ownerToken, 'GET', '/api/v1/skills?source=carrier-pigeon');
+      assert.equal(bad.status, 400);
+
+      const mine = await call(app, world.ownerToken, 'GET', `/api/v1/skills?createdBy=${world.ownerId}`);
+      assert.deepEqual(names(mine.body), ['imported-skill', 'pdf-tools']);
+      const nobody = await call(app, world.ownerToken, 'GET', `/api/v1/skills?createdBy=${randomUUID()}`);
+      assert.deepEqual(nobody.body.nodes, []);
+   });
 });

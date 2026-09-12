@@ -22,6 +22,8 @@ export interface RuntimeView {
    lastHealthError: string | null;
    concurrencyLimit: number | null;
    visibility: 'private' | 'workspace';
+   /** Who registered it. Only they may change whether the workspace sees it. */
+   ownerId: string | null;
    idleTimeoutS: number;
    maxLifetimeS: number;
    isDefault: boolean;
@@ -63,13 +65,28 @@ export interface ProfileInput {
    idleTimeoutS?: number | null | undefined;
 }
 
+/** An agent bound to a runtime, as the detail page and the delete confirm name it. */
+export interface ServingAgent {
+   id: string;
+   name: string;
+   status: string;
+   profileName: string | null;
+}
+
+/** Every agent of a workspace and the runtime it is bound to, if any. */
+export interface AgentCoverage {
+   /** The workspace's default runtime, which an unbound agent falls back to. */
+   defaultRuntimeId: string | null;
+   nodes: Array<{ id: string; name: string; runtimeId: string | null; runtimeName: string | null }>;
+}
+
 export class RuntimeNotFound extends Error {}
 export class RuntimeProtected extends Error {}
 /** Profile env was sent to a deployment that has no key to seal it with. */
 export class RuntimeSealingUnavailable extends Error {}
 
 const COLUMNS = `r.id, r.name, r.kind, r.driver, r.arn, r.endpoint_url, r.qualifier, r.region, r.status,
-   r.last_health_at, r.last_health_error, r.concurrency_limit, r.visibility, r.idle_timeout_s,
+   r.last_health_at, r.last_health_error, r.concurrency_limit, r.visibility, r.owner_id, r.idle_timeout_s,
    r.max_lifetime_s, r.is_default,
    (SELECT count(*) FROM runs AS x WHERE x.runtime_id = r.id AND x.status IN ('queued', 'running'))::int AS active_runs`;
 
@@ -88,6 +105,7 @@ function toView(row: Record<string, unknown>): RuntimeView {
       lastHealthError: (row.last_health_error as string | null) ?? null,
       concurrencyLimit: (row.concurrency_limit as number | null) ?? null,
       visibility: row.visibility as RuntimeView['visibility'],
+      ownerId: (row.owner_id as string | null) ?? null,
       idleTimeoutS: Number(row.idle_timeout_s),
       maxLifetimeS: Number(row.max_lifetime_s),
       isDefault: Boolean(row.is_default),
@@ -143,6 +161,50 @@ export class RuntimeRepository {
             AND created_at > now() - interval '30 days'
           GROUP BY 1 ORDER BY 1`;
       return rows.map((row) => ({ day: row.day as string, runs: Number(row.runs), failed: Number(row.failed) }));
+   }
+
+   /**
+    * The agents this runtime serves. What a delete is really asking about, and
+    * what the detail page names before it asks.
+    */
+   async servingAgents(workspaceId: string, id: string): Promise<ServingAgent[]> {
+      const rows = await this.#sql`
+         SELECT a.id, a.name, a.status,
+                (SELECT p.name FROM runtime_profiles p WHERE p.id = a.runtime_profile_id) AS profile_name
+           FROM agents AS a
+          WHERE a.workspace_id = ${workspaceId} AND a.runtime_id = ${id} AND a.archived_at IS NULL
+          ORDER BY lower(a.name), a.id`;
+      return rows.map((row) => ({
+         id: row.id as string,
+         name: row.name as string,
+         status: (row.status as string | null) ?? 'unknown',
+         profileName: (row.profile_name as string | null) ?? null,
+      }));
+   }
+
+   /**
+    * Which agents have somewhere to run. An agent bound to no runtime still
+    * runs when the workspace has a default, so the default is named rather
+    * than folded in: the caller decides what "has a runtime" means to it.
+    */
+   async agentCoverage(workspaceId: string): Promise<AgentCoverage> {
+      const [defaultRow] = await this.#sql`
+         SELECT id FROM agent_runtimes WHERE workspace_id = ${workspaceId} AND is_default LIMIT 1`;
+      const rows = await this.#sql`
+         SELECT a.id, a.name, a.runtime_id,
+                (SELECT r.name FROM agent_runtimes r WHERE r.id = a.runtime_id) AS runtime_name
+           FROM agents AS a
+          WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
+          ORDER BY lower(a.name), a.id`;
+      return {
+         defaultRuntimeId: (defaultRow?.id as string | undefined) ?? null,
+         nodes: rows.map((row) => ({
+            id: row.id as string,
+            name: row.name as string,
+            runtimeId: (row.runtime_id as string | null) ?? null,
+            runtimeName: (row.runtime_name as string | null) ?? null,
+         })),
+      };
    }
 
    async create(workspaceId: string, ownerId: string, input: RuntimeInput): Promise<RuntimeView> {

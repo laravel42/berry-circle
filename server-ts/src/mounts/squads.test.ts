@@ -175,6 +175,53 @@ describe('squads mount', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not s
       assert.deepEqual(list.body.nodes, []);
    });
 
+   test('a squad can be created with a brief, an avatar and a roster in one go', async () => {
+      const name = `Launch ${randomUUID().slice(0, 8)}`;
+      const created = await call(app, world.ownerToken, 'POST', '/api/v1/squads', {
+         name,
+         description: 'Ships the thing',
+         instructions: 'Always leave a note on the task before handing it back.',
+         avatarUrl: 'https://example.test/squad.png',
+         leaderAgentId: world.agentId,
+         members: [{ type: 'agent', id: world.agentId, role: 'lead' }],
+      });
+      try {
+         assert.equal(created.status, 201);
+         assert.equal(created.body.instructions, 'Always leave a note on the task before handing it back.');
+         assert.equal(created.body.avatarUrl, 'https://example.test/squad.png');
+         assert.equal(created.body.createdBy, world.ownerId);
+         const members = created.body.members as Array<Record<string, unknown>>;
+         assert.equal(members.length, 1);
+         // A member row carries what the members tab shows beside the name.
+         assert.equal(members[0]?.id, world.agentId);
+         assert.equal(members[0]?.role, 'lead');
+         assert.equal(typeof members[0]?.status, 'string');
+         assert.equal(typeof members[0]?.openIssues, 'number');
+         assert.ok('lastActiveAt' in (members[0] as object));
+
+         const patched = await call(app, world.ownerToken, 'PATCH', `/api/v1/squads/${created.body.id as string}`, {
+            instructions: 'Rewritten.',
+         });
+         assert.equal(patched.status, 200);
+         assert.equal(patched.body.instructions, 'Rewritten.');
+      } finally {
+         if (created.body.id) await sql`DELETE FROM squads WHERE id = ${created.body.id as string}`;
+      }
+   });
+
+   test('an initial roster naming another workspace’s agent leaves no squad behind', async () => {
+      const name = `Doomed ${randomUUID().slice(0, 8)}`;
+      const res = await call(app, world.ownerToken, 'POST', '/api/v1/squads', {
+         name,
+         leaderAgentId: world.agentId,
+         members: [{ type: 'agent', id: world.otherAgentId, role: 'member' }],
+      });
+      assert.equal(res.status, 422);
+      assert.equal((res.body.error as { code: string }).code, 'VALIDATION_FAILED');
+      const rows = await sql`SELECT id FROM squads WHERE name = ${name}`;
+      assert.equal(rows.length, 0, 'the squad and its roster are written together or not at all');
+   });
+
    test('an archived squad leaves the list', async () => {
       assert.equal((await call(app, world.ownerToken, 'DELETE', `/api/v1/squads/${squadId}`)).status, 204);
       const list = await call(app, world.ownerToken, 'GET', '/api/v1/squads');

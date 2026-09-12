@@ -39,6 +39,7 @@ export const NAMESPACES = [
    'inbox',
    'agentsChat',
    'workspaceAdmin',
+   'areas',
 ] as const;
 export type Namespace = (typeof NAMESPACES)[number];
 
