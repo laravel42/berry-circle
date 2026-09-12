@@ -18,6 +18,64 @@ const attachmentConnectionSchema = connectionSchema(attachmentSchema);
 
 export type ApiAttachment = z.infer<typeof attachmentSchema>;
 
+/**
+ * One attachment by its own id, for the preview page, which is reached by
+ * link and so knows nothing but the id. Null when it is not there or not
+ * this person's to see — the server answers 404 to both, deliberately.
+ */
+export async function getAttachment(attachmentId: string): Promise<ApiAttachment | null> {
+   if (!attachmentId) return null;
+   try {
+      const json: unknown = await apiFetch(
+         `/api/v1/attachments/${encodeURIComponent(attachmentId)}`
+      );
+      const parsed = attachmentSchema.safeParse(json);
+      return parsed.success ? parsed.data : null;
+   } catch {
+      return null;
+   }
+}
+
+/**
+ * Past this, a preview is worse than a download: the bytes travel through the
+ * page, the browser decodes them into memory, and the person waits for a
+ * picture they asked to see, not to load.
+ */
+export const PREVIEW_SIZE_LIMIT = 25 * 1024 * 1024;
+
+export type PreviewKind = 'image' | 'pdf' | 'text' | 'html' | 'unsupported';
+
+/** What kind of preview, if any, this file can have. */
+export function previewKind(attachment: ApiAttachment): PreviewKind {
+   const type = attachment.contentType.toLowerCase();
+   if (type.startsWith('image/')) return type.includes('svg') ? 'unsupported' : 'image';
+   if (type === 'application/pdf') return 'pdf';
+   if (type === 'text/html' || type === 'application/xhtml+xml') return 'html';
+   if (type.startsWith('text/') || type === 'application/json') return 'text';
+   return 'unsupported';
+}
+
+/**
+ * The bytes, as an object URL.
+ *
+ * Fetched rather than linked for the same reason a download is: the route
+ * needs the session header, and an `<img src>` pointed at it would render a
+ * broken image with an authentication error behind it. The caller revokes the
+ * URL when it is done.
+ */
+export async function attachmentObjectUrl(attachment: ApiAttachment): Promise<string> {
+   const response = await apiStream(attachment.downloadUrl, undefined, {});
+   if (!response.ok) throw new Error(`Preview failed with status ${response.status}`);
+   return URL.createObjectURL(await response.blob());
+}
+
+/** The bytes as text, for the kinds of file that are text. */
+export async function attachmentText(attachment: ApiAttachment): Promise<string> {
+   const response = await apiStream(attachment.downloadUrl, undefined, {});
+   if (!response.ok) throw new Error(`Preview failed with status ${response.status}`);
+   return response.text();
+}
+
 /** Files on an issue: human uploads and agent-produced artifacts alike. */
 export async function loadIssueAttachments(issueRef: string): Promise<ApiAttachment[]> {
    if (!issueRef) return [];
@@ -111,9 +169,7 @@ export type RunArtifact = z.infer<typeof artifactSchema>;
  */
 export async function loadIssueArtifacts(issueRef: string): Promise<RunArtifact[]> {
    if (!issueRef) return [];
-   const json: unknown = await apiFetch(
-      `/api/v1/issues/${encodeURIComponent(issueRef)}/artifacts`
-   );
+   const json: unknown = await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}/artifacts`);
    const parsed = z.object({ artifacts: z.array(artifactSchema) }).safeParse(json);
    return parsed.success ? parsed.data.artifacts : [];
 }

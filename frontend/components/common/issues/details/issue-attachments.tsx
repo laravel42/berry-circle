@@ -10,7 +10,9 @@ import {
    uploadIssueAttachment,
 } from '@/lib/attachments';
 import { cn } from '@/lib/utils';
+import { AttachmentPreview } from '@/components/layout/attachments/attachment-preview';
 import { Bot, Download, FileText, Loader2, Paperclip } from 'lucide-react';
+import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -28,6 +30,11 @@ export function IssueAttachments({ issueRef }: { issueRef: string }) {
    const [uploading, setUploading] = useState(false);
    const [error, setError] = useState<string | null>(null);
    const picker = useRef<HTMLInputElement>(null);
+   // Which file the preview is showing, as an index into the list, so the
+   // modal's arrows move through the same order the page shows.
+   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+   const params = useParams<{ orgId?: string }>();
+   const orgId = params?.orgId ?? '';
 
    useEffect(() => {
       if (!issueRef) {
@@ -119,7 +126,7 @@ export function IssueAttachments({ issueRef }: { issueRef: string }) {
             {attachments.length === 0 ? (
                <p className="py-2 text-muted-foreground">No files yet.</p>
             ) : null}
-            {attachments.map((attachment) => {
+            {attachments.map((attachment, index) => {
                const isAgent = attachment.uploader?.type === 'agent';
                return (
                   <div
@@ -127,7 +134,15 @@ export function IssueAttachments({ issueRef }: { issueRef: string }) {
                      className="flex items-center gap-2.5 border-b border-border/50 py-2 min-w-0"
                   >
                      <FileText className="size-4 shrink-0 text-muted-foreground" />
-                     <span className="truncate font-medium">{attachment.fileName}</span>
+                     {/* The name opens the file rather than downloading it:
+                         looking is the common case, keeping is the rarer one. */}
+                     <button
+                        type="button"
+                        onClick={() => setPreviewIndex(index)}
+                        className="min-w-0 flex-1 truncate text-left font-medium hover:underline"
+                     >
+                        {attachment.fileName}
+                     </button>
                      <span className="shrink-0 text-muted-foreground">
                         {formatFileSize(attachment.sizeBytes)}
                      </span>
@@ -149,9 +164,7 @@ export function IssueAttachments({ issueRef }: { issueRef: string }) {
                                     src={attachment.uploader.avatarUrl ?? undefined}
                                     alt={attachment.uploader.name}
                                  />
-                                 <AvatarFallback>
-                                    {attachment.uploader.name[0]}
-                                 </AvatarFallback>
+                                 <AvatarFallback>{attachment.uploader.name[0]}</AvatarFallback>
                               </Avatar>
                            )}
                            <span className="truncate">{attachment.uploader.name}</span>
@@ -179,6 +192,12 @@ export function IssueAttachments({ issueRef }: { issueRef: string }) {
             })}
          </div>
          {error ? <p className="mt-2 text-destructive">{error}</p> : null}
+         <AttachmentPreview
+            attachments={attachments}
+            index={previewIndex}
+            onIndexChange={setPreviewIndex}
+            orgId={orgId}
+         />
       </div>
    );
 }

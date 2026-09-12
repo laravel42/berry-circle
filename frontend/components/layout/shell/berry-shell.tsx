@@ -11,6 +11,9 @@ import { shellIconButton } from './shell-icon';
 import { NotificationBell } from '../notifications/notification-bell';
 import { NotificationsDrawer } from '../notifications/notifications-drawer';
 import { NotificationToasts } from '../notifications/notification-toasts';
+import { ShortcutProvider } from '../shortcut-provider';
+import { NavigationProgress } from '../navigation-progress';
+import { ShellShortcuts } from './shell-shortcuts';
 
 /**
  * The application shell from `Berry Prototype.dc.html`: a collapsible rail, a
@@ -106,56 +109,60 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    }, [tabs, activeTabId, handleNew, handleClose, handleActivate]);
 
    return (
-      <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono font-light text-[var(--shell-text)]">
-         {railOpen ? (
-            <ShellRail
-               orgId={orgId}
-               active={activeRoute}
-               onToggle={toggleRail}
-               settingsMode={settingsMode}
-            />
-         ) : (
-            <button
-               type="button"
-               onClick={toggleRail}
-               aria-label="Expand sidebar"
-               className="flex w-9 flex-none items-start justify-center bg-[var(--shell-rail)] pt-4"
-            >
-               <span className={`size-[26px] ${shellIconButton}`}>
-                  {/* Mirrors the collapse control at the foot of the rail. */}
-                  <svg
-                     width="13"
-                     height="13"
-                     viewBox="0 0 24 24"
-                     fill="none"
-                     stroke="currentColor"
-                     strokeWidth={1.7}
-                  >
-                     <path d="M10 6l5 6-5 6" />
-                  </svg>
-               </span>
-            </button>
-         )}
-
-         <div className="relative flex h-[100vh] max-h-[100vh] min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
-            {/* The bell sits outside the strip, which scrolls: an unread
-                count that can scroll out of view is not a count. */}
-            <div className="flex h-[34px] flex-none items-stretch bg-[var(--shell-rail)]">
-               <ShellTabs
-                  tabs={tabs}
-                  activeTabId={activeTabId}
-                  onActivate={handleActivate}
-                  onClose={handleClose}
-                  onNew={handleNew}
+      <ShortcutProvider>
+         <ShellShortcuts orgId={orgId} />
+         <div className="grid h-screen w-screen grid-cols-[auto_minmax(0,1fr)] overflow-hidden bg-[var(--shell-surface)] font-mono font-light text-[var(--shell-text)]">
+            {railOpen ? (
+               <ShellRail
+                  orgId={orgId}
+                  active={activeRoute}
+                  onToggle={toggleRail}
+                  settingsMode={settingsMode}
                />
-               <NotificationBell />
+            ) : (
+               <button
+                  type="button"
+                  onClick={toggleRail}
+                  aria-label="Expand sidebar"
+                  className="flex w-9 flex-none items-start justify-center bg-[var(--shell-rail)] pt-4"
+               >
+                  <span className={`size-[26px] ${shellIconButton}`}>
+                     {/* Mirrors the collapse control at the foot of the rail. */}
+                     <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={1.7}
+                     >
+                        <path d="M10 6l5 6-5 6" />
+                     </svg>
+                  </span>
+               </button>
+            )}
+
+            <div className="relative flex h-[100vh] max-h-[100vh] min-w-0 flex-col overflow-hidden border-l border-[var(--shell-line)]">
+               <NavigationProgress />
+               {/* The bell sits outside the strip, which scrolls: an unread
+                count that can scroll out of view is not a count. */}
+               <div className="flex h-[34px] flex-none items-stretch bg-[var(--shell-rail)]">
+                  <ShellTabs
+                     tabs={tabs}
+                     activeTabId={activeTabId}
+                     onActivate={handleActivate}
+                     onClose={handleClose}
+                     onNew={handleNew}
+                  />
+                  <NotificationBell />
+               </div>
+               <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">
+                  {children}
+               </main>
+               <NotificationsDrawer />
+               <NotificationToasts />
             </div>
-            <main className="min-h-0 flex-1 overflow-auto bg-[var(--shell-canvas)]">
-               {children}
-            </main>
-            <NotificationsDrawer />
-            <NotificationToasts />
          </div>
-      </div>
+      </ShortcutProvider>
    );
 }

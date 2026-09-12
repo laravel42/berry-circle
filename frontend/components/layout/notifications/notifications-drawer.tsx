@@ -11,6 +11,7 @@ import {
 import type { InboxItem } from '@/data/inbox';
 import { getNotificationIcon } from '@/lib/notification-utils';
 import { cn } from '@/lib/utils';
+import { useShortcut } from '@/components/layout/shortcut-provider';
 import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { formatDistanceToNow, parseISO } from 'date-fns';
@@ -33,6 +34,19 @@ export function NotificationsDrawer() {
    const notifications = useNotificationsStore((state) => state.notifications);
    const markAsRead = useNotificationsStore((state) => state.markAsRead);
    const markAllAsRead = useNotificationsStore((state) => state.markAllAsRead);
+   const archiveNotification = useNotificationsStore((state) => state.archiveNotification);
+   const selected = useNotificationsStore((state) => state.selectedNotification);
+   const select = useNotificationsStore((state) => state.setSelectedNotification);
+
+   // E archives whichever item is under the pointer or keyboard focus. Only
+   // while the drawer is open: outside it there is no "the inbox item".
+   useShortcut(
+      'inbox.archive',
+      () => {
+         if (selected) archiveNotification(selected.id);
+      },
+      { enabled: isOpen }
+   );
 
    // Unread first, then newest. A notification you have not seen is the reason
    // the drawer is open; one you have is history.
@@ -84,9 +98,12 @@ export function NotificationsDrawer() {
                         key={item.id}
                         type="button"
                         onClick={() => openNotification(item)}
+                        onMouseEnter={() => select(item)}
+                        onFocus={() => select(item)}
                         className={cn(
                            'flex w-full items-start gap-3 border-b border-border/50 px-5 py-3 text-left',
                            'hover:bg-sidebar/50',
+                           selected?.id === item.id && 'bg-sidebar/50',
                            item.read && 'opacity-60'
                         )}
                      >
