@@ -306,7 +306,7 @@ export function CreateNewIssue() {
          </DialogTrigger>
          <DialogContent
             showCloseButton={false}
-            className="top-[20%] w-full p-0 shadow-xl sm:max-w-[750px]"
+            className="top-[10vh] w-full translate-y-0 p-0 shadow-xl sm:max-w-[750px]"
          >
             <DialogHeader className="px-4 pt-4 pb-0">
                <DialogTitle className="sr-only">{t('title')}</DialogTitle>
