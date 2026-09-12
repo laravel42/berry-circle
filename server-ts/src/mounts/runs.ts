@@ -258,6 +258,11 @@ export function serializeRun(run: Run): Record<string, unknown> {
       failure: run.failure
          ? { code: run.failure.code, message: run.failure.message, retryable: run.failure.retryable }
          : null,
+      // Why this run exists, and who asked. Both are stored on the row and
+      // were previously dropped here, which left an execution log unable to
+      // tell an assignment apart from a mention or an autopilot.
+      source: run.source,
+      requestedBy: run.requestedBy ? { type: 'user', id: run.requestedBy } : null,
       createdAt: run.createdAt,
       startedAt: run.startedAt,
       completedAt: run.completedAt,

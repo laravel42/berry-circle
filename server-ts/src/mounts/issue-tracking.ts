@@ -30,6 +30,7 @@ import {
 import { childIssueIds, setParent, stageGate } from '../work/hierarchy.ts';
 import type { WorkTrackingHooks } from '../work/hooks.ts';
 import { failureCode, parseJsonBody } from '../work/http.ts';
+import { issueLabelsSchema, listIssueLabels, setIssueLabels } from '../work/labels.ts';
 import { metadataPatchSchema, patchMetadata, readMetadata } from '../work/metadata.ts';
 import { publishEvents, recordIssueEvent, type WorkEvent } from '../work/outbox.ts';
 import { clearValue, listValues, setValue } from '../work/properties.ts';
@@ -247,6 +248,24 @@ export function issueTrackingRoutes(options: IssueTrackingOptions): Hono<{ Varia
          await record(issue.id, userId, 'issue.properties.changed', { propertyId, value: null });
       }
       return new Response(null, { status: 204 });
+   });
+
+   // ---------------------------------------------------------------- labels
+   route.get('/:issueRef/labels', async (context) => {
+      const { issue, workspaceId } = await resolve(context.req.param('issueRef'), context.get('user').id, 'product.read');
+      return json({ nodes: await listIssueLabels(sql, workspaceId, issue.id) });
+   });
+
+   /** A replace: the body carries the labels the task should end up with. */
+   route.put('/:issueRef/labels', async (context) => {
+      const userId = context.get('user').id;
+      const { issue, workspaceId } = await resolve(context.req.param('issueRef'), userId, 'product.write');
+      const body = await parseJsonBody(context.req.raw, issueLabelsSchema);
+      const nodes = await sql
+         .begin((tx) => setIssueLabels(tx, { workspaceId, issueId: issue.id, labelIds: body.labelIds, actorId: userId }))
+         .catch(rethrowWork('Label'));
+      await record(issue.id, userId, 'issue.labels.changed', { labelIds: nodes.map((label) => label.id) });
+      return json({ nodes });
    });
 
    // -------------------------------------------------------------- metadata

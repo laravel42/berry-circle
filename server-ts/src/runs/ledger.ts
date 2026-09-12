@@ -83,6 +83,15 @@ export interface Run {
    summary: string | null;
    usage: Usage;
    failure: Failure | null;
+   /**
+    * What asked for this run: an assignment, a mention in a comment, an
+    * autopilot, a squad, a quick action. Stored since the runtime control
+    * plane landed and never read back, which left every run on a task
+    * looking like it started for the same reason as every other one.
+    */
+   source: string;
+   /** The person who asked, when a person did. Null for an agent or a schedule. */
+   requestedBy: string | null;
    dispatchState: string;
    createdAt: string;
    startedAt: string | null;
@@ -780,6 +789,7 @@ async function lockRun(tx: Sql, runId: string): Promise<Run> {
              r.agent_id, r.status::text AS status, r.sequence, r.summary,
              r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros, r.currency,
              r.failure_code, r.failure_message, r.failure_retryable,
+             r.source, r.requested_by,
              r.dispatch_state, r.created_at, r.started_at, r.completed_at
         FROM runs AS r
        WHERE r.id = ${runId}
@@ -811,6 +821,8 @@ async function lockRun(tx: Sql, runId: string): Promise<Run> {
                  message: (row.failure_message as string | null) ?? '',
                  retryable: Boolean(row.failure_retryable),
               },
+      source: (row.source as string | null) ?? 'assignment',
+      requestedBy: (row.requested_by as string | null) ?? null,
       dispatchState: row.dispatch_state as string,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       startedAt: toRFC3339(row.started_at as string | null),

@@ -1,6 +1,5 @@
 'use client';
 
-import { zodResolver } from '@hookform/resolvers/zod';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
@@ -9,10 +8,17 @@ import { z } from 'zod';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+   Select,
+   SelectContent,
+   SelectItem,
+   SelectTrigger,
+   SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { BerryApiError } from '@/lib/api';
 import { createAgent, listAgentModels, modelKey, type AgentModel } from '@/lib/agents';
+import { zodFormResolver } from '@/lib/zod-resolver';
 
 const formSchema = z.object({
    name: z.string().trim().min(1, 'Give the agent a name.').max(100),
@@ -49,12 +55,14 @@ export default function NewAgentManual() {
    }, []);
 
    const form = useForm<FormValues>({
-      resolver: zodResolver(formSchema),
+      resolver: zodFormResolver(formSchema),
       defaultValues: { name: '', description: '', instructions: '', model: undefined },
    });
 
    const submit = form.handleSubmit(async (values) => {
-      const chosen = values.model ? models.find((model) => modelKey(model) === values.model) : undefined;
+      const chosen = values.model
+         ? models.find((model) => modelKey(model) === values.model)
+         : undefined;
       try {
          const agent = await createAgent({
             name: values.name.trim(),
@@ -65,7 +73,9 @@ export default function NewAgentManual() {
          toast.success(`Created ${agent.name}`);
          router.push(`/${orgId}/agents/${agent.id}`);
       } catch (error) {
-         toast.error(error instanceof BerryApiError ? error.message : 'The agent could not be created.');
+         toast.error(
+            error instanceof BerryApiError ? error.message : 'The agent could not be created.'
+         );
       }
    });
 
@@ -99,7 +109,9 @@ export default function NewAgentManual() {
                   render={({ field }) => (
                      <Select
                         value={field.value ?? DEFAULT_MODEL}
-                        onValueChange={(value) => field.onChange(value === DEFAULT_MODEL ? undefined : value)}
+                        onValueChange={(value) =>
+                           field.onChange(value === DEFAULT_MODEL ? undefined : value)
+                        }
                      >
                         <SelectTrigger className="w-80" aria-label="Model">
                            <SelectValue />

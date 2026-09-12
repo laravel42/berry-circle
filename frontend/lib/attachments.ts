@@ -116,6 +116,11 @@ export async function uploadIssueAttachment(
    return parsed.data;
 }
 
+/** Is this something the image viewer can show? */
+export function isImageAttachment(attachment: ApiAttachment): boolean {
+   return attachment.contentType.startsWith('image/');
+}
+
 /**
  * Download an attachment to the viewer's machine.
  *
