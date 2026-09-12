@@ -48,6 +48,8 @@ services:
       BERRY_AUTH_SECRET: "${BERRY_AUTH_SECRET:-}"
       BERRY_AUTH_GITHUB_CLIENT_ID: "${BERRY_AUTH_GITHUB_CLIENT_ID:-}"
       BERRY_AUTH_GITHUB_CLIENT_SECRET: "${BERRY_AUTH_GITHUB_CLIENT_SECRET:-}"
+      # Origins besides BERRY_APP_URL a browser may arrive from, comma separated.
+      BERRY_AUTH_TRUSTED_ORIGINS: "${BERRY_AUTH_TRUSTED_ORIGINS:-}"
       # Set to false to seed the identity and board but no demo tasks or
       # projects — and to stop them reappearing on every boot once deleted.
       BERRY_SEED_DEMO_WORK: "${BERRY_SEED_DEMO_WORK:-true}"

@@ -125,6 +125,19 @@ test('the auth base URL is the app origin, and both origins are trusted', () => 
    ]);
 });
 
+test('extra trusted origins are added, and rubbish among them is dropped', () => {
+   const config = loadConfig({
+      ...BASE_ENV,
+      BERRY_AUTH_SECRET: 'x'.repeat(32),
+      BERRY_APP_URL: 'https://app.berry.test',
+      BERRY_AUTH_TRUSTED_ORIGINS: 'http://192.168.0.86:3000/, not-a-url ,https://app.berry.test',
+   });
+   assert.deepEqual(config.auth.trustedOrigins, [
+      'https://app.berry.test',
+      'http://192.168.0.86:3000',
+   ]);
+});
+
 test('dev login needs both the flag and a development environment', () => {
    assert.equal(
       loadConfig({ ...BASE_ENV, APP_ENV: 'development', AUTH_ALLOW_PASSWORDLESS_LOGIN: 'true' })

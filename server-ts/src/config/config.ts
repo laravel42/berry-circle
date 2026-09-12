@@ -563,8 +563,21 @@ function auth(env: NodeJS.ProcessEnv, _appEnv: string, problems: string[]): Auth
    const appUrl = origin(env.BERRY_APP_URL);
    const publicUrl = origin(env.BERRY_PUBLIC_URL);
    const baseUrl = appUrl ?? publicUrl ?? (development ? 'http://localhost:3000' : null);
+   // A browser reaching the app by another name — a LAN address on a phone, a
+   // tunnel in front of a local stack — sends that origin, and Better Auth
+   // refuses a sign-in from an origin it was not told about. Naming them is an
+   // operator's decision, so they are listed rather than guessed from the
+   // request.
+   const extraOrigins = (env.BERRY_AUTH_TRUSTED_ORIGINS ?? '')
+      .split(',')
+      .map((value) => origin(value))
+      .filter((value): value is string => value !== null);
    const trustedOrigins = [
-      ...new Set([appUrl, publicUrl, baseUrl].filter((value): value is string => value !== null)),
+      ...new Set(
+         [appUrl, publicUrl, baseUrl, ...extraOrigins].filter(
+            (value): value is string => value !== null
+         )
+      ),
    ];
 
    return {
