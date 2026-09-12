@@ -1,4 +1,5 @@
 import { BerryShell } from '@/components/layout/shell/berry-shell';
+import { WorkspaceAccess } from '@/components/common/workspace-access';
 
 /**
  * Workspace layout: the shell frames every workspace route.
@@ -20,8 +21,12 @@ export default function OrgLayout({
 }) {
    return (
       <BerryShell>
-         {children}
-         {drawer}
+         {/* An address this account cannot open never reaches the pages
+             below, and never says which of the two reasons it is. */}
+         <WorkspaceAccess>
+            {children}
+            {drawer}
+         </WorkspaceAccess>
       </BerryShell>
    );
 }

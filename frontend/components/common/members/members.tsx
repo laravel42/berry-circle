@@ -44,6 +44,7 @@ import {
 import { cn } from '@/lib/utils';
 import { useMembersFilterStore } from '@/store/members-filter-store';
 import { useSessionStore } from '@/store/session-store';
+import { MemberHoverCard } from './member-hover-card';
 
 /** Roles an invitation may carry. The server refuses `owner` outright. */
 const INVITE_ROLES = ['admin', 'member', 'viewer'] as const;
@@ -284,15 +285,23 @@ export default function Members() {
                               </Avatar>
                            }
                            title={
-                              <Link
-                                 href={`/${orgId}/members/${member.userId}`}
-                                 className="hover:underline"
+                              <MemberHoverCard
+                                 workspaceId={workspaceId}
+                                 member={member}
+                                 role={member.role}
                               >
-                                 {member.name}
-                                 {member.userId === myId ? (
-                                    <span className="ml-1.5 text-muted-foreground">{t('you')}</span>
-                                 ) : null}
-                              </Link>
+                                 <Link
+                                    href={`/${orgId}/members/${member.userId}`}
+                                    className="hover:underline"
+                                 >
+                                    {member.name}
+                                    {member.userId === myId ? (
+                                       <span className="ml-1.5 text-muted-foreground">
+                                          {t('you')}
+                                       </span>
+                                    ) : null}
+                                 </Link>
+                              </MemberHoverCard>
                            }
                            description={[
                               member.email,

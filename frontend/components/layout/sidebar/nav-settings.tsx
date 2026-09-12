@@ -5,6 +5,7 @@ import {
    Building2,
    Columns3,
    FolderGit2,
+   Keyboard,
    KeyRound,
    Link2,
    ListChecks,
@@ -35,6 +36,7 @@ export type SettingsNavKey =
    | 'profile'
    | 'preferences'
    | 'notifications'
+   | 'shortcuts'
    | 'security'
    | 'tokens'
    | 'connectedAccounts'
@@ -88,6 +90,9 @@ export const settingsNav: SettingsNavGroup[] = [
          { labelKey: 'profile', url: '/settings/profile', icon: UserRound },
          { labelKey: 'preferences', url: '/settings/preferences', icon: Settings },
          { labelKey: 'notifications', url: '/settings/notifications', icon: Bell },
+         // The page itself belongs to the keyboard-shortcuts workstream; this
+         // is the entry that puts it where people look for it.
+         { labelKey: 'shortcuts', url: '/settings/keyboard-shortcuts', icon: Keyboard },
          { labelKey: 'security', url: '/settings/security', icon: KeyRound },
          { labelKey: 'tokens', url: '/settings/tokens', icon: Braces },
          { labelKey: 'connectedAccounts', url: '/settings/connected-accounts', icon: Users },

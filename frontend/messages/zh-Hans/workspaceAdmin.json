@@ -24,7 +24,8 @@
       "repositories": "代码仓库",
       "integrations": "集成",
       "mcp": "MCP 服务器",
-      "plugins": "插件"
+      "plugins": "插件",
+      "shortcuts": "键盘快捷键"
    },
    "jump": {
       "label": "设置页面",
@@ -374,5 +375,30 @@
       "projectNote_paused": "有意停止，但未放弃。",
       "projectNote_completed": "已结束。",
       "projectNote_cancelled": "已停止且不会恢复。"
+   },
+   "noAccess": {
+      "title": "你无法打开该地址",
+      "body": "Berry 不会说明该工作区是否存在，以免有人借助地址进行探测。如果你本应有权访问，可能是登录了错误的账户。",
+      "signedInAs": "当前登录身份：{email}",
+      "myWorkspaces": "我的工作区",
+      "signInAsSomeoneElse": "以其他身份登录"
+   },
+   "join": {
+      "title": "加入工作区",
+      "checking": "正在检查链接…",
+      "invalid": "此加入链接无效。它可能已过期或被撤销。",
+      "offer": "以{role}身份加入 {workspace}。",
+      "join": "加入工作区",
+      "joining": "正在加入…",
+      "alreadyMember": "已经是成员？点击后会直接进入。",
+      "signIn": "登录",
+      "signInRest": "然后重新打开此链接以加入。",
+      "failed": "加入失败。请重试该链接。"
+   },
+   "hoverCard": {
+      "topAgents": "参与其工作的智能体",
+      "loading": "正在统计…",
+      "noAgents": "还没有智能体在其任务上运行过。",
+      "runs": "{count} 次运行"
    }
 }

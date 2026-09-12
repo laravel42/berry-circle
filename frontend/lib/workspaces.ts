@@ -215,6 +215,33 @@ export type WorkspaceMemberRole = z.infer<typeof memberRoleSchema>;
  * owner and viewer into "Member" — fine for an avatar list, useless for
  * deciding whether someone is the last owner.
  */
+const topAgentSchema = z.object({
+   agentId: z.string(),
+   name: z.string(),
+   runCount: z.number(),
+});
+export type TopAgent = z.infer<typeof topAgentSchema>;
+
+/**
+ * The agents that turn up most on one member's work.
+ *
+ * `runs` records the agent and the task and never who asked for the run, so
+ * the server answers this through the tasks the person filed or holds. An
+ * empty list is a real answer — nothing has run on their work — and a 404 is
+ * the guard's, for a member or a workspace the caller cannot see.
+ */
+export async function loadMemberTopAgents(
+   workspaceId: string,
+   memberId: string
+): Promise<TopAgent[]> {
+   const json: unknown = await apiFetch(
+      `${workspacePath(workspaceId)}/members/${encodeURIComponent(memberId)}/top-agents`
+   );
+   const parsed = z.object({ nodes: z.array(topAgentSchema) }).safeParse(json);
+   if (!parsed.success) throw new Error('Top agents response was not recognized');
+   return parsed.data.nodes;
+}
+
 export async function listWorkspaceMemberRoles(
    workspaceId: string
 ): Promise<WorkspaceMemberRole[]> {

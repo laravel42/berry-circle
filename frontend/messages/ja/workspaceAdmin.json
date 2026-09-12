@@ -24,7 +24,8 @@
       "repositories": "リポジトリ",
       "integrations": "インテグレーション",
       "mcp": "MCP サーバー",
-      "plugins": "プラグイン"
+      "plugins": "プラグイン",
+      "shortcuts": "キーボードショートカット"
    },
    "jump": {
       "label": "設定ページ",
@@ -374,5 +375,30 @@
       "projectNote_paused": "意図的に停止中。中止ではありません。",
       "projectNote_completed": "終了しました。",
       "projectNote_cancelled": "停止し、再開しません。"
+   },
+   "noAccess": {
+      "title": "このアドレスは開けません",
+      "body": "アドレスで詮索できないよう、Berry はそのワークスペースが存在するかどうかを明かしません。ここにアクセスできるはずなら、別のアカウントでサインインしている可能性があります。",
+      "signedInAs": "{email} でサインイン中",
+      "myWorkspaces": "自分のワークスペース",
+      "signInAsSomeoneElse": "別のアカウントでサインイン"
+   },
+   "join": {
+      "title": "ワークスペースに参加",
+      "checking": "リンクを確認しています…",
+      "invalid": "この参加リンクは無効です。期限切れか取り消された可能性があります。",
+      "offer": "{role}として {workspace} に参加します。",
+      "join": "ワークスペースに参加",
+      "joining": "参加しています…",
+      "alreadyMember": "すでにメンバーの場合は、そのまま中に入ります。",
+      "signIn": "サインイン",
+      "signInRest": "してから、このリンクをもう一度開いて参加してください。",
+      "failed": "参加できませんでした。もう一度リンクを開いてください。"
+   },
+   "hoverCard": {
+      "topAgents": "その人の作業に関わるエージェント",
+      "loading": "集計しています…",
+      "noAgents": "その人のタスクで実行されたエージェントはまだありません。",
+      "runs": "{count} 回実行"
    }
 }

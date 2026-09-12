@@ -24,7 +24,8 @@
       "repositories": "repositories",
       "integrations": "integrations",
       "mcp": "MCP servers",
-      "plugins": "plugins"
+      "plugins": "plugins",
+      "shortcuts": "Keyboard shortcuts"
    },
    "jump": {
       "label": "Settings pages",
@@ -374,5 +375,30 @@
       "projectNote_paused": "Deliberately stopped, not abandoned.",
       "projectNote_completed": "Finished.",
       "projectNote_cancelled": "Stopped and not coming back."
+   },
+   "noAccess": {
+      "title": "This address is not yours to open",
+      "body": "Berry does not say whether the workspace exists, so that an address cannot be used to find out. If you expected to be here, you may be signed in with the wrong account.",
+      "signedInAs": "Signed in as {email}",
+      "myWorkspaces": "My workspaces",
+      "signInAsSomeoneElse": "Sign in as someone else"
+   },
+   "join": {
+      "title": "Join a workspace",
+      "checking": "Checking the link…",
+      "invalid": "This join link is not valid. It may have expired or been revoked.",
+      "offer": "Join {workspace} as {role}.",
+      "join": "Join workspace",
+      "joining": "Joining…",
+      "alreadyMember": "Already a member? This takes you straight in.",
+      "signIn": "Sign in",
+      "signInRest": "then open this link again to join.",
+      "failed": "Joining failed. Try the link again."
+   },
+   "hoverCard": {
+      "topAgents": "Agents on their work",
+      "loading": "Counting…",
+      "noAgents": "No agent has run on their tasks yet.",
+      "runs": "{count} runs"
    }
 }

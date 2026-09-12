@@ -24,7 +24,8 @@
       "repositories": "저장소",
       "integrations": "통합",
       "mcp": "MCP 서버",
-      "plugins": "플러그인"
+      "plugins": "플러그인",
+      "shortcuts": "키보드 단축키"
    },
    "jump": {
       "label": "설정 페이지",
@@ -374,5 +375,30 @@
       "projectNote_paused": "의도적으로 멈췄고 포기한 것은 아닙니다.",
       "projectNote_completed": "끝났습니다.",
       "projectNote_cancelled": "멈췄고 다시 시작하지 않습니다."
+   },
+   "noAccess": {
+      "title": "이 주소는 열 수 없습니다",
+      "body": "주소로 알아낼 수 없도록 Berry는 해당 워크스페이스의 존재 여부를 밝히지 않습니다. 접근할 수 있어야 한다면 다른 계정으로 로그인했을 수 있습니다.",
+      "signedInAs": "{email}(으)로 로그인함",
+      "myWorkspaces": "내 워크스페이스",
+      "signInAsSomeoneElse": "다른 계정으로 로그인"
+   },
+   "join": {
+      "title": "워크스페이스 참여",
+      "checking": "링크를 확인하는 중…",
+      "invalid": "이 참여 링크는 유효하지 않습니다. 만료되었거나 철회되었을 수 있습니다.",
+      "offer": "{role}(으)로 {workspace}에 참여합니다.",
+      "join": "워크스페이스 참여",
+      "joining": "참여하는 중…",
+      "alreadyMember": "이미 멤버라면 바로 들어갑니다.",
+      "signIn": "로그인",
+      "signInRest": "한 뒤 이 링크를 다시 열어 참여하세요.",
+      "failed": "참여하지 못했습니다. 링크를 다시 열어 보세요."
+   },
+   "hoverCard": {
+      "topAgents": "이 사람의 작업에 참여한 에이전트",
+      "loading": "집계하는 중…",
+      "noAgents": "이 사람의 작업에서 실행된 에이전트가 아직 없습니다.",
+      "runs": "{count}회 실행"
    }
 }
