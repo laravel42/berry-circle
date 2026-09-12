@@ -44,6 +44,24 @@ export interface Installation {
    accountType: string | null;
 }
 
+/**
+ * That a person has already been sent to GitHub to install the App.
+ *
+ * The point of the row is the login *after* the one that made it. Somebody who
+ * closed GitHub's tab, and an organisation install an owner has still to
+ * approve, both leave no installation behind — and without this there would be
+ * nothing to tell them apart from a person who has never been asked, so every
+ * login would send them to GitHub again.
+ *
+ * `pending` is GitHub's `setup_action=request`: they could not install it
+ * themselves and asked an owner to.
+ */
+export interface InstallOffer {
+   workspaceId: string;
+   userId: string;
+   status: 'offered' | 'pending';
+}
+
 export class GitHubAppUnavailable extends Error {
    override readonly name = 'GitHubAppUnavailable';
    readonly reason: 'no_app' | 'not_installed' | 'mint_failed' | 'not_owned';
@@ -225,7 +243,67 @@ export class GitHubAppRepository {
       return saved;
    }
 
-   /** Records where a workspace installed the App. */
+   /**
+    * Records that this person has been sent to GitHub to install the App.
+    *
+    * An existing row is left as it stands: a `pending` request must not be
+    * downgraded to a fresh offer by someone re-opening the install link, or the
+    * settings page would stop saying an owner was asked.
+    */
+   async offerInstall(workspaceId: string, userId: string): Promise<void> {
+      await this.#sql`
+         INSERT INTO github_install_offers (workspace_id, user_id, status)
+         VALUES (${workspaceId}, ${userId}, 'offered')
+         ON CONFLICT (workspace_id, user_id) DO UPDATE SET updated_at = now()`;
+   }
+
+   /**
+    * Records that an owner was asked to install the App.
+    *
+    * There is no installation to record — GitHub creates one only once the
+    * request is approved — so this is the whole of what happened, and the only
+    * thing that lets the settings page say "waiting for approval" rather than
+    * "not installed".
+    */
+   async recordInstallRequested(workspaceId: string, userId: string): Promise<void> {
+      await this.#sql`
+         INSERT INTO github_install_offers (workspace_id, user_id, status)
+         VALUES (${workspaceId}, ${userId}, 'pending')
+         ON CONFLICT (workspace_id, user_id) DO UPDATE
+            SET status = 'pending', updated_at = now()`;
+   }
+
+   /** Whether this person has already been asked, and what came of it. */
+   async installOffer(workspaceId: string, userId: string): Promise<InstallOffer | null> {
+      const [row] = await this.#sql<Array<{ status: string }>>`
+         SELECT status FROM github_install_offers
+          WHERE workspace_id = ${workspaceId} AND user_id = ${userId}`;
+      if (!row) return null;
+      return {
+         workspaceId,
+         userId,
+         status: row.status === 'pending' ? 'pending' : 'offered',
+      };
+   }
+
+   /** Whether anyone here is waiting on an owner to approve the install. */
+   async installPending(workspaceId: string): Promise<boolean> {
+      const [row] = await this.#sql<Array<{ pending: boolean }>>`
+         SELECT EXISTS (
+            SELECT 1 FROM github_install_offers
+             WHERE workspace_id = ${workspaceId} AND status = 'pending'
+         ) AS pending`;
+      return row?.pending === true;
+   }
+
+   /**
+    * Records where a workspace installed the App.
+    *
+    * Every outstanding offer for the workspace goes with it: the installation
+    * is the answer they were all waiting for, and a `pending` row left behind
+    * would have the settings page still asking an owner for something they have
+    * already done.
+    */
    async saveInstallation(input: Installation, installedBy: string | null): Promise<void> {
       await this.#sql`
          INSERT INTO github_installations (workspace_id, installation_id, account_login,
@@ -236,6 +314,7 @@ export class GitHubAppRepository {
             SET installation_id = EXCLUDED.installation_id,
                 account_login = EXCLUDED.account_login,
                 account_type = EXCLUDED.account_type, updated_at = now()`;
+      await this.#sql`DELETE FROM github_install_offers WHERE workspace_id = ${input.workspaceId}`;
       this.#tokens.delete(input.installationId);
    }
 

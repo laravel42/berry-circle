@@ -1,0 +1,348 @@
+import assert from 'node:assert/strict';
+import { generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import { after, before, beforeEach, describe, test } from 'node:test';
+
+import { personalTokenResolver } from '../auth/credentials.ts';
+import { SessionService } from '../auth/sessions.ts';
+import { issueTestToken } from '../auth/test-credentials.ts';
+import { BoardRepository } from '../core/boards.ts';
+import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
+import { createApp, type BerryApp } from '../http/app.ts';
+import { Registry } from '../http/registry.ts';
+import { GitHubAppRepository } from '../integrations/github-app.ts';
+import { OAuthStateStore } from '../integrations/oauth.ts';
+import { sealerFromKey } from '../integrations/sealing.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
+import { integrationMounts } from './integrations.ts';
+
+/**
+ * Repository access granted once, at a person's first login.
+ *
+ * The promise this makes is narrow enough to test: the *first* login of someone
+ * whose workspace has no installation is sent to GitHub to choose an account
+ * and its repositories; every login after that only identifies them. What makes
+ * the second login quiet is a row, not a guess — so the interesting cases are
+ * the ones where nothing was installed: the organisation install an owner still
+ * has to approve, and the person who closed GitHub's tab and came back.
+ */
+
+const url = process.env.BERRY_TEST_DATABASE_URL;
+
+/** GitHub's answer when the App asks what an installation is. */
+function githubStub(account: { login: string; type: string }): typeof globalThis.fetch {
+   return (async (input: string | URL | Request) => {
+      const target = new URL(typeof input === 'string' ? input : input.toString());
+      if (/^\/app\/installations\/\d+$/.test(target.pathname)) {
+         return new Response(JSON.stringify({ account: { login: account.login, type: account.type } }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+         });
+      }
+      return new Response('unexpected', { status: 500 });
+   }) as unknown as typeof globalThis.fetch;
+}
+
+describe(
+   'granting repository access at first login',
+   { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' },
+   () => {
+      let sql: Sql;
+      let app: BerryApp;
+      let states: OAuthStateStore;
+      let githubApp: GitHubAppRepository;
+      let u1Token: string;
+      let u1Id: string;
+      let w1Id: string;
+      let w2Id: string;
+
+      const suffix = randomBytes(4).toString('hex');
+
+      /** The step the browser is told to take after a sign-in. */
+      async function accessStep(): Promise<{ next: string; installUrl: string | null }> {
+         const response = await app.request('/api/v1/integrations/github/app/repository-access', {
+            method: 'POST',
+            headers: { authorization: `Bearer ${u1Token}`, 'content-type': 'application/json' },
+            body: '{}',
+         });
+         assert.equal(response.status, 200);
+         return (await response.json()) as { next: string; installUrl: string | null };
+      }
+
+      /** What GitHub's setup redirect does when it comes back. */
+      async function installationCallback(query: string): Promise<string> {
+         const response = await app.request(
+            `/api/v1/integrations/github/installation/callback?${query}`
+         );
+         assert.equal(response.status, 302);
+         const location = response.headers.get('location') ?? '';
+         return new URL(location).searchParams.get('status') ?? '';
+      }
+
+      function stateOf(installUrl: string): string {
+         return new URL(installUrl).searchParams.get('state') ?? '';
+      }
+
+      async function offerStatus(workspaceId = w1Id): Promise<string | null> {
+         const [row] = await sql<Array<{ status: string }>>`
+            SELECT status FROM github_install_offers
+             WHERE workspace_id = ${workspaceId} AND user_id = ${u1Id}`;
+         return row?.status ?? null;
+      }
+
+      before(async () => {
+         sql = openDatabase({ url: url! });
+
+         const [user] = await sql`
+            INSERT INTO users (id, email, name)
+            VALUES (${randomUUID()}, ${`install-u1-${suffix}@berry.test`}, 'Install U1')
+            RETURNING id`;
+         u1Id = user!.id as string;
+         const settings = { issuePrefix: 'INS', defaultRole: 'member', allowMemberInvites: false };
+         const [w1] = await sql`
+            INSERT INTO workspaces (id, name, slug, settings, created_by)
+            VALUES (${randomUUID()}, ${`Install W1 ${suffix}`}, ${`install-w1-${suffix}`},
+                    ${sql.json(settings as never)}, ${u1Id})
+            RETURNING id`;
+         const [w2] = await sql`
+            INSERT INTO workspaces (id, name, slug, settings, created_by)
+            VALUES (${randomUUID()}, ${`Install W2 ${suffix}`}, ${`install-w2-${suffix}`},
+                    ${sql.json(settings as never)}, ${u1Id})
+            RETURNING id`;
+         w1Id = w1!.id as string;
+         w2Id = w2!.id as string;
+         // U1 owns W1 and is not a member of W2, which is the workspace no
+         // state of theirs may reach.
+         await sql`
+            INSERT INTO workspace_memberships (workspace_id, user_id, role)
+            VALUES (${w1Id}, ${u1Id}, 'owner')`;
+         await sql`UPDATE users SET last_workspace_id = ${w1Id} WHERE id = ${u1Id}`;
+         u1Token = await issueTestToken(sql, u1Id);
+
+         states = new OAuthStateStore({ sql });
+         githubApp = new GitHubAppRepository({
+            sql,
+            sealer: sealerFromKey(randomBytes(32).toString('base64')),
+            fetch: githubStub({ login: 'berry-org', type: 'Organization' }),
+            apiBaseUrl: 'https://api.github.test',
+         });
+         await githubApp.saveApp(
+            {
+               appId: 4242,
+               slug: `berry-${suffix}`,
+               name: 'Berry Test',
+               clientId: 'Iv1.test',
+               clientSecret: 'shh',
+               // A real key, because asking GitHub what an installation is
+               // starts by signing the App's own JWT with it.
+               privateKey: generateKeyPairSync('rsa', {
+                  modulusLength: 2048,
+                  privateKeyEncoding: { type: 'pkcs1', format: 'pem' },
+                  publicKeyEncoding: { type: 'spki', format: 'pem' },
+               }).privateKey,
+               webhookSecret: null,
+               htmlUrl: 'https://github.com/apps/berry-test',
+            },
+            u1Id
+         );
+
+         const registry = new Registry();
+         registry.registerAll(
+            integrationMounts({
+               sessions: new SessionService({
+                  sql,
+                  auth: null,
+                  bearer: [personalTokenResolver(sql)],
+               }),
+               boards: new BoardRepository(sql),
+               connections: null,
+               states,
+               github: null,
+               githubApp,
+               publicUrl: 'http://localhost:4000',
+               appUrl: 'http://localhost:3000',
+               firstRunSetup: null,
+            })
+         );
+         app = createApp(registry);
+      });
+
+      beforeEach(async () => {
+         await sql`DELETE FROM github_install_offers WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+         await sql`DELETE FROM github_installations WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+         await sql`DELETE FROM integration_oauth_states WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+      });
+
+      after(async () => {
+         // Best effort, and the connection closes either way: a teardown that
+         // throws would leave the pool open and hang the file until its timeout,
+         // which hides whatever the tests actually said.
+         try {
+            await sql`DELETE FROM github_install_offers WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+            await sql`DELETE FROM github_installations WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+            await sql`DELETE FROM integration_oauth_states WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+            await sql`DELETE FROM github_apps WHERE app_id = 4242`;
+            await sql`DELETE FROM personal_api_tokens WHERE user_id = ${u1Id}`;
+            // A new workspace is seeded with agents by trigger, and the
+            // Orchestrator refuses deletion; the shared helper is what gets a
+            // workspace out of the way.
+            await sql`DELETE FROM outbox_events WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+            await deleteWorkspaceAgents(sql, [w1Id, w2Id]);
+            await sql`DELETE FROM issue_status_definitions WHERE workspace_id IN (${w1Id}, ${w2Id})`;
+            await sql`DELETE FROM workspaces WHERE id IN (${w1Id}, ${w2Id})`;
+            await sql`DELETE FROM users WHERE id = ${u1Id}`;
+         } finally {
+            await closeDatabase(sql);
+         }
+      });
+
+      test('a first login is sent to GitHub to choose an account and its repositories', async () => {
+         const step = await accessStep();
+
+         assert.equal(step.next, 'install');
+         assert.ok(step.installUrl, 'the browser is given somewhere to go');
+         assert.ok(
+            step.installUrl!.startsWith(`https://github.com/apps/berry-${suffix}/installations/new`),
+            step.installUrl!
+         );
+         // Carried, so the callback knows whose workspace this installation is.
+         assert.notEqual(stateOf(step.installUrl!), '');
+         assert.equal(await offerStatus(), 'offered');
+      });
+
+      test('a later login goes straight in, with nowhere to be sent', async () => {
+         await accessStep();
+
+         const second = await accessStep();
+
+         assert.equal(second.next, 'offered');
+         assert.equal(second.installUrl, null);
+      });
+
+      test('an installation Berry already knows of is never asked for again', async () => {
+         await githubApp.saveInstallation(
+            { workspaceId: w1Id, installationId: 777, accountLogin: 'berry-org', accountType: 'Organization' },
+            u1Id
+         );
+
+         const step = await accessStep();
+
+         assert.equal(step.next, 'installed');
+         assert.equal(step.installUrl, null);
+         // A lookup, not a guess: nothing was recorded to make this quiet.
+         assert.equal(await offerStatus(), null);
+      });
+
+      test('an install an owner still has to approve is recorded as pending', async () => {
+         const step = await accessStep();
+
+         const status = await installationCallback(
+            `setup_action=request&state=${encodeURIComponent(stateOf(step.installUrl!))}`
+         );
+
+         assert.equal(status, 'install_requested');
+         assert.equal(await offerStatus(), 'pending');
+         const after = await accessStep();
+         assert.equal(after.next, 'pending');
+         assert.equal(after.installUrl, null);
+         // And no installation was invented to stand in for one that does not
+         // exist yet.
+         assert.equal(await githubApp.installation(w1Id), null);
+      });
+
+      test('the pending request is on the App resource the settings page reads', async () => {
+         const step = await accessStep();
+         await installationCallback(
+            `setup_action=request&state=${encodeURIComponent(stateOf(step.installUrl!))}`
+         );
+
+         const response = await app.request('/api/v1/integrations/github/app', {
+            headers: { authorization: `Bearer ${u1Token}` },
+         });
+         const body = (await response.json()) as {
+            installPending: boolean;
+            installation: unknown;
+            app: { installUrl: string };
+         };
+
+         assert.equal(response.status, 200);
+         assert.equal(body.installPending, true);
+         assert.equal(body.installation, null);
+         assert.ok(body.app.installUrl.includes('/installations/new'));
+      });
+
+      test('someone who skips the install still has a usable account', async () => {
+         await accessStep();
+
+         // They closed GitHub's tab. Nothing is installed, they are not sent
+         // back, and the App resource still offers the same link.
+         const again = await accessStep();
+         const response = await app.request('/api/v1/integrations/github/app', {
+            headers: { authorization: `Bearer ${u1Token}` },
+         });
+         const body = (await response.json()) as {
+            installPending: boolean;
+            installation: unknown;
+            app: { installUrl: string };
+         };
+
+         assert.equal(again.next, 'offered');
+         assert.equal(again.installUrl, null);
+         assert.equal(body.installation, null);
+         assert.equal(body.installPending, false);
+         assert.ok(body.app.installUrl.includes('/installations/new'));
+      });
+
+      test('a completed install is recorded against the workspace and closes the offer', async () => {
+         const step = await accessStep();
+         const state = stateOf(step.installUrl!);
+
+         const status = await installationCallback(
+            `installation_id=901&setup_action=install&state=${encodeURIComponent(state)}`
+         );
+
+         assert.equal(status, 'installed');
+         const installation = await githubApp.installation(w1Id);
+         assert.equal(installation?.installationId, 901);
+         assert.equal(installation?.accountLogin, 'berry-org');
+         // The offer was what they were waiting on; it goes with the answer.
+         assert.equal(await offerStatus(), null);
+         assert.equal((await accessStep()).next, 'installed');
+      });
+
+      test('the state cannot be replayed', async () => {
+         const step = await accessStep();
+         const state = stateOf(step.installUrl!);
+         await installationCallback(
+            `installation_id=901&setup_action=install&state=${encodeURIComponent(state)}`
+         );
+
+         const replayed = await installationCallback(
+            `installation_id=902&setup_action=install&state=${encodeURIComponent(state)}`
+         );
+
+         assert.equal(replayed, 'invalid_state');
+         // The second id was never believed, so the workspace still mints
+         // tokens against the installation it actually chose.
+         assert.equal((await githubApp.installation(w1Id))?.installationId, 901);
+      });
+
+      test('a state cannot carry a user into a workspace they are not a member of', async () => {
+         // As if the row had been written for another workspace: the callback
+         // trusts the row, so the row alone must not be enough.
+         const forged = await states.start({
+            workspaceId: w2Id,
+            userId: u1Id,
+            provider: 'github_install',
+            redirectUri: 'https://github.com/apps/berry/installations/new',
+            scopes: [],
+         });
+
+         const status = await installationCallback(
+            `installation_id=903&setup_action=install&state=${encodeURIComponent(forged.state)}`
+         );
+
+         assert.equal(status, 'install_not_permitted');
+         assert.equal(await githubApp.installation(w2Id), null);
+      });
+   }
+);

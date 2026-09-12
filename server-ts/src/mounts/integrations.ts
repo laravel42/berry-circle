@@ -23,6 +23,7 @@ import {
    buildManifest,
    convertManifest,
    type GitHubAppRepository,
+   type StoredApp,
 } from '../integrations/github-app.ts';
 
 /**
@@ -45,6 +46,37 @@ import {
 
 /** Where the browser is sent back to after the provider is done with it. */
 const SETTINGS_PATH = '/settings/integrations';
+
+/**
+ * Where an install that began at sign-in comes back to.
+ *
+ * Not the settings page: nobody asked for settings, they asked to log in. This
+ * is the one hand-off after auth, and it routes on into the workspace — so the
+ * detour through GitHub ends where the login would have ended anyway.
+ */
+const SIGN_IN_PATH = '/onboarding';
+
+/** An install somebody started from the settings page. */
+const INSTALL_PROVIDER = 'github_install';
+
+/**
+ * An install offered by the login itself, told apart from the one above only so
+ * the browser can be sent back to where it actually came from.
+ */
+const SIGN_IN_INSTALL_PROVIDER = 'github_install_signin';
+
+/**
+ * A redirect the app shell can still stamp its headers onto.
+ *
+ * `Response.redirect()` returns a response whose headers are immutable, and the
+ * shell sets the security headers and the request id on every finished
+ * response — so a redirect built that way throws `TypeError: immutable` and the
+ * browser is told 500 instead of where to go. Every callback here ends in a
+ * redirect, so every one of them has to be built like this.
+ */
+function redirectTo(location: string): Response {
+   return new Response(null, { status: 302, headers: { location } });
+}
 
 export interface IntegrationsOptions {
    sessions: SessionService;
@@ -194,10 +226,21 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
     */
    route.get('/github/app', async (context) => {
       const workspaceId = await requireWorkspace(context, options, 'product.read');
-      if (!options.githubApp) return json({ app: null, installation: null });
+      if (!options.githubApp) {
+         return json({ app: null, installation: null, installPending: false });
+      }
       const app = await options.githubApp.app();
       const installation = app ? await options.githubApp.installation(workspaceId) : null;
+      // A fourth state, and the one a settings page would otherwise have to
+      // describe as a failure: an organisation install an owner has not
+      // approved yet. Nothing is installed, and nobody need do anything but
+      // wait — which is only sayable because the request was recorded.
+      const installPending =
+         app !== null && installation === null
+            ? await options.githubApp.installPending(workspaceId)
+            : false;
       return json({
+         installPending,
          app: app && {
             appId: app.appId,
             slug: app.slug,
@@ -247,15 +290,57 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
       if (!app) {
          throw new ApiError(409, 'GITHUB_APP_MISSING', 'Create the GitHub App first.');
       }
-      const pending = await options.states.start({
-         workspaceId,
-         userId: context.get('user').id,
-         provider: 'github_install',
-         redirectUri: `https://github.com/apps/${app.slug}/installations/new`,
-         scopes: [],
-      });
       return json({
-         installUrl: `https://github.com/apps/${encodeURIComponent(app.slug)}/installations/new?state=${encodeURIComponent(pending.state)}`,
+         installUrl: await startInstall(options, {
+            app,
+            workspaceId,
+            userId: context.get('user').id,
+            provider: INSTALL_PROVIDER,
+         }),
+      });
+   });
+
+   /**
+    * What this person still has to do about repository access, asked once per
+    * login by the page that hands them on after auth.
+    *
+    * The promise is that access is granted once, at a first login: whoever has
+    * no installation Berry knows of is sent to GitHub to choose an account and
+    * its repositories, and every login after that only identifies them. What
+    * makes the second login quiet is the offer row this writes — not a guess,
+    * because somebody who skipped the install and somebody who has never been
+    * asked look identical from the installation table alone.
+    *
+    * `settings.write`, like every other install route: choosing which
+    * repositories a whole workspace's agents may reach is an admin act. An
+    * ordinary member is refused here, and the page that asked simply lets them
+    * in — being unable to install is not being unable to log in.
+    */
+   route.post('/github/app/repository-access', async (context) => {
+      const workspaceId = await requireWorkspace(context, options, 'settings.write');
+      const nothingToDo = json({ next: 'no_app', installUrl: null });
+      if (!options.githubApp || !options.states) return nothingToDo;
+      const app = await options.githubApp.app();
+      if (!app) return nothingToDo;
+
+      if (await options.githubApp.installation(workspaceId)) {
+         return json({ next: 'installed', installUrl: null });
+      }
+      const userId = context.get('user').id;
+      const offered = await options.githubApp.installOffer(workspaceId, userId);
+      // Asked already: they either declined GitHub's form or are waiting on an
+      // owner. Either way they are not sent back, which is what keeps a login
+      // from becoming a loop.
+      if (offered) return json({ next: offered.status, installUrl: null });
+
+      return json({
+         next: 'install',
+         installUrl: await startInstall(options, {
+            app,
+            workspaceId,
+            userId,
+            provider: SIGN_IN_INSTALL_PROVIDER,
+         }),
       });
    });
 
@@ -463,12 +548,11 @@ async function handleCallback(
    const providerId = context.req.param('provider') ?? '';
    const url = new URL(context.req.url);
    const back = (status: string): Response =>
-      Response.redirect(
+      redirectTo(
          new URL(
             `${SETTINGS_PATH}?integration=${encodeURIComponent(providerId)}&status=${encodeURIComponent(status)}`,
             options.appUrl || options.publicUrl || url.origin
-         ).toString(),
-         302
+         ).toString()
       );
 
    // The person pressed Cancel on the provider's own page.
@@ -544,6 +628,30 @@ function requireProvider(id: string | undefined) {
  * to, is the same whether an admin pressed the button or the first person ever
  * to open the deployment did.
  */
+/**
+ * Mints the state an install is recognised by and says where to send someone.
+ *
+ * The offer is recorded before the browser leaves rather than when it comes
+ * back, because the case that matters is the one where it never comes back:
+ * somebody who closes GitHub's tab has still been asked, and asking them again
+ * on every login is the loop this avoids.
+ */
+async function startInstall(
+   options: IntegrationsOptions,
+   input: { app: StoredApp; workspaceId: string; userId: string; provider: string }
+): Promise<string> {
+   const installPath = `https://github.com/apps/${encodeURIComponent(input.app.slug)}/installations/new`;
+   const pending = await options.states!.start({
+      workspaceId: input.workspaceId,
+      userId: input.userId,
+      provider: input.provider,
+      redirectUri: installPath,
+      scopes: [],
+   });
+   await options.githubApp!.offerInstall(input.workspaceId, input.userId);
+   return `${installPath}?state=${encodeURIComponent(pending.state)}`;
+}
+
 async function manifestOffer(
    context: { req: { url: string; json(): Promise<unknown> } },
    options: IntegrationsOptions,
@@ -634,12 +742,11 @@ async function handleAppCallback(
 ): Promise<Response> {
    const url = new URL(context.req.url);
    const back = (status: string): Response =>
-      Response.redirect(
+      redirectTo(
          new URL(
             `${SETTINGS_PATH}?integration=github&status=${encodeURIComponent(status)}`,
             options.appUrl || options.publicUrl || url.origin
-         ).toString(),
-         302
+         ).toString()
       );
 
    const code = url.searchParams.get('code') ?? '';
@@ -672,31 +779,35 @@ async function handleAppCallback(
 /**
  * GitHub returns here after the App is installed on an account.
  *
- * `setup_action=request` means the person could not install it themselves and
- * asked an owner to — there is no installation yet, and saying so is more use
- * than a generic failure.
+ * Two things arrive rather than one. `setup_action=request` means the person
+ * could not install it themselves and asked an owner to: there is no
+ * installation, and the request is recorded so the product can say it is
+ * pending instead of reporting a failure or pretending it worked. Otherwise an
+ * installation id arrives, and what follows is the checking of it.
  */
 async function handleInstallationCallback(
    context: { req: { url: string } },
    options: IntegrationsOptions
 ): Promise<Response> {
    const url = new URL(context.req.url);
+   // Where the browser came from, filled in once the state says. Until then the
+   // settings page: an install nobody can attribute was not a login's.
+   let landing = SETTINGS_PATH;
    const back = (status: string): Response =>
-      Response.redirect(
+      redirectTo(
          new URL(
-            `${SETTINGS_PATH}?integration=github&status=${encodeURIComponent(status)}`,
+            `${landing}?integration=github&status=${encodeURIComponent(status)}`,
             options.appUrl || options.publicUrl || url.origin
-         ).toString(),
-         302
+         ).toString()
       );
 
-   if (url.searchParams.get('setup_action') === 'request') return back('install_requested');
-
+   const requested = url.searchParams.get('setup_action') === 'request';
    const installationId = Number(url.searchParams.get('installation_id') ?? '');
    const state = url.searchParams.get('state') ?? '';
-   if (!Number.isFinite(installationId) || installationId <= 0) return back('invalid_response');
    if (!options.githubApp || !options.states) return back('exchange_failed');
-   if (state === '') return back('invalid_state');
+   // Without a state there is nobody to record anything against — not the
+   // installation, and not the request for one either.
+   if (state === '') return back(requested ? 'install_requested' : 'invalid_state');
 
    let pending: Awaited<ReturnType<OAuthStateStore['consume']>>;
    try {
@@ -705,10 +816,33 @@ async function handleInstallationCallback(
       if (error instanceof AuthorizationNotPending) return back('invalid_state');
       throw error;
    }
-   if (pending.provider !== 'github_install') return back('invalid_state');
-   // An installation is recorded against a workspace, so a state that names
-   // none cannot be the one that installed it.
-   if (pending.workspaceId === null) return back('invalid_state');
+   if (pending.provider !== INSTALL_PROVIDER && pending.provider !== SIGN_IN_INSTALL_PROVIDER) {
+      return back('invalid_state');
+   }
+   if (pending.provider === SIGN_IN_INSTALL_PROVIDER) landing = SIGN_IN_PATH;
+   // An installation is recorded against a workspace and a person, so a state
+   // naming neither cannot be the one that installed it.
+   if (pending.workspaceId === null || pending.userId === null) return back('invalid_state');
+
+   // The row says which workspace, but what the person may do in it is asked
+   // again here rather than taken from when the state was minted. A row is the
+   // only authorisation this route has: read without this check, one written for
+   // a workspace somebody has since left — or was never in — would install the
+   // App there on their behalf.
+   const permitted = await options.boards
+      .authorizeWorkspace(pending.userId, pending.workspaceId, 'settings.write')
+      .then(() => true)
+      .catch((error: unknown) => {
+         if (error instanceof NotFound || error instanceof Forbidden) return false;
+         throw error;
+      });
+   if (!permitted) return back('install_not_permitted');
+
+   if (requested) {
+      await options.githubApp.recordInstallRequested(pending.workspaceId, pending.userId);
+      return back('install_requested');
+   }
+   if (!Number.isFinite(installationId) || installationId <= 0) return back('invalid_response');
 
    // The id came out of a query parameter the person could have edited, so it
    // is checked against GitHub before it is believed, and refused if another

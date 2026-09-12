@@ -14,6 +14,7 @@ import {
    updateWorkspaceRepository,
    type WorkspaceRepository,
 } from '@/lib/github';
+import { loadGitHubApp, startGitHubInstall, type GitHubAppState } from '@/lib/integrations';
 import { useSessionStore } from '@/store/session-store';
 import { Plus, Trash2 } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -66,6 +67,13 @@ function RepositoriesDirectory() {
    const [error, setError] = useState<string | null>(null);
    const [canManage, setCanManage] = useState(false);
    const [installed, setInstalled] = useState(false);
+   /**
+    * What Berry can reach, for the person who skipped the install at their
+    * first login. They have an account and this page; what they do not have is
+    * repository access, and this is where that is said and offered again.
+    */
+   const [access, setAccess] = useState<GitHubAppState | null>(null);
+   const [installing, setInstalling] = useState(false);
    const [pickerOpen, setPickerOpen] = useState(false);
    const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
 
@@ -84,9 +92,10 @@ function RepositoriesDirectory() {
    const load = useCallback(async () => {
       if (!workspaceId) return;
       try {
-         const [repositories, state] = await Promise.all([
+         const [repositories, state, appState] = await Promise.all([
             listWorkspaceRepositories(workspaceId),
             loadGitHubSettings(workspaceId),
+            loadGitHubApp().catch(() => null),
          ]);
          // Rows someone is editing survive a refresh; everything else takes
          // the server's word.
@@ -102,6 +111,7 @@ function RepositoriesDirectory() {
          ]);
          setCanManage(state.canManage);
          setInstalled(state.connection.installed && state.settings.enabled);
+         setAccess(appState);
          setError(null);
       } catch (failure) {
          setError(describeGitHubFailure(failure));
@@ -247,6 +257,40 @@ function RepositoriesDirectory() {
       >
          {!canManage && loaded && !error && (
             <p className="text-muted-foreground">Only workspace admins can change this list.</p>
+         )}
+
+         {/* No installation: the one thing worth saying before the list, because
+             every row in it would be a repository no agent can reach. The link
+             is the same one a first login offers — skipping it there costs the
+             access, not the account. */}
+         {loaded && !error && access?.app && !access.installation && (
+            <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+               <p className="text-muted-foreground">
+                  {access.installPending
+                     ? 'Berry has no repository access yet: an owner of that organisation was asked to approve the install, and nothing else is needed from you until they do.'
+                     : 'Berry has no repository access yet. Installing the GitHub App is where you choose which repositories it may reach.'}
+               </p>
+               {canManage && (
+                  <Button
+                     size="xs"
+                     className="mt-2"
+                     disabled={installing}
+                     onClick={() => {
+                        setInstalling(true);
+                        void startGitHubInstall()
+                           .then((url) => {
+                              window.location.href = url;
+                           })
+                           .catch((failure: unknown) => {
+                              toast.error(describeGitHubFailure(failure));
+                              setInstalling(false);
+                           });
+                     }}
+                  >
+                     {installing ? 'Opening…' : 'Install on GitHub'}
+                  </Button>
+               )}
+            </div>
          )}
          {canManage && (
             <div className="flex flex-wrap gap-2">

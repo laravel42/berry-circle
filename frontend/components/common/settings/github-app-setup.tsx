@@ -43,7 +43,7 @@ export function GitHubAppSetup() {
    const read = useCallback(() => {
       void loadGitHubApp()
          .then(setState)
-         .catch(() => setState({ app: null, installation: null }));
+         .catch(() => setState({ app: null, installation: null, installPending: false }));
    }, []);
 
    useEffect(read, [read]);
@@ -104,14 +104,31 @@ export function GitHubAppSetup() {
    if (!state.installation) {
       return (
          <div className="mt-2 rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+            {/* An install on an organisation may need an owner's approval.
+                Until it is given there is no installation, which without this
+                would read exactly like nobody having tried. */}
             <p className="text-muted-foreground">
-               <span className="text-foreground">{state.app.name}</span> exists but is not installed
-               on an account yet, so there are no repositories it can reach. Installing is where you
-               choose which ones.
+               {state.installPending ? (
+                  <>
+                     <span className="text-foreground">{state.app.name}</span> is waiting for an
+                     owner of that organisation to approve the install. Until they do, Berry reaches
+                     no repositories — nothing else is needed from you.
+                  </>
+               ) : (
+                  <>
+                     <span className="text-foreground">{state.app.name}</span> exists but is not
+                     installed on an account yet, so there are no repositories it can reach.
+                     Installing is where you choose which ones.
+                  </>
+               )}
             </p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
                <Button size="xs" disabled={busy} onClick={install}>
-                  {busy ? 'Opening…' : 'Install on GitHub'}
+                  {busy
+                     ? 'Opening…'
+                     : state.installPending
+                       ? 'Install somewhere else'
+                       : 'Install on GitHub'}
                </Button>
                {state.app.htmlUrl && (
                   <Button size="xs" variant="secondary" asChild>

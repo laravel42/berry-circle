@@ -221,6 +221,27 @@ export function describeConnectionResult(
             ok: false,
             message: `${providerName} refused the sign-in. Check the app's credentials and try again.`,
          };
+      // The App's own flow, which comes back through the same query. Said here
+      // rather than left to the fallback below: "an owner has to approve this"
+      // is not a failure, and reporting it as one has somebody install it twice.
+      case 'app_created':
+         return { ok: true, message: `The ${providerName} App was created.` };
+      case 'installed':
+         return { ok: true, message: `${providerName} is installed on the account you chose.` };
+      case 'install_requested':
+         return {
+            ok: true,
+            message: 'An owner of that organisation was asked to approve the install.',
+         };
+      case 'install_not_permitted':
+         return { ok: false, message: `Only an admin can install ${providerName} here.` };
+      case 'installation_not_found':
+         return { ok: false, message: `${providerName} does not know that installation.` };
+      case 'installation_not_owned':
+         return {
+            ok: false,
+            message: 'That installation already belongs to another workspace.',
+         };
       default:
          return { ok: false, message: `Connecting ${providerName} failed. Try again.` };
    }
@@ -269,19 +290,30 @@ export type GitHubInstallation = z.infer<typeof githubInstallationSchema>;
 export interface GitHubAppState {
    app: GitHubApp | null;
    installation: GitHubInstallation | null;
+   /** An organisation install an owner has not approved yet. */
+   installPending: boolean;
 }
 
-/** Three states worth telling apart: no App, App but not installed, installed. */
+/**
+ * Four states worth telling apart: no App, App but not installed, an install
+ * an owner was asked to approve, and installed. The third is the one that would
+ * otherwise read as the second and have somebody install it twice.
+ */
 export async function loadGitHubApp(): Promise<GitHubAppState> {
    const json: unknown = await apiFetch('/api/v1/integrations/github/app');
    const parsed = z
       .object({
          app: githubAppSchema.nullish(),
          installation: githubInstallationSchema.nullish(),
+         installPending: z.boolean().default(false),
       })
       .safeParse(json);
-   if (!parsed.success) return { app: null, installation: null };
-   return { app: parsed.data.app ?? null, installation: parsed.data.installation ?? null };
+   if (!parsed.success) return { app: null, installation: null, installPending: false };
+   return {
+      app: parsed.data.app ?? null,
+      installation: parsed.data.installation ?? null,
+      installPending: parsed.data.installPending,
+   };
 }
 
 /**
@@ -311,6 +343,45 @@ export async function startGitHubInstall(): Promise<string> {
    const parsed = z.object({ installUrl: z.string() }).safeParse(json);
    if (!parsed.success) throw new Error('Install response was not recognized');
    return parsed.data.installUrl;
+}
+
+/** What a login still has to settle about repository access. */
+export type GitHubInstallStep = 'install' | 'installed' | 'offered' | 'pending' | 'no_app';
+
+export interface GitHubInstallNext {
+   next: GitHubInstallStep;
+   /** Where to send the browser; only ever set on `install`. */
+   installUrl: string | null;
+}
+
+/**
+ * Whether this person still has to grant repository access, asked once by the
+ * page that hands them on after sign-in.
+ *
+ * Access is granted once, at a first login. Somebody who has been asked before
+ * is never sent back — including somebody who declined, which is why the answer
+ * comes from the server rather than from whether an installation exists. A
+ * refusal (no permission to install, no workspace yet) is not an obstacle to
+ * logging in, so the caller reads it as "nothing to do".
+ */
+export async function nextGitHubInstallStep(): Promise<GitHubInstallNext> {
+   const nothing: GitHubInstallNext = { next: 'no_app', installUrl: null };
+   try {
+      const json: unknown = await apiFetch('/api/v1/integrations/github/app/repository-access', {
+         method: 'POST',
+         body: '{}',
+      });
+      const parsed = z
+         .object({
+            next: z.enum(['install', 'installed', 'offered', 'pending', 'no_app']),
+            installUrl: z.string().nullish(),
+         })
+         .safeParse(json);
+      if (!parsed.success) return nothing;
+      return { next: parsed.data.next, installUrl: parsed.data.installUrl ?? null };
+   } catch {
+      return nothing;
+   }
 }
 
 export async function forgetGitHubInstall(): Promise<void> {
