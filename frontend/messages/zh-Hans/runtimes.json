@@ -11,6 +11,7 @@
       "cancelling": "正在取消…",
       "cancelled": "运行已取消",
       "cancelFailed": "无法取消运行",
-      "waiting": "等待输出…"
+      "waiting": "等待输出…",
+      "openTranscript": "查看运行记录"
    }
 }

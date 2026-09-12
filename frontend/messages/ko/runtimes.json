@@ -11,6 +11,7 @@
       "cancelling": "취소하는 중…",
       "cancelled": "실행이 취소되었습니다",
       "cancelFailed": "실행을 취소할 수 없습니다",
-      "waiting": "출력을 기다리는 중…"
+      "waiting": "출력을 기다리는 중…",
+      "openTranscript": "실행 기록 열기"
    }
 }

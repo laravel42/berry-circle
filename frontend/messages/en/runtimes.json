@@ -11,6 +11,7 @@
       "cancelling": "Cancelling…",
       "cancelled": "Run cancelled",
       "cancelFailed": "Could not cancel run",
-      "waiting": "Waiting for output…"
+      "waiting": "Waiting for output…",
+      "openTranscript": "Open transcript"
    }
 }

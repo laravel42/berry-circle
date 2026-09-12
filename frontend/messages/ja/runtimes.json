@@ -11,6 +11,7 @@
       "cancelling": "キャンセル中…",
       "cancelled": "実行をキャンセルしました",
       "cancelFailed": "実行をキャンセルできませんでした",
-      "waiting": "出力を待っています…"
+      "waiting": "出力を待っています…",
+      "openTranscript": "実行記録を開く"
    }
 }

@@ -16,7 +16,6 @@ import {
    isTerminalRunStatus,
    loadBoardRuns,
    streamRunEvents,
-   textFromRunEvent,
    type RunDelivery,
    type RunRecord,
 } from '@/lib/runs';
@@ -24,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useRunsStore } from '@/store/runs-store';
+import { RunTranscriptDialog } from '@/components/common/runs/transcript-dialog';
 import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
@@ -121,7 +121,7 @@ export default function RunOverview() {
    const upsertRun = useRunsStore((state) => state.upsertRun);
 
    const [selectedRunId, setSelectedRunId] = useState<string | null>(searchParams.get('run'));
-   const [transcript, setTranscript] = useState('');
+   const [transcriptOpen, setTranscriptOpen] = useState(false);
    const [delivery, setDelivery] = useState<RunDelivery | null>(null);
    const [streamStatus, setStreamStatus] = useState<string>('');
    const [cancelling, setCancelling] = useState(false);
@@ -146,23 +146,15 @@ export default function RunOverview() {
 
    useEffect(() => {
       if (!selectedRunId) {
-         setTranscript('');
          setStreamStatus('');
          return;
       }
       const controller = new AbortController();
-      let output = '';
-      setTranscript('');
       setDelivery(null);
       setStreamStatus('listening');
       void (async () => {
          try {
             for await (const event of streamRunEvents(selectedRunId, controller.signal)) {
-               const chunk = textFromRunEvent(event);
-               if (chunk) {
-                  output += chunk;
-                  setTranscript(output);
-               }
                // What the run left behind. Read from the frame rather than
                // from the run record, because the run resource carries no
                // branch or pull request — the ledger is where they are.
@@ -233,12 +225,20 @@ export default function RunOverview() {
                      </Button>
                   ) : null}
                </div>
-               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap leading-6">
-                  {transcript ||
-                     selectedRun.summary ||
-                     selectedRun.failure?.message ||
-                     t('waiting')}
-               </pre>
+               {/* The one shared transcript, rather than this page's own copy
+                   of it: a blob can only be scrolled, and "what did the agent
+                   actually do" must not have two answers. */}
+               <p className="mt-3 leading-6">
+                  {selectedRun.summary || selectedRun.failure?.message || t('waiting')}
+               </p>
+               <Button
+                  variant="secondary"
+                  size="xs"
+                  className="mt-3"
+                  onClick={() => setTranscriptOpen(true)}
+               >
+                  {t('openTranscript')}
+               </Button>
                {delivery ? <DeliveryStrip delivery={delivery} /> : null}
             </div>
          ) : null}
@@ -350,6 +350,13 @@ export default function RunOverview() {
                </tbody>
             </table>
          </div>
+
+         <RunTranscriptDialog
+            runId={selectedRunId}
+            open={transcriptOpen}
+            onOpenChange={setTranscriptOpen}
+            agentName={selectedRun ? getAgentById(selectedRun.agentId)?.name : undefined}
+         />
       </section>
    );
 }
