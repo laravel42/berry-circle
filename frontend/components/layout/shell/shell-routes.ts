@@ -77,14 +77,6 @@ export interface ShellRouteDef {
 
 const WORK: ShellRouteDef[] = [
    {
-      id: 'issues',
-      label: 'tasks',
-      labelKey: 'tasks',
-      href: '/my-issues',
-      prefsKey: 'my-issues',
-      icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
-   },
-   {
       id: 'reviews',
       label: 'reviews',
       labelKey: 'reviews',
