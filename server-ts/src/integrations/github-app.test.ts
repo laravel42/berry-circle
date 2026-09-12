@@ -8,6 +8,7 @@ import {
    buildManifest,
    convertManifest,
 } from './github-app.ts';
+import { AUTH_BASE_PATH } from '../auth/better-auth.ts';
 import { sealerFromKey } from './sealing.ts';
 import type { Sql } from '../db/pool.ts';
 
@@ -58,6 +59,7 @@ describe('the manifest', () => {
       );
       assert.deepEqual(manifest.callback_urls, [
          'http://localhost:3000/api/v1/integrations/callback/github',
+         'http://localhost:3000/api/auth/callback/github',
       ]);
    });
 
@@ -71,6 +73,8 @@ describe('the manifest', () => {
       assert.deepEqual(split.callback_urls, [
          'http://localhost:4000/api/v1/integrations/callback/github',
          'http://localhost:3000/api/v1/integrations/callback/github',
+         'http://localhost:3000/api/auth/callback/github',
+         'http://localhost:4000/api/auth/callback/github',
       ]);
       assert.equal(
          manifest.setup_url,
@@ -87,8 +91,28 @@ describe('the manifest', () => {
          // Read-only: the issue sidebar shows check results, and nothing
          // Berry does needs to create or rerun a check.
          checks: 'read',
+         // Sign-in's half: GitHub hands over a verified address only with this,
+         // and an account that keeps its email private has no other way in.
+         emails: 'read',
       });
       assert.equal(manifest.public, false);
+   });
+
+   test('registers the sign-in callback beside the install one', () => {
+      // Sign-in runs on this App, so Better Auth's callback has to be one of
+      // the URLs the App is created with — GitHub matches a redirect_uri
+      // exactly, and it cannot be added later without editing the App by hand.
+      assert.ok(
+         (manifest.callback_urls as string[]).includes(
+            `http://localhost:3000${AUTH_BASE_PATH}/callback/github`
+         )
+      );
+   });
+
+   test('asks GitHub to authorize whoever installs it', () => {
+      // Without this the install finishes with an App nobody has authorized,
+      // and the operator who created it still has no account to sign in with.
+      assert.equal(manifest.request_oauth_on_install, true);
    });
 
    test('delivers webhooks to the route that serves them, for the events Berry applies', () => {
@@ -235,5 +259,53 @@ describe('minting an installation token', () => {
       const repository = app({ contents: 'write' });
       assert.equal(await repository.token('ws'), 'ghs_minted');
       assert.equal((await repository.access('ws')).canPush, true);
+   });
+});
+
+describe("the App's sign-in credentials", () => {
+   const sealer = sealerFromKey(randomBytes(32).toString('base64'));
+
+   /** A database holding one App, or none. */
+   function repository(row: Record<string, unknown> | null): GitHubAppRepository {
+      const sql = async (strings: TemplateStringsArray) => {
+         const text = strings.join('?');
+         if (text.includes('FROM github_apps')) return row ? [row] : [];
+         throw new Error(`unexpected query: ${text}`);
+      };
+      return new GitHubAppRepository({ sql: sql as unknown as Sql, sealer });
+   }
+
+   test('are opened from their sealed form for sign-in to use', async () => {
+      const app = repository({
+         client_id: 'Iv23liExample',
+         client_secret_encrypted: sealer.seal('secret-value'),
+      });
+
+      assert.deepEqual(await app.clientCredentials(), {
+         clientId: 'Iv23liExample',
+         clientSecret: 'secret-value',
+      });
+   });
+
+   test('carry a fingerprint that changes when they do, and opens nothing', async () => {
+      const created = new Date('2026-09-10T00:00:00.000Z');
+      const rotated = new Date('2026-09-11T00:00:00.000Z');
+      const fingerprint = async (clientId: string, updatedAt: Date) =>
+         repository({ client_id: clientId, updated_at: updatedAt }).signInFingerprint();
+
+      const first = await fingerprint('Iv23liExample', created);
+      assert.equal(typeof first, 'string');
+      // The same App, untouched, is the same credential set: one instance.
+      assert.equal(await fingerprint('Iv23liExample', created), first);
+      // A rotated secret updates the row, and a new App has a new client id.
+      assert.notEqual(await fingerprint('Iv23liExample', rotated), first);
+      assert.notEqual(await fingerprint('Iv23liOther', created), first);
+      // Nothing sealed is read to answer this, so nothing can leak through it.
+      assert.equal(String(first).includes('secret'), false);
+   });
+
+   test('are absent, rather than an error, when there is no App', async () => {
+      assert.equal(await repository(null).signInFingerprint(), null);
+      assert.equal(await repository(null).clientCredentials(), null);
    });
 });

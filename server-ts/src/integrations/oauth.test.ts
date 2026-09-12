@@ -165,6 +165,7 @@ describe('oauth state store', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is 
 
    after(async () => {
       await sql`DELETE FROM integration_oauth_states WHERE workspace_id = ${fixture.workspaceId}`;
+      await sql`DELETE FROM integration_oauth_states WHERE workspace_id IS NULL`;
       await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
       await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
       await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;
@@ -216,6 +217,24 @@ describe('oauth state store', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is 
       await age(sql, fixture.workspaceId);
 
       await assert.rejects(() => store.consume(pending.state), AuthorizationNotPending);
+   });
+
+   test('a first-run setup state names no workspace and no user', async () => {
+      // Creating the App is the one flow that runs before either exists: the
+      // deployment has no user because sign-in is what the App is for.
+      const store = new OAuthStateStore({ sql });
+      const pending = await store.start({
+         workspaceId: null,
+         userId: null,
+         provider: 'github_app',
+         redirectUri: 'https://b/cb',
+         scopes: [],
+      });
+
+      const resolved = await store.consume(pending.state);
+      assert.equal(resolved.workspaceId, null);
+      assert.equal(resolved.userId, null);
+      assert.equal(resolved.provider, 'github_app');
    });
 
    test('a state nobody started is refused', async () => {

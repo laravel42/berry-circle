@@ -23,8 +23,14 @@ export interface Capabilities {
    storage: boolean;
    valkey: boolean;
    planner: boolean;
-   /** GitHub sign-in is configured, so the sign-in page can offer it. */
-   githubSignIn: boolean;
+   /**
+    * Whether a person could sign in with GitHub *now*.
+    *
+    * Asked rather than fixed at boot: the App sign-in runs on is created from
+    * the browser while this process is running, so a boolean decided at startup
+    * would go on saying no to the person who had just created it.
+    */
+   githubSignIn: boolean | (() => Promise<boolean>);
 }
 
 export interface PlatformOptions {
@@ -123,7 +129,7 @@ function metricsRoute(source: MetricsSource | null): Hono {
 
 function configRoute(capabilities: Capabilities, version?: string): Hono {
    const route = new Hono();
-   route.get('/', () =>
+   route.get('/', async () =>
       // Declaration order, not sorted: the Go server marshalled this as a
       // struct and `planner` was declared after `valkey`. `version` is
       // appended rather than inserted for the same reason: a client reading
@@ -137,7 +143,10 @@ function configRoute(capabilities: Capabilities, version?: string): Hono {
             storage: capabilities.storage,
             valkey: capabilities.valkey,
             planner: capabilities.planner,
-            githubSignIn: capabilities.githubSignIn,
+            githubSignIn:
+               typeof capabilities.githubSignIn === 'function'
+                  ? await capabilities.githubSignIn()
+                  : capabilities.githubSignIn,
          },
       })
    );

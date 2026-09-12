@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { FirstRunSetup } from '../auth/first-run-setup.ts';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
@@ -65,7 +66,18 @@ export interface IntegrationsOptions {
    publicUrl: string | null;
    /** Where to send the browser after the callback. Defaults to the API's own origin. */
    appUrl?: string | null;
+   /**
+    * The one-time way in for a deployment nobody can sign into yet.
+    *
+    * Sign-in runs on the App, and the App is created by a signed-in user, so on
+    * a fresh deployment neither can happen first. Null on a deployment that
+    * cannot hold an App at all.
+    */
+   firstRunSetup?: FirstRunSetup | null;
 }
+
+/** Where the setup token is presented. A header, so it is never in a URL. */
+const SETUP_TOKEN_HEADER = 'x-berry-setup-token';
 
 export function integrationMounts(options: IntegrationsOptions): Mount[] {
    const route = new Hono<{ Variables: AuthVariables }>();
@@ -83,6 +95,33 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
    route.get('/github/installation/callback', (context) =>
       handleInstallationCallback(context, options)
    );
+
+   /**
+    * First-run setup, which is the only route in Berry a session is not the
+    * authority for — and only while there is nothing to have a session in.
+    *
+    * Registered before the session middleware, and it hands the request on
+    * untouched when no token is presented: without one this is the ordinary
+    * admin route below, 401 and all.
+    */
+   route.post('/github/app/manifest', async (context, next) => {
+      const presented = context.req.header(SETUP_TOKEN_HEADER);
+      if (!presented) return next();
+      if (!options.firstRunSetup || !(await options.firstRunSetup.claim(presented))) {
+         // One answer for a wrong token and for a path that has closed. Telling
+         // them apart would say whether a deployment is still unclaimed, which
+         // is the one fact worth probing for here.
+         throw new ApiError(
+            403,
+            'SETUP_UNAVAILABLE',
+            'First-run setup is not available on this deployment.'
+         );
+      }
+      if (!options.githubApp || !options.states) {
+         throw new ApiError(503, 'PROVIDER_NOT_CONFIGURED', 'This deployment cannot store an App.');
+      }
+      return json(await manifestOffer(context, options, { workspaceId: null, userId: null }));
+   });
 
    route.use('*', requireSession(options.sessions));
 
@@ -187,27 +226,9 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
       if (!options.githubApp || !options.states) {
          throw new ApiError(503, 'PROVIDER_NOT_CONFIGURED', 'This deployment cannot store an App.');
       }
-      const url = new URL(context.req.url);
-      const apiOrigin = options.publicUrl || url.origin;
-      const appOrigin = options.appUrl || apiOrigin;
-      const pending = await options.states.start({
-         workspaceId,
-         userId: context.get('user').id,
-         provider: 'github_app',
-         redirectUri: new URL('/api/v1/integrations/github/app/callback', apiOrigin).toString(),
-         scopes: [],
-      });
-      const body = await context.req.json().catch(() => ({}) as Record<string, unknown>);
-      const requested = typeof body.name === 'string' ? body.name.trim() : '';
-      return json({
-         postUrl: `https://github.com/settings/apps/new?state=${encodeURIComponent(pending.state)}`,
-         organizationPostPath: '/organizations/{org}/settings/apps/new',
-         manifest: buildManifest({
-            name: requested || 'Berry',
-            appOrigin,
-            apiOrigin,
-         }),
-      });
+      return json(
+         await manifestOffer(context, options, { workspaceId, userId: context.get('user').id })
+      );
    });
 
    /**
@@ -468,6 +489,9 @@ async function handleCallback(
       throw error;
    }
    if (pending.provider !== providerId) return back('invalid_state');
+   // A connection belongs to a workspace and records who made it. Only the
+   // first-run App setup starts a state without either, and it is not this flow.
+   if (pending.workspaceId === null || pending.userId === null) return back('invalid_state');
 
    const credentials = credentialsFor(providerId, options);
    if (!credentials) return back('exchange_failed');
@@ -510,6 +534,38 @@ function requireProvider(id: string | undefined) {
    const provider = id ? findProvider(id) : undefined;
    if (!provider) throw ApiError.notFound('Provider');
    return provider;
+}
+
+/**
+ * The manifest to post and the state that will come back with it.
+ *
+ * Shared by the two ways in, because they differ in exactly one thing — who the
+ * state belongs to. Everything GitHub is told, and every URL it will redirect
+ * to, is the same whether an admin pressed the button or the first person ever
+ * to open the deployment did.
+ */
+async function manifestOffer(
+   context: { req: { url: string; json(): Promise<unknown> } },
+   options: IntegrationsOptions,
+   actor: { workspaceId: string | null; userId: string | null }
+): Promise<{ postUrl: string; organizationPostPath: string; manifest: Record<string, unknown> }> {
+   const url = new URL(context.req.url);
+   const apiOrigin = options.publicUrl || url.origin;
+   const appOrigin = options.appUrl || apiOrigin;
+   const pending = await options.states!.start({
+      workspaceId: actor.workspaceId,
+      userId: actor.userId,
+      provider: 'github_app',
+      redirectUri: new URL('/api/v1/integrations/github/app/callback', apiOrigin).toString(),
+      scopes: [],
+   });
+   const body = (await context.req.json().catch(() => ({}))) as Record<string, unknown>;
+   const requested = typeof body.name === 'string' ? body.name.trim() : '';
+   return {
+      postUrl: `https://github.com/settings/apps/new?state=${encodeURIComponent(pending.state)}`,
+      organizationPostPath: '/organizations/{org}/settings/apps/new',
+      manifest: buildManifest({ name: requested || 'Berry', appOrigin, apiOrigin }),
+   };
 }
 
 /**
@@ -602,6 +658,9 @@ async function handleAppCallback(
 
    try {
       const converted = await convertManifest(code);
+      // A null actor is the first-run setup: the App is being created by
+      // somebody who does not have an account yet, because this is the App they
+      // will sign in with.
       await options.githubApp.saveApp(converted, pending.userId);
       return back('app_created');
    } catch (error) {
@@ -647,6 +706,9 @@ async function handleInstallationCallback(
       throw error;
    }
    if (pending.provider !== 'github_install') return back('invalid_state');
+   // An installation is recorded against a workspace, so a state that names
+   // none cannot be the one that installed it.
+   if (pending.workspaceId === null) return back('invalid_state');
 
    // The id came out of a query parameter the person could have edited, so it
    // is checked against GitHub before it is believed, and refused if another

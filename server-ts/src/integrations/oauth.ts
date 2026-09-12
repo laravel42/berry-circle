@@ -26,8 +26,9 @@ export interface PendingAuthorization {
 }
 
 export interface ResolvedAuthorization {
-   workspaceId: string;
-   userId: string;
+   /** Null only for first-run App setup, where neither exists yet. */
+   workspaceId: string | null;
+   userId: string | null;
    provider: string;
    redirectUri: string;
    scopes: string[];
@@ -61,8 +62,12 @@ export class OAuthStateStore {
    }
 
    async start(input: {
-      workspaceId: string;
-      userId: string;
+      /**
+       * Null only for first-run App setup: creating the App is the one flow
+       * that runs before this deployment has a workspace or a user at all.
+       */
+      workspaceId: string | null;
+      userId: string | null;
       provider: string;
       redirectUri: string;
       scopes: string[];
@@ -95,8 +100,8 @@ export class OAuthStateStore {
           RETURNING workspace_id, user_id, provider, redirect_uri, scopes`;
       if (!row) throw new AuthorizationNotPending();
       return {
-         workspaceId: row.workspace_id as string,
-         userId: row.user_id as string,
+         workspaceId: (row.workspace_id as string | null) ?? null,
+         userId: (row.user_id as string | null) ?? null,
          provider: row.provider as string,
          redirectUri: row.redirect_uri as string,
          scopes: (row.scopes as string[]) ?? [],

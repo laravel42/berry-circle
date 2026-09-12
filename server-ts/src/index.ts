@@ -118,7 +118,9 @@ import { createPluginNetwork } from './plugins/net.ts';
 import { pluginMounts } from './mounts/plugins.ts';
 import { PluginCaller, PluginHookRunner } from './plugins/hooks.ts';
 import pg from 'pg';
-import { createBerryAuth, devSessionCookies } from './auth/better-auth.ts';
+import { devSessionCookies } from './auth/better-auth.ts';
+import { AuthProvider } from './auth/auth-provider.ts';
+import { FirstRunSetup, databaseWorld } from './auth/first-run-setup.ts';
 import { betterAuthMounts } from './mounts/better-auth.ts';
 import { Storage } from './storage/storage.ts';
 import { ReviewGate } from './agents/review-gate.ts';
@@ -175,22 +177,66 @@ const authPool =
    config.auth.secret && config.auth.baseUrl
       ? new pg.Pool({ connectionString: config.databaseUrl, max: 5 })
       : null;
-const auth =
+
+/**
+ * The App this deployment created for itself.
+ *
+ * Declared here, before sign-in, because sign-in reads its credentials: the
+ * OAuth half of the App is what a person signs in with, and it lives in the
+ * database rather than in this process's environment. Its secrets are sealed
+ * with the same key a connection's token is — a deployment that cannot seal
+ * cannot hold a private key either.
+ */
+const githubApp = config.integrationKey
+   ? new GitHubAppRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
+   : null;
+
+/**
+ * Sign-in, built on first use rather than here.
+ *
+ * The credentials come from the App above when there is one, and from
+ * `BERRY_AUTH_GITHUB_*` only for a deployment that still sets them. The App is
+ * created from the browser while this process is running, so an instance built
+ * at boot would be built without it and the person who had just created the App
+ * would have to restart the server to use it.
+ */
+const authProvider =
    authPool && config.auth.secret && config.auth.baseUrl
-      ? createBerryAuth({
+      ? new AuthProvider({
            pool: authPool,
            secret: config.auth.secret,
            baseUrl: config.auth.baseUrl,
            trustedOrigins: config.auth.trustedOrigins,
-           github: config.auth.github,
            sessionTtlMs: config.sessionTtlMs,
            testUtils: config.auth.devLogin,
+           fallback: config.auth.github,
+           stored: githubApp
+              ? {
+                   fingerprint: () => githubApp.signInFingerprint(),
+                   credentials: () => githubApp.clientCredentials(),
+                }
+              : null,
+           // Logged as a failure, never with its value: the only thing that can
+           // go wrong here is a sealing key that does not open the row.
+           onError: (error) =>
+              logger.error('the stored GitHub App credentials could not be read', {
+                 error: error instanceof Error ? error.message : String(error),
+              }),
         })
       : null;
 
+/**
+ * How the first person ever to open this deployment creates the App.
+ *
+ * Only where an App can be stored at all, and only while there is neither an App
+ * nor a user — the token below is printed at boot and stops working the moment
+ * either exists.
+ */
+const firstRunSetup = githubApp ? new FirstRunSetup({ world: databaseWorld(sql) }) : null;
+
 const sessions = new SessionService({
    sql,
-   auth: auth ? { getSession: ({ headers }) => auth.api.getSession({ headers }) } : null,
+   auth: authProvider ? { getSession: ({ headers }) => authProvider.getSession({ headers }) } : null,
    bearer: [personalTokenResolver(sql)],
    trustedOrigins: config.auth.trustedOrigins,
 });
@@ -295,9 +341,6 @@ const pluginRepository = config.integrationKey
    ? new PluginRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
    : null;
 const pluginNetwork = createPluginNetwork({ allowPrivate: config.pluginsAllowPrivateNetwork });
-const githubApp = config.integrationKey
-   ? new GitHubAppRepository({ sql, sealer: sealerFromKey(config.integrationKey) })
-   : null;
 
 /**
  * The git host, which is GitHub.
@@ -831,6 +874,7 @@ registry.registerAll(
       githubApp,
       publicUrl: config.integrations.publicUrl,
       appUrl: config.integrations.appUrl,
+      firstRunSetup,
    })
 );
 registry.registerAll(
@@ -884,10 +928,16 @@ registry.registerAll(
       sessions,
       sql,
       devSession:
-         auth && config.auth.devLogin ? (userId) => devSessionCookies(auth, userId) : null,
+         authProvider && config.auth.devLogin
+            ? async (userId) => devSessionCookies(await authProvider.instance(), userId)
+            : null,
    })
 );
-if (auth) registry.registerAll(betterAuthMounts(auth));
+if (authProvider) {
+   registry.registerAll(
+      betterAuthMounts({ handler: (request) => authProvider.handler(request) })
+   );
+}
 registry.registerAll(
    platformMounts({
       database: () => checkDatabase(sql),
@@ -924,9 +974,10 @@ registry.registerAll(
          // The planner runs when there is a model credential to run it with.
          // Planning is a completion task, so it runs wherever tasks do.
          planner: executor !== null,
-         // True only when a GitHub OAuth App is configured for sign-in and
-         // Better Auth is running — not when only the repository App exists.
-         githubSignIn: auth !== null && config.auth.github !== null,
+         // Asked on every read rather than decided here: the App sign-in runs
+         // on can be created from the browser a minute from now, and this is
+         // what the sign-in page believes.
+         githubSignIn: authProvider ? () => authProvider.githubSignIn() : false,
       },
    })
 );
@@ -977,9 +1028,35 @@ logger.info('Berry server listening', {
          ? 'github'
          : 'no provider credentials'
       : 'no encryption key',
-   signIn: auth ? (config.auth.github ? 'github' : 'no GitHub OAuth App') : 'off',
+   // What sign-in can do *now*: the App in the database, the credentials in the
+   // environment, or nothing yet — and "nothing yet" is a state someone fixes
+   // from the browser rather than from a configuration file.
+   signIn: authProvider
+      ? (await authProvider.githubSignIn())
+        ? config.auth.github && !(await githubApp?.app())
+          ? 'github (OAuth App from the environment)'
+          : 'github (the App in the database)'
+        : 'no GitHub App yet'
+      : 'off',
    mounts: registry.prefixes,
 });
+
+/**
+ * The one-time token that lets the first person set this deployment up.
+ *
+ * Printed only while there is no GitHub App and nobody with an account: until
+ * the App exists there is no way to sign in, and until someone is signed in
+ * there is no way to create the App. The token stands in for a session on the
+ * App manifest route and on nothing else, it is good once, and it stops working
+ * the moment either an App or a user exists. Restarting the server prints a new
+ * one, which is what to do if the App is never created.
+ */
+if (firstRunSetup && (await firstRunSetup.available())) {
+   logger.info(
+      'nobody has set this deployment up yet. Create the GitHub App from the browser with this one-time setup token, or send it as the x-berry-setup-token header on POST /api/v1/integrations/github/app/manifest. It works once, and only until an App or a user exists.',
+      { setupToken: firstRunSetup.token }
+   );
+}
 
 // Drain on SIGTERM before closing the pool, so a request in flight finishes
 // rather than failing at the socket.

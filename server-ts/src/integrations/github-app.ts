@@ -289,6 +289,22 @@ export class GitHubAppRepository {
       return this.#sealer.open(Buffer.from(row.webhook_secret_encrypted));
    }
 
+   /**
+    * A value that changes whenever the sign-in credentials do.
+    *
+    * Sign-in is built from the App in the database, and something has to say
+    * whether the App is still the one the running instance was built for. This
+    * is that, asked on every sign-in request: one narrow read, and nothing
+    * sealed is opened to answer it, so the secret is decrypted only when an
+    * instance is actually being rebuilt.
+    */
+   async signInFingerprint(): Promise<string | null> {
+      const [row] = await this.#sql<Array<{ client_id: string; updated_at: Date | string }>>`
+         SELECT client_id, updated_at FROM github_apps LIMIT 1`;
+      if (!row) return null;
+      return `${row.client_id}@${new Date(row.updated_at).getTime()}`;
+   }
+
    /** The OAuth half, for the flows that still sign a person in. */
    async clientCredentials(): Promise<{ clientId: string; clientSecret: string } | null> {
       const [row] = await this.#sql<Array<Pick<AppRow, 'client_id' | 'client_secret_encrypted'>>>`
@@ -462,9 +478,18 @@ export function buildManifest(input: {
    // registering only one is how "redirect_uri is not associated with this
    // application" happens. GitHub accepts several.
    const callbackPath = '/api/v1/integrations/callback/github';
+   // Sign-in's own callback, which is Better Auth's. Kept as a literal rather
+   // than imported so this module does not pull the auth library in; the path is
+   // `${AUTH_BASE_PATH}/callback/github`, and a test asserts the two agree.
+   const signInPath = '/api/auth/callback/github';
    const callbacks = [...new Set([
       new URL(callbackPath, input.apiOrigin).toString(),
       new URL(callbackPath, input.appOrigin).toString(),
+      // Sign-in runs on this same App, so its callback has to be registered by
+      // the request that creates it — the browser-facing origin first, because
+      // that is the one Better Auth builds its redirect_uri on.
+      new URL(signInPath, input.appOrigin).toString(),
+      new URL(signInPath, input.apiOrigin).toString(),
    ])];
    return {
       name: input.name,
@@ -477,12 +502,20 @@ export function buildManifest(input: {
       // an issue, their checks and a merge closing the issue all arrive here.
       hook_attributes: { url: api('/api/v1/webhooks/github'), active: true },
       public: false,
+      // Asked for on install, so the same trip that installs the App also
+      // authorizes the person who installed it — which is how the operator who
+      // just created it ends up with an account instead of a second round trip.
+      request_oauth_on_install: true,
       default_permissions: {
          contents: 'write',
          pull_requests: 'write',
          issues: 'write',
          metadata: 'read',
          checks: 'read',
+         // The account permission "Email addresses", read-only, under GitHub's
+         // own parameter name for it. Sign-in needs a verified address, and an
+         // account that keeps its email private gives one only through this.
+         emails: 'read',
       },
       default_events: ['pull_request', 'pull_request_review', 'check_run', 'check_suite', 'push'],
    };
