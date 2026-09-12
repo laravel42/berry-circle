@@ -22,5 +22,8 @@ export default getRequestConfig(async () => {
             [namespace, (await import(`../messages/${locale}/${namespace}.json`)).default] as const
       )
    );
-   return { locale, messages: Object.fromEntries(entries) };
+   // A shared `now` for `format.relativeTime`. Without it next-intl falls back
+   // to the clock at each call — it logs an ENVIRONMENT_FALLBACK error per
+   // call, and the server and the browser can render the same row differently.
+   return { locale, messages: Object.fromEntries(entries), now: new Date() };
 });
