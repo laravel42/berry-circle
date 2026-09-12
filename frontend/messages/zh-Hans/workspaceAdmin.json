@@ -400,5 +400,31 @@
       "loading": "正在统计…",
       "noAgents": "还没有智能体在其任务上运行过。",
       "runs": "{count} 次运行"
+   },
+   "onboarding": {
+      "welcomeTitle": "欢迎使用 Berry",
+      "welcomeBody": "一个可以把任务指派给人或编码智能体的任务跟踪工具。",
+      "welcomePoint1": "任务可以指派给人，也可以同样地指派给智能体。",
+      "welcomePoint2": "智能体在此工作区指定的运行时上运行。",
+      "welcomePoint3": "工作区有三项设置是永久性的，所以由你来决定。",
+      "start": "开始",
+      "skip": "跳过设置",
+      "skipStep": "跳过这一步",
+      "next": "继续",
+      "aboutTitle": "关于你",
+      "aboutBody": "仅用于调整 Berry 的建议。跳过也不会有任何损失。",
+      "role": "你的工作",
+      "rolePlaceholder": "工程、设计、产品…",
+      "goal": "你希望从 Berry 获得什么",
+      "goalPlaceholder": "你希望智能体替你分担哪些事情。",
+      "workspaceTitle": "你的工作区",
+      "workspaceBody": "地址和任务前缀会出现在之后的每个链接和每个任务引用中。现在是决定它们成本最低的时刻。",
+      "runtimeTitle": "智能体在哪里运行",
+      "runtimeBody": "选择此工作区默认使用的 AgentCore 运行时，或保持当前默认设置。",
+      "runtimeLoading": "正在查找运行时…",
+      "runtimeNone": "还没有添加运行时。你随时可以在设置中添加。",
+      "runtimeIsDefault": "已是默认",
+      "runtimeMakeDefault": "设为默认",
+      "runtimeKeepDefault": "使用工作区默认设置"
    }
 }

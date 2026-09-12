@@ -400,5 +400,31 @@
       "loading": "집계하는 중…",
       "noAgents": "이 사람의 작업에서 실행된 에이전트가 아직 없습니다.",
       "runs": "{count}회 실행"
+   },
+   "onboarding": {
+      "welcomeTitle": "Berry에 오신 것을 환영합니다",
+      "welcomeBody": "담당자가 사람일 수도 코딩 에이전트일 수도 있는 이슈 트래커입니다.",
+      "welcomePoint1": "작업은 사람에게도 에이전트에게도 같은 방식으로 배정됩니다.",
+      "welcomePoint2": "에이전트는 이 워크스페이스가 가리키는 런타임에서 실행됩니다.",
+      "welcomePoint3": "워크스페이스에는 영구적인 설정이 세 가지 있어, 여기서 직접 고르게 됩니다.",
+      "start": "시작하기",
+      "skip": "설정 건너뛰기",
+      "skipStep": "이 단계 건너뛰기",
+      "next": "계속",
+      "aboutTitle": "당신에 대해",
+      "aboutBody": "Berry의 제안을 다듬는 데만 사용합니다. 건너뛰어도 손해는 없습니다.",
+      "role": "하는 일",
+      "rolePlaceholder": "엔지니어링, 디자인, 프로덕트…",
+      "goal": "Berry에 기대하는 것",
+      "goalPlaceholder": "에이전트에게 맡기고 싶은 일을 적어 주세요.",
+      "workspaceTitle": "당신의 워크스페이스",
+      "workspaceBody": "주소와 작업 접두사는 이후 모든 링크와 작업 참조에 들어갑니다. 지금이 가장 저렴하게 정할 수 있는 순간입니다.",
+      "runtimeTitle": "에이전트가 실행되는 곳",
+      "runtimeBody": "이 워크스페이스가 기본으로 사용할 AgentCore 런타임을 고르거나, 기본값을 그대로 두세요.",
+      "runtimeLoading": "런타임을 찾는 중…",
+      "runtimeNone": "아직 추가된 런타임이 없습니다. 준비되면 설정에서 언제든 추가할 수 있습니다.",
+      "runtimeIsDefault": "이미 기본값입니다",
+      "runtimeMakeDefault": "이것을 기본으로 설정",
+      "runtimeKeepDefault": "워크스페이스 기본값 사용"
    }
 }

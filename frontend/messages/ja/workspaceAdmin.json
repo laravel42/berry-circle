@@ -400,5 +400,31 @@
       "loading": "集計しています…",
       "noAgents": "その人のタスクで実行されたエージェントはまだありません。",
       "runs": "{count} 回実行"
+   },
+   "onboarding": {
+      "welcomeTitle": "Berry へようこそ",
+      "welcomeBody": "担当者が人でもコーディングエージェントでもよい課題トラッカーです。",
+      "welcomePoint1": "タスクは人にもエージェントにも同じように割り当てられます。",
+      "welcomePoint2": "エージェントは、このワークスペースが指すランタイム上で動きます。",
+      "welcomePoint3": "ワークスペースには変更できない設定が 3 つあるので、ここで選んでもらいます。",
+      "start": "はじめる",
+      "skip": "セットアップをスキップ",
+      "skipStep": "この手順をスキップ",
+      "next": "続ける",
+      "aboutTitle": "あなたについて",
+      "aboutBody": "Berry の提案を調整するためだけに使います。スキップしても不利になりません。",
+      "role": "担当していること",
+      "rolePlaceholder": "エンジニアリング、デザイン、プロダクト…",
+      "goal": "Berry に期待すること",
+      "goalPlaceholder": "エージェントに任せたいことを書いてください。",
+      "workspaceTitle": "あなたのワークスペース",
+      "workspaceBody": "アドレスとタスク接頭辞は、以後すべてのリンクとタスク参照に現れます。いま決めるのが最も安く済みます。",
+      "runtimeTitle": "エージェントの実行場所",
+      "runtimeBody": "このワークスペースが既定で使う AgentCore ランタイムを選ぶか、既定のままにしてください。",
+      "runtimeLoading": "ランタイムを探しています…",
+      "runtimeNone": "ランタイムはまだ追加されていません。設定からいつでも追加できます。",
+      "runtimeIsDefault": "すでに既定です",
+      "runtimeMakeDefault": "これを既定にする",
+      "runtimeKeepDefault": "ワークスペースの既定を使う"
    }
 }

@@ -400,5 +400,31 @@
       "loading": "Counting…",
       "noAgents": "No agent has run on their tasks yet.",
       "runs": "{count} runs"
+   },
+   "onboarding": {
+      "welcomeTitle": "Welcome to Berry",
+      "welcomeBody": "An issue tracker whose assignees can be people or coding agents.",
+      "welcomePoint1": "Tasks are assigned to people or to agents, the same way.",
+      "welcomePoint2": "Agents run on the runtime this workspace points at.",
+      "welcomePoint3": "Three things about your workspace are permanent, so you get to choose them.",
+      "start": "Get started",
+      "skip": "Skip setup",
+      "skipStep": "Skip this",
+      "next": "Continue",
+      "aboutTitle": "About you",
+      "aboutBody": "Only to shape what Berry suggests. Skip it and nothing is worse.",
+      "role": "What you do",
+      "rolePlaceholder": "Engineering, design, product…",
+      "goal": "What you want out of Berry",
+      "goalPlaceholder": "What you are hoping agents will take off your hands.",
+      "workspaceTitle": "Your workspace",
+      "workspaceBody": "The address and the task prefix are in every link and every task reference afterwards. This is the moment they are cheap to decide.",
+      "runtimeTitle": "Where agents run",
+      "runtimeBody": "Pick the AgentCore runtime this workspace should use by default, or leave the default as it is.",
+      "runtimeLoading": "Looking for runtimes…",
+      "runtimeNone": "No runtime has been added yet. You can add one from Settings whenever you are ready.",
+      "runtimeIsDefault": "Already the default",
+      "runtimeMakeDefault": "Make this the default",
+      "runtimeKeepDefault": "Use the workspace default"
    }
 }
