@@ -30,6 +30,34 @@ export interface BerryAuthOptions {
    testUtils?: boolean;
 }
 
+/** What GitHub tells us about whoever just signed in. */
+export interface GitHubProfile {
+   login?: string | null;
+   name?: string | null;
+   email?: string | null;
+}
+
+/**
+ * The user behind a GitHub profile.
+ *
+ * GitHub withholds the email when the account keeps it private, and a GitHub
+ * App gets one only with the Email addresses permission. Refusing the sign-in
+ * over that would make a correct, deliberate privacy setting look like a
+ * broken login, so the account falls back to the address GitHub itself hands
+ * out for the purpose: <login>@users.noreply.github.com. A real address is
+ * preferred whenever one is offered, because that is what links a GitHub
+ * account to a user Berry already knows.
+ */
+export function githubProfileToUser(profile: GitHubProfile): { email: string; name: string } {
+   const email = (profile.email ?? '').trim();
+   const login = (profile.login ?? '').trim();
+   const name = (profile.name ?? '').trim();
+   return {
+      email: email || (login ? `${login}@users.noreply.github.com` : ''),
+      name: name || login,
+   };
+}
+
 export function createBerryAuth(options: BerryAuthOptions) {
    return betterAuth({
       appName: 'Berry',
@@ -46,6 +74,7 @@ export function createBerryAuth(options: BerryAuthOptions) {
               github: {
                  clientId: options.github.clientId,
                  clientSecret: options.github.clientSecret,
+                 mapProfileToUser: githubProfileToUser,
               },
            }
          : {},
