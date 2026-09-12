@@ -1,5 +1,6 @@
 'use client';
 
+import { useShortcut } from '@/components/layout/shortcut-provider';
 import type { InboxItem } from '@/data/inbox';
 import { parseAsStringLiteral, useQueryState } from 'nuqs';
 import { useEffect } from 'react';
@@ -154,9 +155,10 @@ export interface InboxKeyboardOptions {
 /**
  * Up, down and `E`.
  *
- * A local listener: this branch has no shortcut registry to register with. If
- * one lands (F6's), this is the one place to move over to it — the behaviour
- * is already isolated behind this hook.
+ * `E` goes through the shell's registry, so archiving is one rebindable row in
+ * settings shared with the notifications drawer; the arrows stay a local
+ * listener, because moving a selection is not an action anyone rebinds and
+ * there is no registry entry for it.
  */
 export function useInboxKeyboard({
    items,
@@ -186,13 +188,16 @@ export function useInboxKeyboard({
             if (next) onSelect(next.id);
             return;
          }
-         if (key === 'e' || key === 'E') {
-            if (!selectedId) return;
-            event.preventDefault();
-            onArchiveKey();
-         }
       };
       window.addEventListener('keydown', onKeyDown);
       return () => window.removeEventListener('keydown', onKeyDown);
-   }, [enabled, items, selectedId, onSelect, onArchiveKey]);
+   }, [enabled, items, selectedId, onSelect]);
+
+   useShortcut(
+      'inbox.archive',
+      () => {
+         if (selectedId) onArchiveKey();
+      },
+      { enabled }
+   );
 }

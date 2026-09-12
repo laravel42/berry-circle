@@ -25,8 +25,10 @@ import {
    type ChatTask,
    type ChatThread,
 } from '@/lib/chat';
+import { useShortcut } from '@/components/layout/shortcut-provider';
 import { subscribeWorkspaceEvents } from '@/lib/events';
 import { useSessionStore } from '@/store/session-store';
+import { useUiPrefsStore } from '@/store/ui-prefs-store';
 import { ChatComposer } from './chat-composer';
 import { ChatThread as ThreadView } from './chat-thread';
 
@@ -69,7 +71,10 @@ export function FloatingChat() {
 
    // The chat page is the full version of this; two of them on one screen
    // would be two places to type the same message.
-   const hidden = pathname.includes('/chat');
+   // Preferences → General turns the window off entirely; the chat page is
+   // this window's full-size counterpart, so it never floats over itself.
+   const floatingEnabled = useUiPrefsStore((state) => state.floatingChat);
+   const hidden = pathname.includes('/chat') || !floatingEnabled;
 
    useEffect(() => {
       try {
@@ -86,16 +91,11 @@ export function FloatingChat() {
       }
    }, []);
 
-   useEffect(() => {
-      const onKey = (event: KeyboardEvent) => {
-         if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
-         if (event.key.toLowerCase() !== 'j') return;
-         event.preventDefault();
-         setState((current) => (current === 'closed' ? 'open' : 'closed'));
-      };
-      window.addEventListener('keydown', onKey);
-      return () => window.removeEventListener('keydown', onKey);
-   }, []);
+   // The shell's registry owns the combination, so it is rebindable in
+   // settings and appears there with everything else. This claims the action.
+   useShortcut('chat.toggleFloating', () =>
+      setState((current) => (current === 'closed' ? 'open' : 'closed'))
+   );
 
    const opened = state !== 'closed' && !hidden;
 

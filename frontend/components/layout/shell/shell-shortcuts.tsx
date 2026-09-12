@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation';
 
 import { useShortcut } from '@/components/layout/shortcut-provider';
-import { publishShellEvent } from '@/lib/shell-events';
 import { useCreateIssueStore } from '@/store/create-issue-store';
 import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
@@ -13,11 +12,10 @@ import { useShellStore } from '@/store/shell-store';
  * The shell's own keyboard handlers.
  *
  * Everything here is a thing the chrome can do by itself: move the rail, move
- * through history, open the create-task modal, open the inbox. The three
- * actions that belong to a page rather than to the shell — find in task,
- * floating chat, send — are announced instead of performed, so the area that
- * owns the behaviour can pick them up without the shell knowing anything
- * about it (see `lib/shell-events.ts`).
+ * through history, open the create-task modal, open the inbox. The actions
+ * that belong to a page rather than to the shell — find in task, floating
+ * chat, send a composer — are declared in `lib/shortcuts.ts` and claimed by
+ * whoever owns the behaviour, so they are absent from this list on purpose.
  *
  * Rendered once by `BerryShell`. Separate from it so the shell stays a
  * layout component and this stays a list of bindings.
@@ -42,9 +40,6 @@ export function ShellShortcuts({ orgId }: { orgId: string }) {
       if (openPanel) closePanel();
       else openPanelOfType('insights');
    });
-   useShortcut('chat.toggleFloating', () => publishShellEvent('berry:chat-toggle', {}));
-   useShortcut('issue.find', () => publishShellEvent('berry:issue-find', {}));
-   useShortcut('composer.send', () => publishShellEvent('berry:composer-send', {}));
    useShortcut('history.back', () => router.back());
    useShortcut('history.forward', () => router.forward());
 

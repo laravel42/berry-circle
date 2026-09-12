@@ -15,12 +15,6 @@
 export interface ShellEventMap {
    /** Fold or unfold every comment thread on the task in view. */
    'berry:comments-fold': { folded: boolean };
-   /** Open find-in-page for the task in view (owned by the task workstream). */
-   'berry:issue-find': Record<string, never>;
-   /** Show or hide the floating chat (owned by the chat workstream). */
-   'berry:chat-toggle': Record<string, never>;
-   /** Send whatever composer currently has focus. */
-   'berry:composer-send': Record<string, never>;
 }
 
 export function publishShellEvent<K extends keyof ShellEventMap>(

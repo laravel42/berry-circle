@@ -1,5 +1,6 @@
 'use client';
 
+import { useShortcut } from '@/components/layout/shortcut-provider';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
@@ -87,20 +88,15 @@ export function FindInIssue({ scope }: { scope: RefObject<HTMLElement | null> })
       highlightApi()?.registry.delete(HIGHLIGHT_NAME);
    }, []);
 
-   // mod+F. Taken from the browser deliberately: inside a task, "find" means
-   // this, and a reader who wants the browser's own can press it twice.
-   useEffect(() => {
-      const onKey = (event: KeyboardEvent) => {
-         if (event.key.toLowerCase() !== 'f' || !(event.metaKey || event.ctrlKey) || event.altKey) {
-            return;
-         }
-         event.preventDefault();
-         setOpen(true);
-         requestAnimationFrame(() => field.current?.focus());
-      };
-      window.addEventListener('keydown', onKey);
-      return () => window.removeEventListener('keydown', onKey);
-   }, []);
+   // mod+F, claimed from the shell's registry so it is one rebindable row in
+   // settings rather than a listener nobody can find. Taken from the browser
+   // deliberately: inside a task, "find" means this, and a reader who wants
+   // the browser's own can press it twice. Only while a task is on screen —
+   // this component mounts with the task and hands the action back with it.
+   useShortcut('issue.find', () => {
+      setOpen(true);
+      requestAnimationFrame(() => field.current?.focus());
+   });
 
    useEffect(() => {
       const root = scope.current;

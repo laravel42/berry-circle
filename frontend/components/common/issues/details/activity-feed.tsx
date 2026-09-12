@@ -1,5 +1,6 @@
 'use client';
 
+import { useShortcut } from '@/components/layout/shortcut-provider';
 import { BerryMark } from '@/components/brand/berry-mark';
 import { RunTranscriptDialog } from '@/components/common/runs/transcript-dialog';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -35,6 +36,7 @@ import {
    textFromRunEvent,
    type RunRecord,
 } from '@/lib/runs';
+import { subscribeShellEvent } from '@/lib/shell-events';
 import { listSkills, type Skill } from '@/lib/skills';
 import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
@@ -332,6 +334,13 @@ function CommentCard({
 }) {
    const t = useTranslations('issueDetail.activity');
    const [collapsed, setCollapsed] = useState(false);
+   // The palette can fold or unfold every thread at once. It says what it did
+   // rather than reaching in here, so each card decides for itself — which is
+   // also what makes a thread opened afterwards stay opened.
+   useEffect(
+      () => subscribeShellEvent('berry:comments-fold', ({ folded }) => setCollapsed(folded)),
+      []
+   );
    const [replying, setReplying] = useState(false);
    const [resolving, setResolving] = useState(false);
    const [closingNote, setClosingNote] = useState('');
@@ -791,6 +800,7 @@ export function ActivityCommentComposer({
    const [uploading, setUploading] = useState(0);
    const [skills, setSkills] = useState<Skill[]>([]);
    const [slash, setSlash] = useState(false);
+   const [focused, setFocused] = useState(false);
    const filePicker = useRef<HTMLInputElement>(null);
 
    // Slash commands open on a leading "/" and close as soon as the line stops
@@ -877,6 +887,12 @@ export function ActivityCommentComposer({
          .finally(() => setSending(false));
    };
 
+   // mod+Enter, through the shell's registry rather than a key handler on the
+   // textarea, so one rebindable row in settings covers every composer. Only
+   // while this box has focus: the action belongs to whichever composer the
+   // writer is actually typing in, and the last claim wins.
+   useShortcut('composer.send', send, { enabled: focused });
+
    return (
       <div className={cn('flex flex-col border-t border-border/60 bg-container p-3', className)}>
          <textarea
@@ -891,14 +907,9 @@ export function ActivityCommentComposer({
                if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') picker.sync();
             }}
             onClick={picker.sync}
-            onKeyDown={(event) => {
-               if (picker.handleKeyDown(event)) return;
-               // Local handler: wire to shortcut registry at merge (F6).
-               if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  send();
-               }
-            }}
+            onKeyDown={(event) => picker.handleKeyDown(event)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
             onPointerDown={(event) => event.stopPropagation()}
             placeholder={t('placeholder')}
             rows={2}
