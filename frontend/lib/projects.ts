@@ -221,7 +221,12 @@ const accessSchema = z.object({
    selectedOnly: z.boolean(),
    installed: z.boolean(),
    manageUrl: z.string().optional(),
-   installUrl: z.string().optional(),
+   /**
+    * Where to install the App, when there is an App to install. Nullable
+    * because the server sends null on a deployment that has no slug to offer,
+    * and `.optional()` alone would reject that and fail the whole listing.
+    */
+   installUrl: z.string().nullish(),
    accounts: z.array(z.string()).optional(),
 });
 

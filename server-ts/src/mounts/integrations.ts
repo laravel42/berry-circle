@@ -92,6 +92,50 @@ export function installSlug(
    return fallback === '' ? null : fallback;
 }
 
+/** Where GitHub asks which account and repositories an App may see. */
+export function installPageFor(slug: string | null): string | null {
+   return slug === null ? null : `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`;
+}
+
+/**
+ * What the repository picker is told about the credential behind its list.
+ *
+ * `installUrl` is the part a person can act on: without an installation a
+ * member's own sign-in token lists only public repositories, which reads as a
+ * broken picker, and installing the App is the only thing that changes it. The
+ * picker's footer said so and offered a link, which never arrived — so it is
+ * sent here, from the same slug the settings page offers.
+ */
+export function repositoryAccess(input: {
+   /** Whether the listing came from an installation rather than a user token. */
+   viaApp: boolean;
+   canPush: boolean;
+   accounts: string[];
+   slug: string | null;
+}): {
+   canPush: boolean;
+   selectedOnly: boolean;
+   installed: boolean;
+   manageUrl: string;
+   installUrl: string | null;
+   accounts: string[];
+} {
+   return {
+      canPush: input.canPush,
+      // An installation sees only what it was granted; a classic OAuth token
+      // sees everything the person can. Saying which is what lets an empty
+      // picker be read as "grant more repositories" rather than as a broken list.
+      selectedOnly: input.viaApp,
+      installed: input.viaApp,
+      manageUrl: input.viaApp
+         ? 'https://github.com/settings/installations'
+         : 'https://github.com/settings/applications',
+      // Nothing to offer somebody who already installed it.
+      installUrl: input.viaApp ? null : installPageFor(input.slug),
+      accounts: input.accounts,
+   };
+}
+
 /**
  * What to tell somebody when there is no App to install at all.
  *
@@ -316,7 +360,7 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
          // Said beside the App rather than inside it: there is an install to
          // offer whenever a slug can be found, App row or not — and when none
          // can be, the reason is the answer.
-         installUrl: slug === null ? null : `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`,
+         installUrl: installPageFor(slug),
          installReason: slug === null ? NO_APP_SLUG_REASON : null,
          installations: installations.map((row) => ({
             installationId: row.installationId,
@@ -596,21 +640,19 @@ export function integrationMounts(options: IntegrationsOptions): Mount[] {
       // read-only App is read-only, instead of accepting the link and failing
       // at the push after the work is already done.
       const granted = viaApp ? await options.githubApp?.grantedPermissions(workspaceId) : null;
+      // The install link the picker's footer offers, on the same slug the
+      // settings page uses: the stored App's, or the configured one.
+      const slug = viaApp
+         ? null
+         : installSlug((await options.githubApp?.app()) ?? null, options.appSlug);
       return json({
          repositories,
-         access: {
+         access: repositoryAccess({
+            viaApp,
             canPush: viaApp ? granted?.contents === 'write' : true,
-            // An installation sees only what it was granted; a classic OAuth
-            // token sees everything the person can. Saying which is what lets
-            // an empty picker be read as "grant more repositories" rather than
-            // as a broken list.
-            selectedOnly: viaApp,
-            installed: viaApp,
-            manageUrl: viaApp
-               ? 'https://github.com/settings/installations'
-               : 'https://github.com/settings/applications',
             accounts,
-         },
+            slug,
+         }),
       });
    });
 

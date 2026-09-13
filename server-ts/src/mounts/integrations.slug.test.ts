@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { NO_APP_SLUG_REASON, installSlug } from './integrations.ts';
+import { NO_APP_SLUG_REASON, installSlug, repositoryAccess } from './integrations.ts';
 
 /**
  * Which App an install is offered on.
@@ -38,4 +38,45 @@ test('a stored App with a blank slug falls back rather than offering nothing', (
 
 test('the reason given when there is no App names the setting an operator sets', () => {
    assert.match(NO_APP_SLUG_REASON, /BERRY_GITHUB_APP_SLUG/);
+});
+
+/**
+ * What the repository picker is told about the access it has.
+ *
+ * The footer a person reads when nothing is installed says only public
+ * repositories are visible, and the one thing that changes that is installing
+ * the App — so the link has to be in the answer. Pure for the same reason as
+ * above: which slug exists is configuration, not a row this test may assert on.
+ */
+
+test('a picker with no installation is given somewhere to install the App', () => {
+   const access = repositoryAccess({ viaApp: false, canPush: true, accounts: ['ada'], slug: 'berry' });
+   assert.equal(access.installed, false);
+   assert.equal(access.selectedOnly, false);
+   assert.equal(access.installUrl, 'https://github.com/apps/berry/installations/new');
+   // A user token sees what the person sees, so this is where they manage it.
+   assert.equal(access.manageUrl, 'https://github.com/settings/applications');
+});
+
+test('an installed picker is offered no install', () => {
+   const access = repositoryAccess({ viaApp: true, canPush: false, accounts: [], slug: 'berry' });
+   assert.equal(access.installed, true);
+   assert.equal(access.selectedOnly, true);
+   assert.equal(access.installUrl, null);
+   assert.equal(access.canPush, false);
+   assert.equal(access.manageUrl, 'https://github.com/settings/installations');
+});
+
+test('a deployment with no App to install offers no link rather than a broken one', () => {
+   assert.equal(
+      repositoryAccess({ viaApp: false, canPush: true, accounts: [], slug: null }).installUrl,
+      null
+   );
+});
+
+test('a slug is escaped into the install link', () => {
+   assert.equal(
+      repositoryAccess({ viaApp: false, canPush: true, accounts: [], slug: 'a b' }).installUrl,
+      'https://github.com/apps/a%20b/installations/new'
+   );
 });
