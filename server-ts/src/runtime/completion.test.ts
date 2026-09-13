@@ -43,7 +43,17 @@ describe('runCompletion', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not 
          defaultTarget: { id: null, driver: 'http', arn: null, qualifier: 'DEFAULT', region: null, endpointUrl: 'http://t' },
          recordUsage: async () => {},
       });
-      dispatcher = new Dispatcher({ sql, executor, logger: quiet, concurrency: 4, pollMs: 50 });
+      // Confined to this file's workspace: a live dispatcher that claimed from
+      // the whole table would execute the runs other files are asserting about
+      // (a suite that queues a task and expects it to *wait* would see it run).
+      dispatcher = new Dispatcher({
+         sql,
+         executor,
+         logger: quiet,
+         concurrency: 4,
+         pollMs: 50,
+         workspaceIds: [fixture!.workspaceId],
+      });
       dispatcher.start();
    });
    after(async () => {

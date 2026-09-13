@@ -144,7 +144,7 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
       });
       const executed: string[] = [];
       const dispatcher = new Dispatcher({
-         sql, logger: quiet, concurrency: 1, ...MANUAL,
+         sql, logger: quiet, workspaceIds: [f.workspaceId], concurrency: 1, ...MANUAL,
          executor: { execute: async (id) => void executed.push(id) },
       });
       await dispatcher.tick();
@@ -173,7 +173,7 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
          });
          const executed: string[] = [];
          const dispatcher = new Dispatcher({
-            sql, logger: quiet, concurrency: 5, ...MANUAL,
+            sql, logger: quiet, workspaceIds: [f.workspaceId], concurrency: 5, ...MANUAL,
             executor: { execute: async (id) => void executed.push(id) },
          });
          await dispatcher.tick();
@@ -201,7 +201,7 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
          });
          const executed: string[] = [];
          const dispatcher = new Dispatcher({
-            sql, logger: quiet, concurrency: 5, ...MANUAL,
+            sql, logger: quiet, workspaceIds: [f.workspaceId], concurrency: 5, ...MANUAL,
             executor: { execute: async (id) => void executed.push(id) },
          });
          await dispatcher.tick();
@@ -229,7 +229,7 @@ describe('task queue', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set
 
          const executed: string[] = [];
          const dispatcher = new Dispatcher({
-            sql, logger: quiet, concurrency: 5, ...MANUAL,
+            sql, logger: quiet, workspaceIds: [f.workspaceId], concurrency: 5, ...MANUAL,
             executor: { execute: async (id) => void executed.push(id) },
          });
          await dispatcher.tick();

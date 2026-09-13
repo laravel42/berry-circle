@@ -49,6 +49,18 @@ export interface DispatcherOptions {
    pollMs?: number;
    leaseMs?: number;
    heartbeatMs?: number;
+   /**
+    * The workspaces this dispatcher serves. Omitted — what a deployment does —
+    * means every run in the database.
+    *
+    * A confined dispatcher claims and sweeps only these workspaces' runs, and
+    * so cannot touch a run it was not meant to: the claim and the sweep are
+    * otherwise table-wide by design, which is right for a server and wrong for
+    * a test, where several files hold one database at once and a dispatcher
+    * driven by one of them would otherwise execute, lease and abandon the runs
+    * another file is asserting about.
+    */
+   workspaceIds?: readonly string[];
 }
 
 export class Dispatcher {
@@ -59,6 +71,8 @@ export class Dispatcher {
    readonly #pollMs: number;
    readonly #leaseMs: number;
    readonly #heartbeatMs: number;
+   /** The workspaces this dispatcher serves, or null for all of them. */
+   readonly #workspaceIds: readonly string[] | null;
 
    /** Runs this process is executing, and the handle that stops each one. */
    readonly #inflight = new Map<string, AbortController>();
@@ -76,6 +90,20 @@ export class Dispatcher {
       this.#pollMs = options.pollMs ?? POLL_MS;
       this.#leaseMs = options.leaseMs ?? LEASE_MS;
       this.#heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS;
+      this.#workspaceIds =
+         options.workspaceIds && options.workspaceIds.length > 0
+            ? [...options.workspaceIds]
+            : null;
+   }
+
+   /**
+    * `AND <column>.workspace_id IN (…)` when this dispatcher is confined, and
+    * nothing at all when it serves the whole deployment.
+    */
+   #scope(alias: string) {
+      const ids = this.#workspaceIds;
+      if (!ids) return this.#sql``;
+      return this.#sql`AND ${this.#sql(alias)}.workspace_id IN ${this.#sql(ids)}`;
    }
 
    start(): void {
@@ -184,6 +212,7 @@ export class Dispatcher {
                   AND r.dispatch_state = 'pending'
                   AND (r.dispatch_lease_until IS NULL OR r.dispatch_lease_until < now())
                   AND (rt.id IS NULL OR rt.status <> 'disabled')
+                  ${this.#scope('r')}
                   -- One task per chat session at a time (spec 2.2a): a
                   -- session's run waits while another of its runs is running
                   -- or is ahead of it in claim order.
@@ -232,6 +261,7 @@ export class Dispatcher {
           WHERE status IN ('queued', 'running')
             AND dispatch_state <> 'pending'
             AND dispatch_lease_until < now()
+            ${this.#scope('runs')}
           LIMIT 20`;
 
       for (const row of rows) {
