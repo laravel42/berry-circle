@@ -9,7 +9,7 @@ import { BoardRepository } from '../core/boards.ts';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { createApp, type BerryApp } from '../http/app.ts';
 import { Registry } from '../http/registry.ts';
-import { GitHubAppRepository } from '../integrations/github-app.ts';
+import { GitHubAppRepository, type StoredApp } from '../integrations/github-app.ts';
 import { OAuthStateStore } from '../integrations/oauth.ts';
 import { sealerFromKey } from '../integrations/sealing.ts';
 import { deleteWorkspaceBoards } from '../test-support/boards.ts';
@@ -51,6 +51,28 @@ function withoutStoredApp(real: GitHubAppRepository): GitHubAppRepository {
    });
 }
 
+/**
+ * The same repository, answering with the App *this file* wrote.
+ *
+ * `github_apps` holds one row for the whole deployment, so another test file
+ * saving its own App replaces this one's — and an assertion about the install
+ * URL would then be an assertion about that file's slug, which is a race this
+ * file loses roughly whenever the two run together.
+ *
+ * The row itself still has to be there: signing the App's JWT reads the sealed
+ * private key from it. What is pinned here is only what the mount is *told* the
+ * stored App is, which is the App this file saved and no other.
+ */
+function withStoredApp(real: GitHubAppRepository, app: StoredApp): GitHubAppRepository {
+   return new Proxy(real, {
+      get(target, property, receiver) {
+         if (property === 'app') return async () => app;
+         const value = Reflect.get(target, property, receiver);
+         return typeof value === 'function' ? value.bind(target) : value;
+      },
+   });
+}
+
 /** GitHub's answer when the App asks what an installation is. */
 function githubStub(account: { login: string; type: string }): typeof globalThis.fetch {
    return (async (input: string | URL | Request) => {
@@ -83,6 +105,14 @@ describe(
       let w2Id: string;
 
       const suffix = randomBytes(4).toString('hex');
+      /** The App this file writes, and the only one it asserts about. */
+      const ours = {
+         appId: 4242,
+         slug: `berry-${suffix}`,
+         name: 'Berry Test',
+         clientId: 'Iv1.test',
+         htmlUrl: 'https://github.com/apps/berry-test',
+      };
 
       /** The step the browser is told to take after a sign-in. */
       async function accessStep(): Promise<{ next: string; installUrl: string | null }> {
@@ -154,12 +184,9 @@ describe(
             fetch: githubStub({ login: 'berry-org', type: 'Organization' }),
             apiBaseUrl: 'https://api.github.test',
          });
-         await githubApp.saveApp(
+         const stored = await githubApp.saveApp(
             {
-               appId: 4242,
-               slug: `berry-${suffix}`,
-               name: 'Berry Test',
-               clientId: 'Iv1.test',
+               ...ours,
                clientSecret: 'shh',
                // A real key, because asking GitHub what an installation is
                // starts by signing the App's own JWT with it.
@@ -169,10 +196,13 @@ describe(
                   publicKeyEncoding: { type: 'spki', format: 'pem' },
                }).privateKey,
                webhookSecret: null,
-               htmlUrl: 'https://github.com/apps/berry-test',
             },
             u1Id
          );
+         // Read back from the row we just wrote, but only for the timestamp:
+         // every field the tests assert on is this file's own input, because
+         // the row may already have been replaced by another file's App.
+         const ourApp: StoredApp = { ...ours, createdAt: stored.createdAt };
 
          const mount = (overrides: {
             githubApp: GitHubAppRepository;
@@ -203,7 +233,7 @@ describe(
             );
             return createApp(registry);
          };
-         app = mount({ githubApp, appSlug: CONFIGURED_SLUG });
+         app = mount({ githubApp: withStoredApp(githubApp, ourApp), appSlug: CONFIGURED_SLUG });
          slugOnlyApp = mount({ githubApp: withoutStoredApp(githubApp), appSlug: CONFIGURED_SLUG });
          noSlugApp = mount({ githubApp: withoutStoredApp(githubApp), appSlug: null });
       });
@@ -244,7 +274,7 @@ describe(
          assert.equal(step.next, 'install');
          assert.ok(step.installUrl, 'the browser is given somewhere to go');
          assert.ok(
-            step.installUrl!.startsWith(`https://github.com/apps/berry-${suffix}/installations/new`),
+            step.installUrl!.startsWith(`https://github.com/apps/${ours.slug}/installations/new`),
             step.installUrl!
          );
          // Carried, so the callback knows whose workspace this installation is.
@@ -407,14 +437,11 @@ describe(
       test("the stored App's slug is preferred over the configured one", async () => {
          const step = await accessStep();
 
-         // Both are available here; the row's slug came from GitHub itself. Read
-         // from the row rather than named, because `github_apps` is a deployment
-         // singleton and another test file's App is as valid a row as this one's.
-         const stored = await githubApp.app();
+         // Both are available here, and the stored App wins. Its slug is the
+         // one this file saved — not whatever `github_apps`, a deployment
+         // singleton another file may have written since, holds now.
          assert.ok(
-            step.installUrl!.startsWith(
-               `https://github.com/apps/${stored!.slug}/installations/new`
-            ),
+            step.installUrl!.startsWith(`https://github.com/apps/${ours.slug}/installations/new`),
             step.installUrl!
          );
          assert.ok(!step.installUrl!.includes(CONFIGURED_SLUG));
