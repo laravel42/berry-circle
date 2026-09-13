@@ -21,6 +21,7 @@ import {
 import { loadGitHubApp, startGitHubInstall, type GitHubAppState } from '@/lib/integrations';
 import { useSessionStore } from '@/store/session-store';
 import { Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -60,6 +61,9 @@ function dirty(row: Row): boolean {
 }
 
 function RepositoriesDirectory() {
+   const t = useTranslations('workspaceAdmin.repositories');
+   // The two words every settings page that autosaves says, said the same way.
+   const tSave = useTranslations('workspaceAdmin.save');
    const workspaceId = useSessionStore((state) => state.workspace?.id);
    const searchParams = useSearchParams();
    const router = useRouter();
@@ -179,9 +183,7 @@ function RepositoriesDirectory() {
          if (!isRepositoryUrl(row.url)) {
             patchRow(key, {
                status: 'error',
-               message: row.url.trim()
-                  ? 'Use an https:// or ssh address.'
-                  : 'Enter a repository URL.',
+               message: row.url.trim() ? t('urlInvalid') : t('urlRequired'),
             });
             return;
          }
@@ -193,7 +195,7 @@ function RepositoriesDirectory() {
                if (!created) {
                   patchRow(key, {
                      status: 'error',
-                     message: 'That repository is already in the list.',
+                     message: t('duplicate'),
                   });
                   return;
                }
@@ -218,7 +220,7 @@ function RepositoriesDirectory() {
             patchRow(key, { status: 'error', message: describeGitHubFailure(failure) });
          }
       },
-      [workspaceId, patchRow]
+      [workspaceId, patchRow, t]
    );
 
    const schedule = (key: string) => {
@@ -297,12 +299,9 @@ function RepositoriesDirectory() {
    }));
 
    return (
-      <SettingsShell
-         title="Repositories"
-         description="The repositories this workspace works in, each with a note on what it holds. Changes save as you type."
-      >
+      <SettingsShell title={t('title')} description={t('lead')}>
          {!canManage && loaded && !error && (
-            <p className="text-muted-foreground">Only workspace admins can change this list.</p>
+            <p className="text-muted-foreground">{t('readOnly')}</p>
          )}
 
          {/* What GitHub actually granted, before the list of repositories this
@@ -313,11 +312,13 @@ function RepositoriesDirectory() {
             <section className="flex flex-col gap-2">
                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                     <h3 className="font-medium">Granted on GitHub</h3>
+                     <h3 className="font-medium">{t('grantedTitle')}</h3>
                      <p className="text-muted-foreground">
                         {granted?.refreshedAt
-                           ? `What the GitHub App may reach, as of ${new Date(granted.refreshedAt).toLocaleString()}.`
-                           : 'What the GitHub App may reach. Berry reads this with your own GitHub sign-in.'}
+                           ? t('grantedAsOf', {
+                                time: new Date(granted.refreshedAt).toLocaleString(),
+                             })
+                           : t('grantedLead')}
                      </p>
                   </div>
                   {canManage && (
@@ -328,7 +329,7 @@ function RepositoriesDirectory() {
                         onClick={() => void refreshAccess()}
                      >
                         <RefreshCw className={refreshing ? 'size-3.5 animate-spin' : 'size-3.5'} />
-                        {refreshing ? 'Refreshing…' : 'Refresh'}
+                        {refreshing ? t('refreshing') : t('refresh')}
                      </Button>
                   )}
                </div>
@@ -341,7 +342,9 @@ function RepositoriesDirectory() {
 
                {(granted?.claimedElsewhere ?? []).filter(Boolean).length > 0 && (
                   <p className="text-muted-foreground">
-                     {`Installed on ${(granted?.claimedElsewhere ?? []).filter(Boolean).join(', ')} for another Berry workspace, so those repositories are not listed here.`}
+                     {t('claimedElsewhere', {
+                        accounts: (granted?.claimedElsewhere ?? []).filter(Boolean).join(', '),
+                     })}
                   </p>
                )}
 
@@ -351,11 +354,13 @@ function RepositoriesDirectory() {
                {(granted?.repositories.length ?? 0) === 0 && (
                   <div className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
                      <p className="text-muted-foreground">
+                        {/* The operator's reason comes from the server, which
+                            words it for whoever configured the deployment. */}
                         {access?.installReason
                            ? access.installReason
                            : granted?.installPending
-                             ? 'An owner of that organisation was asked to approve the install. Nothing else is needed from you until they do.'
-                             : 'Berry has no repository access yet. Installing the GitHub App is where you choose which repositories it may reach.'}
+                             ? t('installPending')
+                             : t('noAccess')}
                      </p>
                      {canManage && !access?.installReason && !granted?.installPending && (
                         <Button
@@ -374,7 +379,7 @@ function RepositoriesDirectory() {
                                  });
                            }}
                         >
-                           {installing ? 'Opening…' : 'Install on GitHub'}
+                           {installing ? t('installing') : t('install')}
                         </Button>
                      )}
                   </div>
@@ -388,7 +393,10 @@ function RepositoriesDirectory() {
                      <p className="font-medium">
                         {describeAccount(account)}{' '}
                         <span className="text-muted-foreground font-normal">
-                           {`· installation ${account.installationId} · ${account.repositories} ${account.repositories === 1 ? 'repository' : 'repositories'}`}
+                           {t('accountMeta', {
+                              id: account.installationId,
+                              count: account.repositories,
+                           })}
                         </span>
                      </p>
                      <ul className="mt-1 flex flex-col gap-1">
@@ -405,10 +413,10 @@ function RepositoriesDirectory() {
                               {repository.private && (
                                  <span
                                     className="text-muted-foreground inline-flex items-center gap-1"
-                                    title="Private"
+                                    title={t('private')}
                                  >
                                     <Lock className="size-3" />
-                                    Private
+                                    {t('private')}
                                  </span>
                               )}
                               {repository.defaultBranch && (
@@ -427,16 +435,16 @@ function RepositoriesDirectory() {
             <div className="flex flex-wrap gap-2">
                <Button size="xs" onClick={addRow}>
                   <Plus className="size-3.5" />
-                  Add repository
+                  {t('add')}
                </Button>
                <Button
                   size="xs"
                   variant="secondary"
                   disabled={!installed || !workspaceId}
-                  title={installed ? undefined : 'Connect GitHub in Integrations first'}
+                  title={installed ? undefined : t('importNeedsGitHub')}
                   onClick={() => setPickerOpen(true)}
                >
-                  Import from GitHub
+                  {t('import')}
                </Button>
             </div>
          )}
@@ -448,13 +456,11 @@ function RepositoriesDirectory() {
          )}
          {!loaded && !error && (
             <p role="status" className="text-muted-foreground">
-               Loading repositories…
+               {t('loading')}
             </p>
          )}
          {loaded && !error && rows.length === 0 && (
-            <p className="text-muted-foreground">
-               No repositories yet. {canManage ? 'Add one by URL, or import from GitHub.' : ''}
-            </p>
+            <p className="text-muted-foreground">{canManage ? t('emptyManage') : t('empty')}</p>
          )}
 
          {rows.length > 0 && (
@@ -463,8 +469,8 @@ function RepositoriesDirectory() {
                   <li key={row.key} className="rounded-lg border bg-container px-3 py-2.5">
                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
                         <Input
-                           aria-label="Repository URL"
-                           placeholder="https://github.com/owner/repo"
+                           aria-label={t('urlLabel')}
+                           placeholder={t('urlPlaceholder')}
                            className="h-8 font-mono sm:flex-[3]"
                            value={row.url}
                            disabled={!canManage}
@@ -472,8 +478,8 @@ function RepositoriesDirectory() {
                            onBlur={() => saveNow(row.key)}
                         />
                         <Input
-                           aria-label="Description"
-                           placeholder="What this repository holds"
+                           aria-label={t('descriptionLabel')}
+                           placeholder={t('descriptionPlaceholder')}
                            className="h-8 sm:flex-[4]"
                            maxLength={500}
                            value={row.description}
@@ -486,7 +492,7 @@ function RepositoriesDirectory() {
                               size="icon"
                               variant="ghost"
                               className="size-8 shrink-0"
-                              aria-label="Remove repository"
+                              aria-label={t('remove')}
                               onClick={() => void remove(row)}
                            >
                               <Trash2 className="size-4" />
@@ -503,9 +509,9 @@ function RepositoriesDirectory() {
                            }
                         >
                            {row.status === 'saving'
-                              ? 'Saving…'
+                              ? tSave('saving')
                               : row.status === 'saved'
-                                ? 'Saved'
+                                ? tSave('saved')
                                 : row.message}
                         </p>
                      )}
