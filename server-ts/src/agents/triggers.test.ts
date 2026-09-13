@@ -80,11 +80,21 @@ describe('comment triggers', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
          return { runId: '22222222-2222-4222-8222-222222222222' };
       };
       const p = await plan('again');
-      const input = { workspaceId: world.workspaceId, issueId: world.issueId, commentId, body: 'again', plan: p };
+      const input = {
+         workspaceId: world.workspaceId,
+         issueId: world.issueId,
+         authorId: world.memberId,
+         commentId,
+         body: 'again',
+         plan: p,
+      };
       assert.deepEqual(await fireCommentTriggers(sql, enqueue, input), ['22222222-2222-4222-8222-222222222222']);
       assert.deepEqual(await fireCommentTriggers(sql, enqueue, input), []);
       assert.equal(calls.length, 1);
       assert.equal(calls[0]?.source, 'mention');
+      // The commenter asked for this work, so a task the agent files while
+      // answering carries their name rather than nobody's.
+      assert.equal(calls[0]?.requestedBy, world.memberId);
       assert.match(calls[0]?.prompt ?? '', /<comment>\nagain\n<\/comment>/);
       const [row] = await sql`SELECT reason, run_id FROM comment_run_triggers WHERE comment_id = ${commentId}`;
       assert.equal(row?.reason, 'reply_to_assignee');
@@ -94,7 +104,14 @@ describe('comment triggers', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is n
    test('a refused enqueue releases the claim so the comment can fire later', async () => {
       const commentId = await comment('busy');
       const p = await plan('busy');
-      const input = { workspaceId: world.workspaceId, issueId: world.issueId, commentId, body: 'busy', plan: p };
+      const input = {
+         workspaceId: world.workspaceId,
+         issueId: world.issueId,
+         authorId: world.memberId,
+         commentId,
+         body: 'busy',
+         plan: p,
+      };
       await assert.rejects(
          fireCommentTriggers(sql, async () => {
             throw new Error('active run');

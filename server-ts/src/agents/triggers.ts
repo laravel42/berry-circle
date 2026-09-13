@@ -75,7 +75,15 @@ export async function planCommentTriggers(sql: Sql, input: TriggerInput): Promis
 export async function fireCommentTriggers(
    sql: Sql,
    enqueue: EnqueueTask,
-   input: { workspaceId: string; issueId: string; commentId: string; body: string; plan: TriggerPlan }
+   input: {
+      workspaceId: string;
+      issueId: string;
+      /** Who wrote the comment. What the agent files while answering is theirs. */
+      authorId: string;
+      commentId: string;
+      body: string;
+      plan: TriggerPlan;
+   }
 ): Promise<string[]> {
    const runs: string[] = [];
    for (const target of input.plan.targets) {
@@ -104,6 +112,9 @@ export async function fireCommentTriggers(
          kind: 'agent',
          // A's source vocabulary has no reply value; the reason is kept on the row.
          source: target.reason === 'squad_leader' ? 'squad' : 'mention',
+         // The commenter is knowable here, so a task the agent files while
+         // answering is attributed to them rather than to nobody.
+         requestedBy: input.authorId,
          prompt: `${intro}\n\n<comment>\n${input.body.replaceAll('</comment>', '</ comment>')}\n</comment>`,
       }).catch(release);
       await sql`
