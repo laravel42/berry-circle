@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
-import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
+import { deleteWorkspaceBoards } from '../test-support/boards.ts';
+import { deleteWorkspaceAgentsInTransaction } from '../test-support/protected-agents.ts';
 import { list } from './migrations.ts';
 
 /**
@@ -34,8 +35,39 @@ describe('the default board migration', { skip: url ? false : 'BERRY_TEST_DATABA
       return workspaceId;
    }
 
-   const boardsOf = (workspaceId: string) =>
-      sql`SELECT id, name, slug, created_by FROM boards WHERE workspace_id = ${workspaceId} ORDER BY created_at`;
+   const boardsOf = (workspaceId: string, q: Sql = sql) =>
+      q`SELECT id, name, slug, created_by FROM boards WHERE workspace_id = ${workspaceId} ORDER BY created_at`;
+
+   /**
+    * Applies the shipped migration, hands the transaction to the assertions,
+    * and rolls the whole thing back.
+    *
+    * The backfill visits *every* workspace in the database, and the test files
+    * share one. Committing it would hand a board to whichever other file's
+    * workspace happened to be boardless at that instant — between its own
+    * `DELETE FROM boards` and its `DELETE FROM workspaces` — and that file's
+    * teardown would then fail on boards_workspace_id_workspaces_id_fk. Rolled
+    * back, no such board outlives this statement.
+    *
+    * The lock is the other half: it holds off every insert and delete on
+    * `workspaces` while the backfill runs, so a workspace this backfill decides
+    * to serve cannot be deleted underneath the INSERT (which would fail on the
+    * same foreign key, here instead of there). Both are about the shared
+    * database, not about the migration, which is applied verbatim either way.
+    */
+   async function applying(check: (tx: Sql) => Promise<void>, times = 1): Promise<void> {
+      class Rollback extends Error {}
+      try {
+         await sql.begin(async (tx) => {
+            await tx`LOCK TABLE workspaces IN SHARE MODE`;
+            for (let index = 0; index < times; index += 1) await tx.unsafe(migration);
+            await check(tx as unknown as Sql);
+            throw new Rollback();
+         });
+      } catch (error) {
+         if (!(error instanceof Rollback)) throw error;
+      }
+   }
 
    before(async () => {
       sql = openDatabase({ url: url! });
@@ -45,9 +77,17 @@ describe('the default board migration', { skip: url ? false : 'BERRY_TEST_DATABA
    });
 
    after(async () => {
-      await sql`DELETE FROM boards WHERE workspace_id IN ${sql(workspaceIds)}`;
-      await deleteWorkspaceAgents(sql, workspaceIds);
-      await sql`DELETE FROM workspaces WHERE id IN ${sql(workspaceIds)}`;
+      // Agents first: agents.board_id cascades, so deleting a board takes its
+      // protected Orchestrator with it, which the guard trigger refuses. Then
+      // boards, which workspaces RESTRICTs on. All three together, so no
+      // concurrent backfill can see a boardless workspace of ours.
+      if (workspaceIds.length > 0) {
+         await sql.begin(async (tx) => {
+            await deleteWorkspaceAgentsInTransaction(tx as unknown as Sql, workspaceIds);
+            await deleteWorkspaceBoards(tx as unknown as Sql, workspaceIds);
+            await tx`DELETE FROM workspaces WHERE id IN ${tx(workspaceIds)}`;
+         });
+      }
       await closeDatabase(sql);
    });
 
@@ -67,10 +107,11 @@ describe('the default board migration', { skip: url ? false : 'BERRY_TEST_DATABA
       await sql`DELETE FROM boards WHERE workspace_id = ${workspaceId}`;
       assert.equal((await boardsOf(workspaceId)).length, 0);
 
-      await sql.unsafe(migration);
-      const boards = await boardsOf(workspaceId);
-      assert.equal(boards.length, 1);
-      assert.equal(boards[0]!.name, 'Tasks');
+      await applying(async (tx) => {
+         const boards = await boardsOf(workspaceId, tx);
+         assert.equal(boards.length, 1);
+         assert.equal(boards[0]!.name, 'Tasks');
+      });
    });
 
    test('a workspace that already has a board gains nothing', async () => {
@@ -83,13 +124,12 @@ describe('the default board migration', { skip: url ? false : 'BERRY_TEST_DATABA
          VALUES (${randomUUID()}, ${workspaceId}, 'Mine', ${`brd-${randomUUID().slice(0, 8)}`})
          RETURNING id`;
 
-      await sql.unsafe(migration);
-      await sql.unsafe(migration);
-
-      const boards = await boardsOf(workspaceId);
-      assert.deepEqual(
-         boards.map((board) => board.id),
-         [mine!.id]
-      );
+      await applying(async (tx) => {
+         const boards = await boardsOf(workspaceId, tx);
+         assert.deepEqual(
+            boards.map((board) => board.id),
+            [mine!.id]
+         );
+      }, 2);
    });
 });

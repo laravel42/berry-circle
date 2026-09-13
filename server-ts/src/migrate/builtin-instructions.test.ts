@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { deleteWorkspaceBoards } from '../test-support/boards.ts';
-import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
+import { deleteWorkspaceAgentsInTransaction } from '../test-support/protected-agents.ts';
 import { list } from './migrations.ts';
 
 /**
@@ -47,9 +47,29 @@ describe('the built-in agents’ instructions', { skip: url ? false : 'BERRY_TES
    });
 
    after(async () => {
-      await deleteWorkspaceBoards(sql, workspaceIds);
-      await deleteWorkspaceAgents(sql, workspaceIds);
-      await sql`DELETE FROM workspaces WHERE id IN ${sql(workspaceIds)}`;
+      // The order the schema allows, and one transaction for all of it:
+      //
+      //   - agents first, because agents.board_id cascades — deleting a board
+      //     takes its protected Orchestrator with it, and the guard trigger
+      //     refuses that (23001); the helper is what clears `protected` safely.
+      //   - then boards, which workspaces RESTRICTs on
+      //     (boards_workspace_id_workspaces_id_fk).
+      //   - then the workspaces themselves.
+      //
+      // Together, because migration 183's backfill — which another test file
+      // applies against this same database — gives a board to every workspace
+      // that has none. Deleting the boards and committing left a window in
+      // which that backfill handed these workspaces a fresh board, and the
+      // DELETE below then failed on that foreign key. Uncommitted, our boards
+      // are still there for anyone else looking, and the workspaces are gone
+      // in the same instant they stop having boards.
+      if (workspaceIds.length > 0) {
+         await sql.begin(async (tx) => {
+            await deleteWorkspaceAgentsInTransaction(tx as unknown as Sql, workspaceIds);
+            await deleteWorkspaceBoards(tx as unknown as Sql, workspaceIds);
+            await tx`DELETE FROM workspaces WHERE id IN ${tx(workspaceIds)}`;
+         });
+      }
       await closeDatabase(sql);
    });
 
