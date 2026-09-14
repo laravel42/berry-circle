@@ -175,7 +175,7 @@ export default function WorkspaceGeneral() {
     */
    const goElsewhere = useCallback(async () => {
       const next = await refreshWorkspaces().catch(() => null);
-      router.replace(next ? `/${next.slug}/my-issues` : '/onboarding');
+      router.replace(next ? `/${next.slug}/tasks` : '/onboarding');
    }, [refreshWorkspaces, router]);
 
    const confirmLeave = async () => {

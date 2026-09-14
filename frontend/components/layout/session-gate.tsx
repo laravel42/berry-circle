@@ -53,7 +53,7 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
       // A signed-in user has no business on an auth route — carry them into
       // their workspace.
       if (status === 'ready' && onAuthRoute) {
-         router.replace(`/${workspace?.slug || WORKSPACE_SLUG}/my-issues`);
+         router.replace(`/${workspace?.slug || WORKSPACE_SLUG}/tasks`);
       }
    }, [status, pathname, router, workspace?.slug]);
 

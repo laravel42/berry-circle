@@ -112,7 +112,7 @@ export default function NewWorkspacePage() {
 
          await selectWorkspace(workspace.id).catch(() => undefined);
          const entered = await refreshWorkspaces().catch(() => null);
-         router.replace(`/${entered?.slug ?? workspace.slug}/my-issues`);
+         router.replace(`/${entered?.slug ?? workspace.slug}/tasks`);
       } catch (cause) {
          setFailure(
             cause instanceof BerryApiError && cause.status === 409

@@ -98,7 +98,7 @@ export function ShellPersonal({ orgId }: { orgId: string }) {
    // Personal's entry is the assigned tab of the tasks page; the page with
    // every task is Work's Tasks, and only one of the two lights at a time.
    const search = useSearchParams()?.toString() ?? '';
-   const onIssues = pathname.startsWith(`/${orgId}/my-issues`) && isMyTasks(pathname, search);
+   const onIssues = pathname.startsWith(`/${orgId}/tasks`) && isMyTasks(pathname, search);
    const onChat = pathname.startsWith(`/${orgId}/chat`);
 
    return (

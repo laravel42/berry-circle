@@ -43,7 +43,7 @@ export function ShellShortcuts({ orgId }: { orgId: string }) {
    useShortcut('history.back', () => router.back());
    useShortcut('history.forward', () => router.forward());
 
-   useShortcut('goto.myIssues', () => go('/my-issues'));
+   useShortcut('goto.myIssues', () => go('/tasks'));
    useShortcut('goto.inbox', () => openNotifications());
    useShortcut('goto.chat', () => go('/chat'));
    useShortcut('goto.projects', () => go('/projects'));

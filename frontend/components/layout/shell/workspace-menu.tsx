@@ -97,7 +97,7 @@ export function WorkspaceMenuItems({ orgId }: { orgId?: string }) {
 
    const onSwitch = async (workspaceId: string) => {
       const next = await switchWorkspace(workspaceId);
-      if (next) router.push(`/${next.slug}/my-issues`);
+      if (next) router.push(`/${next.slug}/tasks`);
    };
 
    const onJoin = async (invitation: PendingInvitation) => {

@@ -50,7 +50,7 @@ export function WorkspaceAccess({ children }: { children: React.ReactNode }) {
    useEffect(() => {
       if (status !== 'ready' || belongs || !departed) return;
       const next = workspaces[0];
-      router.replace(next ? `/${next.slug}/my-issues` : '/onboarding');
+      router.replace(next ? `/${next.slug}/tasks` : '/onboarding');
    }, [status, belongs, departed, workspaces, router]);
 
    // While the session is still loading, nothing is known yet — and an
@@ -68,7 +68,7 @@ export function WorkspaceAccess({ children }: { children: React.ReactNode }) {
             ) : null}
             <div className="mt-6 flex flex-col gap-2">
                <Button asChild>
-                  <Link href={workspaces[0] ? `/${workspaces[0].slug}/my-issues` : '/onboarding'}>
+                  <Link href={workspaces[0] ? `/${workspaces[0].slug}/tasks` : '/onboarding'}>
                      {t('myWorkspaces')}
                   </Link>
                </Button>

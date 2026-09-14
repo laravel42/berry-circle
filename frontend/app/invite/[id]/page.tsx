@@ -91,7 +91,7 @@ export default function InvitePage() {
          const member = await acceptInvitation(id, token);
          await selectWorkspace(member.workspaceId).catch(() => undefined);
          const entered = await refreshWorkspaces().catch(() => null);
-         router.replace(entered ? `/${entered.slug}/my-issues` : '/onboarding');
+         router.replace(entered ? `/${entered.slug}/tasks` : '/onboarding');
       } catch {
          setState({ kind: 'unavailable' });
          setAccepting(false);

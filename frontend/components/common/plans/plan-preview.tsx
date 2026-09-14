@@ -365,7 +365,7 @@ function PlanOutcome({ record, orgId }: { record: PlanRecord; orgId: string }) {
             </ul>
          )}
          <Button asChild size="xs" variant="secondary" className="mt-3">
-            <Link href={`/${orgId}/my-issues`}>View tasks</Link>
+            <Link href={`/${orgId}/tasks`}>View tasks</Link>
          </Button>
       </div>
    );

@@ -142,7 +142,7 @@ const PAGES: PalettePage[] = [
       label: 'Tasks',
       keywords: ['issues', 'my work', 'assigned', 'todo'],
       icon: ClipboardList,
-      href: '/my-issues',
+      href: '/tasks',
       keys: ['G', 'M'],
    },
    {

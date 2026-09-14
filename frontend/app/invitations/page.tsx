@@ -98,7 +98,7 @@ export default function InvitationsPage() {
 
       await selectWorkspace(first).catch(() => undefined);
       const entered = await refreshWorkspaces().catch(() => null);
-      router.replace(entered ? `/${entered.slug}/my-issues` : '/onboarding');
+      router.replace(entered ? `/${entered.slug}/tasks` : '/onboarding');
    }, [invitations, chosen, refreshWorkspaces, router, t]);
 
    if (status !== 'ready' || (invitations === null && !failed)) {

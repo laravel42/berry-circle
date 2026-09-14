@@ -59,7 +59,7 @@ export interface ShellRouteDef {
    /**
     * Extra pathname fragments that count as this route being active, for the
     * singular detail paths that hang off a plural list (`/issue/…` under
-    * `/my-issues`). Matched with the same longest-match rule as `href`.
+    * `/tasks`). Matched with the same longest-match rule as `href`.
     */
    match?: string[];
    /**
@@ -83,7 +83,7 @@ const WORK: ShellRouteDef[] = [
       id: 'issues',
       label: 'tasks',
       labelKey: 'tasks',
-      href: '/my-issues',
+      href: '/tasks',
       match: ['/issue/'],
       prefsKey: 'my-issues',
       icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
@@ -206,10 +206,10 @@ const BY_ID = new Map<string, ShellRouteDef>(
 );
 
 /** The tasks page filtered to what is assigned to the person: Personal's view of it. */
-export const MY_TASKS_HREF = '/my-issues?tab=assigned';
+export const MY_TASKS_HREF = '/tasks?tab=assigned';
 
 export function isMyTasks(pathname: string, search?: string): boolean {
-   return pathname.includes('/my-issues') && /(?:^|[?&])tab=assigned(?:&|$)/.test(search ?? '');
+   return pathname.includes('/tasks') && /(?:^|[?&])tab=assigned(?:&|$)/.test(search ?? '');
 }
 
 export function shellRoute(id: string): ShellRouteDef | undefined {

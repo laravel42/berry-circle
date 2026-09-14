@@ -38,7 +38,7 @@ type Phase = 'resolving' | 'choose';
 // Route into a workspace by slug. One place builds the destination so the
 // with-membership and after-create/join paths stay identical.
 function workspacePath(slug: string): string {
-   return `/${slug}/my-issues`;
+   return `/${slug}/tasks`;
 }
 
 /**

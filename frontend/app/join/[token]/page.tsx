@@ -52,7 +52,7 @@ export default function JoinPage() {
          const result = await acceptJoinLink(token);
          await selectWorkspace(result.workspaceId).catch(() => undefined);
          const entered = await refreshWorkspaces().catch(() => null);
-         router.replace(entered ? `/${entered.slug}/my-issues` : '/');
+         router.replace(entered ? `/${entered.slug}/tasks` : '/');
       } catch (cause) {
          setState(
             cause instanceof BerryApiError && cause.status === 401

@@ -78,7 +78,7 @@ export default function IssueDetails({ issueRef }: { issueRef?: string } = {}) {
          closeDrawer();
          return;
       }
-      router.push(`/${org}/my-issues`);
+      router.push(`/${org}/tasks`);
    }, [closeDrawer, router, org]);
 
    // Fetch when the store has never heard of this reference — which is the
@@ -206,7 +206,7 @@ export default function IssueDetails({ issueRef }: { issueRef?: string } = {}) {
                {missing ? t('notFoundBody', { identifier: issueId ?? '' }) : t('removed')}
             </p>
             <Button variant="outline" className="mt-6" asChild>
-               <Link href={`/${org}/my-issues`}>{t('back')}</Link>
+               <Link href={`/${org}/tasks`}>{t('back')}</Link>
             </Button>
          </div>
       );
