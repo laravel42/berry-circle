@@ -7,10 +7,9 @@ import { ExecutionFailed, ExecutionUnavailable, type ExecEvent } from './driver.
 /**
  * The driver against a stubbed substrate.
  *
- * These assert the contract both substrates have to keep — the request each
- * receives and the failure Berry sees — without a container, so they run in
- * the default offline suite. The same assertions hold for `runtime/` and
- * `runtime-worker/`, because the driver cannot tell them apart.
+ * These assert the contract the Docker runtime service has to keep — the
+ * request it receives and the failure Berry sees — without a container, so they
+ * run in the default offline suite.
  */
 
 interface Call {

@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { Dispatcher, type Executor } from './dispatcher.ts';
 import { RunRepository } from './repository.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * What turns a queued run into a running one.
@@ -21,10 +22,12 @@ const url = process.env.BERRY_TEST_DATABASE_URL;
 /** Nothing is scheduled: every test drives the dispatcher a beat at a time. */
 const MANUAL = { pollMs: 3_600_000, heartbeatMs: 3_600_000 };
 
+/** This file's own workspace. Every dispatcher built here is confined to it. */
+const fixture = { workspaceId: '', boardId: '', agentId: '', userId: '' };
+
 describe('run dispatcher', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not set' }, () => {
    let sql: Sql;
    let runs: RunRepository;
-   const fixture = { workspaceId: '', boardId: '', agentId: '', userId: '' };
 
    before(async () => {
       sql = openDatabase({ url: url! });
@@ -39,17 +42,47 @@ describe('run dispatcher', { skip: url ? false : 'BERRY_TEST_DATABASE_URL is not
 
    let issueId = '';
    beforeEach(async () => {
-      // A dispatcher claims from the whole table, not from one board. Any run
-      // left claimable by anything else is work these dispatchers will
-      // correctly take, and then a test asserting *which* run was claimed is
-      // asserting about someone else's fixture.
+      // Every dispatcher here is confined to this file's workspace, so a test
+      // asserting *which* run was claimed is asserting about its own fixture
+      // and nobody else's — the files share one database and run at once.
       //
-      // So this suite wants the database to itself: it drains every claimable
-      // run before each test, and the DB-backed gate runs the files one at a
-      // time. Both are needed — the drain handles what an earlier file left,
-      // the serialisation handles what a concurrent one would add.
-      await drain(sql);
+      // The drain is this workspace's own leftovers: a run an earlier test in
+      // this file left queued is still claimable by the next one's dispatcher.
+      await drain(sql, fixture);
       issueId = await createIssue(sql, fixture);
+   });
+
+   test('a confined dispatcher leaves another workspace’s runs alone', async () => {
+      // What makes this suite safe beside the others: a dispatcher told which
+      // workspaces it serves neither claims nor sweeps outside them.
+      const theirs = { workspaceId: '', boardId: '', agentId: '', userId: '' };
+      await seed(sql, theirs);
+      try {
+         const claimable = await admit(runs, theirs, await createIssue(sql, theirs));
+         const abandoned = await admit(runs, theirs, await createIssue(sql, theirs));
+         await sql`
+            UPDATE runs
+               SET status = 'running', dispatch_state = 'streaming',
+                   dispatch_lease_until = now() - interval '1 minute'
+             WHERE id = ${abandoned.id}`;
+
+         const executed: string[] = [];
+         const dispatcher = build(sql, {
+            execute: async (runId) => {
+               executed.push(runId);
+               await settle(sql, runId, 'succeeded');
+               return {};
+            },
+         });
+         await drive(dispatcher);
+         await dispatcher.stop();
+
+         assert.deepEqual(executed, [], 'it claimed a run outside its workspaces');
+         assert.equal((await runs.get(claimable.id)).status, 'queued');
+         assert.equal((await runs.get(abandoned.id)).status, 'running');
+      } finally {
+         await cleanup(sql, theirs);
+      }
    });
 
    test('a queued run is executed, and only once', async () => {
@@ -296,8 +329,10 @@ function build(
    return new Dispatcher({
       sql,
       executor,
-      logger: { info: () => undefined, error: () => undefined },
+      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
       concurrency: options.concurrency ?? 4,
+      // This file's workspace and no other. See `beforeEach`.
+      workspaceIds: [fixture.workspaceId],
       ...MANUAL,
    });
 }
@@ -328,12 +363,15 @@ async function idle(dispatcher: Dispatcher, timeoutMs = 5_000): Promise<void> {
    }
 }
 
-/** Ends every run something else could claim. See `beforeEach`. */
-async function drain(sql: Sql): Promise<void> {
+/** Ends every run of this workspace a later test could claim. See `beforeEach`. */
+async function drain(sql: Sql, fixture: Record<string, string>): Promise<void> {
    await sql`
       UPDATE runs SET status = 'cancelled', dispatch_state = 'cancelled', completed_at = now()
-       WHERE status IN ('queued', 'running')`;
-   await sql`UPDATE issues SET active_run_id = NULL WHERE active_run_id IS NOT NULL`;
+       WHERE status IN ('queued', 'running') AND workspace_id = ${fixture.workspaceId!}`;
+   await sql`
+      UPDATE issues SET active_run_id = NULL
+       WHERE active_run_id IS NOT NULL
+         AND board_id IN (SELECT id FROM boards WHERE workspace_id = ${fixture.workspaceId!})`;
 }
 
 /** Moves a run out of `queued` the way the ledger would. */
@@ -410,12 +448,7 @@ async function cleanup(sql: Sql, fixture: Record<string, string>): Promise<void>
    await sql`
       DELETE FROM issues
        WHERE board_id IN (SELECT id FROM boards WHERE workspace_id = ${fixture.workspaceId})`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;

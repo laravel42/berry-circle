@@ -17,15 +17,6 @@ export const WORKSPACE_SLUG = process.env.NEXT_PUBLIC_WORKSPACE_SLUG || 'berry';
  */
 export const WORKSPACE_NAME = process.env.NEXT_PUBLIC_WORKSPACE_NAME || 'Berry';
 
-
-/**
- * When set, Berry skips the login screen and signs in with this email if no
- * session token exists. Empty disables auto-login.
- */
-export const AUTO_LOGIN_EMAIL = (
-   process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL ?? 'prototype@berry.test'
-).trim();
-
 /**
  * Optional browser-visible API origin for cross-origin development.
  *
@@ -67,3 +58,14 @@ export const BOARD_ID = (process.env.NEXT_PUBLIC_BOARD_ID || '').trim();
 
 /** True when an env board override is present. */
 export const isBoardConfigured = BOARD_ID.length > 0;
+
+/**
+ * Development-only auto-login email.
+ *
+ * When set, the session store signs in as this account through
+ * `POST /api/v1/auth/dev-login` when no session cookie is present, skipping the
+ * sign-in screen. The server registers that route only in `development` and
+ * `test` (it 404s anywhere else), so a stray value here cannot establish a
+ * session against a production API. Leave empty to require GitHub sign-in.
+ */
+export const AUTO_LOGIN_EMAIL = (process.env.NEXT_PUBLIC_AUTO_LOGIN_EMAIL || '').trim();

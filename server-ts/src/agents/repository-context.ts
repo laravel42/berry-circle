@@ -23,6 +23,7 @@ export interface RepositoryContext {
    projectName: string;
    /** Run against the tree before it is pushed. Empty means no evidence. */
    verifyCommands: string[];
+
 }
 
 export async function repositoryForIssue(
@@ -41,11 +42,12 @@ export async function repositoryForIssue(
         FROM issue_project_links l
         JOIN projects p ON p.id = l.project_id
        WHERE l.issue_id = ${issueId}
+         AND p.deleted_at IS NULL
          AND p.github_repo_full_name IS NOT NULL`;
 
    if (!row) return null;
    return {
-      fullName: row.github_repo_full_name,
+      fullName: row.github_repo_full_name as string,
       projectId: row.project_id,
       projectName: row.name,
       verifyCommands: row.verify_commands ?? [],

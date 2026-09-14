@@ -6,8 +6,7 @@
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
 - **Supersedes:** ADR-0004 (Go product server), withdrawn with its subject
-- **Related:** [ADR-0008](0008-adk-agent-runtime.md) (ADK agent runtime),
-  [Multica reuse provenance](../provenance/multica-server-reuse.md)
+- **Related:** [ADR-0008](0008-adk-agent-runtime.md) (ADK agent runtime)
 
 ## Context
 
@@ -21,18 +20,15 @@ cannot read is a codebase they cannot be responsible for.
 
 This reverses ADR-0004 (withdrawn), taken five days ago on
 2026-08-22, which moved Berry from a Bun/Hono gateway to Go in order to absorb
-owner-authorised Multica Go product material. That rationale is not disputed;
-it is outweighed.
+owner-authorised first-party Go product material. That rationale is not
+disputed; it is outweighed.
 
-**Provenance permits it.** The [reuse record](../provenance/multica-server-reuse.md)
-carries two rows, and both state that what landed was "Berry-native
-implementation informed by the named behavioral patterns; no legacy source
-copied". No Multica source sits in Berry's server, so reimplementing Berry's own
-code in another language is not an import and needs no new row. The owner
-authorised reuse, adaptation and relicensing in any case.
+**Nothing blocks it.** What landed in the Go server was a Berry-native
+implementation informed by behavioural patterns, not copied source, so
+reimplementing Berry's own code in another language is not an import.
 
 It is taken together with [ADR-0008](0008-adk-agent-runtime.md) deliberately.
-Roughly 4,000 lines exist only to talk to OpenFang; migrating first would mean
+Roughly 4,000 lines exist only to talk to the external agent runtime; migrating first would mean
 porting all of it and then deleting it.
 
 ## Decision
@@ -143,7 +139,7 @@ strangler requires both servers to be indistinguishable to it.
 
 - **Stay on Go.** Cheapest by far, and correct if anyone else were maintaining
   it. Rejected on the one ground that matters here.
-- **Migrate first, ADK after.** Ports ~4,000 lines of OpenFang plumbing and then
+- **Migrate first, ADK after.** Ports ~4,000 lines of runtime plumbing and then
   deletes them, and leaves every agent defect in ADR-0008 standing for weeks.
 - **ADK first, migrate after.** Lower risk — ADK Go is proven and needs no
   hand-written model — but does the ADK integration twice.

@@ -1,7 +1,6 @@
 'use client';
 
 import { BerryMark } from '@/components/brand/berry-mark';
-import { Pill } from '@/components/common/plans/plan-sections';
 import { GOAL_STATUS, statusLook } from '@/lib/catalog';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import type { Goal } from '@/lib/goals';
@@ -40,10 +39,7 @@ export default function GoalLine({ goal }: { goal: Goal }) {
                <BerryMark size="sm" tone={look.tone} state={look.state} label={look.label} />
             </span>
             <div className="min-w-0 overflow-hidden">
-               <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-medium leading-none">{goal.title}</span>
-                  {goal.source === 'ai' && <Pill>planned by Berry</Pill>}
-               </div>
+               <span className="block truncate font-medium leading-none">{goal.title}</span>
                <p className="mt-0.5 line-clamp-1 text-muted-foreground">
                   {project ? project.name : goal.description || 'No description'}
                </p>

@@ -1,28 +1,30 @@
 # ADR-0008: Run agents in-process with the Google Agent Development Kit
 
-- **Status:** Accepted — implemented. The runtime this record replaces was
+- **Status:** Accepted — implemented; the implementation is superseded by
+  [ADR-0013](0013-strands-native-agent-runtime.md) (Strands, natively), and
+  the decision stands. The runtime this record replaces was
   removed from the repository on 2026-08-28, along with the server that adapted
-  it; the OpenFang detail below is retained because it is the evidence for the
+  it; the detail below is retained because it is the evidence for the
   decision, not a description of anything that still runs.
 - **Date:** 2026-08-27
 - **Deciders:** Berry platform
 - **Related:** [ADR-0006](0006-agent-run-artifacts.md) (agent run artifacts),
   [ADR-0009](0009-typescript-product-server.md) (TypeScript product server).
-  ADR-0003 (pin OpenFang by commit), ADR-0004 (Go product server) and ADR-0005
+  ADR-0003 (pin the runtime by commit), ADR-0004 (Go product server) and ADR-0005
   (Temporal run orchestration) were withdrawn with their subjects.
 
 ## Context
 
-Berry does not run agents. OpenFang does, as a separate service, and Berry
+Berry does not run agents. A separate runtime service does, and Berry
 projects what it reports into product identities. That division has shaped
 every agent feature Berry has, and most of the defects.
 
-An OpenFang agent is a long-lived named process with its own lifecycle, its own
+A runtime agent is a long-lived named process with its own lifecycle, its own
 heartbeat, and a directory on a volume Berry does not own. Berry creates one by
 spawning it and then discovering it again through a sync. The consequences are
 not incidental:
 
-- **Idle reads as broken.** OpenFang marks an agent Crashed after 180 seconds
+- **Idle reads as broken.** The runtime marks an agent Crashed after 180 seconds
   without activity and auto-recovers it. An agent that finished its work and
   waited is indistinguishable, in the runtime, from one that died. Recovery
   leaves `is_inferencing` set, which Berry faithfully reports as *busy* — an
@@ -31,13 +33,13 @@ not incidental:
   agent's own workspace. One agent cannot read what another wrote, so a task
   that depends on finished work receives it as text pasted into a prompt
   (`internal/priorwork`) because there is no other channel.
-- **A runtime agent belongs to one workspace.** `agents.openfang_agent_id` is
+- **A runtime agent belongs to one workspace.** the agents table's runtime-agent id is
   globally unique and the projection only applies within the owning workspace,
   so a second Berry workspace inherits nothing and falls back to its built-in
   orchestrator.
 - **Removal does not stick without help.** The runtime keeps listing an agent
   Berry archived, and the reconcile used to un-archive it.
-- **There is no credential seam.** OpenFang accepts `mcp_servers` and ignores
+- **There is no credential seam.** The runtime accepts `mcp_servers` and ignores
   them, and has no per-workspace credential store, so Berry cannot give an
   agent a tool that acts as the workspace. This is why agents cannot touch
   GitHub directly and why delivery is Berry's job rather than theirs.
@@ -46,7 +48,7 @@ not incidental:
   by decision, so the reverse direction — Berry placing a file where an agent
   can read it — is not available at all.
 
-None of these are bugs in OpenFang. They follow from agents living somewhere
+None of these are bugs in that runtime. They follow from agents living somewhere
 else.
 
 The Google Agent Development Kit inverts that. ADK is a library, not a service:
@@ -98,7 +100,7 @@ Two details cost real time and are worth naming:
 
 ## Decision
 
-Replace OpenFang with ADK as Berry's agent runtime. Agents become configuration
+Replace that runtime with ADK as Berry's agent runtime. Agents become configuration
 Berry owns rather than processes Berry discovers.
 
 Berry keeps what it already does well and does not hand it to ADK:
@@ -140,16 +142,16 @@ Three areas are rewritten rather than adapted:
   are replaced by an `ArtifactService` implementation. The `run_artifacts`
   schema and the tree UI stay.
 - `internal/service/runadmission` — stream consumption and event mapping move
-  from OpenFang's SSE to ADK's event iterator.
+  from the runtime's SSE to ADK's event iterator.
 - `internal/handlers/agents` — the sync loop mostly disappears; agent rows stop
   being a projection and become the source.
 
-Twenty-six files across fifteen packages import `internal/openfang`. The
+Twenty-six files across fifteen packages import the runtime client package. The
 interfaces are narrow, which is what makes this tractable.
 
 ### What is deliberately not decided here
 
-Whether OpenFang remains for anything. This ADR proposes replacement; the
+Whether that runtime remains for anything. This ADR proposes replacement; the
 migration is staged so the answer can be *not yet* for as long as necessary.
 
 ## Migration
@@ -174,9 +176,9 @@ Staged so Berry stays usable throughout. Each stage is shippable.
    agents mount is served from `server-ts/src/mounts/agents.ts` — Berry
    authors agents now, and the built-in orchestrator is made runnable without
    spawning anything (`EnsureLocalOrchestrators`). Spawn and sync still exist
-   for `BERRY_AGENT_RUNTIME=openfang` and go with the rest of
-   `internal/openfang` at stage 6.
-6. **Retire OpenFang.** Not yet, and the reason is no longer technical.
+   for the external-runtime setting and go with the rest of that client
+   package at stage 6.
+6. **Retire the external runtime.** Not yet, and the reason is no longer technical.
 
    Every WORK surface is off it: intake, dispatch, runs, artifacts, peer
    review (`internal/autogate` → `internal/openrouter`), the planner's model
@@ -194,7 +196,7 @@ Staged so Berry stays usable throughout. Each stage is shippable.
    | `service/automationrun` | the workflow engine's agent step — AUTOMATE, excluded |
    | `service/projectplanning` | `POST /projects/:id/generated-issues`, deferred in server-ts/SCOPE.md |
    | `handlers/agents/ask.go` | `POST /agents/:id/ask` — nothing in the product calls it |
-   | `handlers/runtime` | an operator probe *of OpenFang*, which has nothing to move to |
+   | `handlers/runtime` | an operator probe *of the external runtime*, which has nothing to move to |
 
    Everything else that imports the package is either compiled-in and never
    called under ADK — `runadmission`'s stream loop, `agents/sync.go`,
@@ -202,7 +204,7 @@ Staged so Berry stays usable throughout. Each stage is shippable.
    or uses it only for a type (`AgentLimits`, `CatalogModel`).
 
    So the blocker is a product decision, not an engineering one: AUTOMATE is
-   to be rebuilt rather than migrated, and OpenFang goes when it is.
+   to be rebuilt rather than migrated, and the runtime goes when it is.
 
 ### How this differed from the plan
 
@@ -214,7 +216,7 @@ migration started and the two decisions met. Everything above lives in
 `server-ts/`, and the Go worker reaches it over one HTTP call
 (`internal/service/adkruntime`) until the orchestration moves too.
 
-The chat route was the other. This ADR treats OpenFang as an agent runtime,
+The chat route was the other. This ADR treats that service as an agent runtime,
 and it is, but four of Berry's callers only ever used its OpenAI-compatible
 chat endpoint — which forwarded the request to OpenRouter and returned what
 came back. For those the migration is not a replacement at all; it is deleting
@@ -222,18 +224,18 @@ a hop. Naming an agent instead of a model was the only thing it added, and
 Berry held the pairing the whole time.
 
 "The sync loop mostly disappears" understated it. Sync does not merely become
-redundant under ADK — it is destructive: an agent OpenFang has never heard of
+redundant under ADK — it is destructive: an agent the runtime has never heard of
 is marked offline on every listing, and the model Berry gave it is overwritten
-with whatever OpenFang last said. Turning reconciliation off is a correctness
+with whatever the runtime last said. Turning reconciliation off is a correctness
 requirement of running under ADK at all, not a cleanup that can follow it.
 
 ## Alternatives considered
 
-- **ADK alongside OpenFang indefinitely.** Two agent models, two artifact
+- **ADK alongside the old runtime indefinitely.** Two agent models, two artifact
   paths, two lifecycles. Rejected as an end state, accepted as the shape of the
   migration.
 - **ADK for orchestration only.** Overlaps Temporal, which already does this
   durably, and leaves every defect above in place.
-- **Fix OpenFang.** The defects follow from agents living in another service
+- **Fix the old runtime.** The defects follow from agents living in another service
   with their own filesystem. Fixing them means changing that, which is what
   this ADR does.

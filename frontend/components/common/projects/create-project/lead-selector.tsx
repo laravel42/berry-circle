@@ -12,40 +12,49 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import type { User } from '@/data/users';
 import { useMembersStore } from '@/store/members-store';
-import { CheckIcon } from 'lucide-react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { CheckIcon, User as UserIcon, Workflow } from 'lucide-react';
+import { useId, useMemo, useState } from 'react';
+import { AI_WORKFLOW_LEAD, isAiWorkflow } from './ai-workflow';
 
 interface ProjectLeadSelectorProps {
-   lead: User;
+   /** Undefined until the person chooses; nothing is preselected. */
+   lead: User | undefined;
    onChange: (lead: User) => void;
+}
+
+/** The lead's mark: an automation glyph for Berry, an avatar for a person. */
+function LeadMark({ user, size }: { user: User; size: 4 | 5 }) {
+   const box = size === 4 ? 'size-4' : 'size-5';
+   if (isAiWorkflow(user)) {
+      return (
+         <span
+            className={`${box} flex shrink-0 items-center justify-center rounded-full bg-[var(--shell-accent)]/15 text-[var(--shell-accent)]`}
+         >
+            <Workflow className={size === 4 ? 'size-2.5' : 'size-3'} />
+         </span>
+      );
+   }
+   return (
+      <Avatar className={box}>
+         <AvatarImage src={user.avatarUrl} alt={user.name} />
+         <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+      </Avatar>
+   );
 }
 
 export function ProjectLeadSelector({ lead, onChange }: ProjectLeadSelectorProps) {
    const id = useId();
    const [open, setOpen] = useState(false);
-   const [value, setValue] = useState(lead.id);
    const members = useMembersStore((state) => state.members);
 
-   const candidates = useMemo(() => {
-      if (members.some((user) => user.id === lead.id)) {
-         return members;
-      }
-      return [lead, ...members];
-   }, [lead, members]);
-
-   useEffect(() => {
-      setValue(lead.id);
-   }, [lead.id]);
-
-   const selected = candidates.find((user) => user.id === value);
+   // Berry first: it is the choice that changes what creating the project
+   // does, so it should not be buried under a list of names.
+   const candidates = useMemo(() => [AI_WORKFLOW_LEAD, ...members], [members]);
 
    const handleChange = (userId: string) => {
-      setValue(userId);
       setOpen(false);
       const next = candidates.find((user) => user.id === userId);
-      if (next) {
-         onChange(next);
-      }
+      if (next) onChange(next);
    };
 
    return (
@@ -59,16 +68,16 @@ export function ProjectLeadSelector({ lead, onChange }: ProjectLeadSelectorProps
                role="combobox"
                aria-expanded={open}
             >
-               {selected ? (
+               {lead ? (
                   <>
-                     <Avatar className="size-4">
-                        <AvatarImage src={selected.avatarUrl} alt={selected.name} />
-                        <AvatarFallback>{selected.name.charAt(0)}</AvatarFallback>
-                     </Avatar>
-                     <span>{selected.name}</span>
+                     <LeadMark user={lead} size={4} />
+                     <span>{lead.name}</span>
                   </>
                ) : (
-                  <span>Lead</span>
+                  <>
+                     <UserIcon className="size-3.5" />
+                     <span>Project lead</span>
+                  </>
                )}
             </Button>
          </PopoverTrigger>
@@ -88,13 +97,13 @@ export function ProjectLeadSelector({ lead, onChange }: ProjectLeadSelectorProps
                            className="flex items-center justify-between"
                         >
                            <div className="flex items-center gap-2">
-                              <Avatar className="size-5">
-                                 <AvatarImage src={user.avatarUrl} alt={user.name} />
-                                 <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
-                              </Avatar>
+                              <LeadMark user={user} size={5} />
                               <span>{user.name}</span>
+                              {isAiWorkflow(user) && (
+                                 <span className="text-muted-foreground">Berry plans it</span>
+                              )}
                            </div>
-                           {value === user.id && <CheckIcon size={16} className="ml-auto" />}
+                           {lead?.id === user.id && <CheckIcon size={16} className="ml-auto" />}
                         </CommandItem>
                      ))}
                   </CommandGroup>

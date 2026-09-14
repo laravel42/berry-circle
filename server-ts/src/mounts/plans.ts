@@ -13,6 +13,16 @@ import type { Sql } from '../db/pool.ts';
 import type { Logger } from '../observability/log.ts';
 import { PlannerUnavailable, type PlanGenerator } from '../plans/generator.ts';
 import {
+   resolveAnswers,
+   unansweredBlockers,
+   UnansweredQuestion,
+   UnknownQuestion,
+   type PlanAnswerRepository,
+   type SubmittedAnswer,
+} from '../plans/answers.ts';
+import { TriageUnavailable, type PlanTriage } from '../plans/triage.ts';
+import type { RunRepository } from '../runs/repository.ts';
+import {
    OpenPlanExists,
    PlanBusy,
    PlanInvalid,
@@ -37,11 +47,18 @@ import { pathId } from './shared.ts';
 
 const MAX_PROMPT = 20_000;
 const MAX_NOTE = 2_000;
+const MAX_ANSWERS = 20;
 
 export interface PlanOptions {
    sessions: SessionService;
    plans: PlanRepository;
    generator: PlanGenerator | null;
+   /** Absent without a model credential: nothing routes, and tasks stay unowned. */
+   triage: PlanTriage | null;
+   /** How a routed task becomes a run. Absent means assign but never start. */
+   runs: RunRepository | null;
+   /** What a person answered when the planner asked. */
+   answers: PlanAnswerRepository;
    boards: BoardRepository;
    idempotency: IdempotencyStore;
    sql: Sql;
@@ -93,6 +110,7 @@ export function planMounts(options: PlanOptions): Mount[] {
          projectId?: string;
          boardId?: string;
          hint?: string;
+         autoGate?: boolean;
       }>(context, {
          workspaceId: 'string',
          prompt: 'string',
@@ -100,6 +118,9 @@ export function planMounts(options: PlanOptions): Mount[] {
          projectId: 'string',
          boardId: 'string',
          hint: 'string',
+         // Sent by the create-project dialog. Refusing it as an unknown field
+         // was how "create a project" failed at the planning step.
+         autoGate: 'boolean',
       });
 
       const problems = [];
@@ -141,6 +162,7 @@ export function planMounts(options: PlanOptions): Mount[] {
             boardId,
             prompt,
             createdBy: context.get('user').id,
+            ...(body.autoGate === undefined ? {} : { autoGate: body.autoGate }),
          });
       } catch (error) {
          if (error instanceof OpenPlanExists) {
@@ -211,15 +233,19 @@ export function planMounts(options: PlanOptions): Mount[] {
          }
 
          try {
-            return json(
-               serializePlan(
-                  await plans.compile({
-                     planId: record.id,
-                     userId: context.get('user').id,
-                     note: note || null,
-                  })
-               )
-            );
+            const compiled = await plans.compile({
+               planId: record.id,
+               userId: context.get('user').id,
+               note: note || null,
+            });
+
+            // Deliberately not awaited, for the reason generation is not: this
+            // is a model call, and holding the request open for it would lose
+            // the routing the moment the connection dropped. The tasks are
+            // already durable; what follows only decides who holds them.
+            void routeCompiled(options, compiled, context.get('user').id);
+
+            return json(serializePlan(compiled));
          } catch (error) {
             if (error instanceof PlanInvalid) {
                throw new ApiError(409, 'PLAN_INVALID', 'This plan cannot be started as it stands.', {
@@ -244,6 +270,111 @@ export function planMounts(options: PlanOptions): Mount[] {
          }
       });
    }
+
+   /**
+    * Answers the questions a blocked plan is waiting on, and plans again.
+    *
+    * The plan regenerates in place: same row, same id, same URL, with the
+    * previous version kept in `plan_versions`. A blocking question could have
+    * changed the shape of the whole plan, so the answers go back to the
+    * planner rather than to the repair role, which would only fill in the
+    * blanks it was already given.
+    *
+    * 202, for the reason `/generate` is: what follows is a model call, and a
+    * request held open for it would lose the work when the connection dropped.
+    */
+   route.post('/:planId/answers', idempotent(options.idempotency), async (context) => {
+      const record = await load(context.req.param('planId'));
+      await authorizeWorkspace(context, options, record.workspaceId, 'product.write');
+
+      const { value } = await decodeBody<{ answers?: unknown }>(context, { answers: 'raw' });
+      // `raw` and then checked here: the shape is a list of records, which the
+      // body decoder's vocabulary does not describe, and `resolveAnswers`
+      // has to check the contents against the plan regardless.
+      const submitted: SubmittedAnswer[] = Array.isArray(value.answers)
+         ? value.answers.flatMap((entry) =>
+              entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+                 ? [entry as SubmittedAnswer]
+                 : []
+           )
+         : [];
+      if (Array.isArray(value.answers) && value.answers.length !== submitted.length) {
+         assertValid([fieldError('/answers', 'invalid_type', 'Each answer is an object.')]);
+      }
+      if (submitted.length === 0) {
+         assertValid([fieldError('/answers', 'required', 'answers is required.')]);
+      }
+      if (submitted.length > MAX_ANSWERS) {
+         assertValid([
+            fieldError('/answers', 'too_many', `answers holds at most ${MAX_ANSWERS} entries.`),
+         ]);
+      }
+
+      if (!options.generator) {
+         throw new ApiError(
+            412,
+            'PLANNER_UNAVAILABLE',
+            'This deployment has no model credential, so it cannot plan.'
+         );
+      }
+      // Answering a plan that has already started would regenerate underneath
+      // tasks that exist and agents that are working on them.
+      if (record.compile?.status === 'succeeded') {
+         throw new ApiError(409, 'PLAN_NOT_OPEN', 'This plan has already started.');
+      }
+      if (!record.plan) {
+         throw new ApiError(409, 'PLAN_BUSY', 'This plan has no questions to answer yet.');
+      }
+
+      let resolved;
+      try {
+         resolved = resolveAnswers(record.plan, submitted);
+      } catch (error) {
+         if (error instanceof UnknownQuestion) {
+            assertValid([
+               fieldError('/answers', 'unknown_reference', `This plan is not asking "${error.assumptionId}".`),
+            ]);
+         }
+         if (error instanceof UnansweredQuestion) {
+            assertValid([
+               fieldError('/answers', 'required', `"${error.assumptionId}" needs an answer.`),
+            ]);
+         }
+         throw error;
+      }
+
+      // A blocking question left unanswered would regenerate into the same
+      // blocked plan, which reads as the wizard having done nothing.
+      const answered = new Set(resolved!.map((entry) => entry.assumption.id));
+      const missing = unansweredBlockers(record.plan, answered);
+      if (missing.length > 0) {
+         assertValid(
+            missing.map((assumption) =>
+               fieldError('/answers', 'required', `"${assumption.description || assumption.id}" needs an answer.`)
+            )
+         );
+      }
+
+      await options.answers.record({
+         workspaceId: record.workspaceId,
+         planId: record.id,
+         forVersion: record.version,
+         answeredBy: context.get('user').id,
+         answers: resolved!,
+      });
+
+      // Claimed before the answers are acted on: two wizards submitted at once
+      // must produce one regeneration, not two racing to write a version.
+      if (!(await plans.reopenForGeneration(record.id))) {
+         throw new ApiError(409, 'PLAN_BUSY', 'This plan is already being planned again.');
+      }
+
+      void regenerate(options, record, context.get('user').id);
+
+      const response = json(serializePlan(await plans.get(record.id)), 202);
+      response.headers.set('Location', `/api/v1/plans/${record.id}`);
+      return response;
+   });
 
    route.post('/:planId/reject', async (context) => {
       const record = await load(context.req.param('planId'));
@@ -279,6 +410,7 @@ async function generate(
    const started = Date.now();
    try {
       const generated = await options.generator!.generate({
+         workspaceId: record.workspaceId,
          prompt,
          // Written as each stage begins, so a person watching sees where the
          // plan is rather than a spinner. Failing to write it must not fail
@@ -329,6 +461,95 @@ async function generate(
    }
 }
 
+/**
+ * Plans again with the answers, then carries on into the work.
+ *
+ * The continuation runs here rather than in the browser deliberately. Auto-start
+ * has until now lived in a React effect, so closing the tab after asking for a
+ * plan silently cancelled it — no error, because nothing failed. Answering a
+ * question is a commitment, and a commitment that a closed laptop revokes is
+ * not one. Once the answers are in, this sees it through.
+ *
+ * Nothing is awaited by a caller, so every failure lands on the plan or in the
+ * log rather than becoming an unhandled rejection.
+ */
+async function regenerate(options: PlanOptions, record: PlanRecord, userId: string): Promise<void> {
+   const started = Date.now();
+   let compiled: PlanRecord;
+   try {
+      const answers = await options.answers.forPrompt(record.id);
+      const generated = await options.generator!.generate({
+         workspaceId: record.workspaceId,
+         prompt: record.sourcePrompt ?? '',
+         answers,
+         onStage: (stage) => {
+            void options.plans.markStage(record.id, stage).catch(() => undefined);
+         },
+      });
+      await options.plans.recordGeneration({
+         planId: record.id,
+         workspaceId: record.workspaceId,
+         plan: generated.plan,
+         validation: generated.validation,
+         critique: generated.critique,
+         stages: generated.stages,
+         usage: generated.usage,
+         model: generated.model,
+         provider: generated.provider,
+         exhausted: generated.exhausted,
+         durationMs: Date.now() - started,
+         createdBy: userId,
+      });
+      options.logger.info('plan regenerated from answers', {
+         planId: record.id,
+         answers: answers.length,
+         issues: generated.plan.issues.length,
+         validation: generated.validation.status,
+      });
+
+      // Still blocked means the planner asked something new rather than
+      // re-asking what was answered. That is a legitimate outcome and the
+      // wizard opens again; it is not a failure to record.
+      if (generated.validation.status !== 'valid') return;
+   } catch (error) {
+      const message =
+         error instanceof PlannerUnavailable
+            ? `${error.message} at ${error.stage}`
+            : error instanceof Error
+              ? error.message
+              : String(error);
+      await options.plans
+         .recordGenerationFailure({
+            planId: record.id,
+            workspaceId: record.workspaceId,
+            message,
+            durationMs: Date.now() - started,
+         })
+         .catch(() => undefined);
+      options.logger.error('plan regeneration failed', { planId: record.id, error: message });
+      return;
+   }
+
+   // Compiling is what the answers were for. It is outside the try above so a
+   // compile failure is recorded as a compile failure: a plan that generated
+   // fine and failed to start is a different thing to fix than one that never
+   // planned, and reporting the first as the second sends someone to the
+   // wrong place.
+   try {
+      compiled = await options.plans.compile({ planId: record.id, userId, note: null });
+   } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await options.plans.recordCompileFailure(record.id, message).catch(() => undefined);
+      options.logger.error('plan compile after answers failed', {
+         planId: record.id,
+         error: message,
+      });
+      return;
+   }
+
+   await routeCompiled(options, compiled, userId);
+}
+
 export function serializePlan(record: PlanRecord): Record<string, unknown> {
    return {
       id: record.id,
@@ -375,4 +596,51 @@ async function authorizeWorkspace(
          }
          throw error;
       });
+}
+
+/**
+ * Route and start what a compile just created.
+ *
+ * Failing here leaves tasks that exist and are owned by nobody, which is
+ * recoverable by hand — so it is logged and swallowed rather than allowed to
+ * reject into a background promise nobody is holding.
+ */
+async function routeCompiled(
+   options: PlanOptions,
+   plan: { id: string; workspaceId: string; boardId: string | null },
+   userId: string
+): Promise<void> {
+   // A plan with no board has nowhere to put a run, and compile would not have
+   // produced tasks without one — but the column is nullable, so this is a
+   // narrowing rather than a claim about what can happen.
+   if (!options.triage || !options.runs || !plan.boardId) return;
+   const runs = options.runs;
+   const boardId = plan.boardId;
+   try {
+      const result = await options.triage.triage({
+         planId: plan.id,
+         workspaceId: plan.workspaceId,
+         admit: async (task) => {
+            await runs.admit({
+               issueId: task.issueId,
+               boardId,
+               workspaceId: plan.workspaceId,
+               agentId: task.agentId,
+               instructions: task.instructions,
+               requestedBy: userId,
+            });
+         },
+      });
+      options.logger.info('plan routed', {
+         planId: plan.id,
+         assigned: result.assigned,
+         started: result.started,
+         unassigned: result.unassigned.length,
+      });
+   } catch (error) {
+      options.logger.error('plan routing failed', {
+         planId: plan.id,
+         error: error instanceof TriageUnavailable ? error.message : String(error),
+      });
+   }
 }

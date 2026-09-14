@@ -14,7 +14,6 @@ Guidance for AI agents working in this repository.
 | Touching the public HTTP/SSE contract | [`docs/api/gateway-v1.md`](docs/api/gateway-v1.md) |
 | Working on the server at all | [`server-ts/SCOPE.md`](server-ts/SCOPE.md), [`server-ts/ROUTING.md`](server-ts/ROUTING.md) |
 | Changing the stack or the schema | [`docs/adr/`](docs/adr/) |
-| Adapting Multica material | [`docs/provenance/multica-server-reuse.md`](docs/provenance/multica-server-reuse.md), [`docs/parity/multica-web.md`](docs/parity/multica-web.md) |
 | Changing UI tokens or visual language | [`docs/design-system.md`](docs/design-system.md) |
 | Shipping a notable change | [`docs/changelog-process.md`](docs/changelog-process.md) |
 
@@ -22,9 +21,12 @@ Guidance for AI agents working in this repository.
 
 Berry is a self-hosted, multi-workspace web product where humans and AI coding
 agents plan, execute, and review work together. Berry owns the product, its
-durable state, and agent execution: agents run in-process on the Google Agent
-Development Kit ([ADR-0008](docs/adr/0008-adk-agent-runtime.md)), not on a
-separate substrate.
+durable state, and the dispatch of agent work: agents run in an AgentCore
+Runtime container on the Strands Agents SDK; Berry is the control plane
+([ADR-0014](docs/adr/0014-agentcore-runtime-control-plane.md), which
+supersedes the in-process runtime of
+[ADR-0013](docs/adr/0013-strands-native-agent-runtime.md)). The server process
+imports no model SDK; `scripts/check-no-model-in-server.py` enforces it.
 
 Core loop: issue → assign to a human or agent → work on the issue → human
 review gate → done. The approved direction is phased full web parity; desktop
@@ -43,10 +45,10 @@ write code. Never run one workspace's tools over another.
 | Paths | relative, `.ts` extensions kept | `@/*` → frontend root |
 | Format + lint | none configured; match surrounding style | Prettier **3-space**, single quotes + ESLint |
 | Tests | `node --test` | none yet — lint + `next build` |
-| Validation | Zod v4 | Zod v4 |
+| Validation | Zod v4 | Zod v3 (`package.json` pins `^3.24.2`) |
 
 Also in the repo: `docs/`, `docker-compose.yml` (server + Postgres + MinIO),
-`deploy/multica.pin.json`, and `scripts/` (Python repository checks).
+and `scripts/` (Python repository checks).
 
 The server runs its `.ts` sources directly under `--experimental-strip-types`.
 There is no build step, so nothing that emits code — enums, namespaces,
@@ -58,6 +60,12 @@ parameter properties — is allowed; `erasableSyntaxOnly` enforces it.
   log it, persist it in product rows, or call a model provider from the
   frontend. `NEXT_PUBLIC_*` is the browser bundle: nothing secret may use that
   prefix.
+- **Provider secrets are sealed, in one place.** Connection tokens and the
+  GitHub App's private key are encrypted with `INTEGRATION_ENCRYPTION_KEY` and
+  opened only in `src/integrations/`. That key is the one credential that must
+  stay in the environment — it is what everything else is encrypted with, so
+  it cannot live in the database it protects. A deployment without it holds no
+  provider credential at all rather than holding one in the clear.
 - **Berry owns product state.** Postgres is authoritative for users, sessions,
   boards, issues, assignments, comments, review decisions, and the run ledger.
   Valkey (ADR-0002) is cache and ephemeral coordination only, and the current
@@ -69,16 +77,16 @@ parameter properties — is allowed; `erasableSyntaxOnly` enforces it.
   SHA-256 per file. Never edit an applied migration; add a new one. The runner
   exits non-zero on checksum or name drift rather than migrating over it.
 - **The wire shape is a contract.** `/api/v1`, the error envelope, cursor
-  pagination, `Idempotency-Key`, opaque session tokens and `berry_pat_` tokens
-  keep their exact shapes. Cursors and idempotency fingerprints already issued
+  pagination, `Idempotency-Key` and `berry_pat_` tokens keep their exact shapes;
+  browser sessions are Better Auth cookies (GitHub is the only sign-in method,
+  workstream J). Cursors and idempotency fingerprints already issued
   must keep decoding, so the canonical JSON form and the cursor envelope are
   not free to change.
 - **Licenses.** Shipped dependencies must be MIT / Apache-2.0 (or equivalently
   permissive). Retain Circle MIT notices. Do not copy another product's schema,
   brand, or marks. Do not use "Linear" as Berry product branding or in new code
   identifiers. Existing Circle comments that say "Linear-style" are legacy — do
-  not spread that into new APIs. Multica-derived work additionally follows
-  [`docs/provenance/multica-server-reuse.md`](docs/provenance/multica-server-reuse.md).
+  not spread that into new APIs.
 - **TypeScript `strict` stays on. No `any`.** Narrow instead of `!`. The only
   `any` exemption is vendored `frontend/components/data-table-filter/**`.
 
@@ -91,10 +99,23 @@ attachments-by-id, agents and the realtime streams. It does **not** serve
 [`server-ts/SCOPE.md`](server-ts/SCOPE.md) before assuming a prefix is missing
 by accident.
 
-**Runs are dispatched in process.** `POST /api/v1/issues/{ref}/runs` writes a
-queued run; `runs/dispatcher.ts` claims it with `SKIP LOCKED`, holds a lease it
-renews, executes it, and sweeps runs whose lease expired. There is no external
-worker and no `/internal/` surface.
+**Runs are tasks the server hands to a runtime.** `POST /api/v1/issues/{ref}/runs`
+(or any other trigger) queues a task; `runs/dispatcher.ts` claims it with
+`SKIP LOCKED`, holds a lease it renews, and sweeps runs whose lease expired.
+The claimed task is built into a task envelope and sent to the runtime with
+`InvokeAgentRuntime` (or, locally, to the `agent-runtime` Compose service over
+HTTP). The runtime's lifecycle stream is written to the run ledger. The
+runtime calls Berry's tools back at `/api/v1/agent-tools` with a task-scoped
+token. There is no other external worker and no `/internal/` surface.
+
+**GitHub is an App Berry creates, not a credential it is given.** The manifest
+flow posts what the App may do, and the conversion returns the id, both halves
+of the OAuth credential, the private key and the webhook secret at once — which
+is also what registers the callback URLs, so a `redirect_uri` mismatch is not a
+failure mode. Repository work runs on installation tokens minted per run
+(`src/integrations/github-app.ts`); the older user-token connection remains only
+as a fallback for a deployment with no App, and is never preferred when one
+exists.
 
 **`GET /api/v1/config` is how the browser learns what works.** It reports only
 capabilities this process actually has. A capability reported true that the
@@ -123,9 +144,8 @@ Schema notes that can bite you:
 - Same-issue comment threading is not DB-enforced; validate on the write path.
 - Storage names are not API field names (`camelCase` over the wire).
 
-The expanded target and every source feature classification live in
-[`docs/parity/multica-web.md`](docs/parity/multica-web.md). Do not port a
-legacy feature that is classified as replaced or excluded.
+Do not port a legacy feature that Berry has replaced or excluded; the product
+brief records the approved web direction.
 
 ## Commands
 
@@ -134,8 +154,9 @@ legacy feature that is classified as replaced or excluded.
 cp .env.example .env && docker compose up -d --build
 
 # Repository checks
-python3 scripts/check-deploy-pins.py
 python3 scripts/check-compose-config.py
+python3 scripts/check-no-model-in-server.py
+python3 scripts/check-locale-catalogues.py
 
 # Server
 pnpm typecheck:server
@@ -175,7 +196,8 @@ manual check of the changed view. No secrets or `.env` files.
 
 - Assignees are polymorphic: `user | agent`.
 - Issue statuses: `backlog → todo → in_progress → in_review → done`
-  (`cancelled` exists). The release gate is always human.
+  (`blocked` and `cancelled` also exist; `blocked` was added in migration 008).
+  The release gate is always human.
 - Public API: `/api/v1`, cursor pagination, `Idempotency-Key` on creating
   POSTs, stable `SCREAMING_SNAKE_CASE` error codes.
 - Env booleans: do not use `z.coerce.boolean()` (`"false"` becomes `true`).

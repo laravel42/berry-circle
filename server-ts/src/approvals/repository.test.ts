@@ -11,6 +11,7 @@ import {
    toColumnKind,
    toWireKind,
 } from './repository.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * The gate.
@@ -411,12 +412,7 @@ async function cleanup(sql: Sql, fixture: Record<string, string>): Promise<void>
    await sql`DELETE FROM approvals WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM issues WHERE board_id = ${fixture.boardId!}`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;

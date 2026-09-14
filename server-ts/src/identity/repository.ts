@@ -13,6 +13,8 @@ export type UserSettings = {
    theme: string;
    timezone: string;
    reducedMotion: boolean;
+   /** Interface language; one of `LOCALES` in http/validation.ts. */
+   locale: string;
 }
 
 export type OnboardingState = {
@@ -28,6 +30,8 @@ export interface Profile {
    email: string;
    name: string;
    avatarUrl: string | null;
+   /** "About you": free text the person writes, given to agents as context. */
+   description: string | null;
    settings: UserSettings;
    onboarding: OnboardingState;
    onboardedAt: string | null;
@@ -58,6 +62,10 @@ export interface Workspace {
    role: string;
    createdAt: string;
    updatedAt: string;
+   /** An image address for the workspace mark; Berry hosts no uploads. */
+   logoUrl: string | null;
+   /** Workspace-wide context every agent working here is given. */
+   agentContext: string | null;
 }
 
 export interface Bootstrap {
@@ -86,6 +94,9 @@ function toSettings(value: unknown): UserSettings {
       theme: raw.theme ?? 'system',
       timezone: raw.timezone ?? 'UTC',
       reducedMotion: raw.reducedMotion ?? false,
+      // Rows written before the preference existed have no key; they read as
+      // the default rather than as a partial object.
+      locale: typeof raw.locale === 'string' ? raw.locale : 'en',
    };
 }
 
@@ -115,6 +126,7 @@ function toProfile(row: Record<string, unknown>): Profile {
       email: row.email as string,
       name: row.name as string,
       avatarUrl: (row.avatar_url as string | null) ?? null,
+      description: (row.description as string | null) ?? null,
       settings: toSettings(row.settings),
       onboarding: toOnboarding(row.onboarding_state),
       onboardedAt: row.onboarding_completed_at
@@ -125,11 +137,13 @@ function toProfile(row: Record<string, unknown>): Profile {
    };
 }
 
-/** A sparse patch: `avatarUrlSet` distinguishes "clear it" from "leave it". */
+/** A sparse patch: the `…Set` flags distinguish "clear it" from "leave it". */
 export interface ProfilePatch {
    name: string | undefined;
    avatarUrlSet: boolean;
    avatarUrl?: string | null;
+   descriptionSet: boolean;
+   description?: string | null;
 }
 
 export class IdentityRepository {
@@ -160,7 +174,7 @@ export class IdentityRepository {
 
    async getProfile(userId: string): Promise<{ profile: Profile; currentWorkspaceId: string | null }> {
       const [row] = await this.sql`
-         SELECT id, email, name, avatar_url, settings, onboarding_state,
+         SELECT id, email, name, avatar_url, description, settings, onboarding_state,
                 onboarding_completed_at, last_workspace_id, created_at, updated_at
            FROM users
           WHERE id = ${userId}`;
@@ -175,7 +189,8 @@ export class IdentityRepository {
    async listWorkspaces(userId: string, limit = 100): Promise<Workspace[]> {
       const rows = await this.sql`
          SELECT w.id, w.name, w.slug, w.description, w.settings,
-                m.role::text AS role, w.created_at, w.updated_at
+                m.role::text AS role, w.created_at, w.updated_at,
+                w.logo_url, w.agent_context
            FROM workspace_memberships AS m
            JOIN workspaces AS w ON w.id = m.workspace_id
           WHERE m.user_id = ${userId}
@@ -191,6 +206,8 @@ export class IdentityRepository {
          role: row.role as string,
          createdAt: toRFC3339(row.created_at as string) ?? '',
          updatedAt: toRFC3339(row.updated_at as string) ?? '',
+         logoUrl: (row.logo_url as string | null) ?? null,
+         agentContext: (row.agent_context as string | null) ?? null,
       }));
    }
 
@@ -224,9 +241,10 @@ export class IdentityRepository {
          UPDATE users
             SET name = CASE WHEN ${patch.name !== undefined} THEN ${patch.name ?? null}::text ELSE name END,
                 avatar_url = CASE WHEN ${patch.avatarUrlSet} THEN ${patch.avatarUrl ?? null}::text ELSE avatar_url END,
+                description = CASE WHEN ${patch.descriptionSet} THEN ${patch.description ?? null}::text ELSE description END,
                 updated_at = ${this.now()}
           WHERE id = ${userId}
-          RETURNING id, email, name, avatar_url, settings, onboarding_state,
+          RETURNING id, email, name, avatar_url, description, settings, onboarding_state,
                     onboarding_completed_at, last_workspace_id, created_at, updated_at`;
       if (!row) throw new NotFound();
       return toProfile(row);

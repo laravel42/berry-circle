@@ -1,14 +1,46 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type {
-   ArtifactVersion,
-   BaseArtifactService,
-   DeleteArtifactRequest,
-   ListArtifactKeysRequest,
-   LoadArtifactRequest,
-   ListVersionsRequest,
-   SaveArtifactRequest,
-} from '@google/adk';
-import type { Part } from '@google/genai';
+
+/**
+ * The artifact vocabulary, Berry's own.
+ *
+ * These mirrored an agent framework's interface while ADK ran the agents, and
+ * were the last thing in the server that made Berry's storage answerable to
+ * someone else's type names. Strands has no artifact service, so the shapes
+ * are declared here — where the store they describe actually lives.
+ */
+
+/** A file's payload: bytes with a type, or text. */
+export interface Part {
+   inlineData?: { data: string; mimeType?: string | undefined } | undefined;
+   text?: string | undefined;
+}
+
+export interface ArtifactVersion {
+   version: number;
+   mimeType?: string | undefined;
+   /**
+    * Berry's own address for the object, not a signed URL: this is metadata an
+    * agent reads, and a URL that expires would be worse than no URL.
+    */
+   canonicalUri?: string | undefined;
+   customMetadata?: Record<string, unknown> | undefined;
+}
+
+export interface SaveArtifactRequest {
+   filename: string;
+   artifact: Part;
+}
+export interface LoadArtifactRequest {
+   filename: string;
+   version?: number | undefined;
+}
+export interface DeleteArtifactRequest {
+   filename: string;
+}
+export interface ListVersionsRequest {
+   filename: string;
+   version?: number | undefined;
+}
 import type { Sql } from '../db/pool.ts';
 import { ObjectNotFound, sniffContentType, type Storage } from '../storage/storage.ts';
 
@@ -41,7 +73,7 @@ export interface BerryArtifactOptions {
    newId?: () => string;
 }
 
-export class BerryArtifactService implements BaseArtifactService {
+export class BerryArtifactService {
    private readonly sql: Sql;
    private readonly storage: Storage;
    private readonly workspaceId: string;
@@ -151,16 +183,21 @@ export class BerryArtifactService implements BaseArtifactService {
    }
 
    /**
-    * Every filename in this run, once each.
+    * Every filename saved on this task, once each.
+    *
+    * The task, not the run: a run sent back and worked again is a new run on
+    * the same task, and the prompt promises it that what the earlier attempt
+    * saved is still there. Scoped to the run, a rerun asked to add narration
+    * to a clip listed nothing and reported the clip missing.
     *
     * A path with three versions is one artifact, so it is listed once — an
     * agent choosing what to read should see the files, not the history.
     */
-   async listArtifactKeys(_request: ListArtifactKeysRequest): Promise<string[]> {
+   async listArtifactKeys(): Promise<string[]> {
       const rows = await this.sql`
          SELECT DISTINCT path
            FROM run_artifacts
-          WHERE run_id = ${this.runId} AND state = 'ready'
+          WHERE issue_id = ${this.issueId} AND state = 'ready'
           ORDER BY path ASC`;
       return rows.map((row) => row.path as string);
    }
@@ -208,18 +245,35 @@ export class BerryArtifactService implements BaseArtifactService {
       return row ? toArtifactVersion(row) : undefined;
    }
 
+   /**
+    * The newest file at a path on this task, or one version of this run's.
+    *
+    * Version numbers count within a run — every run's first save of a path
+    * is version 0 — so a number only means something against the run that
+    * allocated it, and a numbered read stays there. An unnumbered read is
+    * "the current file", which is whichever run wrote it last: an earlier
+    * attempt's clip when this run has not replaced it, this run's when it
+    * has.
+    */
    private async findVersion(
       filename: string,
       version: number | undefined
    ): Promise<Record<string, unknown> | undefined> {
       const path = artifactPath(filename);
-      const [row] = await this.sql`
-         SELECT version, content_type, size_bytes, storage_key, created_at
-           FROM run_artifacts
-          WHERE run_id = ${this.runId} AND path = ${path} AND state = 'ready'
-            AND (${version ?? null}::integer IS NULL OR version = ${version ?? null})
-          ORDER BY version DESC
-          LIMIT 1`;
+      const [row] =
+         version === undefined
+            ? await this.sql`
+                 SELECT version, content_type, size_bytes, storage_key, created_at
+                   FROM run_artifacts
+                  WHERE issue_id = ${this.issueId} AND path = ${path} AND state = 'ready'
+                  ORDER BY created_at DESC
+                  LIMIT 1`
+            : await this.sql`
+                 SELECT version, content_type, size_bytes, storage_key, created_at
+                   FROM run_artifacts
+                  WHERE run_id = ${this.runId} AND path = ${path} AND state = 'ready'
+                    AND version = ${version}
+                  LIMIT 1`;
       return row;
    }
 }

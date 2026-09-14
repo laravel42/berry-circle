@@ -1,4 +1,10 @@
+import type { AgentAccess } from '../agents/access.ts';
+import type { ScmSync } from '../scm/sync.ts';
 import { Hono } from 'hono';
+import { autoDispatch } from '../runs/auto-dispatch.ts';
+import type { RunRepository } from '../runs/repository.ts';
+import type { StageGate } from '../runs/auto-dispatch.ts';
+import type { WorkTrackingHooks } from '../work/hooks.ts';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
 import { json } from '../http/app.ts';
@@ -14,6 +20,7 @@ import { idempotent } from '../http/idempotent.ts';
 import type { IdempotencyStore } from '../http/idempotency.ts';
 import type { Broadcaster } from '../realtime/hub.ts';
 import type { BoardRepository } from '../core/boards.ts';
+import type { GoalLinker } from '../core/goal-linker.ts';
 import {
    ApprovalRequired,
    InvalidTransition,
@@ -62,24 +69,17 @@ const PAGE_PARAMS = new Set([
    'query',
 ]);
 
-export interface GoalLinker {
-   clearIssueGoal(issueId: string): Promise<void>;
-   /** False when the goal is not in this workspace. */
-   linkIssue(
-      workspaceId: string,
-      goalId: string,
-      issueId: string,
-      actorId: string
-   ): Promise<boolean>;
-}
-
 export interface IssueOptions {
    sessions: SessionService;
    issues: IssueRepository;
    boards: BoardRepository;
    idempotency: IdempotencyStore;
+   /** Mirrors a task as an issue on the git host. Absent when none is configured. */
+   scm?: ScmSync | null;
    /** Absent in a deployment with no relay; mutations then reach only this node. */
    broadcaster?: Broadcaster | undefined;
+   /** Who may assign work to which agent. Absent: every member may. */
+   agentAccess?: AgentAccess | undefined;
    /** Sub-routes owned by other domains, such as comments. */
    nested?: Hono<{ Variables: AuthVariables }> | undefined;
    /** An issue's dependencies and its AutoGate verdicts. */
@@ -88,7 +88,21 @@ export interface IssueOptions {
    runs?: Hono<{ Variables: AuthVariables }> | undefined;
    /** An issue's files: the listing, and the multipart upload. */
    attachments?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** What the agents on an issue produced: the listing. */
+   artifacts?: Hono<{ Variables: AuthVariables }> | undefined;
    goals?: GoalLinker | undefined;
+   /**
+    * Where a task assigned to an agent gets its run. Omitted means a task
+    * handed to an agent waits for someone to press Run — the behaviour of a
+    * deployment with no execution at all.
+    */
+   dispatch?: RunRepository | undefined;
+   /** Work-tracking sub-routes (properties, reactions, children, batch...). */
+   tracking?: Hono<{ Variables: AuthVariables }> | undefined;
+   /** Holds a staged sub-issue until its earlier stages finish. */
+   stages?: StageGate | undefined;
+   /** Subscriptions, inbox rows and stage release after a write. */
+   hooks?: WorkTrackingHooks | undefined;
 }
 
 export function issueMounts(options: IssueOptions): Mount[] {
@@ -99,10 +113,14 @@ export function issueMounts(options: IssueOptions): Mount[] {
    // here rather than registered on their own prefix, because the registry
    // refuses two mounts on `/api/v1/issues` — which is the ambiguity it exists
    // to refuse.
+   // First, so its collection routes (`/assignee-frequency`, `/batch`) are
+   // matched before `/:issueRef` reads them as an issue reference.
+   if (options.tracking) route.route('/', options.tracking);
    if (options.nested) route.route('/', options.nested);
    if (options.relations) route.route('/', options.relations);
    if (options.runs) route.route('/', options.runs);
    if (options.attachments) route.route('/', options.attachments);
+   if (options.artifacts) route.route('/', options.artifacts);
 
    const { issues, boards } = options;
 
@@ -167,6 +185,13 @@ export function issueMounts(options: IssueOptions): Mount[] {
          .authorize(user.id, input.boardId, 'product.write')
          .catch(rethrow(true));
       if (input.assignee) await assertAssignee(issues, scope.workspaceId, input.assignee);
+      if (options.agentAccess && input.assignee?.type === 'agent') {
+         await options.agentAccess.assertCanAssign({
+            workspaceId: scope.workspaceId,
+            agentId: input.assignee.id,
+            userId: user.id,
+         });
+      }
 
       const created = await issues
          .create({
@@ -184,12 +209,39 @@ export function issueMounts(options: IssueOptions): Mount[] {
          .catch(rethrowWrite('created'));
 
       await publish(options, created.events);
+      await options.hooks
+         ?.afterIssueWrite({
+            kind: 'created',
+            issue: created.issue,
+            previousStatus: null,
+            previousAssigneeId: null,
+            actorId: user.id,
+            workspaceId: scope.workspaceId,
+            eventIds: created.events.map((event) => event.id),
+         })
+         .catch(() => undefined);
       if (input.goalSet) {
          await applyGoal(options, scope.workspaceId, created.issue.id, input.goal, user.id);
       }
+      // A task made for an agent starts. Re-read afterwards so the response
+      // carries the run the task now has.
+      let issueToServe = created.issue;
+      if (options.dispatch) {
+         const run = await autoDispatch(
+            options.dispatch,
+            created.issue,
+            { workspaceId: scope.workspaceId, requestedBy: user.id },
+            options.stages
+         );
+         if (run) issueToServe = await issues.get(created.issue.id);
+      }
+
+      // After the goal is applied, not before: the issue on the host is filed
+      // under the goal's milestone, and that link has to exist to be read.
+      options.scm?.guard('issue.created', options.scm.issueCreated(created.issue.id));
 
       const relations = await issues.loadRelations([created.issue.id]);
-      const response = json(serializeIssue(created.issue, relations.get(created.issue.id)), 201);
+      const response = json(serializeIssue(issueToServe, relations.get(created.issue.id)), 201);
       response.headers.set('Location', `/api/v1/issues/${created.issue.id}`);
       return response;
    });
@@ -202,6 +254,13 @@ export function issueMounts(options: IssueOptions): Mount[] {
       const { patch, goal, goalSet } = parsePatch(await readBody(context.req.raw));
       if (patch.assigneeSet && patch.assignee) {
          await assertAssignee(issues, scope.workspaceId, patch.assignee);
+         if (options.agentAccess && patch.assignee.type === 'agent') {
+            await options.agentAccess.assertCanAssign({
+               workspaceId: scope.workspaceId,
+               agentId: patch.assignee.id,
+               userId: user.id,
+            });
+         }
       }
 
       let updated = found;
@@ -213,8 +272,34 @@ export function issueMounts(options: IssueOptions): Mount[] {
             .catch(rethrowWrite('updated'));
          updated = result.issue;
          await publish(options, result.events);
+         await options.hooks
+            ?.afterIssueWrite({
+               kind: 'updated',
+               issue: result.issue,
+               previousStatus: found.status,
+               previousAssigneeId: found.assignee?.id ?? null,
+               actorId: user.id,
+               workspaceId: scope.workspaceId,
+               eventIds: result.events.map((event) => event.id),
+            })
+            .catch(() => undefined);
+         // Assigned to an agent, or moved to todo while assigned to one: the
+         // same rule as creation, checked on every edit that touches the row.
+         if (options.dispatch) {
+            const run = await autoDispatch(
+               options.dispatch,
+               updated,
+               { workspaceId: scope.workspaceId, requestedBy: user.id },
+               options.stages
+            );
+            if (run) updated = await issues.get(found.id);
+         }
       }
       if (goalSet) await applyGoal(options, scope.workspaceId, found.id, goal, user.id);
+
+      // Title, body, state and milestone are Berry's to own, so an edit here
+      // is pushed outward. The reverse direction arrives by webhook.
+      options.scm?.guard('issue.updated', options.scm.issueUpdated(found.id));
 
       const relations = await issues.loadRelations([found.id]);
       return json(serializeIssue(updated, relations.get(found.id)));
@@ -375,7 +460,7 @@ function rethrow(boardScoped: boolean): (error: unknown) => never {
 }
 
 /** Field order follows Go's struct declaration, which is what goes on the wire. */
-function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Record<string, unknown> {
+export function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Record<string, unknown> {
    return {
       id: issue.id,
       boardId: issue.boardId,
@@ -397,6 +482,10 @@ function serializeIssue(issue: Issue, relations: IssueRelations | undefined): Re
       // Always arrays: the frontend maps over them without a guard.
       dependsOn: relations?.dependsOn ?? [],
       blocks: relations?.blocks ?? [],
+      parentId: issue.parentId,
+      stage: issue.stage,
+      statusId: issue.statusId,
+      childProgress: issue.childProgress,
    };
 }
 

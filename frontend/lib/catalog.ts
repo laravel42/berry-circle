@@ -129,13 +129,12 @@ export interface StatusLook {
    pulse?: boolean;
 }
 
+/** A goal's four states, each read off its tasks rather than set by anyone. */
 export const GOAL_STATUS: Record<string, StatusLook> = {
-   draft: { label: 'Draft', tone: 'neutral', state: 'hollow' },
    planned: { label: 'Planned', tone: 'neutral', state: 'solid' },
-   active: { label: 'Active', tone: 'working', state: 'solid' },
+   active: { label: 'In Progress', tone: 'working', state: 'solid' },
    blocked: { label: 'Blocked', tone: 'attention', state: 'hollow' },
-   completed: { label: 'Completed', tone: 'complete', state: 'solid' },
-   cancelled: { label: 'Cancelled', tone: 'attention', state: 'crossed' },
+   completed: { label: 'Done', tone: 'complete', state: 'solid' },
 };
 
 export const APPROVAL_STATUS: Record<string, StatusLook> = {

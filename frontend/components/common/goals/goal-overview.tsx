@@ -4,18 +4,13 @@ import { BerryMark } from '@/components/brand/berry-mark';
 import { ApprovalCard } from '@/components/common/approvals/approval-card';
 import { IssueLine } from '@/components/common/issues/issue-line';
 import { Pill, SectionHeading } from '@/components/common/plans/plan-sections';
-import { Button } from '@/components/ui/button';
 import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
 import { useGoal } from '@/hooks/use-goal';
-import {
-   APPROVAL_STATUS,
-   GOAL_STATUS,
-   statusLook,
-   uiStatusFromApi,
-} from '@/lib/catalog';
+import { APPROVAL_STATUS, GOAL_STATUS, statusLook, uiStatusFromApi } from '@/lib/catalog';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { subscribeWorkspaceEvents } from '@/lib/events';
 import {
+   describeGoalStatusReason,
    listGoalApprovals,
    listGoalIssues,
    listGoalPlans,
@@ -26,7 +21,6 @@ import {
 } from '@/lib/goals';
 import { cn } from '@/lib/utils';
 import { useApprovalsStore } from '@/store/approvals-store';
-import { useCreatePlanStore } from '@/store/create-plan-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useMembersStore } from '@/store/members-store';
 import { useProjectsStore } from '@/store/projects-store';
@@ -106,7 +100,10 @@ function WorkSection({ refs, orgId }: { refs: GoalIssueRef[]; orgId: string }) {
       <section className="mt-8">
          <SectionHeading title="Work" count={refs.length} />
          {refs.length === 0 ? (
-            <p className="mt-2 text-muted-foreground">No tasks are linked to this goal yet.</p>
+            <p className="mt-2 text-muted-foreground">
+               This goal groups no tasks. A goal is made from the tasks a plan compiled, so this one
+               has outlived them — it can be archived.
+            </p>
          ) : (
             <div className="mt-2 overflow-hidden rounded-md border border-border/60 bg-background">
                {refs.map((ref) => {
@@ -185,24 +182,17 @@ function ApprovalsSection({
    );
 }
 
-function PlansSection({ refs, orgId, goal }: { refs: GoalPlanRef[]; orgId: string; goal: Goal }) {
-   const openCreatePlan = useCreatePlanStore((state) => state.openModal);
+/**
+ * The plan this goal came from. There is no "plan this goal" action: planning
+ * is what makes a goal, so a second plan would make a second goal rather than
+ * change this one.
+ */
+function PlansSection({ refs, orgId }: { refs: GoalPlanRef[]; orgId: string }) {
    return (
       <section className="mt-8">
-         <div className="flex items-center justify-between gap-3">
-            <SectionHeading title="Plans" count={refs.length} />
-            <Button
-               size="xs"
-               variant="secondary"
-               onClick={() =>
-                  openCreatePlan({ goalId: goal.id, projectId: goal.projectId ?? undefined })
-               }
-            >
-               Plan for this goal
-            </Button>
-         </div>
+         <SectionHeading title={refs.length === 1 ? 'Plan' : 'Plans'} count={refs.length} />
          {refs.length === 0 ? (
-            <p className="mt-2 text-muted-foreground">Berry has not planned this goal yet.</p>
+            <p className="mt-2 text-muted-foreground">No plan is recorded for this goal.</p>
          ) : (
             <ul className="mt-2 space-y-1.5">
                {refs.map((ref) => (
@@ -246,9 +236,8 @@ function Properties({ goal }: { goal: Goal }) {
       : '—';
    const rows: { label: string; value: ReactNode }[] = [
       { label: 'Status', value: <GoalStatusBadge status={goal.status} /> },
-      { label: 'Source', value: goal.source === 'ai' ? 'Planned by Berry' : 'Written by hand' },
       { label: 'Project', value: project?.name ?? (goal.projectId ? 'Unknown project' : 'None') },
-      { label: 'Created by', value: creator },
+      { label: 'Planned by', value: creator },
       { label: 'Created', value: whenText(goal.createdAt) },
       { label: 'Started', value: whenText(goal.startedAt) },
       { label: 'Completed', value: whenText(goal.completedAt) },
@@ -311,19 +300,11 @@ export default function GoalOverview({ goalId }: { goalId: string }) {
                         <BerryMark size="sm" tone={look.tone} state={look.state} />
                         {look.label}
                      </span>
-                     {goal.source === 'ai' && <Pill>planned by Berry</Pill>}
+                     {/* Nobody set this status, so the page says what put it there. */}
+                     <span>{describeGoalStatusReason(goal.status)}</span>
                   </p>
 
                   <GoalProgress progress={goal.progress} className="mt-5" />
-
-                  {goal.sourcePrompt && (
-                     <section className="mt-6">
-                        <h3 className="font-medium">You asked</h3>
-                        <blockquote className="mt-1.5 whitespace-pre-line border-l-2 border-border pl-3 leading-6 text-muted-foreground">
-                           {goal.sourcePrompt}
-                        </blockquote>
-                     </section>
-                  )}
 
                   {goal.description && (
                      <section className="mt-6">
@@ -334,7 +315,7 @@ export default function GoalOverview({ goalId }: { goalId: string }) {
 
                   <WorkSection refs={lists.issues} orgId={orgId} />
                   <ApprovalsSection refs={lists.approvals} goalId={goal.id} orgId={orgId} />
-                  <PlansSection refs={lists.plans} orgId={orgId} goal={goal} />
+                  <PlansSection refs={lists.plans} orgId={orgId} />
                </div>
             </div>
          </div>

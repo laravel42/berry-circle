@@ -1,3 +1,4 @@
+import type { ScmSync } from '../scm/sync.ts';
 import { Hono } from 'hono';
 import { requireSession, type AuthVariables } from '../auth/middleware.ts';
 import type { SessionService } from '../auth/sessions.ts';
@@ -44,6 +45,8 @@ export interface GoalOptions {
    goals: GoalRepository;
    issues: IssueRepository;
    idempotency: IdempotencyStore;
+   /** Mirrors a goal as a milestone. Absent when the deployment runs no git host. */
+   scm?: ScmSync | null;
    broadcaster?: Broadcaster | undefined;
    clock?: () => Date;
 }
@@ -115,6 +118,11 @@ export function goalMounts(options: GoalOptions): Mount[] {
          })
          .catch(rethrow('Goal'));
       await publish(options, [created.event]);
+
+      // Not awaited: the goal exists and is the answer to this request. The
+      // milestone is a mirror of it, and its outcome is recorded on the goal's
+      // link rather than held against the response.
+      options.scm?.guard('goal.created', options.scm.goalCreated(created.goal.id));
 
       const authors = await goals.lookupAuthors([created.goal.createdBy ?? '']);
       return json(serializeGoal(created.goal, authors, null), 201);

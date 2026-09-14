@@ -49,6 +49,18 @@ export interface DispatcherOptions {
    pollMs?: number;
    leaseMs?: number;
    heartbeatMs?: number;
+   /**
+    * The workspaces this dispatcher serves. Omitted — what a deployment does —
+    * means every run in the database.
+    *
+    * A confined dispatcher claims and sweeps only these workspaces' runs, and
+    * so cannot touch a run it was not meant to: the claim and the sweep are
+    * otherwise table-wide by design, which is right for a server and wrong for
+    * a test, where several files hold one database at once and a dispatcher
+    * driven by one of them would otherwise execute, lease and abandon the runs
+    * another file is asserting about.
+    */
+   workspaceIds?: readonly string[];
 }
 
 export class Dispatcher {
@@ -59,6 +71,8 @@ export class Dispatcher {
    readonly #pollMs: number;
    readonly #leaseMs: number;
    readonly #heartbeatMs: number;
+   /** The workspaces this dispatcher serves, or null for all of them. */
+   readonly #workspaceIds: readonly string[] | null;
 
    /** Runs this process is executing, and the handle that stops each one. */
    readonly #inflight = new Map<string, AbortController>();
@@ -76,6 +90,20 @@ export class Dispatcher {
       this.#pollMs = options.pollMs ?? POLL_MS;
       this.#leaseMs = options.leaseMs ?? LEASE_MS;
       this.#heartbeatMs = options.heartbeatMs ?? HEARTBEAT_MS;
+      this.#workspaceIds =
+         options.workspaceIds && options.workspaceIds.length > 0
+            ? [...options.workspaceIds]
+            : null;
+   }
+
+   /**
+    * `AND <column>.workspace_id IN (…)` when this dispatcher is confined, and
+    * nothing at all when it serves the whole deployment.
+    */
+   #scope(alias: string) {
+      const ids = this.#workspaceIds;
+      if (!ids) return this.#sql``;
+      return this.#sql`AND ${this.#sql(alias)}.workspace_id IN ${this.#sql(ids)}`;
    }
 
    start(): void {
@@ -103,6 +131,16 @@ export class Dispatcher {
    /** What this process is working on. For `/metrics` and for tests. */
    get inflight(): number {
       return this.#inflight.size;
+   }
+
+   /**
+    * Looks for work now rather than at the next poll.
+    *
+    * For a caller that just queued something it is waiting on — a completion
+    * holds an HTTP request open until its task finishes.
+    */
+   nudge(): void {
+      this.#wake?.();
    }
 
    async #poll(): Promise<void> {
@@ -143,19 +181,67 @@ export class Dispatcher {
     * between leaves a run that is reclaimable rather than one that is stuck.
     */
    async #claim(limit: number): Promise<string[]> {
+      // Priority first, then age. A runtime with a concurrency limit gets at
+      // most `limit - busy` new claims per statement: `slot` numbers each
+      // runtime's candidates in claim order, so one tick can never hand a
+      // limit-1 runtime two runs (a plain `busy < limit` filter is evaluated
+      // once for every candidate and would). The window lives in a CTE because
+      // Postgres refuses FOR UPDATE beside a window function. Two dispatchers
+      // claiming in the same instant can each read the same `busy`; that
+      // overshoot is bounded by the number of dispatchers and ends at the
+      // next tick.
+      //
+      // The lock is taken in a MATERIALIZED CTE, not `WHERE id IN (SELECT …
+      // LIMIT … FOR UPDATE)`: the planner may re-run that subquery per row,
+      // and a re-run `SKIP LOCKED` finds the next rows, so LIMIT stops
+      // bounding the claim.
       const rows = await this.#sql`
+         WITH candidate AS (
+            SELECT ranked.id, ranked.priority, ranked.created_at FROM (
+               SELECT r.id, r.priority, r.created_at, rt.concurrency_limit,
+                      row_number() OVER (PARTITION BY r.runtime_id
+                                         ORDER BY r.priority DESC, r.created_at ASC) AS slot,
+                      (SELECT count(*) FROM runs AS busy
+                        WHERE busy.runtime_id = r.runtime_id
+                          AND busy.status IN ('queued', 'running')
+                          AND (busy.dispatch_state <> 'pending'
+                               OR busy.dispatch_lease_until > now())) AS busy_count
+                 FROM runs AS r
+                 LEFT JOIN agent_runtimes AS rt ON rt.id = r.runtime_id
+                WHERE r.status = 'queued'
+                  AND r.dispatch_state = 'pending'
+                  AND (r.dispatch_lease_until IS NULL OR r.dispatch_lease_until < now())
+                  AND (rt.id IS NULL OR rt.status <> 'disabled')
+                  ${this.#scope('r')}
+                  -- One task per chat session at a time (spec 2.2a): a
+                  -- session's run waits while another of its runs is running
+                  -- or is ahead of it in claim order.
+                  AND (r.chat_session_id IS NULL OR NOT EXISTS (
+                         SELECT 1 FROM runs AS o
+                          WHERE o.chat_session_id = r.chat_session_id AND o.id <> r.id
+                            AND (o.status = 'running'
+                                 OR (o.status = 'queued'
+                                     AND (o.priority > r.priority
+                                          OR (o.priority = r.priority
+                                              AND (o.created_at, o.id) < (r.created_at, r.id)))))))
+            ) AS ranked
+            WHERE ranked.concurrency_limit IS NULL
+               OR ranked.busy_count + ranked.slot <= ranked.concurrency_limit
+         ),
+         picked AS MATERIALIZED (
+            SELECT r.id FROM runs AS r JOIN candidate AS c ON c.id = r.id
+             WHERE r.status = 'queued'
+               AND r.dispatch_state = 'pending'
+               AND (r.dispatch_lease_until IS NULL OR r.dispatch_lease_until < now())
+             ORDER BY c.priority DESC, c.created_at ASC
+             LIMIT ${limit}
+             FOR UPDATE OF r SKIP LOCKED
+         )
          UPDATE runs
             SET dispatch_lease_until = now() + ${`${this.#leaseMs} milliseconds`}::interval
-          WHERE id IN (
-             SELECT id FROM runs
-              WHERE status = 'queued'
-                AND dispatch_state = 'pending'
-                AND (dispatch_lease_until IS NULL OR dispatch_lease_until < now())
-              ORDER BY created_at ASC
-              LIMIT ${limit}
-              FOR UPDATE SKIP LOCKED
-          )
-          RETURNING id`;
+           FROM picked
+          WHERE runs.id = picked.id
+          RETURNING runs.id`;
       return rows.map((row) => row.id as string);
    }
 
@@ -175,6 +261,7 @@ export class Dispatcher {
           WHERE status IN ('queued', 'running')
             AND dispatch_state <> 'pending'
             AND dispatch_lease_until < now()
+            ${this.#scope('runs')}
           LIMIT 20`;
 
       for (const row of rows) {

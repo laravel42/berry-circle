@@ -14,18 +14,19 @@ export interface RouteDescriptor {
 
 /** Section labels that differ from their path segment, per the prototype. */
 const SECTION_LABELS: Record<string, string> = {
+   'tasks': 'tasks',
+   // The route's old name; tabs persisted before the rename still carry it.
    'my-issues': 'tasks',
    'issue': 'tasks',
    'agents': 'agents',
    'members': 'agents',
-   'runs': 'runtimes',
+   'runs': 'runs',
    'project': 'projects',
    'plan': 'plans',
    'goal': 'goals',
    'goals': 'goals',
    'approval': 'approvals',
    'approvals': 'approvals',
-   'initiative': 'initiatives',
    'review': 'reviews',
    'view': 'views',
 };

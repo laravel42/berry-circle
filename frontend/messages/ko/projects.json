@@ -1,0 +1,11 @@
+{
+   "header": {
+      "title": "프로젝트",
+      "description": "관련 작업을 하나의 계획으로 묶고 상태, 건강도, 목표일을 관리하세요."
+   },
+   "toggleInsights": "프로젝트 인사이트 패널 전환",
+   "states": {
+      "hiddenByFilters": "필터로 {count}개의 프로젝트가 숨겨졌습니다",
+      "clearFilters": "필터 해제"
+   }
+}

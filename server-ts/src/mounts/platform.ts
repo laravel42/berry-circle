@@ -23,6 +23,14 @@ export interface Capabilities {
    storage: boolean;
    valkey: boolean;
    planner: boolean;
+   /**
+    * Whether a person could sign in with GitHub *now*.
+    *
+    * Asked rather than fixed at boot: the App sign-in runs on is created from
+    * the browser while this process is running, so a boolean decided at startup
+    * would go on saying no to the person who had just created it.
+    */
+   githubSignIn: boolean | (() => Promise<boolean>);
 }
 
 export interface PlatformOptions {
@@ -33,6 +41,13 @@ export interface PlatformOptions {
    capabilities: Capabilities;
    /** Null on a deployment that reports `metrics: false`; the route then 404s. */
    metrics?: MetricsSource | null;
+   /**
+    * The build this process is. Published beside the capabilities because the
+    * browser has no other way to name the server it is talking to, and the
+    * first thing anyone reporting a problem is asked is which version they are
+    * on. It is the same string `/metrics` reports, so the two cannot disagree.
+    */
+   version?: string;
 }
 
 export function platformMounts(options: PlatformOptions): Mount[] {
@@ -41,7 +56,7 @@ export function platformMounts(options: PlatformOptions): Mount[] {
       { prefix: '/ready', handler: readyRoute(options) },
       { prefix: '/readyz', handler: readyRoute(options) },
       { prefix: '/metrics', handler: metricsRoute(options.metrics ?? null) },
-      { prefix: '/api/v1/config', handler: configRoute(options.capabilities) },
+      { prefix: '/api/v1/config', handler: configRoute(options.capabilities, options.version) },
    ];
 }
 
@@ -112,12 +127,15 @@ function metricsRoute(source: MetricsSource | null): Hono {
    return route;
 }
 
-function configRoute(capabilities: Capabilities): Hono {
+function configRoute(capabilities: Capabilities, version?: string): Hono {
    const route = new Hono();
-   route.get('/', () =>
+   route.get('/', async () =>
       // Declaration order, not sorted: the Go server marshalled this as a
-      // struct and `planner` was declared after `valkey`.
+      // struct and `planner` was declared after `valkey`. `version` is
+      // appended rather than inserted for the same reason: a client reading
+      // the old shape keeps reading it unchanged.
       json({
+         version: version ?? null,
          capabilities: {
             agentExecution: capabilities.agentExecution,
             metrics: capabilities.metrics,
@@ -125,6 +143,10 @@ function configRoute(capabilities: Capabilities): Hono {
             storage: capabilities.storage,
             valkey: capabilities.valkey,
             planner: capabilities.planner,
+            githubSignIn:
+               typeof capabilities.githubSignIn === 'function'
+                  ? await capabilities.githubSignIn()
+                  : capabilities.githubSignIn,
          },
       })
    );

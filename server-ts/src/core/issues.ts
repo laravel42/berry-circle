@@ -22,7 +22,13 @@ const ISSUE_COLUMNS = `i.id, i.board_id, w.id AS workspace_id, b.slug AS board_s
    i.active_run_id,
    project.id AS project_id, project.name AS project_name,
    i.created_by, creator.name AS creator_name, creator.avatar_url AS creator_avatar_url,
-   i.created_at, i.updated_at`;
+   i.created_at, i.updated_at,
+   i.parent_id, i.stage, i.status_id,
+   (SELECT count(*) FROM issues AS child
+     WHERE child.parent_id = i.id AND child.deleted_at IS NULL)::int AS child_total,
+   (SELECT count(*) FROM issues AS child
+     WHERE child.parent_id = i.id AND child.deleted_at IS NULL
+       AND child.status IN ('done', 'cancelled'))::int AS child_done`;
 
 /**
  * An issue belongs to at most one project, and the link table's primary key on
@@ -79,6 +85,13 @@ export interface Issue {
    createdBy: ActorRef | null;
    createdAt: string;
    updatedAt: string;
+   /** The issue this one is a sub-issue of. */
+   parentId: string | null;
+   /** Ordered barrier among siblings; null means no stage. */
+   stage: number | null;
+   /** The custom status refining `status`, when one is set. */
+   statusId: string | null;
+   childProgress: { total: number; done: number };
 }
 
 export interface IssueDependencyRef {
@@ -125,6 +138,8 @@ export interface IssuePatch {
    descriptionSet: boolean;
    description?: string | null;
    status?: string;
+   /** A custom status of `status`'s category. Undefined leaves it alone. */
+   statusId?: string | null;
    priority?: string;
    sortOrder?: number;
    dueDateSet: boolean;
@@ -360,7 +375,12 @@ export class IssueRepository {
       dueDate: string | null;
       assignee: AssigneeInput | null;
       project: string | null;
-      createdBy: string;
+      /**
+       * A users.id, or nobody. An agent is not a user, so work it files carries
+       * the person who asked for it and nothing when nobody did (an autopilot).
+       * The column is nullable, and `created_by` is the only honest answer.
+       */
+      createdBy: string | null;
    }): Promise<{ issue: Issue; events: IssueMutationEvent[] }> {
       const id = this.newId();
       const now = this.clock().toISOString();
@@ -423,6 +443,12 @@ export class IssueRepository {
       issueId: string;
       patch: IssuePatch;
       actorId: string;
+      /**
+       * Who the change is recorded as. A person by default; an agent when the
+       * review gate moves a task on a peer's verdict, so the timeline says an
+       * agent did it rather than attributing it to a user id that is not one.
+       */
+      actorType?: 'user' | 'agent';
    }): Promise<{ issue: Issue; events: IssueMutationEvent[] }> {
       const { patch } = params;
       const now = this.clock().toISOString();
@@ -445,6 +471,7 @@ export class IssueRepository {
                title = CASE WHEN ${patch.title !== undefined} THEN ${patch.title ?? null}::text ELSE title END,
                description = CASE WHEN ${patch.descriptionSet} THEN ${patch.description ?? null}::text ELSE description END,
                status = CASE WHEN ${patch.status !== undefined} THEN ${patch.status ?? null}::issue_status ELSE status END,
+               status_id = CASE WHEN ${patch.statusId !== undefined} THEN ${patch.statusId ?? null}::uuid ELSE status_id END,
                priority = CASE WHEN ${patch.priority !== undefined} THEN ${patch.priority ?? null}::issue_priority ELSE priority END,
                sort_order = CASE WHEN ${patch.sortOrder !== undefined} THEN ${patch.sortOrder ?? null}::integer ELSE sort_order END,
                due_date = CASE WHEN ${patch.dueDateSet} THEN ${patch.dueDate ?? null}::timestamptz ELSE due_date END,
@@ -471,7 +498,7 @@ export class IssueRepository {
             kind: 'updated',
             changedFields: changed,
             previousStatus,
-            actor: { type: 'user', id: params.actorId },
+            actor: { type: params.actorType ?? 'user', id: params.actorId },
             occurredAt: now,
          });
          return { issue, events };
@@ -527,7 +554,7 @@ export class IssueRepository {
          kind: 'created' | 'updated' | 'deleted';
          changedFields?: string[];
          previousStatus?: string | undefined;
-         actor: { type: string; id: string };
+         actor: { type: string; id: string | null };
          occurredAt: string;
       }
    ): Promise<IssueMutationEvent[]> {
@@ -789,6 +816,10 @@ function toIssue(row: Record<string, unknown>): Issue {
          : null,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
+      parentId: (row.parent_id as string | null) ?? null,
+      stage: row.stage === null || row.stage === undefined ? null : Number(row.stage),
+      statusId: (row.status_id as string | null) ?? null,
+      childProgress: { total: Number(row.child_total ?? 0), done: Number(row.child_done ?? 0) },
    };
 }
 
@@ -825,7 +856,7 @@ async function setIssueProject(
    tx: Queryable,
    issueId: string,
    projectId: string | null,
-   linkedBy: string
+   linkedBy: string | null
 ): Promise<void> {
    if (projectId === null) {
       await tx`DELETE FROM issue_project_links WHERE issue_id = ${issueId}`;

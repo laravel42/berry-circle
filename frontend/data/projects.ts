@@ -62,14 +62,3 @@ export const health: Health[] = [
       description: 'The project is at risk and may be delayed.',
    },
 ];
-
-/** Workspace projects. Empty until the gateway provides them. */
-export const projects: Project[] = [];
-
-export function getProjectById(id: string): Project | undefined {
-   return projects.find((project) => project.id === id);
-}
-
-export function getProjectsByTeam(teamId: string): Project[] {
-   return projects.filter((project) => project.teamId === teamId);
-}

@@ -4,6 +4,7 @@ import { after, before, beforeEach, describe, test } from 'node:test';
 import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { NotFound } from '../identity/errors.ts';
 import { ActiveRunExists, NoAgentAssigned, RunRepository } from './repository.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Reading the ledger, and the one write that starts a run.
@@ -378,12 +379,7 @@ async function cleanup(sql: Sql, fixture: Record<string, string>): Promise<void>
    // A workspace provisions a protected Orchestrator by trigger, and protected
    // agents refuse deletion — deliberately. Suspended here and only here, for
    // the fixture's own teardown.
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;

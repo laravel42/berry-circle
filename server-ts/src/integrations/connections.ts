@@ -82,7 +82,7 @@ export class ConnectionRepository {
             AND status <> 'disconnected'
           ORDER BY created_at DESC
           LIMIT 1`;
-      return row ? toConnection(row) : null;
+      return row ? this.#reported(toConnection(row)) : null;
    }
 
    /** Every live connection in the workspace, for the settings page. */
@@ -92,7 +92,7 @@ export class ConnectionRepository {
            FROM integration_connections
           WHERE workspace_id = ${workspaceId} AND status <> 'disconnected'
           ORDER BY provider ASC`;
-      return rows.map(toConnection);
+      return rows.map((row) => this.#reported(toConnection(row)));
    }
 
    /**
@@ -228,6 +228,26 @@ export class ConnectionRepository {
          tool: row.tool as string,
          maxEffect: row.max_effect as string,
       }));
+   }
+
+   /**
+    * The status a reader should see, which is not always the column.
+    *
+    * Nothing writes `expired` to the row: a connection keeps saying
+    * `connected` until something tries to use its token and is refused, so the
+    * settings page can show a provider green for days after its credential
+    * lapsed. Deriving it here — off the same clock and margin `token` refuses
+    * on — is what stops the page and the call from disagreeing.
+    */
+   #reported(connection: Connection): Connection {
+      if (connection.status !== 'connected' || !this.#isExpired(connection.expiresAt)) {
+         return connection;
+      }
+      return {
+         ...connection,
+         status: 'expired',
+         statusDetail: connection.statusDetail ?? 'The credential expired. Reconnect to continue.',
+      };
    }
 
    #isExpired(expiresAt: string | null): boolean {

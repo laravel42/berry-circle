@@ -15,7 +15,7 @@ import type { Scope } from './boards.ts';
 
 const PROJECT_COLUMNS = `project.id, project.workspace_id, project.name, project.description,
    project.status, project.priority, project.start_date, project.target_date,
-   project.github_repo_id, project.github_repo_full_name, project.created_by,
+   project.github_repo_id, project.github_repo_full_name, project.git_repo, project.created_by,
    project.created_at, project.updated_at`;
 
 const RESOURCE_COLUMNS = `resource.id, resource.workspace_id, resource.project_id,
@@ -32,6 +32,8 @@ export interface Project {
    startDate: string | null;
    targetDate: string | null;
    githubRepo: string | null;
+   /** Berry's own bare repository for this project, relative to the repos root. */
+   gitRepo: string | null;
    createdAt: string;
    updatedAt: string;
 }
@@ -61,6 +63,8 @@ export interface ProjectPatch {
    githubRepoSet: boolean;
    githubRepoId?: string | null;
    githubRepoFullName?: string | null;
+   /** The bare repository on Berry's own git server, once it exists. */
+   gitRepo?: string | null;
 }
 
 export interface ResourcePatch {
@@ -170,7 +174,8 @@ export class ProjectRepository {
       targetDate: string | null;
       githubRepoId: string | null;
       githubRepoFullName: string | null;
-      createdBy: string;
+      /** A users.id, or nobody — see IssueRepository.create. */
+      createdBy: string | null;
    }): Promise<Project> {
       const now = this.now();
       const rows = await this.sql`
@@ -257,6 +262,19 @@ export class ProjectRepository {
     * be undeleted for the row to appear at all, so a resource cannot be
     * attached to a project that was archived a moment ago.
     */
+   /**
+    * Records the repository Berry made for this project.
+    *
+    * Separate from `create` because the repository is made on a filesystem and
+    * the project in a transaction: writing the name only after the directory
+    * exists means a project never claims a repository that was never created.
+    */
+   async setGitRepo(projectId: string, repository: string): Promise<void> {
+      await this.sql`
+         UPDATE projects SET git_repo = ${repository}, updated_at = ${this.now()}
+          WHERE id = ${projectId} AND git_repo IS NULL`;
+   }
+
    async createResource(params: {
       workspaceId: string;
       projectId: string;
@@ -356,6 +374,7 @@ function toProject(row: Record<string, unknown>): Project {
       startDate: formatDate(row.start_date),
       targetDate: formatDate(row.target_date),
       githubRepo: (row.github_repo_full_name as string | null) ?? null,
+      gitRepo: (row.git_repo as string | null) ?? null,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
    };

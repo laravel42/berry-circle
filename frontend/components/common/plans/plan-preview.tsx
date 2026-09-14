@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { useInDetailDrawer } from '@/components/layout/detail-drawer-context';
+import { PlanQuestionsWizard } from './plan-questions-wizard';
 import { usePlan } from '@/hooks/use-plan';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import {
@@ -32,16 +33,10 @@ import { useProjectsStore } from '@/store/projects-store';
 import { format, parseISO } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { PlanStatusBadge } from './plan-status-badge';
-import {
-   PlanApprovals,
-   PlanAssumptions,
-   PlanConnections,
-   PlanIssues,
-   Pill,
-} from './plan-sections';
+import { PlanApprovals, PlanAssumptions, PlanConnections, PlanIssues, Pill } from './plan-sections';
 import {
    PlanBlockedQuestions,
    PlanFindings,
@@ -80,10 +75,80 @@ function promptTitle(prompt: string | null | undefined): string {
  * what the validator found — because nothing here exists yet, and the person
  * pressing Start is agreeing to all of it at once.
  */
+/**
+ * Start a plan whose project is led by the AI workflow, without asking again.
+ *
+ * Gated on `startPlanBlocker` — the same check the Start button uses — so this
+ * can never start something a person would have been stopped from starting:
+ * still generating, blocked on questions, or invalid all hold it back until
+ * they clear. A high-risk plan still lands in `pendingApproval`, because that
+ * is the server's judgement and not this one's.
+ *
+ * The flag is taken rather than read, so a plan starts at most once however
+ * many times a poll re-renders this.
+ */
+function useAutoStartPlan(record: PlanRecord | undefined) {
+   const takeAutoStart = usePlanStore((state) => state.takeAutoStart);
+   const startPlan = usePlanStore((state) => state.startPlan);
+
+   useEffect(() => {
+      if (!record || startPlanBlocker(record) !== null) return;
+      if (!takeAutoStart(record.id)) return;
+      void startPlan(record.id)
+         .then((next) => {
+            if (next.status === 'pendingApproval') {
+               toast.info('Sent to an admin for approval');
+            } else if (next.compile?.status === 'failed') {
+               toast.error('The plan was approved but its tasks could not be created');
+            } else {
+               toast.success('Tasks generated');
+            }
+         })
+         .catch((error: unknown) => toast.error(describePlanFailure(error)));
+   }, [record, takeAutoStart, startPlan]);
+}
+
+/**
+ * Whether the wizard should show itself, and remembering a dismissal.
+ *
+ * It opens on its own because a blocked plan is waiting on the person looking
+ * at it, and making them find a button first is the gap this feature exists to
+ * close. Dismissing it sticks until the plan changes: someone who closed the
+ * questions to read the goal first should not have to close them again on
+ * every re-render, but a new version is a new set of questions.
+ */
+function useQuestionsWizard(record: PlanRecord | undefined) {
+   const blocked = record?.validation.status === 'blocked';
+   const asks = (record?.plan?.assumptions.length ?? 0) > 0;
+   const version = record?.version ?? 0;
+   const [open, setOpen] = useState(false);
+   const [dismissed, setDismissed] = useState<number | null>(null);
+
+   useEffect(() => {
+      if (!blocked || !asks) {
+         setOpen(false);
+         return;
+      }
+      if (dismissed === version) return;
+      setOpen(true);
+   }, [blocked, asks, version, dismissed]);
+
+   return {
+      open: open && blocked && asks,
+      canAnswer: Boolean(blocked && asks),
+      setOpen: (next: boolean) => {
+         setOpen(next);
+         if (!next) setDismissed(version);
+      },
+   };
+}
+
 export default function PlanPreview({ planId }: PlanPreviewProps) {
    const { orgId } = useParams<{ orgId: string }>();
    const inDrawer = useInDetailDrawer();
    const { record, error, busy } = usePlan(planId);
+   useAutoStartPlan(record);
+   const wizard = useQuestionsWizard(record);
 
    if (!record) {
       return (
@@ -130,7 +195,10 @@ export default function PlanPreview({ planId }: PlanPreviewProps) {
 
                   <PlanGenerationProgress record={record} />
                   <PlanGenerationFailure record={record} />
-                  <PlanBlockedQuestions record={record} />
+                  <PlanBlockedQuestions
+                     record={record}
+                     onAnswer={wizard.canAnswer ? () => wizard.setOpen(true) : undefined}
+                  />
                   <PlanOutcome record={record} orgId={orgId ?? WORKSPACE_SLUG} />
                   <PlanFindings record={record} />
 
@@ -182,6 +250,7 @@ export default function PlanPreview({ planId }: PlanPreviewProps) {
             </div>
 
             {isPlanOpen(record) && <PlanActions record={record} />}
+            <PlanQuestionsWizard record={record} open={wizard.open} onOpenChange={wizard.setOpen} />
          </div>
 
          <aside className="hidden h-full w-[221px] min-w-0 shrink-0 flex-col overflow-y-auto border-l bg-muted/15 px-5 pt-6 pb-3.5 lg:flex">
@@ -296,7 +365,7 @@ function PlanOutcome({ record, orgId }: { record: PlanRecord; orgId: string }) {
             </ul>
          )}
          <Button asChild size="xs" variant="secondary" className="mt-3">
-            <Link href={`/${orgId}/my-issues`}>View tasks</Link>
+            <Link href={`/${orgId}/tasks`}>View tasks</Link>
          </Button>
       </div>
    );

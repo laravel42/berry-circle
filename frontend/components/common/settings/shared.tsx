@@ -120,12 +120,15 @@ export function SettingsRow({
 /** Small functional select (local state) used across the settings pages. */
 export function SelectMenu({
    options,
+   labels,
    defaultValue,
    value: controlledValue,
    onChange,
    disabled,
 }: {
    options: string[];
+   /** Display text per option; the option value is shown when absent. */
+   labels?: Record<string, string>;
    defaultValue?: string;
    /** Optional controlled value (e.g. wired to next-themes). */
    value?: string;
@@ -141,7 +144,7 @@ export function SelectMenu({
             disabled={disabled}
             className="h-8 max-w-56 truncate px-3 rounded-md border bg-container inline-flex items-center gap-1.5 hover:bg-accent transition-colors outline-none disabled:opacity-60"
          >
-            {value}
+            {labels?.[value] ?? value}
             <ChevronDown className="size-3.5 text-muted-foreground" />
          </DropdownMenuTrigger>
          <DropdownMenuContent align="end" className="max-h-72 min-w-40 overflow-y-auto">
@@ -154,7 +157,7 @@ export function SelectMenu({
                   }}
                   className="flex items-center gap-2"
                >
-                  <span className="flex-1">{option}</span>
+                  <span className="flex-1">{labels?.[option] ?? option}</span>
                   {value === option && <Check className="size-3.5" />}
                </DropdownMenuItem>
             ))}

@@ -1,6 +1,11 @@
 import type { Sql } from '../db/pool.ts';
 import { withinTx } from '../db/pool.ts';
+import { installStarterLabels } from '../core/starter-labels.ts';
 import {
+   AgentModelName,
+   AgentModelProvider,
+   TextToSpeechAgentID,
+   TextToVideoAgentID,
    BoardID,
    BoardName,
    BoardSlug,
@@ -19,18 +24,187 @@ import {
  * every boot. The fixed ids are what make that true: a second run updates the
  * same rows rather than creating a second workspace nobody asked for.
  */
-export async function apply(sql: Sql, now: string = new Date().toISOString()): Promise<void> {
+export interface SeedOptions {
+   /**
+    * Whether the demo tasks and projects are written. On by default, so a
+    * clean volume has something to look at; off for a developer who wants
+    * the identity, workspace and board but an empty product to work in —
+    * and who does not want the demo rows coming back on every boot after
+    * deleting them.
+    */
+   demoWork?: boolean;
+}
+
+export async function apply(
+   sql: Sql,
+   now: string = new Date().toISOString(),
+   options: SeedOptions = {}
+): Promise<void> {
    await withinTx(sql, async (tx) => {
       await upsertUser(tx, now);
       await upsertWorkspace(tx, now);
       await upsertMembership(tx, now);
       await setUserLastWorkspace(tx, now);
       await upsertBoard(tx, now);
-      await upsertIssues(tx, now);
-      await upsertProjects(tx, now);
+      await upsertLabels(tx, now);
+      await upsertMediaAgents(tx, now);
+      if (options.demoWork ?? true) {
+         await upsertIssues(tx, now);
+         await labelIssues(tx, now);
+         await upsertProjects(tx, now);
+      }
+      await assignAgentModels(tx, now);
    });
 }
 
+/**
+ * Gives the workspace's agents a model to run on.
+ *
+ * Berry does not create agents here — a trigger inserts the protected
+ * Orchestrator when the workspace appears, and it inserts it with no model. The
+ * effect in a fresh environment is an agent that exists, can be assigned an
+ * issue, and then cannot run, because the picker shows no model and nothing
+ * chose one. This closes that gap for local development.
+ *
+ * Only rows with no model are touched. An agent someone deliberately pointed at
+ * a different model keeps it: a seed that runs on every boot must not quietly
+ * undo a choice a developer made, and `COALESCE` in a single statement would do
+ * exactly that on the next run.
+ */
+/**
+ * The two media agents, on the models that suit the work.
+ *
+ * Neither renders with its own model. A text-to-speech or text-to-video agent
+ * is a chat model that writes the script and calls a tool — Polly, or Nova
+ * Reel — that renders it; the rendering models are not chat models and cannot
+ * drive the loop. So the choice here is which model writes best for the
+ * medium. Narration is prose that has to sound right read aloud, and Claude
+ * Sonnet writes it markedly better than Haiku — 4.6 rather than 4.5, because
+ * 4.5 sits behind a Marketplace subscription this account does not hold and
+ * fails with INVALID_PAYMENT_INSTRUMENT, while 4.6 invokes directly. A video prompt is a dense
+ * visual description in the vocabulary Nova Reel was trained beside, and Nova
+ * Pro is the family's own chat model, which Amazon recommends for writing
+ * Reel prompts. Both are upserted with fixed ids, so a re-seed updates the
+ * instructions rather than creating a second copy.
+ */
+const MEDIA_AGENTS = [
+   {
+      id: TextToSpeechAgentID,
+      name: 'text-to-speech',
+      description: 'Turns text into narrated audio: writes the script for the ear, then renders it with Amazon Polly.',
+      model: 'us.anthropic.claude-sonnet-4-6',
+      capabilities: ['text_to_speech', 'file_list', 'file_read', 'file_write'],
+      instructions: `You produce spoken audio from text.
+
+First write the script for the ear, not the eye: short sentences, no
+headings or bullet marks, numbers and abbreviations spelled the way they are
+said, and pauses where a listener needs them. Then render it with
+generate_speech, choosing a voice that fits the content (Joanna or Matthew
+for neutral narration; ask for another only when the task names one). One
+call takes at most 3000 characters, so split a longer script into numbered
+parts — narration/part-01.mp3, narration/part-02.mp3 — and render each.
+
+Write your own words: do not reproduce the lyrics of a real song, a poem or
+any other copyrighted text — the model provider blocks that output and the
+run dies with it. When a task names one, write original lines in its spirit
+and say so in your report.
+
+Save the script itself beside the audio as a text file, so a person can read
+what was said. Your final message lists the files you produced and their
+durations in words.`,
+   },
+   {
+      id: TextToVideoAgentID,
+      name: 'text-to-video',
+      description:
+         'Turns a description into a finished short video: writes the shot prompts, renders them with Amazon Nova Reel, narrates with Amazon Polly and cuts it together with ffmpeg.',
+      // Sonnet rather than Nova Pro: the model here plans and drives four
+      // tools in sequence, and Nova Pro leaked its reasoning into the task
+      // and gave up at the first missing file. The media models are the
+      // tools, not the agent.
+      model: 'us.anthropic.claude-sonnet-4-6',
+      capabilities: ['text_to_video', 'text_to_speech', 'video_editing', 'file_list', 'file_read', 'file_write'],
+      instructions: `You produce short videos from a description, finished and ready to watch.
+
+Shots. A rendered clip is six seconds, so plan in shots: break the request
+into a sequence of shots that each show one thing, and write one prompt per
+shot. A good prompt is a dense visual description under 512 characters —
+subject, setting, camera motion, lighting, style — never a story or a list
+of instructions. Render each with generate_video at a path like
+clips/01-opening.mp4. Rendering takes a few minutes per clip; do not start
+more than four clips on one task without being asked.
+
+Voice. When the task wants narration or a voiceover, write the script for
+the ear — short sentences, spoken numbers, a pause where a listener needs
+one — and render it with generate_speech to audio/narration.mp3 (Joanna or
+Matthew unless the task names a voice). Keep the script to what fits the
+picture: about fifteen words per six-second shot.
+
+Cut. Every file saved on this task is in your workspace at the path
+list_files shows, and ffmpeg is installed. Join clips with the concat
+demuxer (a list file of "file 'clips/01-opening.mp4'" lines, then
+ffmpeg -f concat -safe 0 -i list.txt -c copy video/joined.mp4). Lay the
+narration over the picture with
+ffmpeg -i video/joined.mp4 -i audio/narration.mp3 -c:v copy -c:a aac -shortest video/final.mp4
+— and if the narration runs longer than the picture, hold the last frame
+with -filter_complex "[0:v]tpad=stop_mode=clone:stop_duration=<seconds>[v]" -map "[v]" -map 1:a
+instead of cutting it short. Check the result with ffprobe before you hand
+it in. A file a command produces exists only in the workspace: save it on
+the task with collect_file, or it is lost when the run ends.
+
+Words. Write your own words. Do not reproduce the lyrics of a real song, a
+poem or any other copyrighted text — the model provider blocks that output
+and the run dies with it. When a task names a song, write original lines in
+its spirit (the mood, the rhythm, the idea) and say in your report that the
+words are original.
+
+Hand in. Save the shot list and the narration script as text files beside
+the media so a person can read what each shot and line was meant to be.
+Your final message names the finished file first, then the clips and audio
+it was cut from, with their durations in words. Do not include your
+reasoning in the message; it is posted on the task as your report.`,
+   },
+] as const;
+
+async function upsertMediaAgents(tx: Sql, now: string): Promise<void> {
+   for (const agent of MEDIA_AGENTS) {
+      await tx`
+         INSERT INTO agents (
+            id, workspace_id, board_id, name, description, status, capabilities,
+            instructions, model_provider, model_name, created_at, updated_at
+         ) VALUES (
+            ${agent.id}, ${WorkspaceID}, ${BoardID}, ${agent.name}, ${agent.description}, 'available',
+            ${[...agent.capabilities]}, ${agent.instructions}, ${AgentModelProvider}, ${agent.model},
+            ${now}, ${now}
+         )
+         ON CONFLICT (id) DO UPDATE SET
+            name = EXCLUDED.name,
+            description = EXCLUDED.description,
+            capabilities = EXCLUDED.capabilities,
+            instructions = EXCLUDED.instructions,
+            model_provider = EXCLUDED.model_provider,
+            model_name = EXCLUDED.model_name,
+            archived_at = NULL,
+            updated_at = EXCLUDED.updated_at
+      `;
+   }
+}
+
+async function assignAgentModels(tx: Sql, now: string): Promise<void> {
+   await tx`
+      UPDATE agents
+         SET model_provider = ${AgentModelProvider},
+             model_name = ${AgentModelName},
+             updated_at = ${now}
+       WHERE workspace_id = ${WorkspaceID}
+         AND archived_at IS NULL
+         AND (model_provider IS NULL OR model_name IS NULL)
+   `;
+}
+
+// The seeded user has no credential of its own: locally it signs in through
+// POST /api/v1/auth/dev-login (development only), and anywhere else by
+// linking a GitHub account whose verified email matches UserEmail.
 async function upsertUser(tx: Sql, now: string): Promise<void> {
    // A different user already holding this email would fail the unique index
    // below. Renaming theirs is deliberate: this is a development fixture, and
@@ -127,6 +301,41 @@ async function upsertBoard(tx: Sql, now: string): Promise<void> {
          description = EXCLUDED.description,
          updated_at = EXCLUDED.updated_at
    `;
+}
+
+/**
+ * The starter labels, into every workspace that exists.
+ *
+ * Creation installs them for new workspaces; the seed backfills the ones
+ * from before that, so a developer's own workspace has them too and not only
+ * the demo one.
+ */
+async function upsertLabels(tx: Sql, now: string): Promise<void> {
+   const workspaces = await tx`SELECT id, created_by FROM workspaces WHERE deleted_at IS NULL`;
+   for (const workspace of workspaces) {
+      await installStarterLabels(tx, workspace.id as string, (workspace.created_by as string | null) ?? null, now);
+   }
+}
+
+/** Which starter labels the demo tasks carry, by issue id and label name. */
+const ISSUE_LABELS: Record<string, readonly string[]> = {
+   '11111111-1111-4111-8111-111111111201': ['feature', 'performance'],
+   '11111111-1111-4111-8111-111111111202': ['improvement', 'design'],
+   '11111111-1111-4111-8111-111111111203': ['chore', 'good first task'],
+};
+
+async function labelIssues(tx: Sql, now: string): Promise<void> {
+   for (const [issueId, names] of Object.entries(ISSUE_LABELS)) {
+      for (const name of names) {
+         await tx`
+            INSERT INTO issue_label_memberships (workspace_id, issue_id, label_id, assigned_by, created_at)
+            SELECT ${WorkspaceID}, ${issueId}, id, ${UserID}, ${now}
+              FROM issue_labels
+             WHERE workspace_id = ${WorkspaceID} AND lower(name) = ${name} AND archived_at IS NULL
+            ON CONFLICT DO NOTHING
+         `;
+      }
+   }
 }
 
 const ISSUES = [

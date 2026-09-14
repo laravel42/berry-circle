@@ -1,12 +1,20 @@
 'use client';
 
-import { GenerateIssuesButton } from '@/components/common/projects/generate-issues-button';
+import { IssueFilterTrigger } from '@/components/common/issues/issue-filter-trigger';
+import { DisplayOptions } from '@/components/layout/headers/display-options';
 import { useProject } from '@/hooks/use-project';
 import { ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
-export default function Header({ projectId }: { projectId: string }) {
+export default function Header({
+   projectId,
+   listControls = false,
+}: {
+   projectId: string;
+   /** The task tab wants the filter and display controls; the overview does not. */
+   listControls?: boolean;
+}) {
    const { orgId } = useParams<{ orgId: string }>();
    const project = useProject(projectId);
 
@@ -33,9 +41,12 @@ export default function Header({ projectId }: { projectId: string }) {
             </span>
             <span className="truncate font-medium">{project.name}</span>
          </div>
-         <div className="flex items-center gap-1">
-            <GenerateIssuesButton project={project} />
-         </div>
+         {listControls ? (
+            <div className="flex shrink-0 items-center gap-1">
+               <IssueFilterTrigger iconOnly />
+               <DisplayOptions iconOnly />
+            </div>
+         ) : null}
       </div>
    );
 }

@@ -15,6 +15,8 @@ Shipped but not yet specified here — treat the implementation as authoritative
 - **Inbox** — `GET /api/v1/inbox`, `GET /api/v1/inbox/unread-count`, `POST /api/v1/inbox/{itemId}/{action}` (`read`, `unread`, `archive`, `unarchive`), `POST /api/v1/inbox/bulk`. Items carry `issueIdentifier` (workspace issue prefix and issue number, for example `BER-3`), derived on read and `null` when the item references no issue.
 - **Agent models** — `GET /api/v1/agents/models` returns the runtime model catalog; `PUT /api/v1/agents/{agentId}/config` sets an agent's provider, model, description, and instructions. A provider/model pair is rejected unless the runtime catalog reports it available.
 - **Conversations** — `GET /api/v1/conversations`, `POST /api/v1/conversations/agents/{agentId}`, and `GET`/`POST /api/v1/conversations/{conversationId}/messages`. All require the caller to be a participant in the thread.
+- **Integrations** — `GET /api/v1/integrations/providers` (catalogue joined with this workspace's state), `GET`/`DELETE /api/v1/integrations/connections`, `POST /api/v1/integrations/connections/{provider}/authorize`, and `GET /api/v1/integrations/github/repositories`. A provider whose stored credential has passed `expiresAt` reports `status: "expired"` and `connected: false`, derived rather than read from a column, so this endpoint and `/connections` cannot disagree.
+- **GitHub App** — `GET /api/v1/integrations/github/app` reports the deployment's App and this workspace's installation; `POST /api/v1/integrations/github/app/manifest` returns the manifest to post to GitHub and where to post it; `POST`/`DELETE /api/v1/integrations/github/app/install` start and forget an installation. Two callbacks — `GET /api/v1/integrations/github/app/callback` and `.../installation/callback` — are reached by the browser from GitHub and are authorised by a single-use state row rather than a session cookie, which a cross-site redirect may not carry. The installation callback verifies the `installation_id` it is handed against `GET /app/installations/{id}` and refuses one another workspace already holds; an unverified id would let a caller mint tokens for repositories they were never given.
 
 ## Protocol conventions
 
@@ -28,7 +30,7 @@ Shipped but not yet specified here — treat the implementation as authoritative
 | Identifiers | UUID strings unless a field is explicitly documented as opaque |
 | Timestamps | UTC RFC 3339 strings, for example `2026-08-22T06:30:00.000Z` |
 | Nullable values | Represented as JSON `null`; omitted fields mean “not requested/not available,” not null |
-| Authentication | Release 1 session bearer token: `Authorization: Bearer <session-token>` |
+| Authentication | Browser: the `berry.session_token` cookie set by GitHub sign-in (`/api/auth/*`, Better Auth). API clients: `Authorization: Bearer berry_pat_<id>_<secret>`. A request with an `Authorization` header is decided by it alone. |
 | Request tracing | Server returns `X-Request-Id`; the same value appears in error envelopes |
 | Idempotency | Mutating create/dispatch endpoints accept `Idempotency-Key`, described below |
 
@@ -148,8 +150,8 @@ Validation failures set `details.fields` to an array of field errors:
 | HTTP status | Default code | Meaning |
 |---:|---|---|
 | 400 | `INVALID_REQUEST` | Malformed JSON, parameters, or cursor |
-| 401 | `UNAUTHENTICATED` | Missing, invalid, or expired session |
-| 403 | `FORBIDDEN` | Authenticated actor lacks permission |
+| 401 | `UNAUTHENTICATED` | Missing, invalid or expired session cookie or bearer token |
+| 403 | `FORBIDDEN` | Authenticated actor lacks permission, or a cookie-authenticated write sent from an origin the server does not trust |
 | 404 | `NOT_FOUND` | Resource does not exist or is not visible to actor |
 | 409 | `CONFLICT` | State transition, active-run, or idempotency conflict |
 | 422 | `VALIDATION_FAILED` | Body is well-formed but fails schema/domain validation |
@@ -336,6 +338,8 @@ The gateway MUST NOT expose provider configuration, credentials, system prompts,
 | `summary` | string or null | yes | Safe final summary; null before available |
 | `usage` | `RunUsage` | yes | Cumulative normalized usage |
 | `failure` | `RunFailure` or null | yes | Present only when `status` is `failed` |
+| `source` | string | yes | What asked for the run: `assignment`, `mention`, `chat`, `autopilot`, `squad`, `quick_action`, `builder`, `completion` |
+| `requestedBy` | `ActorRef` or null | yes | The person who asked; null when an agent, an autopilot or a schedule did |
 | `createdAt` | `Timestamp` | yes | Dispatch accepted time |
 | `startedAt` | `Timestamp` or null | yes | Execution start time |
 | `completedAt` | `Timestamp` or null | yes | Terminal transition time |
@@ -374,6 +378,8 @@ The gateway MUST NOT expose provider configuration, credentials, system prompts,
     "currency": null
   },
   "failure": null,
+  "source": "assignment",
+  "requestedBy": { "type": "user", "id": "1f0f0b2e-6f3a-4f6c-9a1e-0b6a1f2c3d4e" },
   "createdAt": "2026-08-22T06:42:00.000Z",
   "startedAt": "2026-08-22T06:42:01.000Z",
   "completedAt": null
@@ -958,3 +964,16 @@ These do not weaken the wire contract above, but require a product decision befo
 - Errors: one stable envelope, validation details, HTTP mappings, and domain codes are defined.
 - SSE: endpoints (run, board and workspace scopes), reconnection/replay behavior, envelope, ordering/deduplication, redaction rules, event types, payload shapes, and examples are defined.
 - Versioning, authentication, authorization, idempotency, status codes, and implementation gaps are explicit.
+
+## Public API v1 (`/v1`)
+
+A small, stable API for scripts and plugins, separate from the product API.
+
+- **Credentials.** `Authorization: Bearer berry_pat_…` (a personal access token) or `Bearer berry_plg_…` (a plugin token Berry hands a plugin on each call). A session token is refused with 401.
+- **Scopes.** `issues:read`, `issues:write`, `comments:read`, `comments:write`, `storage:read`, `storage:write`. A personal token created without `scopes` holds all of them. A missing scope is `403 INSUFFICIENT_SCOPE` with `details.required`.
+- **Tenancy.** A personal token acts as its user, through the same membership checks as `/api/v1`. A plugin token acts as the member who installed the plugin, and only inside that plugin's workspace. An issue in another workspace is `404`, the same as a missing one.
+- `GET /v1/context` — `{ principal, scopes, workspaces[] }`.
+- `GET /v1/issues/{ref}` and `PATCH /v1/issues/{ref}` — `ref` is a UUID or an identifier such as `BER-12`. PATCH accepts `title`, `description`, `status` (`backlog`, `todo`, `inProgress`, `inReview`, `done`, `blocked`, `cancelled`) and `priority` (`none`, `urgent`, `high`, `medium`, `low`). Status moves follow the board's rules (`409 INVALID_TRANSITION`).
+- `GET /v1/issues/{ref}/comments?first=1..100` — `{ nodes[] }`, oldest first. `POST` accepts `{ body, parentId? }` and returns `201`.
+- `GET /v1/storage?prefix=&after=&first=`, `GET|PUT|DELETE /v1/storage/{key}` — plugin tokens only (`403 PLUGIN_TOKEN_REQUIRED` otherwise). Keys are 1–200 of `A–Z a–z 0–9 . _ : / -`. `PUT` takes `{ value }`, any JSON of at most 64 KB.
+- `POST /api/v1/tokens` accepts an optional `scopes` array. Token responses end with `scopes` (`null` = every scope).

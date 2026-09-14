@@ -9,20 +9,16 @@ import {
    CommandSeparator,
 } from '@/components/ui/command';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { WORKSPACE_ROLES } from '@/lib/workspaces';
 import { useMembersFilterStore } from '@/store/members-filter-store';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { ArrowUpDown, CheckIcon, ChevronRight, ListFilter, Shield } from 'lucide-react';
 
 type FilterType = 'role' | 'sort';
 
-const ROLES: Array<'Guest' | 'Member' | 'Admin' | 'Application'> = [
-   'Guest',
-   'Member',
-   'Admin',
-   'Application',
-];
-
 export function Filter() {
+   const t = useTranslations('workspaceAdmin.members');
    const [open, setOpen] = useState(false);
    const [active, setActive] = useState<FilterType | null>(null);
 
@@ -53,7 +49,7 @@ export function Filter() {
                         >
                            <span className="flex items-center gap-2">
                               <Shield className="size-4 text-muted-foreground" />
-                              Status
+                              {t('columnRole')}
                            </span>
                            <div className="flex items-center">
                               {filters.role.length > 0 && (
@@ -101,18 +97,18 @@ export function Filter() {
                      >
                         <ChevronRight className="size-4 rotate-180" />
                      </Button>
-                     <span className="ml-2 font-medium">Status</span>
+                     <span className="ml-2 font-medium">{t('columnRole')}</span>
                   </div>
                   <CommandList>
                      <CommandGroup>
-                        {ROLES.map((role) => (
+                        {WORKSPACE_ROLES.map((role) => (
                            <CommandItem
                               key={role}
                               value={role}
                               onSelect={() => toggleFilter('role', role)}
                               className="flex items-center justify-between"
                            >
-                              {role}
+                              {t(`role_${role}`)}
                               {filters.role.includes(role) && <CheckIcon size={16} />}
                            </CommandItem>
                         ))}

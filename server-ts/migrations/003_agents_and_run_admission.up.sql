@@ -1,5 +1,5 @@
 -- Berry migration range 000-099: agent product identities and durable run admission.
--- OpenFang remains an external execution substrate; this schema contains no
+-- The agent runtime remains an external execution substrate; this schema contains no
 -- provider credentials, prompts, or execution-side configuration.
 
 CREATE TABLE IF NOT EXISTS agents (
@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS agents (
     -- The current foundation scopes product data by board. NULL represents a
     -- deployment-wide prototype agent until workspace membership lands.
     board_id uuid REFERENCES boards(id) ON DELETE CASCADE,
-    openfang_agent_id uuid NOT NULL,
+    runtime_agent_id uuid NOT NULL,
     name text NOT NULL,
     description text,
     avatar_url text,
@@ -32,8 +32,8 @@ CREATE TABLE IF NOT EXISTS agents (
     )
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS agents_openfang_agent_id_key
-    ON agents (openfang_agent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS agents_runtime_agent_id_key
+    ON agents (runtime_agent_id);
 CREATE INDEX IF NOT EXISTS agents_name_id_idx
     ON agents (name ASC, id ASC)
     WHERE archived_at IS NULL;

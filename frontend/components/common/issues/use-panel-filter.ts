@@ -6,7 +6,7 @@ import { useCallback, useState } from 'react';
 
 /** A single clickable value inside a right-side panel. */
 export interface PanelFilterTarget {
-   columnId: 'status' | 'assignee' | 'priority' | 'labels' | 'project' | 'cycle';
+   columnId: 'status' | 'assignee' | 'priority' | 'labels' | 'project';
    value: string;
 }
 

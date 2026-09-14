@@ -39,20 +39,47 @@ have been separated.
 | `/metrics` | answers 404, and `capabilities.metrics` is false to match. Lands with the observability port. |
 | `/api/v1/config` | honest but narrow: `planner`, `workflows` and `valkey` are reported false because this process does not provide them. |
 
-## The one known divergence: linking a GitHub repository
+## `/api/v1/me/settings` gained `locale`
+
+The Go baselines predate it. The settings object now ends with `locale`
+(`en` | `zh-Hans` | `ja` | `ko`, default `en`), appended after the verified
+fields so their order is unchanged; `/me` and `/me/bootstrap` carry it inside
+`settings` the same way.
+
+## Linking a GitHub repository
 
 Berry stores a repository's id beside its name, and resolves that id through
 GitHub rather than trusting the caller — a supplied id could name a repository
 the connection cannot see, and the stored pair would then disagree about where
 the project delivers. A database constraint keeps the two columns together.
 
-This server has no resolver, so it refuses with **412
-INTEGRATIONS_NOT_CONFIGURED**. A deployment that *has* one refuses with **422
-REPOSITORY_UNAVAILABLE** instead.
+The resolver is implemented (`resolveRepository` in `mounts/projects.ts`). On
+create and PATCH, a `githubRepo` (`owner/name`) is resolved through the same
+credential the picker lists with — `githubToken()` + `GitHubClient`, App token
+first, else the OAuth connection — and the id and name are written together.
+The status codes are meaningful and distinct:
 
-Both refuse, and neither writes a half-link, so no project can end up in a
-broken state. But the codes differ, and a client that switches on them would
-see the difference.
+- **412 INTEGRATIONS_NOT_CONFIGURED** — no encryption key, so no credential can
+  be held; nothing can resolve a repository here.
+- **409 NOT_CONNECTED / CONNECTION_UNUSABLE** — a provider exists but has no
+  usable credential (no App installed, or an absent/expired OAuth connection).
+- **422 REPOSITORY_UNAVAILABLE** — the credential is fine but the repository
+  cannot be resolved (missing, or unseen by this credential).
+- **502 PROVIDER_ERROR** — a transient GitHub failure, worth retrying.
+
+None of these writes a half-link, so a project never ends up in a broken state.
+Clearing the link (`githubRepo: null`) needs no resolver and always succeeds.
+
+## Sign-in
+
+GitHub is the only way in, through Better Auth at `/api/auth/*`. It uses a
+GitHub **OAuth App** of its own (`BERRY_AUTH_GITHUB_CLIENT_ID`/`_SECRET`,
+scopes `read:user user:email`, callback `<BERRY_APP_URL>/api/auth/callback/github`),
+separate from the repository GitHub App so sign-in never holds repository
+access. A GitHub account links to an existing Berry user only through a
+GitHub-verified email. Sessions are the `berry.session_token` cookie; personal
+access tokens remain the bearer credential for API clients. Sessions issued
+before migration 150 were revoked at cutover.
 
 ## Agents: rows, not a projection
 

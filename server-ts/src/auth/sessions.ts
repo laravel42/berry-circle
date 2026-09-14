@@ -1,19 +1,20 @@
-import { randomUUID } from 'node:crypto';
-import { toRFC3339, type Sql } from '../db/pool.ts';
-import {
-   generateToken,
-   hashToken,
-   isPersonalToken,
-   parsePersonalToken,
-   secretMatches,
-} from './tokens.ts';
+import type { Sql } from '../db/pool.ts';
+import { userFromRow, type BearerResolver } from './credentials.ts';
+import { parseBearer } from './tokens.ts';
 
 /**
- * Opaque session lifecycle.
+ * Who is calling.
  *
- * Only the SHA-256 hash of a token is ever persisted, so a database leak hands
- * an attacker nothing usable. The raw token exists once, in the login
- * response, and is never written down.
+ * Two credentials, never mixed. A request with an Authorization header is
+ * decided by that header alone — a personal access token, or any token a
+ * registered resolver claims — and a bad one is not retried against the
+ * cookie, so a caller cannot stack credentials and have the server pick. A
+ * request without one is decided by the Better Auth session cookie, which is
+ * how the browser (and its event stream) signs in.
+ *
+ * Sessions themselves — issue, refresh, expiry, sign-out — belong to Better
+ * Auth (src/auth/better-auth.ts). This only asks it who a cookie belongs to
+ * and reads that user's row.
  */
 
 export type Role = 'admin' | 'member' | 'viewer';
@@ -30,25 +31,6 @@ export interface User {
    updatedAt: string;
 }
 
-export interface IssuedSession {
-   token: string;
-   expiresAt: string;
-   user: User;
-}
-
-/** Non-authoritative audit context captured at login. */
-export interface SessionMetadata {
-   userAgent?: string | null;
-   ip?: string | null;
-}
-
-export class InvalidCredentials extends Error {
-   constructor() {
-      super('invalid credentials');
-      this.name = 'InvalidCredentials';
-   }
-}
-
 export class SessionUnauthenticated extends Error {
    constructor() {
       super('unauthenticated');
@@ -56,172 +38,97 @@ export class SessionUnauthenticated extends Error {
    }
 }
 
+/** A cookie-authenticated write sent from an origin Berry does not serve. */
+export class CrossOriginRefused extends Error {
+   constructor() {
+      super('cross-origin request refused');
+      this.name = 'CrossOriginRefused';
+   }
+}
+
+/** What SessionService needs from Better Auth; `auth.api` satisfies it. */
+export interface SessionLookup {
+   getSession(input: { headers: Headers }): Promise<{ user: { id: string } } | null>;
+}
+
 export interface SessionServiceOptions {
    sql: Sql;
-   sessionTtlMs: number;
-   now?: () => Date;
-   newId?: () => string;
-   randomToken?: () => string;
+   auth: SessionLookup | null;
+   bearer?: BearerResolver[];
+   trustedOrigins?: string[];
 }
+
+/**
+ * Methods a browser sends cross-site without a preflight being able to stop
+ * it. A cookie rides along on those, so their Origin is checked; reads are
+ * harmless to replay and are not.
+ */
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export class SessionService {
    private readonly sql: Sql;
-   private readonly ttlMs: number;
-   private readonly now: () => Date;
-   private readonly newId: () => string;
-   private readonly randomToken: () => string;
+   private readonly auth: SessionLookup | null;
+   private readonly bearer: BearerResolver[];
+   private readonly trustedOrigins: Set<string>;
 
    constructor(options: SessionServiceOptions) {
-      if (options.sessionTtlMs <= 0) throw new Error('session TTL must be positive');
       this.sql = options.sql;
-      this.ttlMs = options.sessionTtlMs;
-      this.now = options.now ?? (() => new Date());
-      this.newId = options.newId ?? randomUUID;
-      this.randomToken = options.randomToken ?? generateToken;
+      this.auth = options.auth;
+      this.bearer = options.bearer ?? [];
+      this.trustedOrigins = new Set(options.trustedOrigins ?? []);
    }
 
-   /** Issues a session for an existing, case-insensitively matched email. */
-   async issueKnownEmail(email: string, metadata: SessionMetadata = {}): Promise<IssuedSession> {
+   async resolveRequest(request: Request): Promise<User> {
+      const authorization = request.headers.get('authorization');
+      if (authorization !== null) return this.resolveBearer(authorization);
+      return this.resolveCookie(request);
+   }
+
+   /** One users row by id; a user deleted since the credential was issued is not a caller. */
+   async loadUser(userId: string): Promise<User> {
       const [row] = await this.sql`
          SELECT id, email, name, avatar_url, role::text AS role, last_workspace_id,
                 created_at, updated_at
            FROM users
-          WHERE lower(email) = lower(${email})
-          LIMIT 1`;
-      if (!row) throw new InvalidCredentials();
-
-      const token = this.randomToken();
-      const now = this.now();
-      const expiresAt = new Date(now.getTime() + this.ttlMs);
-
-      await this.sql`
-         INSERT INTO sessions (
-            id, user_id, token_hash, user_agent, ip, expires_at, created_at
-         ) VALUES (
-            ${this.newId()}, ${row.id as string}, ${hashToken(token)},
-            ${metadata.userAgent ?? null}, ${metadata.ip ?? null},
-            ${expiresAt.toISOString()}, ${now.toISOString()}
-         )`;
-
-      return { token, expiresAt: expiresAt.toISOString(), user: toUser(row) };
-   }
-
-   /**
-    * Hashes the presented token and lets storage enforce expiry.
-    *
-    * The read is a write: it stamps `last_used_at` in the same statement that
-    * checks the session is live, so a token cannot be resolved without the
-    * ledger recording that it was — and there is no window between the two.
-    */
-   async resolveSession(token: string): Promise<User> {
-      const now = this.now().toISOString();
-      const [row] = await this.sql`
-         WITH live_session AS (
-            UPDATE sessions
-               SET last_used_at = ${now}
-             WHERE token_hash = ${hashToken(token)}
-               AND expires_at > ${now}
-               AND revoked_at IS NULL
-             RETURNING user_id
-         )
-         SELECT u.id, u.email, u.name, u.avatar_url, u.role::text AS role,
-                u.last_workspace_id, u.created_at, u.updated_at
-           FROM live_session AS s
-           JOIN users AS u ON u.id = s.user_id
+          WHERE id = ${userId}
           LIMIT 1`;
       if (!row) throw new SessionUnauthenticated();
-      return toUser(row);
+      return userFromRow(row);
    }
 
-   /**
-    * Resolves any credential, dispatching on the reserved prefix.
-    *
-    * A token claiming the personal namespace is verified as one and never
-    * falls back to session lookup, so a malformed PAT cannot be tried a second
-    * time as a session token. Ported from auth.CompositeResolver.
-    */
-   async resolveCredential(token: string): Promise<User> {
-      return isPersonalToken(token)
-         ? this.resolvePersonalToken(token)
-         : this.resolveSession(token);
-   }
-
-   /**
-    * One indexed lookup on the public half, then a constant-time comparison of
-    * the secret's digest.
-    *
-    * The public identifier is what makes this a single query: without it the
-    * server would have to hash the presented secret against every stored row.
-    * The stored side is a digest, so a database copy does not yield a usable
-    * credential.
-    */
-   async resolvePersonalToken(token: string): Promise<User> {
-      let parsed: { publicId: string; secret: string };
+   private async resolveBearer(header: string): Promise<User> {
+      let token: string;
       try {
-         parsed = parsePersonalToken(token);
+         token = parseBearer(header);
       } catch {
          throw new SessionUnauthenticated();
       }
-
-      const now = this.now().toISOString();
-      const [row] = await this.sql`
-         SELECT t.id, t.secret_hash, t.expires_at, t.revoked_at,
-                u.id AS user_id, u.email, u.name, u.avatar_url, u.role::text AS role,
-                u.last_workspace_id, u.created_at, u.updated_at
-           FROM personal_api_tokens AS t
-           JOIN users AS u ON u.id = t.user_id
-          WHERE t.public_id = ${parsed.publicId}`;
-      if (!row) throw new SessionUnauthenticated();
-
-      const expiresAt = row.expires_at as string | null;
-      if (row.revoked_at !== null || (expiresAt !== null && new Date(expiresAt) <= new Date(now))) {
-         throw new SessionUnauthenticated();
-      }
-      if (!secretMatches(parsed.secret, row.secret_hash as Buffer)) {
-         throw new SessionUnauthenticated();
-      }
-
-      // GREATEST, so a delayed request cannot move last_used_at backwards.
-      const touched = await this.sql`
-         UPDATE personal_api_tokens
-            SET last_used_at = GREATEST(COALESCE(last_used_at, ${now}), ${now})
-          WHERE id = ${row.id as string} AND revoked_at IS NULL`;
-      if (touched.count !== 1) throw new SessionUnauthenticated();
-
-      return toUser({ ...row, id: row.user_id });
+      const resolver = this.bearer.find((candidate) => candidate.matches(token));
+      if (!resolver) throw new SessionUnauthenticated();
+      return resolver.resolve(token);
    }
 
-   /**
-    * Revokes a session. An unknown token is a successful no-op — telling a
-    * caller their token was not found is telling them something about tokens.
-    */
-   async revokeSession(token: string): Promise<void> {
-      await this.sql`
-         UPDATE sessions
-            SET revoked_at = COALESCE(revoked_at, now())
-          WHERE token_hash = ${hashToken(token)}`;
+   private async resolveCookie(request: Request): Promise<User> {
+      if (!this.auth) throw new SessionUnauthenticated();
+      if (!SAFE_METHODS.has(request.method.toUpperCase())) {
+         // SameSite=Lax already keeps the cookie off most cross-site writes;
+         // this closes the rest (a sibling subdomain is "same site"). A
+         // request with no Origin is not a browser acting for someone else.
+         const origin = request.headers.get('origin');
+         if (origin !== null && !this.trustedOrigins.has(origin)) throw new CrossOriginRefused();
+      }
+      const found = await this.auth.getSession({ headers: request.headers });
+      if (!found) throw new SessionUnauthenticated();
+      return this.loadUser(found.user.id);
    }
-}
-
-function toUser(row: Record<string, unknown>): User {
-   return {
-      id: row.id as string,
-      email: row.email as string,
-      name: row.name as string,
-      avatarUrl: (row.avatar_url as string | null) ?? null,
-      role: row.role as Role,
-      currentWorkspaceId: (row.last_workspace_id as string | null) ?? null,
-      createdAt: toRFC3339(row.created_at as string) ?? '',
-      updatedAt: toRFC3339(row.updated_at as string) ?? '',
-   };
 }
 
 /**
  * The user shape on the wire.
  *
  * Built key by key in Go's field order, and deliberately without
- * `currentWorkspaceId` — the Go serializer does not emit it, and adding a
- * field to a response is as much a contract change as removing one.
+ * `currentWorkspaceId` — adding a field to a response is as much a contract
+ * change as removing one.
  */
 export function serializeUser(user: User): Record<string, unknown> {
    return {

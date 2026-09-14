@@ -30,10 +30,13 @@ export function GoalProgress({ progress, compact = false, className }: GoalProgr
          </span>
       );
    }
+   // A goal is its tasks, so one with none has nothing to show a bar for —
+   // drawing an empty track there reads as progress that has not moved.
+   if (total === 0) return null;
    return (
       <div className={className}>
          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium">{total > 0 ? `${percent}% done` : 'No tasks yet'}</span>
+            <span className="font-medium">{percent}% done</span>
             <span className="text-muted-foreground">{describeGoalProgress(progress)}</span>
          </div>
          <Progress value={percent} className="mt-2 h-2" aria-label={`${percent}% of tasks done`} />

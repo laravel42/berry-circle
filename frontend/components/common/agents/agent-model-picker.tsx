@@ -38,6 +38,17 @@ function compact(tokens: number): string {
 }
 
 /**
+ * ` · 200K ctx`, or nothing.
+ *
+ * Bedrock does not publish a context window, so the catalogue reports 0 for
+ * every model it serves. "0 ctx" reads as a fact about the model rather than
+ * as the absence of one, so the clause is left out instead.
+ */
+function contextNote(tokens: number, unit: string): string {
+   return tokens > 0 ? ` · ${compact(tokens)} ${unit}` : '';
+}
+
+/**
  * Every whitespace-separated term must appear in the entry.
  *
  * cmdk's default scorer is fuzzy enough to rank an unrelated model above
@@ -156,7 +167,7 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                >
                   <span className="truncate">
                      {selected
-                        ? `${selected.displayName} — ${modelPrice(selected.inputCostPerM)}/${modelPrice(selected.outputCostPerM)} per M · ${compact(selected.contextWindow)} ctx`
+                        ? `${selected.displayName} — ${modelPrice(selected.inputCostPerM)}/${modelPrice(selected.outputCostPerM)} per M${contextNote(selected.contextWindow, 'ctx')}`
                         : current || 'Select a model…'}
                   </span>
                   <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
@@ -194,8 +205,8 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
                                        <span className="truncate">{item.displayName}</span>
                                        <span className="text-muted-foreground">
                                           {modelPrice(item.inputCostPerM)}/
-                                          {modelPrice(item.outputCostPerM)} per M ·{' '}
-                                          {compact(item.contextWindow)} ctx
+                                          {modelPrice(item.outputCostPerM)} per M
+                                          {contextNote(item.contextWindow, 'ctx')}
                                           {item.supportsTools ? ' · tools' : ''}
                                        </span>
                                     </span>
@@ -211,9 +222,10 @@ export function AgentModelPicker({ agentId, provider, model }: AgentModelPickerP
 
          {selected ? (
             <p className="text-muted-foreground">
-               {selected.tier} · {compact(selected.contextWindow)} context ·{' '}
+               {selected.tier ? `${selected.tier} · ` : ''}
                {modelPrice(selected.inputCostPerM)} in / {modelPrice(selected.outputCostPerM)} out
                per million
+               {contextNote(selected.contextWindow, 'context')}
                {selected.supportsTools ? ' · tools' : ''}
                {selected.supportsVision ? ' · vision' : ''}
             </p>

@@ -1,0 +1,39 @@
+---
+inclusion: fileMatch
+fileMatchPattern: ['frontend/**']
+---
+
+# Frontend (`frontend`)
+
+Next.js App Router (see `package.json` for the installed version). Prettier
+**3-space**, single quotes, semicolons, `es5` trailing commas, `printWidth`
+100. Alias `@/*` → frontend root. Zod 3 (`package.json` pins `^3.24.2`; the
+server is on Zod 4 — do not assume they match). No test runner — `pnpm lint`
+and `pnpm build`, plus a manual check of the changed view.
+
+## Data and API
+
+- Call Berry only through `lib/api.ts` (`apiUrl` / `apiFetch`). Do not
+  hand-roll `fetch`. Never call a model provider from the browser.
+- Config lives in `lib/config.ts` (`NEXT_PUBLIC_*`, inlined at build). Empty
+  `NEXT_PUBLIC_BERRY_API_URL` means boot with no data (`isApiConfigured`).
+- `data/*` holds domain types and empty collections on purpose. Zustand stores
+  in `store/` seed from those modules. Do not reintroduce Circle demo datasets.
+- `currentUser` in `data/users.ts` is a pre-auth placeholder.
+- Default issue prefix is the first three characters of the workspace name
+  (`settings.issuePrefix`); tracker issues are `BERR-NN`.
+
+## UI
+
+- Prefer existing shadcn/Radix primitives and semantic tokens from
+  `app/globals.css`. Do not treat indigo/violet accents as approved brand
+  colors; see `docs/design-system.md`.
+- Native `input` / `textarea` text is `var(--foreground)` plus
+  `-webkit-text-fill-color` (see `app/globals.css`). `color` alone is not
+  enough: WebKit keeps a black fill on `color-scheme: dark` and
+  `bg-transparent` fields. Placeholders must stay readable on dark
+  surfaces — fade with `placeholder:text-foreground/40`, never low-opacity
+  `muted-foreground` (ash at 30% reads as black on void).
+- Keep the Circle MIT notice in `LICENSE.md`.
+- Vendored `components/data-table-filter/**` may use `any`; do not copy that
+  exemption. When forms land, use `zodResolver` with one Zod schema per form.

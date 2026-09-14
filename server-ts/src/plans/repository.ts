@@ -46,6 +46,8 @@ export interface PlanRecord {
       error: string | null;
       compiledAt: string | null;
       goalId: string | null;
+      /** One per milestone, in delivery order. The first is `goalId`. */
+      goalIds: string[];
       issueIds: string[];
       approvalIds: string[];
    } | null;
@@ -130,6 +132,8 @@ export class PlanRepository {
       boardId: string;
       prompt: string;
       createdBy: string;
+      /** Let this plan's tasks close on a peer agent's review. Off unless asked. */
+      autoGate?: boolean;
    }): Promise<PlanRecord> {
       const id = this.#newId();
       return this.#sql.begin(async (transaction) => {
@@ -185,10 +189,10 @@ export class PlanRepository {
 
          await tx`
             INSERT INTO plans (id, workspace_id, goal_id, project_id, board_id, status, source,
-                               source_prompt, generation_status, created_by)
+                               source_prompt, generation_status, created_by, auto_gate)
             VALUES (${id}, ${input.workspaceId}, ${goalId}, NULL,
                     ${input.boardId}, 'draft', 'ai', ${input.prompt}, 'running',
-                    ${input.createdBy})`;
+                    ${input.createdBy}, ${input.autoGate ?? false})`;
          // `proposed_by` is deliberately left null: it references `agents`,
          // and the thing that asked for this plan was a person.
          const [row] = await tx`SELECT ${tx.unsafe(COLUMNS)} FROM plans WHERE id = ${id}`;
@@ -201,6 +205,30 @@ export class PlanRepository {
       await this.#sql`
          UPDATE plans SET generation_stage = ${stage}, updated_at = ${this.#clock().toISOString()}
           WHERE id = ${planId} AND generation_status = 'running'`;
+   }
+
+   /**
+    * Puts an already-generated plan back into generation.
+    *
+    * Answering a blocked plan's questions regenerates it in place: same row,
+    * same id, same URL, and `recordGeneration` lands the result as the next
+    * version with the old one kept in `plan_versions`. Nothing is deleted —
+    * what the plan looked like before the answers stays readable.
+    *
+    * Guarded on the plan being open and not already running, and it returns
+    * whether it won: two wizards submitted at once must produce one
+    * regeneration, not two racing to write the same version.
+    */
+   async reopenForGeneration(planId: string): Promise<boolean> {
+      const rows = await this.#sql`
+         UPDATE plans
+            SET generation_status = 'running', generation_stage = 'generate',
+                generation_error = NULL, updated_at = ${this.#clock().toISOString()}
+          WHERE id = ${planId}
+            AND generation_status <> 'running'
+            AND status IN ('draft', 'pending_approval')
+          RETURNING id`;
+      return rows.length > 0;
    }
 
    /** Records a finished generation: the document, its verdict, and every stage that ran. */
@@ -357,10 +385,39 @@ export class PlanRepository {
       await this.#sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
 
-         const goalId = record.goalId!;
-         await tx`
-            UPDATE goals SET status = 'planned', updated_at = ${now}
-             WHERE id = ${goalId} AND status = 'draft'`;
+         // One goal per milestone, in the plan's project. The goal minted when
+         // the plan opened becomes the first milestone rather than lingering
+         // as an empty group beside the real ones — and `plans.goal_id` keeps
+         // pointing at a goal that has tasks.
+         const goalOf = new Map<string, string>();
+         const goalIds: string[] = [];
+         const milestones =
+            plan.milestones.length > 0
+               ? plan.milestones
+               : [{ tempId: plan.goal.tempId, title: plan.goal.title, description: plan.goal.description ?? null }];
+         for (const [index, milestone] of milestones.entries()) {
+            let goalId: string;
+            if (index === 0 && record.goalId) {
+               goalId = record.goalId;
+               await tx`
+                  UPDATE goals
+                     SET title = ${milestone.title}, description = ${milestone.description ?? null},
+                         project_id = COALESCE(project_id, ${record.projectId}),
+                         status = 'planned', updated_at = ${now}
+                   WHERE id = ${goalId}`;
+            } else {
+               goalId = this.#newId();
+               await tx`
+                  INSERT INTO goals (id, workspace_id, project_id, title, description, status,
+                                     source, created_by, created_at, updated_at)
+                  VALUES (${goalId}, ${record.workspaceId}, ${record.projectId}, ${milestone.title},
+                          ${milestone.description ?? null}, 'planned', 'ai', ${input.userId},
+                          ${now}, ${now})`;
+            }
+            goalOf.set(milestone.tempId, goalId);
+            goalIds.push(goalId);
+         }
+         const firstGoalId = goalIds[0]!;
 
          const labelIds = await ensureLabels(tx, record.workspaceId, plan, input.userId);
          const issueIds = new Map<string, string>();
@@ -376,7 +433,7 @@ export class PlanRepository {
                 WHERE id = ${boardId} RETURNING issue_counter`;
             await tx`
                INSERT INTO issues (id, board_id, number, title, description, status, priority,
-                                   created_by, assignee_type, assignee_id)
+                                   created_by, assignee_type, assignee_id, auto_gate)
                VALUES (${issueId}, ${boardId}, ${Number(counter!.issue_counter)}, ${issue.title},
                        ${issue.description ?? null}, ${status}::issue_status,
                        ${issue.priority ?? 'medium'}, ${input.userId},
@@ -384,12 +441,18 @@ export class PlanRepository {
                        -- absence of an assignee, which is what the column
                        -- being nullable already says.
                        ${issue.suggestedAgentId ? 'agent' : null},
-                       ${issue.suggestedAgentId ?? null})`;
+                       ${issue.suggestedAgentId ?? null},
+                       -- Carried from the plan at compile, as migration 026
+                       -- says: the issue is the thing being gated, and a plan
+                       -- edited later must not change how work in flight ends.
+                       ${record.autoGate})`;
             issueIds.set(issue.tempId, issueId);
 
             await tx`
                INSERT INTO goal_issues (workspace_id, goal_id, issue_id)
-               VALUES (${record.workspaceId}, ${goalId}, ${issueId})
+               VALUES (${record.workspaceId},
+                       ${(issue.milestone && goalOf.get(issue.milestone)) ?? firstGoalId},
+                       ${issueId})
                ON CONFLICT (issue_id) DO NOTHING`;
             await tx`
                INSERT INTO plan_issues (workspace_id, issue_id, plan_id)
@@ -435,7 +498,9 @@ export class PlanRepository {
                   VALUES (${approvalId}, ${record.workspaceId}, 'issue_start', 'medium',
                           ${`Start "${issue.title}"?`},
                           ${plan.approvals.find((a) => a.target.tempId === issue.tempId)?.reason ?? null},
-                          ${issueId}, ${input.planId}, ${goalId}, 'admin', 'user',
+                          ${issueId}, ${input.planId},
+                          ${(issue.milestone && goalOf.get(issue.milestone)) ?? firstGoalId},
+                          'admin', 'user',
                           ${input.userId}, 'pending')`;
                approvalIds.push(approvalId);
             }
@@ -457,7 +522,7 @@ export class PlanRepository {
             planId: input.planId,
             stage: 'compile',
             outcome: 'ok',
-            detail: { issues: issueIds.size, approvals: approvalIds.length },
+            detail: { goals: goalIds.length, issues: issueIds.size, approvals: approvalIds.length },
          });
       });
 
@@ -545,10 +610,25 @@ export class PlanRepository {
 
       let issueIds: string[] = [];
       let approvalIds: string[] = [];
+      let goalIds: string[] = [];
       if (compiled) {
          const issues = await sql`
             SELECT issue_id FROM plan_issues WHERE plan_id = ${row.id as string}`;
          issueIds = issues.map((entry) => entry.issue_id as string);
+         // The goals this plan's tasks were grouped into. The plan's own goal
+         // first — it is the first milestone — then the rest in the order
+         // compile created them, which is delivery order.
+         const goals = await sql`
+            SELECT DISTINCT goal.id, goal.created_at
+              FROM goal_issues AS membership
+              JOIN plan_issues AS planned ON planned.issue_id = membership.issue_id
+              JOIN goals AS goal ON goal.id = membership.goal_id
+             WHERE planned.plan_id = ${row.id as string}
+             ORDER BY goal.created_at ASC, goal.id ASC`;
+         const anchor = (row.goal_id as string | null) ?? null;
+         goalIds = goals
+            .map((entry) => entry.id as string)
+            .sort((left, right) => (left === anchor ? -1 : right === anchor ? 1 : 0));
          const approvals = await sql`
             SELECT id FROM approvals WHERE plan_id = ${row.id as string}`;
          approvalIds = approvals.map((entry) => entry.id as string);
@@ -609,6 +689,7 @@ export class PlanRepository {
                  error: (row.compile_error as string | null) ?? null,
                  compiledAt: toRFC3339(row.compiled_at as string | null),
                  goalId: (row.goal_id as string | null) ?? null,
+                 goalIds,
                  issueIds,
                  approvalIds,
               }

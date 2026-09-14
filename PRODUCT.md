@@ -74,54 +74,67 @@ Status flow: `backlog → todo → in_progress → in_review → done` (with `ca
 
 ## Feature map
 
-Features are grouped the way the shell rail organizes them. Some surfaces are live with real API data; others are scaffolded UI awaiting backend parity. Design should treat all listed areas as **in-scope product intent**, not throwaway mocks.
+Grouped by concern, not by navigation: the rail carries two sections, **Work** and **Manage**, and several surfaces below are reached from context instead. Where a heading matches a rail section it says so. Some surfaces are live with real API data; others are scaffolded UI awaiting backend parity. Design should treat all listed areas as **in-scope product intent**, not throwaway mocks.
 
-### Personal (top of rail)
+### Personal
+
+Not in the rail; reached from the shell or from context.
 
 | Feature | Purpose |
 | --- | --- |
-| **Inbox / notifications** | Workspace landing; unread activity, mentions, and actionable items. Bell + drawer pattern replaces a dedicated inbox page in the current shell. |
-| **Chat** | Workspace-scoped conversation with agents and teammates. |
-| **Meetings** | Scheduled or live collaboration (scaffolded in navigation). |
+| **Notifications** | Unread activity, mentions, and actionable items, through the bell and its drawer. There is no inbox page and no rail entry — `/api/v1/inbox` is the feed behind the drawer, not a destination. **Tasks** is the workspace landing route. |
+| **Chat** | Workspace-scoped conversation with agents and teammates. The page exists at `/chat`; nothing in the rail links to it. |
+| **Meetings** | Not built — no page and no prefix. Listed as intent only. |
 
-### Work
+### Work — the rail's first section
 
 | Feature | Purpose |
 | --- | --- |
 | **Tasks (My Issues)** | Personal queue with tabs (All, Assigned, Created, …), filters, and saved views. Default entry for "what should I do next?" |
 | **Reviews** | PR-style code review inside the app — "For you" and "Created" lists, diff view, review guide, detail drawer. Tied to the human review gate. |
-| **Goals** | Outcome-oriented planning; links to plans and goal detail. |
-| **Analytics** | Workspace metrics and operational visibility (navigation placeholder). |
-| **Projects** | Project list, overview, issue board, activity timeline, create-project flow. |
+| **Goals** | Read-only. A goal is the group of tasks one plan produced, inside its project — nothing is authored here, and its status is read off those tasks. See [ADR-0010](docs/adr/0010-goals-as-derived-task-groups.md), proposed. |
+| **Projects** | The authored container, and where work starts. Project list, overview, issue board, activity timeline, and the create-project flow — which is also the planning flow: give a project the **AI workflow** lead and Berry plans it and creates its tasks. |
 
 ### Issues & boards (reachable from projects, views, command palette)
 
 - **Kanban / grouped board** — Column-based issue board with configurable width and grouping.
 - **Issue detail** — Properties, description (plain text), comments, assignee (user or agent), related runs, auto-review history.
 - **Filters & saved views** — Data-table filter builder, view pinning, bulk operations.
-- **Create issue** — Modal/dialog flow with command-palette shortcut; same pattern for create plan and create project.
+- **Create issue** — Modal/dialog flow with command-palette shortcut; same pattern for create project.
+- **Create project** — Also the way work is planned. Choosing **AI workflow** as the project lead is what asks Berry to plan it; AutoGate appears beside that choice, because only Berry can be told to skip the human review.
 
 ### Automate
 
 | Feature | Purpose |
 | --- | --- |
-| **Runs** | The ledger of an agent working a task: commands, output, artifacts, per-run detail. |
-| **Approvals** | The human decisions that gate a plan, a task's start, or an action an agent takes outside Berry. |
+| **Runs** | The ledger of an agent working a task: commands, output, artifacts, per-run detail. The rail calls this **runtimes**, under Manage. |
+| **Approvals** | The human decisions that gate a plan, a task's start, or an action an agent takes outside Berry. Has a page at `/approvals`, reached from a plan or a task rather than the rail. |
+| **Plans** | What Berry proposes before anything is created: the tasks, the approvals and the risk, at `/plan/{id}`. Reached by planning a project, not from the rail. |
 
 Berry has no rules engine, and that is deliberate. A trigger-and-steps builder
 asks a person to keep a rule in agreement with work that lives somewhere else;
 a condition that must be respected belongs in the task's description, where
 the agent doing the work will read it.
 
-### Manage
+### Manage — the rail's second section
 
 | Feature | Purpose |
 | --- | --- |
+| **Runtimes** | The runs list at `/runs`, with a live dot in the rail while any run has not reached a terminal status. |
 | **Agents** | Agent roster, configuration, builder entry points, per-agent detail. |
+| **Analytics** | Workspace metrics and operational visibility. A rail entry with no destination: there is no page and no `/api/v1` prefix behind it. |
 
 ### Settings & workspace administration
 
 Profile, preferences, notifications, issue labels/templates, integrations, AI settings, code & reviews preferences, security, workspace members, and domain-specific admin (SLAs, releases, initiatives, documents, etc.). Settings replace the rail when active — same pattern as the legacy sidebar.
+
+**Integrations — GitHub.** Berry creates its own GitHub App rather than being
+configured with one. Pressing *Create GitHub App* posts a manifest, GitHub shows
+what the App will be allowed to do, and the conversion hands the credentials
+back to be sealed in the database — nothing is copied by hand and no callback
+URL is registered by hand, which is the step that is easy to get wrong.
+Repository work then runs on installation tokens minted per run, so no
+credential expires between one unattended run and the next.
 
 ### Cross-cutting UX
 
@@ -133,4 +146,4 @@ Profile, preferences, notifications, issue labels/templates, integrations, AI se
 
 ### Planned / phased (in parity contract, not all built)
 
-Agent builder (AI-assisted and manual), skills catalog, squads, usage/cost dashboards, autopilot hardening, GitHub/VCS integrations, channel bindings (Slack, Telegram, etc.), MCP configuration, plugins, and four-locale support (`en`, `zh-Hans`, `ja`, `ko`).
+Agent builder (AI-assisted and manual), skills catalog, squads, usage/cost dashboards, autopilot hardening, channel bindings (Slack, Telegram, etc.), MCP configuration, plugins, and four-locale support (`en`, `zh-Hans`, `ja`, `ko`).

@@ -1,41 +1,57 @@
 'use client';
 
-import { applyIssueFilters } from '@/components/common/issues/issue-filter-columns';
-import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
+import { BatchToolbar } from '@/components/common/issues/batch-toolbar';
 import { GroupedIssuesView } from '@/components/common/issues/grouped-issues-view';
 import { InsightsPanel } from '@/components/common/issues/insights-panel';
+import { IssueFilterBar } from '@/components/common/issues/issue-filter-bar';
+import {
+   applyIssueFilters,
+   usePropertyFilterMatches,
+} from '@/components/common/issues/issue-filter-columns';
+import { IssueGantt } from '@/components/common/issues/issue-gantt';
+import { IssueSwimlanes } from '@/components/common/issues/issue-swimlanes';
+import { IssueTable } from '@/components/common/issues/issue-table';
+import {
+   IssueListError,
+   IssueListSkeleton,
+   useIssueListLoad,
+} from '@/components/common/issues/list-states';
+import { QuickCreate } from '@/components/common/issues/quick-create';
 import { SearchIssues } from '@/components/common/issues/search-issues';
+import { useIssueListView } from '@/components/common/issues/use-issue-list-view';
 import { BreakdownPanel } from './breakdown-panel';
 import { displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { useSearchStore } from '@/store/search-store';
-import { useViewStore } from '@/store/view-store';
 import { useMemo } from 'react';
-import { scopeMyIssues, useMyIssuesTab } from './use-my-issues';
+import { scopeMyIssues, useMyIssuesScope, useMyIssuesTab } from './use-my-issues';
 
 /**
- * "My issues" body — the exact same machinery as the team issue views
- * (search, filter bar, list/board display, insights panel), scoped to the
- * current tab (All / Members / Agent).
+ * "My issues" body — the same machinery as the team views (search, filters,
+ * every layout, insights), scoped to the tab: everything, what this person is
+ * holding, what they opened, or what their agents and squads are on.
  */
 export default function MyIssues() {
    const [tab] = useMyIssuesTab();
+   const scope = useMyIssuesScope();
    const { isSearchOpen, searchQuery } = useSearchStore();
-   const { viewType } = useViewStore();
+   const view = useIssueListView();
    const { filters } = useFilterStore();
    const { issues } = useIssuesStore();
    const { openPanel } = useRightPanelStore();
+   const load = useIssueListLoad();
 
    const isSearching = isSearchOpen && searchQuery.trim() !== '';
-   const isViewTypeGrid = viewType === 'grid';
 
-   const scopedIssues = useMemo(() => scopeMyIssues(issues, tab), [issues, tab]);
+   const scopedIssues = useMemo(() => scopeMyIssues(issues, tab, scope), [issues, tab, scope]);
+
+   const propertyMatches = usePropertyFilterMatches(filters);
 
    const displayedIssues = useMemo(
-      () => applyIssueFilters(scopedIssues, filters),
-      [scopedIssues, filters]
+      () => applyIssueFilters(scopedIssues, filters, propertyMatches),
+      [scopedIssues, filters, propertyMatches]
    );
 
    if (isSearching) {
@@ -48,17 +64,41 @@ export default function MyIssues() {
       );
    }
 
+   // Only while there is nothing to show: a refresh that already has rows on
+   // screen should not replace them with a skeleton.
+   if (load.loadState === 'loading' && issues.length === 0) {
+      return <IssueListSkeleton mode={view.mode} />;
+   }
+
+   if (load.loadState === 'error' && issues.length === 0) {
+      return <IssueListError message={load.loadError ?? ''} onRetry={load.retry} />;
+   }
+
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">
          <IssueFilterBar />
+         <QuickCreate />
+         <BatchToolbar visibleIds={displayedIssues.map((issue) => issue.id)} />
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
             <div className="flex-1 min-w-0 h-full overflow-hidden">
-               <GroupedIssuesView
-                  issues={displayedIssues}
-                  totalIssues={scopedIssues}
-                  statuses={displayOrderedStatus}
-                  isViewTypeGrid={isViewTypeGrid}
-               />
+               {view.mode === 'table' ? (
+                  <IssueTable
+                     issues={displayedIssues}
+                     statuses={displayOrderedStatus}
+                     totalIssues={scopedIssues}
+                  />
+               ) : view.mode === 'swimlane' ? (
+                  <IssueSwimlanes issues={displayedIssues} statuses={displayOrderedStatus} />
+               ) : view.mode === 'gantt' ? (
+                  <IssueGantt issues={displayedIssues} />
+               ) : (
+                  <GroupedIssuesView
+                     issues={displayedIssues}
+                     totalIssues={scopedIssues}
+                     statuses={displayOrderedStatus}
+                     isViewTypeGrid={view.mode === 'grid'}
+                  />
+               )}
             </div>
 
             {openPanel === 'insights' && (

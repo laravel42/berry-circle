@@ -1,88 +1,32 @@
 'use client';
 
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-   getReviewFileDiff,
-   getReviewGuide,
-   Review,
-} from '@/data/reviews';
-import { FileCode2 } from 'lucide-react';
-import { useMemo } from 'react';
-import { DiffView } from './diff-view';
-import { DiffStat, InlineText, PrIcon } from './review-shared';
+import { reviewTimeAgo, type ReviewItem } from '@/lib/reviews';
 
-/** Guide tab: narrated walk-through sections next to the relevant diff. */
-export function ReviewGuide({ review }: { review: Review }) {
-   const sections = useMemo(() => getReviewGuide(review), [review]);
-
-   return (
-      <div className="h-full overflow-y-auto relative">
-         <div className="max-w-6xl mx-auto px-6 py-8 flex flex-col gap-10">
-            <div className="flex flex-col gap-1.5">
-               <h1 className="font-semibold leading-snug">{review.title}</h1>
-               <div className="flex items-center gap-1.5 text-muted-foreground font-mono flex-wrap">
-                  <PrIcon status={review.status} className="size-3.5" />
-                  <span>
-                     {review.repo}#{review.prNumber}
-                  </span>
-                  <span>·</span>
-                  <span>
-                     {review.targetBranch} ← {review.sourceBranch}
-                  </span>
-               </div>
-            </div>
-
-            {sections.map((section, index) => {
-               const file = review.files.find((candidate) => candidate.name === section.diffName);
-               const diff = file ? getReviewFileDiff(review, file) : undefined;
-               return (
-                  <div
-                     key={section.title}
-                     className="grid grid-cols-1 xl:grid-cols-[minmax(260px,1fr)_2fr] gap-6"
-                  >
-                     <div className="flex flex-col gap-3">
-                        <h2 className="font-semibold leading-snug">{section.title}</h2>
-                        <div className="flex items-center gap-3 text-muted-foreground">
-                           {String(index + 1).padStart(2, '0')} / {String(sections.length).padStart(2, '0')}
-                           <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                              <Checkbox className="size-3.5" />
-                              Reviewed
-                           </label>
-                        </div>
-                        {section.paragraphs.map((paragraph, pIndex) => (
-                           <p key={pIndex} className="leading-relaxed">
-                              <InlineText text={paragraph} />
-                           </p>
-                        ))}
-                        <div className="flex flex-col gap-1.5 mt-1">
-                           {section.fileRefs.map((ref) => (
-                              <div
-                                 key={ref.name}
-                                 className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 bg-container"
-                              >
-                                 <FileCode2 className="size-3.5 text-muted-foreground shrink-0" />
-                                 <span className="font-medium">{ref.name}</span>
-                                 <span className="text-muted-foreground truncate flex-1">
-                                    {ref.path}
-                                 </span>
-                                 <span className="text-emerald-600 dark:text-emerald-400 font-medium shrink-0">
-                                    {ref.stat}
-                                 </span>
-                              </div>
-                           ))}
-                        </div>
-                     </div>
-                     <div>{diff && <DiffView diff={diff} />}</div>
-                  </div>
-               );
-            })}
+/** Every peer verdict on the task, newest first, with its reason. */
+export function ReviewVerdicts({ item }: { item: ReviewItem }) {
+   if (item.verdicts.length === 0) {
+      return (
+         <div className="h-full flex items-center justify-center text-muted-foreground">
+            {item.issue.autoGate ? 'No peer verdict yet.' : 'This task did not opt into peer review.'}
          </div>
-
-         <div className="sticky bottom-4 flex justify-center pointer-events-none">
-            <span className="pointer-events-auto inline-flex items-center gap-2 rounded-full border bg-container shadow-sm px-4 py-1.5 text-muted-foreground">
-               {review.files.length} files changed
-               <DiffStat additions={review.additions} deletions={review.deletions} />
-            </span>
+      );
+   }
+   return (
+      <div className="h-full overflow-y-auto">
+         <div className="max-w-3xl mx-auto px-6 py-6 flex flex-col gap-4">
+            {item.verdicts.map((verdict) => (
+               <div key={verdict.id} className="rounded-md border border-border/60 bg-background px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                     <span className="font-medium">
+                        {verdict.approved === null ? 'Reviewing' : verdict.approved ? 'Approved' : 'Sent back'}
+                     </span>
+                     <span className="text-muted-foreground">by {verdict.reviewer}</span>
+                     <span className="text-muted-foreground">· attempt {verdict.attempt}</span>
+                     {verdict.decidedAt && <span className="text-muted-foreground">· {reviewTimeAgo(verdict.decidedAt)} ago</span>}
+                  </div>
+                  {verdict.reason && <p className="mt-1.5 whitespace-pre-line leading-6">{verdict.reason}</p>}
+               </div>
+            ))}
          </div>
       </div>
    );

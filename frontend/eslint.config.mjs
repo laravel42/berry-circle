@@ -25,11 +25,73 @@ const FONT_SIZE_UTILITY = String.raw`(^|\s)([^\s]*:)?text-(xs|sm|base|lg|xl|[2-9
 const TYPE_SCALE_MESSAGE =
    'Font sizes come from the element (h1-h4, else text-xs) via the base layer in app/globals.css. Use the right element, or add the exception to globals.css -- do not set a text-* size utility here.';
 
+/* Fixture collections and surfaces with no backend. The frontend talks to
+   Berry only; an import from this list would render an empty fake instead of
+   real data, or bring a hidden surface back into navigation. Each workstream
+   task that removes a fixture adds its entry here so it cannot return. */
+const FIXTURE_IMPORT_PATHS = [
+   {
+      name: '@/data/side-bar-nav',
+      message: 'The legacy sidebar is gone; navigation lives in shell-routes.ts and nav-settings.tsx.',
+   },
+   {
+      name: '@/data/documents',
+      message: 'Documents have no backend and are hidden from navigation.',
+   },
+   {
+      name: '@/components/common/settings/settings-placeholder',
+      message: 'Placeholder settings pages are hidden, not faked. Build a real settings page instead.',
+   },
+   {
+      name: '@/data/cycles',
+      message: 'Cycles have no backend and are hidden from navigation.',
+   },
+   {
+      name: '@/data/initiatives',
+      message: 'Initiatives have no backend and are hidden from navigation.',
+   },
+   {
+      name: '@/components/common/cycles/cycle-icon',
+      message: 'Cycles have no backend and are hidden from navigation.',
+   },
+   {
+      name: '@/data/users',
+      importNames: ['users'],
+      message: 'Members come from useMembersStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/labels',
+      importNames: ['labels'],
+      message: 'Labels come from useLabelsStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/projects',
+      importNames: ['projects', 'getProjectById', 'getProjectsByTeam'],
+      message: 'Projects come from useProjectsStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/issues',
+      importNames: ['issues'],
+      message: 'Issues come from useIssuesStore, hydrated from the API.',
+   },
+   {
+      name: '@/data/inbox',
+      importNames: ['inboxItems'],
+      message: 'Notifications come from the inbox API.',
+   },
+   {
+      name: '@/data/views',
+      importNames: ['views', 'issueViews', 'projectViews', 'getViewsByTeam', 'getViewById'],
+      message: 'Saved views come from useViewsStore, hydrated from the API.',
+   },
+];
+
 const eslintConfig = [
    ...compat.extends('next/core-web-vitals', 'next/typescript'),
    {
       files: ['**/*.{ts,tsx}'],
       rules: {
+         'no-restricted-imports': ['error', { paths: FIXTURE_IMPORT_PATHS }],
          'no-restricted-syntax': [
             'error',
             {

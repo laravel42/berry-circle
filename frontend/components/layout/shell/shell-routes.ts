@@ -12,17 +12,43 @@ export type ShellRoute =
    | 'issues'
    | 'runs'
    | 'reviews'
+   | 'chat'
    | 'inbox'
    | 'projects'
    | 'goals'
    | 'members'
-   | 'analytics';
+   | 'skills'
+   | 'squads'
+   | 'autopilots'
+   | 'dashboard'
+   | 'usage';
+
+/** Key under `shell.nav` in the message catalogues. */
+export type ShellLabelKey =
+   | 'tasks'
+   | 'chat'
+   | 'reviews'
+   | 'goals'
+   | 'projects'
+   | 'runtimes'
+   | 'agents'
+   | 'analytics'
+   | 'skills'
+   | 'squads'
+   | 'autopilots'
+   | 'dashboard'
+   | 'usage';
 
 export interface ShellRouteDef {
    /** Stable identifier, also the tab key. */
    id: ShellRoute;
    /** What the sidebar and tab strip display. */
    label: string;
+   /**
+    * Catalogue key the rail and tabs render. `label` stays as the English
+    * form for the persisted tab model, which runs outside React.
+    */
+   labelKey: ShellLabelKey;
    /** Inner SVG markup, drawn on a 24x24 viewBox with currentColor stroke. */
    icon: string;
    /**
@@ -33,7 +59,7 @@ export interface ShellRouteDef {
    /**
     * Extra pathname fragments that count as this route being active, for the
     * singular detail paths that hang off a plural list (`/issue/…` under
-    * `/my-issues`). Matched with the same longest-match rule as `href`.
+    * `/tasks`). Matched with the same longest-match rule as `href`.
     */
    match?: string[];
    /**
@@ -41,19 +67,31 @@ export interface ShellRouteDef {
     * item. Every rail destination is pinnable.
     */
    prefsKey?: SidebarItemKey;
+   /**
+    * Show a live dot on this item while something is running, the way the rail
+    * marks runtimes. Declared here rather than matched on `id` in the rail so
+    * the route table stays the one description of what a route is.
+    */
+   live?: 'runs';
 }
 
 const WORK: ShellRouteDef[] = [
    {
+      // The workspace's tasks, every one. Personal's "My tasks" opens the
+      // same page on its assigned tab, and the shell lights whichever of the
+      // two the URL names rather than both.
       id: 'issues',
       label: 'tasks',
-      href: '/my-issues',
+      labelKey: 'tasks',
+      href: '/tasks',
+      match: ['/issue/'],
       prefsKey: 'my-issues',
       icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
    },
    {
       id: 'reviews',
       label: 'reviews',
+      labelKey: 'reviews',
       href: '/reviews',
       prefsKey: 'reviews',
       icon: '<circle cx="7" cy="6" r="2" /><circle cx="7" cy="18" r="2" /><circle cx="17" cy="12" r="2" /><path d="M7 8v8M9 18h4a2 2 0 002-2v-2" />',
@@ -61,6 +99,7 @@ const WORK: ShellRouteDef[] = [
    {
       id: 'goals',
       label: 'goals',
+      labelKey: 'goals',
       href: '/goals',
       match: ['/goal/', '/plan/'],
       prefsKey: 'goals',
@@ -69,6 +108,7 @@ const WORK: ShellRouteDef[] = [
    {
       id: 'projects',
       label: 'projects',
+      labelKey: 'projects',
       href: '/projects',
       match: ['/project/'],
       prefsKey: 'projects',
@@ -78,24 +118,69 @@ const WORK: ShellRouteDef[] = [
 
 const MANAGE: ShellRouteDef[] = [
    {
+      // The id stays `runs` because persisted tabs and sidebar prefs key on
+      // it. The item opens the runtimes page; the run ledger it used to open
+      // is still reached from runtime and agent detail and the command
+      // palette, and `match` keeps the item lit while it is open.
       id: 'runs',
       label: 'runtimes',
-      href: '/runs',
+      labelKey: 'runtimes',
+      href: '/runtimes',
+      match: ['/runtimes/', '/runs'],
       prefsKey: 'agent',
+      live: 'runs',
       icon: '<path d="M3 12h3l2-6 3 12 3-8 2 2h5" />',
    },
    {
       id: 'members',
       label: 'agents',
+      labelKey: 'agents',
       href: '/agents',
       prefsKey: 'agents',
       icon: '<path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8z" /><path d="M18 16l.9 2.1L21 19l-2.1.9L18 22l-.9-2.1L15 19l2.1-.9z" />',
    },
    {
-      id: 'analytics',
-      label: 'analytics',
-      prefsKey: 'analytics',
-      icon: '<path d="M4 19V10M10 19V5M16 19v-7" /><path d="M3 19h18" />',
+      id: 'skills',
+      label: 'skills',
+      labelKey: 'skills',
+      href: '/skills',
+      match: ['/skills/'],
+      prefsKey: 'skills',
+      icon: '<path d="M5 4h10a4 4 0 014 4v12H9a4 4 0 01-4-4z" /><path d="M9 8h6M9 12h6" />',
+   },
+   {
+      id: 'squads',
+      label: 'squads',
+      labelKey: 'squads',
+      href: '/squads',
+      match: ['/squads/'],
+      prefsKey: 'squads',
+      icon: '<circle cx="9" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" /><path d="M3 20a6 6 0 0112 0M14 20a4.5 4.5 0 017-3.5" />',
+   },
+   {
+      id: 'autopilots',
+      label: 'autopilots',
+      labelKey: 'autopilots',
+      href: '/autopilots',
+      match: ['/autopilot/'],
+      prefsKey: 'autopilot',
+      icon: '<circle cx="12" cy="13" r="7.5" /><path d="M12 9v4l2.5 2.5" /><path d="M9.5 3h5" />',
+   },
+   {
+      id: 'dashboard',
+      label: 'dashboard',
+      labelKey: 'dashboard',
+      href: '/dashboard',
+      prefsKey: 'dashboard',
+      icon: '<rect x="4" y="4" width="7" height="9" rx="1" /><rect x="13" y="4" width="7" height="5" rx="1" /><rect x="13" y="11" width="7" height="9" rx="1" /><rect x="4" y="15" width="7" height="5" rx="1" />',
+   },
+   {
+      id: 'usage',
+      label: 'usage',
+      labelKey: 'usage',
+      href: '/usage',
+      prefsKey: 'usage',
+      icon: '<circle cx="12" cy="12" r="8.5" /><path d="M12 7v10M9.5 9.5c0-1 1-1.5 2.5-1.5s2.5.6 2.5 1.7c0 2.6-5 1.3-5 4 0 1.1 1 1.8 2.5 1.8s2.5-.5 2.5-1.5" />',
    },
 ];
 
@@ -104,16 +189,28 @@ export const MORE_ICON =
 
 export const SHELL_SECTIONS: {
    heading: string | null;
+   /** Key under `shell.sections`; null when the section has no heading. */
+   headingKey: 'work' | 'manage' | null;
    routes: ShellRouteDef[];
    prefsSection?: SidebarSection;
 }[] = [
-   { heading: 'Work', routes: WORK, prefsSection: 'workspace' },
-   { heading: 'Manage', routes: MANAGE, prefsSection: 'configure' },
+   { heading: 'Work', headingKey: 'work', routes: WORK, prefsSection: 'workspace' },
+   { heading: 'Manage', headingKey: 'manage', routes: MANAGE, prefsSection: 'configure' },
 ];
+
+/** Every rail destination, for surfaces that label a path by its rail entry. */
+export const SHELL_ROUTES: ShellRouteDef[] = [...WORK, ...MANAGE];
 
 const BY_ID = new Map<string, ShellRouteDef>(
    [...WORK, ...MANAGE].map((route) => [route.id, route])
 );
+
+/** The tasks page filtered to what is assigned to the person: Personal's view of it. */
+export const MY_TASKS_HREF = '/tasks?tab=assigned';
+
+export function isMyTasks(pathname: string, search?: string): boolean {
+   return pathname.includes('/tasks') && /(?:^|[?&])tab=assigned(?:&|$)/.test(search ?? '');
+}
 
 export function shellRoute(id: string): ShellRouteDef | undefined {
    return BY_ID.get(id);
@@ -128,7 +225,10 @@ export function shellRoute(id: string): ShellRouteDef | undefined {
  * through a bare `pathname.includes`, which would hand any path containing
  * a shorter route's name to the wrong item.
  */
-export function activeShellRoute(pathname: string): ShellRoute | null {
+export function activeShellRoute(pathname: string, search?: string): ShellRoute | null {
+   // The assigned tab of the tasks page is Personal's "My tasks", not the
+   // workspace's Tasks; lighting the rail entry too would mark two items.
+   if (isMyTasks(pathname, search)) return null;
    let match: ShellRouteDef | null = null;
    // Tracked beside the match: `href` is optional on the type, so comparing
    // against `match.href` would need a non-null assertion even though a match

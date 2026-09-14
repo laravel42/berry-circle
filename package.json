@@ -1,7 +1,7 @@
 {
    "name": "berry-circle",
-   "version": "0.1.0",
-   "private": true,
+   "version": "0.9.4",
+   "private": false,
    "license": "MIT",
    "description": "A self-hosted issue tracker whose assignees can be people or coding agents.",
    "repository": {
@@ -12,9 +12,19 @@
    "pnpm": {
       "onlyBuiltDependencies": [
          "@biomejs/biome",
+         "@google/genai",
+         "better-sqlite3",
          "esbuild",
+         "node-llama-cpp",
+         "protobufjs",
          "sharp",
-         "unrs-resolver"
+         "tree-sitter-go",
+         "tree-sitter-javascript",
+         "tree-sitter-python",
+         "tree-sitter-rust",
+         "tree-sitter-typescript",
+         "unrs-resolver",
+         "workerd"
       ]
    },
    "scripts": {
@@ -26,11 +36,10 @@
       "test:server": "pnpm --filter @berry/server test",
       "migrate:server": "pnpm --filter @berry/server migrate",
       "seed:server": "pnpm --filter @berry/server seed",
-      "typecheck:worker": "pnpm --filter @berry/runtime-worker typecheck",
-      "test:worker": "pnpm --filter @berry/runtime-worker test",
-      "deploy:worker": "pnpm --filter @berry/runtime-worker deploy",
-      "typecheck:runtime": "pnpm --filter @berry/runtime typecheck",
-      "test:runtime": "pnpm --filter @berry/runtime test",
-      "dev:runtime": "pnpm --filter @berry/runtime dev"
+      "seed:agents:server": "pnpm --filter @berry/server seed:agents",
+      "check:models": "python3 scripts/test_check_no_model_in_server.py && python3 scripts/check-no-model-in-server.py",
+      "reset:server": "docker compose exec -T berry-api node --experimental-strip-types src/reset/index.ts",
+      "test:plugin-sdk": "pnpm --filter @berry/plugin-sdk test",
+      "typecheck:plugin-sdk": "pnpm --filter @berry/plugin-sdk typecheck"
    }
 }

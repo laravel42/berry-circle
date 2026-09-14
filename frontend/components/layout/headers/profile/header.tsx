@@ -4,8 +4,8 @@ import { IssueFilterTrigger } from '@/components/common/issues/issue-filter-trig
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { issueCreatorIndex } from '@/data/issues';
-import { User, users } from '@/data/users';
+import { issuesCreatedBy } from '@/data/issues';
+import { User } from '@/data/users';
 import { cn } from '@/lib/utils';
 import { useIssuesStore } from '@/store/issues-store';
 import { useRightPanelStore } from '@/store/right-panel-store';
@@ -118,14 +118,9 @@ export default function Header({ member }: { member: User }) {
    const [activeTab] = useQueryState('tab', parseAsString.withDefault('assigned'));
    const { issues } = useIssuesStore();
    const { openPanel, togglePanel } = useRightPanelStore();
-
-   const memberIndex = Math.max(
-      0,
-      users.findIndex((candidate) => candidate.id === member.id)
-   );
    const count =
       activeTab === 'created'
-         ? issues.filter((issue) => issueCreatorIndex(issue, users.length) === memberIndex).length
+         ? issuesCreatedBy(issues, member.id).length
          : issues.filter((issue) => issue.assignee?.id === member.id).length;
 
    return (
@@ -173,7 +168,9 @@ export default function Header({ member }: { member: User }) {
                </Button>
                <Button
                   size="xs"
-                  variant={openPanel !== 'hidden' && openPanel !== 'insights' ? 'secondary' : 'ghost'}
+                  variant={
+                     openPanel !== 'hidden' && openPanel !== 'insights' ? 'secondary' : 'ghost'
+                  }
                   onClick={() => togglePanel('hidden')}
                   aria-label="Toggle profile panel"
                >

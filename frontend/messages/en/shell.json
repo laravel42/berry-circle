@@ -1,0 +1,33 @@
+{
+   "sections": {
+      "work": "Work",
+      "manage": "Manage"
+   },
+   "nav": {
+      "tasks": "Tasks",
+      "reviews": "Reviews",
+      "goals": "Goals",
+      "projects": "Projects",
+      "runtimes": "Runtimes",
+      "agents": "Agents",
+      "analytics": "Analytics",
+      "skills": "Skills",
+      "squads": "Squads",
+      "autopilots": "Autopilots",
+      "dashboard": "Dashboard",
+      "usage": "Usage",
+      "chat": "Chat"
+   },
+   "rail": {
+      "workspace": "Workspace",
+      "workspaceMenu": "Workspace menu",
+      "runsInProgress": "Runs in progress",
+      "customizeSidebar": "Customize sidebar",
+      "collapseSidebar": "Collapse sidebar"
+   },
+   "tabs": {
+      "openViews": "Open views",
+      "newTab": "New tab",
+      "close": "Close {label}"
+   }
+}

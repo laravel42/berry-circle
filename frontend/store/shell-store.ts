@@ -40,7 +40,7 @@ interface ShellState {
 }
 
 /** The route a new tab starts on, matching the prototype's `startRoute`. */
-export const INDEX_TAB = { href: '/my-issues', label: 'tasks' };
+export const INDEX_TAB = { href: '/tasks', label: 'tasks' };
 
 /** Bounds the strip so a long session cannot grow it without limit. */
 const MAX_TABS = 12;

@@ -1,10 +1,17 @@
-import { InboxItem, inboxItems as mockNotifications, NotificationType } from '@/data/inbox';
-import { bulkUpdateInbox, updateInboxItem } from '@/lib/inbox';
+import { InboxItem, NotificationType } from '@/data/inbox';
+import { bulkUpdateInbox, updateInboxItem, type InboxAction } from '@/lib/inbox';
 import { useSessionStore } from '@/store/session-store';
 import { create } from 'zustand';
 
+/** How far a list has got: the inbox and the archive load independently. */
+export type InboxLoadStatus = 'idle' | 'loading' | 'ready' | 'error';
+
 interface NotificationsState {
    notifications: InboxItem[];
+   /** The archive, loaded on demand: nothing fetches it until it is opened. */
+   archived: InboxItem[];
+   archivedStatus: InboxLoadStatus;
+   status: InboxLoadStatus;
    selectedNotification: InboxItem | undefined;
    serverUnreadCount: number | null;
    /**
@@ -16,14 +23,30 @@ interface NotificationsState {
     * time, and a stack of toasts for a backlog is not an announcement.
     */
    arrivals: InboxItem[];
+   /**
+    * Ids the reader marked unread on purpose.
+    *
+    * Selecting a notification marks it read, which would otherwise undo the
+    * deliberate act of marking one unread the moment the cursor landed back
+    * on it. Held ids are released when the reader marks the item read again.
+    */
+   heldUnread: string[];
 
    hydrateNotifications: (notifications: InboxItem[]) => void;
+   setStatus: (status: InboxLoadStatus) => void;
+   hydrateArchived: (archived: InboxItem[]) => void;
+   setArchivedStatus: (status: InboxLoadStatus) => void;
    clearArrivals: () => void;
    setServerUnreadCount: (count: number) => void;
    setSelectedNotification: (notification: InboxItem | undefined) => void;
-   markAsRead: (id: string) => void;
-   markAllAsRead: () => void;
-   markAsUnread: (id: string) => void;
+   markAsRead: (id: string) => Promise<boolean>;
+   /** Marks read only when the reader has not just held it unread. */
+   markReadOnOpen: (id: string) => void;
+   markAllAsRead: () => Promise<boolean>;
+   markAsUnread: (id: string) => Promise<boolean>;
+   archiveNotification: (id: string) => Promise<boolean>;
+   unarchiveNotification: (id: string) => Promise<boolean>;
+   archiveMany: (ids: string[]) => Promise<boolean>;
 
    getUnreadNotifications: () => InboxItem[];
    getReadNotifications: () => InboxItem[];
@@ -54,38 +77,58 @@ function workspaceIdFromSession(): string | undefined {
    return useSessionStore.getState().workspace?.id;
 }
 
-async function syncInboxAction(
-   itemIds: string[],
-   action: 'read' | 'unread' | 'archive' | 'unarchive'
-): Promise<void> {
+async function syncInboxAction(itemIds: string[], action: InboxAction): Promise<boolean> {
    const workspaceId = workspaceIdFromSession();
-   if (!workspaceId) return;
-   if (itemIds.length === 1) {
-      await updateInboxItem(workspaceId, itemIds[0], action);
-      return;
-   }
-   await bulkUpdateInbox(workspaceId, itemIds, action);
+   if (!workspaceId || itemIds.length === 0) return false;
+   if (itemIds.length === 1) return updateInboxItem(workspaceId, itemIds[0], action);
+   return bulkUpdateInbox(workspaceId, itemIds, action);
+}
+
+/** Newest first, the order both lists are read in. */
+function byNewest(items: InboxItem[]): InboxItem[] {
+   return [...items].sort((left, right) => right.timestamp.localeCompare(left.timestamp));
+}
+
+/**
+ * The badge counts what is unread and not archived, exactly as the server
+ * does, so a local move and the next server figure agree.
+ */
+function unreadDelta(items: InboxItem[]): number {
+   return items.filter((item) => !item.read).length;
 }
 
 export const useNotificationsStore = create<NotificationsState>((set, get) => ({
-   notifications: mockNotifications,
+   notifications: [],
+   archived: [],
+   archivedStatus: 'idle',
+   status: 'idle',
    selectedNotification: undefined,
    serverUnreadCount: null,
    arrivals: [],
+   heldUnread: [],
 
    clearArrivals: () => set({ arrivals: [] }),
 
+   setStatus: (status) => set({ status }),
+
+   setArchivedStatus: (archivedStatus) => set({ archivedStatus }),
+
+   hydrateArchived: (archived) => set({ archived: byNewest(archived), archivedStatus: 'ready' }),
+
    hydrateNotifications: (notifications) => {
       const { seen, primed } = trackSeen(notifications);
-      set({
-         arrivals: primed
-            ? notifications.filter((item) => !item.read && !seen.has(item.id))
-            : [],
-      });
-      set({
-         notifications,
-         selectedNotification: notifications[0],
-      });
+      const ordered = byNewest(notifications);
+      set((state) => ({
+         arrivals: primed ? notifications.filter((item) => !item.read && !seen.has(item.id)) : [],
+         notifications: ordered,
+         status: 'ready',
+         // A refresh must not move the reader. The selection is re-resolved
+         // from the fresh copy of the same notification, and dropped only
+         // when that notification is no longer in the list.
+         selectedNotification: state.selectedNotification
+            ? ordered.find((item) => item.id === state.selectedNotification?.id)
+            : undefined,
+      }));
    },
 
    setServerUnreadCount: (count) => set({ serverUnreadCount: count }),
@@ -94,7 +137,9 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
       set({ selectedNotification: notification });
    },
 
-   markAsRead: (id: string) => {
+   markAsRead: async (id: string) => {
+      const target = get().notifications.find((item) => item.id === id);
+      if (target?.read) return true;
       set((state) => ({
          notifications: state.notifications.map((notification) =>
             notification.id === id ? { ...notification, read: true } : notification
@@ -107,11 +152,17 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
             state.serverUnreadCount !== null
                ? Math.max(0, state.serverUnreadCount - 1)
                : state.serverUnreadCount,
+         heldUnread: state.heldUnread.filter((held) => held !== id),
       }));
-      void syncInboxAction([id], 'read');
+      return syncInboxAction([id], 'read');
    },
 
-   markAllAsRead: () => {
+   markReadOnOpen: (id: string) => {
+      if (get().heldUnread.includes(id)) return;
+      void get().markAsRead(id);
+   },
+
+   markAllAsRead: async () => {
       const unreadIds = get()
          .notifications.filter((notification) => !notification.read)
          .map((notification) => notification.id);
@@ -124,13 +175,14 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
             ? { ...state.selectedNotification, read: true }
             : undefined,
          serverUnreadCount: 0,
+         heldUnread: [],
       }));
-      if (unreadIds.length > 0) {
-         void syncInboxAction(unreadIds, 'read');
-      }
+      if (unreadIds.length === 0) return true;
+      return syncInboxAction(unreadIds, 'read');
    },
 
-   markAsUnread: (id: string) => {
+   markAsUnread: async (id: string) => {
+      const target = get().notifications.find((item) => item.id === id);
       set((state) => ({
          notifications: state.notifications.map((notification) =>
             notification.id === id ? { ...notification, read: false } : notification
@@ -140,9 +192,68 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => ({
                ? { ...state.selectedNotification, read: false }
                : state.selectedNotification,
          serverUnreadCount:
-            state.serverUnreadCount !== null ? state.serverUnreadCount + 1 : state.serverUnreadCount,
+            state.serverUnreadCount !== null && target?.read
+               ? state.serverUnreadCount + 1
+               : state.serverUnreadCount,
+         heldUnread: state.heldUnread.includes(id) ? state.heldUnread : [...state.heldUnread, id],
       }));
-      void syncInboxAction([id], 'unread');
+      return syncInboxAction([id], 'unread');
+   },
+
+   archiveNotification: async (id: string) => {
+      const moved = get().notifications.find((item) => item.id === id);
+      if (!moved) return false;
+      set((state) => ({
+         notifications: state.notifications.filter((item) => item.id !== id),
+         archived:
+            state.archivedStatus === 'idle'
+               ? state.archived
+               : byNewest([{ ...moved, archived: true }, ...state.archived]),
+         serverUnreadCount:
+            state.serverUnreadCount !== null && !moved.read
+               ? Math.max(0, state.serverUnreadCount - 1)
+               : state.serverUnreadCount,
+      }));
+      return syncInboxAction([id], 'archive');
+   },
+
+   unarchiveNotification: async (id: string) => {
+      const moved = get().archived.find((item) => item.id === id);
+      if (!moved) return false;
+      set((state) => ({
+         archived: state.archived.filter((item) => item.id !== id),
+         notifications: byNewest([{ ...moved, archived: false }, ...state.notifications]),
+         serverUnreadCount:
+            state.serverUnreadCount !== null && !moved.read
+               ? state.serverUnreadCount + 1
+               : state.serverUnreadCount,
+      }));
+      return syncInboxAction([id], 'unarchive');
+   },
+
+   archiveMany: async (ids: string[]) => {
+      if (ids.length === 0) return true;
+      const wanted = new Set(ids);
+      const moved = get().notifications.filter((item) => wanted.has(item.id));
+      if (moved.length === 0) return true;
+      set((state) => ({
+         notifications: state.notifications.filter((item) => !wanted.has(item.id)),
+         archived:
+            state.archivedStatus === 'idle'
+               ? state.archived
+               : byNewest([
+                    ...moved.map((item) => ({ ...item, archived: true })),
+                    ...state.archived,
+                 ]),
+         serverUnreadCount:
+            state.serverUnreadCount !== null
+               ? Math.max(0, state.serverUnreadCount - unreadDelta(moved))
+               : state.serverUnreadCount,
+      }));
+      return syncInboxAction(
+         moved.map((item) => item.id),
+         'archive'
+      );
    },
 
    getUnreadNotifications: () => {

@@ -1,0 +1,377 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Add the `050_user_password_credentials` forward-only migration": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892252
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854902375
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854988191
+      }
+    ],
+    "1.2 Implement the scrypt password module": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892299
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854903388
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854988785
+      }
+    ],
+    "1.3 Write property test P10 for password storage": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892327
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854993001
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788855786413
+      }
+    ],
+    "1.4 Write unit test for constant-time verification structure": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892354
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854993842
+      }
+    ],
+    "2.1 Add password and user issuance paths to `SessionService`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892376
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854994794
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788855787177
+      }
+    ],
+    "2.2 Enforce TTL bounds at issue time": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892408
+      },
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854995957
+      }
+    ],
+    "2.3 Write property test P6 for session issuance": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892435
+      }
+    ],
+    "2.4 Write property test P7 for the session lifecycle round-trip": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892459
+      }
+    ],
+    "2.5 Write unit test for TTL boundary refusal": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892483
+      }
+    ],
+    "3.1 Add Zod v4 boundary schemas": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892506
+      }
+    ],
+    "3.2 Implement `POST /api/v1/auth/sign-in`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892537
+      }
+    ],
+    "3.3 Implement `POST /api/v1/auth/sign-up`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892576
+      }
+    ],
+    "3.4 Implement `POST /api/v1/auth/sign-out`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892601
+      }
+    ],
+    "3.5 Write property test P9 for sign-in outcome indistinguishability": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892624
+      }
+    ],
+    "3.6 Write property test P8 for idempotent creation": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892652
+      }
+    ],
+    "4. Checkpoint - credential and session layer": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892676
+      }
+    ],
+    "5.1 Implement `resolveWorkspaceContext`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892701
+      }
+    ],
+    "5.2 Implement the `ScopedDb` query surface": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892725
+      }
+    ],
+    "5.3 Write property test P5 for server-derived context": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892766
+      }
+    ],
+    "6.1 Migrate the read mounts to session-derived context": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892790
+      }
+    ],
+    "6.2 Add the mount wiring that constructs `ScopedDb` and route writes through it": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892817
+      }
+    ],
+    "6.3 Write property test P2 for no cross-workspace read": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892842
+      }
+    ],
+    "6.4 Write property test P3 for indistinguishable 404s": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892869
+      }
+    ],
+    "6.5 Write the explicit two-workspace cross-tenant leakage tests": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892893
+      }
+    ],
+    "7. Checkpoint - isolation mechanism": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892919
+      }
+    ],
+    "8.1 Confirm and wire the RBAC matrix through `ScopedDb.mutate`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892950
+      }
+    ],
+    "8.2 Harden `requireSession` guarantees": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854892976
+      }
+    ],
+    "8.3 Make the passwordless gate explicit": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893623
+      }
+    ],
+    "8.4 Write property test P1 for uniform unauthenticated rejection": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893654
+      }
+    ],
+    "8.5 Write property test P4 for the role-permission matrix": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893682
+      }
+    ],
+    "8.6 Write property test P13 for the passwordless availability truth table": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893706
+      }
+    ],
+    "8.7 Write unit tests for middleware fault injection and passwordless issuance sameness": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893731
+      }
+    ],
+    "9.1 Wire workspace selection over the existing `last_workspace_id`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893757
+      }
+    ],
+    "9.2 Confirm single-use invitation acceptance": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893785
+      }
+    ],
+    "9.3 Write property test P12 for workspace selection": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893807
+      }
+    ],
+    "9.4 Write property test P11 for invitation single-use": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893829
+      }
+    ],
+    "10.1 Write property test P14 for wire-contract preservation": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893856
+      }
+    ],
+    "11.1 Confirm the token holder never uses `NEXT_PUBLIC_`": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893879
+      }
+    ],
+    "12.1 Build the `/sign-in` screen": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893905
+      }
+    ],
+    "12.2 Build the `/sign-up` screen": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893926
+      }
+    ],
+    "12.3 Add the sign-out control": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893949
+      }
+    ],
+    "12.4 Remove auto-login and add the protected-route guard": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893976
+      }
+    ],
+    "12.5 Write frontend component/integration tests for the auth screens": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854893999
+      }
+    ],
+    "13.1 Build the onboarding flow": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854894022
+      }
+    ],
+    "13.2 Write frontend integration tests for onboarding routing": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854894045
+      }
+    ],
+    "14. Final checkpoint - full feature": [
+      {
+        "executionId": "53ce432b-85e9-462d-aba6-64720333cda9",
+        "chatSessionId": "sess_f4b4d1fe-9e15-4446-a240-d30ed4aa5891",
+        "timestamp": 1788854894071
+      }
+    ]
+  }
+}

@@ -33,6 +33,12 @@ export interface RepositoryChoice {
    private: boolean;
    defaultBranch: string;
    description?: string;
+   /** The account login the repository lives under. */
+   owner?: string;
+   /** Archived repositories are read-only on GitHub; the picker offers them disabled. */
+   archived?: boolean;
+   htmlUrl?: string;
+   sshUrl?: string;
 }
 
 interface RepositoryRow {
@@ -43,6 +49,10 @@ interface RepositoryRow {
    default_branch?: string;
    description?: string | null;
    permissions?: { push?: boolean };
+   archived?: boolean;
+   html_url?: string;
+   ssh_url?: string;
+   owner?: { login?: string };
 }
 
 export class GitHubError extends Error {
@@ -104,6 +114,32 @@ export class GitHubClient {
    }
 
    /**
+    * The stored identity of one repository: its numeric id and canonical name.
+    *
+    * Berry stores the id beside the name so a rename does not orphan a link,
+    * and the id is GitHub's to assign — never the caller's to supply. This is
+    * the resolve step a project's repository link runs through before the
+    * write. A 404 (missing, or unseen by this credential) surfaces as a
+    * `GitHubError` with remedy `grant-access`, which the caller maps to a 422.
+    */
+   async resolveRepository(owner: string, name: string): Promise<RepositoryChoice> {
+      const body = await this.#json<RepositoryRow>(
+         'GET',
+         `/repos/${encode(owner)}/${encode(name)}`
+      );
+      return {
+         id: Number(body.id),
+         fullName: String(body.full_name),
+         name: String(body.name),
+         private: Boolean(body.private),
+         defaultBranch: String(body.default_branch ?? 'main'),
+         ...(typeof body.description === 'string' && body.description !== ''
+            ? { description: body.description }
+            : {}),
+      };
+   }
+
+   /**
     * Opens the pull request, or returns the one that is already there.
     *
     * A retried run pushes to the same branch, and GitHub answers 422 for a
@@ -121,30 +157,90 @@ export class GitHubClient {
     * repositories does not scroll to find one; they type. The cap keeps a
     * settings page from making nine API calls before it can draw.
     */
-   async listRepositories(options: { maxPages?: number } = {}): Promise<RepositoryChoice[]> {
+   async listRepositories(
+      options: { maxPages?: number; credential?: 'user' | 'installation' } = {}
+   ): Promise<RepositoryChoice[]> {
       const maxPages = options.maxPages ?? 3;
+      // Which endpoint depends on what the token *is*, not on preference. A
+      // GitHub App installation token cannot read `/user/repos` — there is no
+      // user behind it — and answers 403 "Resource not accessible by
+      // integration". Its equivalent is `/installation/repositories`, which
+      // returns the repositories the installation was granted.
+      const installation = options.credential === 'installation';
       const collected: RepositoryChoice[] = [];
       for (let page = 1; page <= maxPages; page += 1) {
-         const rows = await this.#json<RepositoryRow[]>(
+         const path = installation
+            ? `/installation/repositories?per_page=100&page=${page}`
+            : `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`;
+         const payload = await this.#json<RepositoryRow[] | { repositories?: RepositoryRow[] }>(
             'GET',
-            `/user/repos?per_page=100&page=${page}&sort=pushed&affiliation=owner,collaborator,organization_member`
+            path
          );
+         // `/installation/repositories` wraps its page in an object; the user
+         // endpoint returns a bare array.
+         const rows = Array.isArray(payload) ? payload : (payload.repositories ?? []);
          for (const row of rows) {
-            if (row.permissions?.push !== true) continue;
+            // For a *user* token, the per-repository `permissions` object is the
+            // honest signal, and filtering on it keeps a repository the person
+            // can only read out of the picker — chosen, it would fail at the
+            // push after a run had already done the work.
+            //
+            // For an *installation* token that object is not meaningful: an
+            // installation which genuinely grants `contents` was observed
+            // reporting `pull:false, push:false` on every repository. Filtering
+            // on it emptied the picker for a working installation. What an
+            // installation may do is decided by the App's granted permissions,
+            // not per repository, so every granted repository is listed and the
+            // capability is reported alongside the list instead.
+            if (!installation && row.permissions?.push !== true) continue;
+            const fullName = String(row.full_name);
             collected.push({
                id: Number(row.id),
-               fullName: String(row.full_name),
+               fullName,
                name: String(row.name),
                private: Boolean(row.private),
                defaultBranch: String(row.default_branch ?? 'main'),
                ...(typeof row.description === 'string' && row.description !== ''
                   ? { description: row.description }
                   : {}),
+               owner: typeof row.owner?.login === 'string' ? row.owner.login : (fullName.split('/')[0] ?? ''),
+               archived: row.archived === true,
+               // GitHub always sends both; built from the name only if a
+               // stubbed or older answer leaves them out.
+               htmlUrl: typeof row.html_url === 'string' ? row.html_url : `https://github.com/${fullName}`,
+               ...(typeof row.ssh_url === 'string' ? { sshUrl: row.ssh_url } : {}),
             });
          }
          if (rows.length < 100) break;
       }
       return collected;
+   }
+
+   /**
+    * The unified diff of a pull request, as GitHub renders it.
+    *
+    * Bounded by the caller: a diff is the reviewer's evidence, and a reviewer
+    * handed three megabytes of generated code is not reviewing anything.
+    */
+   async pullRequestDiff(owner: string, name: string, number: number): Promise<string> {
+      const path = `/repos/${encode(owner)}/${encode(name)}/pulls/${number}`;
+      let response: Response;
+      try {
+         response = await this.#fetch(`${this.#baseUrl}${path}`, {
+            method: 'GET',
+            signal: AbortSignal.timeout(this.#timeoutMs),
+            headers: {
+               authorization: `Bearer ${this.#token}`,
+               accept: 'application/vnd.github.diff',
+               'x-github-api-version': '2022-11-28',
+               'user-agent': 'berry',
+            },
+         });
+      } catch {
+         throw new GitHubError(`GitHub is unreachable: GET ${path}`, 0, 'none');
+      }
+      if (!response.ok) throw await this.#failure(response, 'GET', path);
+      return response.text();
    }
 
    async openPullRequest(input: {

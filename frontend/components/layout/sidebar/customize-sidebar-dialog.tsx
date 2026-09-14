@@ -18,16 +18,21 @@ import {
 } from '@/store/sidebar-prefs-store';
 import {
    Activity,
-   BarChart3,
+   BookOpen,
    Box,
    Check,
    ChevronDown,
+   Coins,
    FolderKanban,
    GitPullRequest,
    GripVertical,
+   LayoutDashboard,
    LucideIcon,
+   MessageSquare,
    Sparkles,
    Target,
+   Timer,
+   UsersRound,
 } from 'lucide-react';
 import { Fragment, useRef, useState, type PointerEvent } from 'react';
 
@@ -42,6 +47,7 @@ interface ItemConfig {
 export const WORKSPACE_ITEMS: ItemConfig[] = [
    { key: 'my-issues', label: 'tasks', icon: FolderKanban },
    { key: 'reviews', label: 'reviews', icon: GitPullRequest },
+   { key: 'chat', label: 'chat', icon: MessageSquare },
    { key: 'goals', label: 'goals', icon: Target },
    { key: 'projects', label: 'projects', icon: Box },
 ];
@@ -49,7 +55,11 @@ export const WORKSPACE_ITEMS: ItemConfig[] = [
 export const CONFIGURE_ITEMS: ItemConfig[] = [
    { key: 'agent', label: 'runtimes', icon: Activity },
    { key: 'agents', label: 'agents', icon: Sparkles },
-   { key: 'analytics', label: 'analytics', icon: BarChart3 },
+   { key: 'skills', label: 'skills', icon: BookOpen },
+   { key: 'squads', label: 'squads', icon: UsersRound },
+   { key: 'autopilot', label: 'autopilots', icon: Timer },
+   { key: 'dashboard', label: 'dashboard', icon: LayoutDashboard },
+   { key: 'usage', label: 'usage', icon: Coins },
 ];
 
 const VISIBILITY_LABELS: Record<SidebarVisibility, string> = {

@@ -18,7 +18,7 @@ import {
 import { Slider } from '@/components/ui/slider'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
-import { isEqual } from 'date-fns'
+import { endOfDay, isEqual, startOfDay, subDays } from 'date-fns'
 import { format } from 'date-fns'
 import { Ellipsis } from 'lucide-react'
 import {
@@ -647,10 +647,38 @@ export function FilterValueDateController<TData>({
     actions.setFilterValue(column, newValues)
   }
 
+  /* The three ranges people actually ask for, so the common case is one click
+     instead of two calendar picks. Each is a real range, which the plural date
+     operator already knows how to evaluate. */
+  function pickRecent(days: number) {
+    const to = endOfDay(new Date())
+    const from = startOfDay(subDays(new Date(), days - 1))
+    setDate({ from, to })
+    actions.setFilterValue(column, [from, to])
+  }
+
+  const recent: [string, number][] = [
+    ['Today', 1],
+    ['3 days', 3],
+    ['7 days', 7],
+  ]
+
   return (
     <Command>
       <CommandList className="max-h-fit">
         <CommandGroup>
+          <div className="flex flex-wrap gap-1 p-2 pb-0">
+            {recent.map(([label, days]) => (
+              <button
+                key={label}
+                type="button"
+                className="rounded-md border border-border/60 px-2 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                onClick={() => pickRecent(days)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div>
             <Calendar
               initialFocus

@@ -1,15 +1,18 @@
 'use client';
 
 import { Issue } from '@/data/issues';
-import { getCycleById } from '@/data/cycles';
 import { useDisplaySettingsStore } from '@/store/display-settings-store';
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import { useRef } from 'react';
+import { useDrag } from 'react-dnd';
 import { AssigneeUser } from './assignee-user';
+import { IssueDragType } from './issue-grid';
 import { LabelBadge } from './label-badge';
 import { PrioritySelector } from './priority-selector';
 import { ProjectBadge } from './project-badge';
+import { SelectionCheckbox } from './selection-checkbox';
 import { StatusSelector } from './status-selector';
 import { motion } from 'motion/react';
 
@@ -18,15 +21,38 @@ import { cn } from '@/lib/utils';
 import { IssueContextMenu } from './issue-context-menu';
 import { WORKSPACE_SLUG } from '@/lib/config';
 
-export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?: boolean }) {
+export function IssueLine({
+   issue,
+   layoutId = false,
+   order = [],
+}: {
+   issue: Issue;
+   layoutId?: boolean;
+   /** Ids of the rows around this one, so a shift-click knows what "between" means. */
+   order?: string[];
+}) {
    const { orgId } = useParams<{ orgId: string }>();
    const { displayProperties } = useDisplaySettingsStore();
-   const cycle = displayProperties.cycle && issue.cycleId ? getCycleById(issue.cycleId) : undefined;
+   const rowRef = useRef<HTMLDivElement>(null);
+
+   // Rows drag for the same reason cards do: on the list layout, moving a task
+   // between groups is the quickest way to change what it is grouped by.
+   const [{ isDragging }, drag] = useDrag(
+      () => ({
+         type: IssueDragType,
+         item: () => issue,
+         collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+      }),
+      [issue]
+   );
+   drag(rowRef);
 
    return (
       <ContextMenu>
          <ContextMenuTrigger asChild>
             <motion.div
+               ref={rowRef}
+               style={{ opacity: isDragging ? 0.45 : 1 }}
                {...(layoutId && { layoutId: `issue-line-${issue.identifier}` })}
                className={cn(
                   'group flex min-h-11 w-full items-center justify-start border-b border-border/45 px-4 transition-colors sm:px-6',
@@ -37,6 +63,7 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                )}
             >
                <div className="flex items-center gap-0.5">
+                  <SelectionCheckbox issueId={issue.id} order={order} className="mr-1.5" />
                   {displayProperties.priority && (
                      <PrioritySelector priority={issue.priority} issueId={issue.id} />
                   )}
@@ -63,11 +90,6 @@ export function IssueLine({ issue, layoutId = false }: { issue: Issue; layoutId?
                         <ProjectBadge project={issue.project} />
                      )}
                   </div>
-                  {cycle && (
-                     <span className="text-muted-foreground border border-border rounded-md px-1.5 py-0.5 shrink-0 hidden lg:inline-block">
-                        {cycle.name}
-                     </span>
-                  )}
                   {displayProperties.dueDate && issue.dueDate && (
                      <span className="hidden shrink-0 text-status-warning sm:inline-block">
                         due {format(new Date(issue.dueDate), 'MMM dd')}

@@ -1,9 +1,7 @@
 'use client';
 
-import {
-   ActivityCommentComposer,
-} from '@/components/common/issues/details/activity-feed';
 import { ContentBlocks } from '@/components/common/issues/details/content-blocks';
+import { Button } from '@/components/ui/button';
 import { useDetailDrawerClose, useInDetailDrawer } from '@/components/layout/detail-drawer-context';
 import { useProject } from '@/hooks/use-project';
 import { getProjectDetail } from '@/data/project-details';
@@ -12,6 +10,7 @@ import { useProjectUpdatesStore } from '@/store/project-updates-store';
 import { descriptionToBlocks } from '@/lib/description-blocks';
 import { WORKSPACE_SLUG } from '@/lib/config';
 import { cn } from '@/lib/utils';
+import { useTranslations } from 'next-intl';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState } from 'react';
 import { ProjectActivityFeedList } from './project-activity-section';
@@ -28,6 +27,8 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
    const inDrawer = useInDetailDrawer();
    const closeDrawer = useDetailDrawerClose();
    const router = useRouter();
+   const t = useTranslations('issueLists');
+   const agentContext = t('projects.agentContext');
    const project = useProject(projectId);
    const detail = getProjectDetail(projectId);
    const { issues: allIssues } = useIssuesStore();
@@ -79,7 +80,13 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
                      {project.name}
                   </h1>
 
-                  <div className="mt-3">
+                  {/* Named for what it is: agents read this before they touch
+                      the project's tasks, so it is context rather than a note
+                      to the team. */}
+                  <div className="mt-4 mb-1 font-medium uppercase tracking-[0.14em] text-[var(--shell-text-dim)]">
+                     {agentContext}
+                  </div>
+                  <div className="mt-1">
                      {descriptionBlocks.length > 0 ? (
                         <ContentBlocks blocks={descriptionBlocks} />
                      ) : detail.summary ? (
@@ -101,19 +108,37 @@ export default function ProjectOverview({ projectId }: ProjectOverviewProps) {
 
             <div className="relative z-10 shrink-0 border-t border-border/60 bg-container">
                <div className="mx-auto w-full max-w-3xl px-6 pt-5 pb-8 sm:px-8">
-                  <ActivityCommentComposer
-                     draft={draft}
-                     setDraft={setDraft}
-                     submitComment={submitComment}
-                     className="border-0 bg-transparent p-0 sm:px-0"
-                  />
+                  {/* A project update, not an issue comment. It used to borrow
+                      the issue composer, which has since become issue-shaped —
+                      mentions that start agents, per-task drafts, uploads onto
+                      a task. None of that applies to a project update, so this
+                      posts through the project updates store directly. */}
+                  <div className="flex flex-col gap-2">
+                     <textarea
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        onKeyDown={(event) => {
+                           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                              event.preventDefault();
+                              submitComment();
+                           }
+                        }}
+                        placeholder="Post an update…"
+                        aria-label="Project update"
+                        rows={2}
+                        className="w-full resize-none bg-transparent text-foreground outline-none placeholder:text-foreground/40"
+                     />
+                     <div className="flex justify-end">
+                        <Button size="xs" onClick={submitComment} disabled={!draft.trim()}>
+                           post update
+                        </Button>
+                     </div>
+                  </div>
                </div>
             </div>
          </div>
 
-         <aside
-            className="hidden h-full min-w-0 w-[221px] shrink-0 flex-col overflow-hidden border-l bg-muted/15 px-5 pt-6 pb-3.5 lg:flex"
-         >
+         <aside className="hidden h-full min-w-0 w-[221px] shrink-0 flex-col overflow-hidden border-l bg-muted/15 px-5 pt-6 pb-3.5 lg:flex">
             <ProjectPropertiesPanel
                project={project}
                detail={detail}

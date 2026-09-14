@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { toRFC3339, type Sql } from '../db/pool.ts';
+import { RunTerminal } from '../agents/runtime/terminal.ts';
+
+export { RunTerminal };
+import { notifyRunTerminal } from './terminal-hooks.ts';
 
 /**
  * The run ledger.
@@ -30,14 +34,6 @@ export class RunNotFound extends Error {
    constructor() {
       super('run not found');
       this.name = 'RunNotFound';
-   }
-}
-
-/** The run already reached a terminal status; nothing more may be appended. */
-export class RunTerminal extends Error {
-   constructor() {
-      super('run is terminal');
-      this.name = 'RunTerminal';
    }
 }
 
@@ -87,6 +83,15 @@ export interface Run {
    summary: string | null;
    usage: Usage;
    failure: Failure | null;
+   /**
+    * What asked for this run: an assignment, a mention in a comment, an
+    * autopilot, a squad, a quick action. Stored since the runtime control
+    * plane landed and never read back, which left every run on a task
+    * looking like it started for the same reason as every other one.
+    */
+   source: string;
+   /** The person who asked, when a person did. Null for an agent or a schedule. */
+   requestedBy: string | null;
    dispatchState: string;
    createdAt: string;
    startedAt: string | null;
@@ -422,7 +427,7 @@ export class RunLedger {
       usage: Usage;
    }): Promise<Run> {
       const now = this.clock().toISOString();
-      return this.sql.begin(async (transaction) => {
+      const finished = await this.sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
          const run = await lockRun(tx, params.runId);
          if (isTerminal(run.status)) throw new RunTerminal();
@@ -432,11 +437,13 @@ export class RunLedger {
             UPDATE runs
                SET status = 'succeeded',
                    summary = ${params.summary},
-                   input_tokens = ${params.usage.inputTokens},
-                   output_tokens = ${params.usage.outputTokens},
-                   total_tokens = ${params.usage.totalTokens},
-                   cost_micros = ${params.usage.costMicros},
-                   currency = ${params.usage.currency},
+                   -- Usage recorded while the run worked (task_usage) is never
+                   -- lowered or unpriced by the completion write that follows it.
+                   input_tokens = GREATEST(input_tokens, ${params.usage.inputTokens}),
+                   output_tokens = GREATEST(output_tokens, ${params.usage.outputTokens}),
+                   total_tokens = GREATEST(total_tokens, ${params.usage.totalTokens}),
+                   cost_micros = COALESCE(${params.usage.costMicros}, cost_micros),
+                   currency = COALESCE(${params.usage.currency}, currency),
                    failure_code = NULL,
                    failure_message = NULL,
                    failure_retryable = NULL,
@@ -483,7 +490,11 @@ export class RunLedger {
          });
          await this.appendIssueUpdated(tx, completed, issueAt!);
          return completed;
-      }) as Promise<Run>;
+      });
+      // After the commit: a hook must never be able to undo the fact that the
+      // run ended.
+      await notifyRunTerminal(finished as Run);
+      return finished as Run;
    }
 
    /**
@@ -496,7 +507,7 @@ export class RunLedger {
     */
    async fail(params: { runId: string; failure: Failure; reconcile?: boolean }): Promise<Run> {
       const now = this.clock().toISOString();
-      return this.sql.begin(async (transaction) => {
+      const finished = await this.sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
          const run = await lockRun(tx, params.runId);
          if (isTerminal(run.status)) throw new RunTerminal();
@@ -536,13 +547,17 @@ export class RunLedger {
             payload: { run: serializeRun(failed) },
          });
          return failed;
-      }) as Promise<Run>;
+      });
+      // After the commit: a hook must never be able to undo the fact that the
+      // run ended.
+      await notifyRunTerminal(finished as Run);
+      return finished as Run;
    }
 
    /** Idempotent: cancelling an already-cancelled run is what the caller wanted. */
    async markCancelled(runId: string): Promise<Run> {
       const now = this.clock().toISOString();
-      return this.sql.begin(async (transaction) => {
+      const finished = await this.sql.begin(async (transaction) => {
          const tx = transaction as unknown as Sql;
          const run = await lockRun(tx, runId);
          if (run.status === 'cancelled') return run;
@@ -577,7 +592,11 @@ export class RunLedger {
             payload: { run: serializeRun(cancelled) },
          });
          return cancelled;
-      }) as Promise<Run>;
+      });
+      // After the commit: a hook must never be able to undo the fact that the
+      // run ended. Idempotent cancels notify again; hooks are idempotent.
+      await notifyRunTerminal(finished as Run);
+      return finished as Run;
    }
 
    /**
@@ -766,10 +785,11 @@ export class RunLedger {
 async function lockRun(tx: Sql, runId: string): Promise<Run> {
    const [row] = await tx`
       SELECT r.id, r.issue_id, r.board_id,
-             (SELECT b.workspace_id FROM boards AS b WHERE b.id = r.board_id) AS workspace_id,
+             COALESCE(r.workspace_id, (SELECT b.workspace_id FROM boards AS b WHERE b.id = r.board_id)) AS workspace_id,
              r.agent_id, r.status::text AS status, r.sequence, r.summary,
              r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros, r.currency,
              r.failure_code, r.failure_message, r.failure_retryable,
+             r.source, r.requested_by,
              r.dispatch_state, r.created_at, r.started_at, r.completed_at
         FROM runs AS r
        WHERE r.id = ${runId}
@@ -801,6 +821,8 @@ async function lockRun(tx: Sql, runId: string): Promise<Run> {
                  message: (row.failure_message as string | null) ?? '',
                  retryable: Boolean(row.failure_retryable),
               },
+      source: (row.source as string | null) ?? 'assignment',
+      requestedBy: (row.requested_by as string | null) ?? null,
       dispatchState: row.dispatch_state as string,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       startedAt: toRFC3339(row.started_at as string | null),

@@ -14,10 +14,17 @@ import { toRFC3339, type Sql } from '../db/pool.ts';
 export const BOARD_TOPICS = [
    'run.created', 'run.started', 'run.output.delta',
    'run.tool.started', 'run.tool.completed',
+   // The command and delivery facts, which the ledger wrote all along and this
+   // list did not name — so a run that was mostly shell commands looked idle
+   // in the browser until the page refetched.
+   'run.command.started', 'run.command.output', 'run.command.completed',
+   'run.repository.ready', 'run.verified', 'run.delivered',
    'run.usage.updated', 'run.completed', 'run.failed', 'run.cancelled',
    'issue.created', 'issue.updated', 'issue.assigned',
    'issue.started', 'issue.completed', 'issue.deleted',
    'comment.created',
+   // A linked pull request or its checks changed; the issue page refetches.
+   'github.pull_request.updated',
 ] as const;
 
 /**
@@ -35,6 +42,14 @@ export const WORKSPACE_TOPICS = [
    'issue.created', 'issue.completed', 'issue.deleted',
    'agent.started', 'agent.completed', 'agent.failed',
    'artifact.created',
+   'plugin.installed', 'plugin.updated', 'plugin.uninstalled',
+   'github.settings.updated', 'github.repositories.updated',
+   'github.connection.updated', 'github.pull_request.updated',
+   // Workspace-level like goals (boardId null): the Usage page, the Dashboard
+   // and the usage panels refresh on it.
+   'usage.recorded',
+   'autopilot.created', 'autopilot.updated', 'autopilot.archived',
+   'autopilot.run.created', 'autopilot.delivery.received',
 ] as const;
 
 /** `(occurred_at, id)` — the pair that orders both replays. */

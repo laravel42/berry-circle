@@ -1,0 +1,30 @@
+{
+   "header": {
+      "title": "Agents",
+      "description": "AI teammates that pick up tasks, comment, and update status.",
+      "newAgent": "New agent"
+   },
+   "options": {
+      "searchPlaceholder": "Search agents…",
+      "searchLabel": "Search agents",
+      "filter": "Filter",
+      "sortLastActive": "Last active",
+      "sortName": "Name",
+      "showArchived": "Show archived",
+      "showingArchived": "Showing archived"
+   },
+   "list": {
+      "agent": "Agent",
+      "status": "Status",
+      "access": "Access",
+      "model": "Model",
+      "price": "Price",
+      "priceHint": "Input / output, per million tokens",
+      "runtimes": "Runtimes",
+      "loading": "Loading agents…",
+      "noMatch": "No agents match your search.",
+      "none": "No agents are registered for this workspace yet.",
+      "noArchived": "No archived agents.",
+      "archivedLoadFailed": "Archived agents could not be loaded."
+   }
+}

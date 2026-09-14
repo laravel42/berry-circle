@@ -1,0 +1,11 @@
+{
+   "header": {
+      "title": "プロジェクト",
+      "description": "関連するタスクをひとつの計画にまとめ、状態・健全性・目標日を管理します。"
+   },
+   "toggleInsights": "プロジェクトのインサイトパネルを切り替え",
+   "states": {
+      "hiddenByFilters": "絞り込みで {count} 件のプロジェクトが非表示です",
+      "clearFilters": "絞り込みを解除"
+   }
+}

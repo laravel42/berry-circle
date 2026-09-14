@@ -86,6 +86,10 @@ const issueSchema = z.object({
    goal: z.object({ id: z.string(), title: z.string() }).nullish(),
    dependsOn: z.array(dependencyRefSchema).default([]),
    blocks: z.array(dependencyRefSchema).default([]),
+   parentId: z.string().nullish(),
+   stage: z.number().nullish(),
+   statusId: z.string().nullish(),
+   childProgress: z.object({ total: z.number(), done: z.number() }).nullish(),
 });
 
 const issueConnectionSchema = connectionSchema(issueSchema);
@@ -122,6 +126,8 @@ export type IssuePatchBody = {
    description?: string | null;
    assignee?: { type: 'user' | 'agent'; id: string } | null;
    goalId?: string | null;
+   /** An ISO date, or null to clear it. */
+   dueDate?: string | null;
 };
 
 /**
@@ -219,8 +225,25 @@ export function toUiIssue(apiIssue: ApiIssue): Issue | undefined {
    issue.goal = apiIssue.goal ?? null;
    issue.dependsOn = apiIssue.dependsOn;
    issue.blocks = apiIssue.blocks;
+   issue.parentId = apiIssue.parentId ?? null;
+   issue.stage = apiIssue.stage ?? null;
+   issue.statusId = apiIssue.statusId ?? null;
+   issue.childProgress = apiIssue.childProgress ?? { total: 0, done: 0 };
+   // Both were parsed and dropped. The detail page's "created by / created /
+   // updated" block is the only thing that reads them, and without them it
+   // could only ever have said "unknown".
+   issue.createdBy = apiIssue.createdBy ? toUiUser(apiIssue.createdBy) : null;
+   issue.updatedAt = apiIssue.updatedAt;
+   // Only a person: an agent-authored task is not somebody's "created" tab.
+   issue.createdById =
+      apiIssue.createdBy && apiIssue.createdBy.type === 'user' ? apiIssue.createdBy.id : null;
 
    return issue;
+}
+
+export function parseApiIssue(json: unknown): Issue | undefined {
+   const parsed = issueSchema.safeParse(json);
+   return parsed.success ? toUiIssue(parsed.data) : undefined;
 }
 
 const inFlight = new Map<string, Promise<Issue[]>>();
@@ -288,6 +311,8 @@ export async function createBoardIssue(input: {
    priorityId: string;
    assignee?: { type: 'user' | 'agent'; id: string };
    projectId?: string;
+   /** ISO date. The create modal offers it; the board's quick add does not. */
+   dueDate?: string;
 }): Promise<Issue> {
    const body: Record<string, unknown> = {
       boardId: input.boardId,
@@ -295,6 +320,9 @@ export async function createBoardIssue(input: {
       status: apiStatusFromUi(input.statusId),
       priority: apiPriorityFromUi(input.priorityId),
    };
+   if (input.dueDate) {
+      body.dueDate = input.dueDate;
+   }
    if (input.description) {
       body.description = input.description;
    }

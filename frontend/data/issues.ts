@@ -2,7 +2,7 @@ import { LexoRank } from '@/lib/utils';
 import { LabelInterface } from './labels';
 import { Priority } from './priorities';
 import { Project } from './projects';
-import { Status, StatusCategory } from './status';
+import { Status } from './status';
 import { User } from './users';
 
 /** A task this one waits on, or that waits on it; enough to draw a row without a second read. */
@@ -31,6 +31,11 @@ export interface Issue {
    priority: Priority;
    labels: LabelInterface[];
    createdAt: string;
+   /** Last write of any kind: the detail page's "updated", and what the list
+    *  date filters and ordering read. */
+   updatedAt?: string;
+   /** Who opened the task: a member, or an agent that filed it. */
+   creator?: User | null;
    /** Cycle the issue belongs to. Empty string = no cycle (backlog stock). */
    cycleId: string;
    project?: Project;
@@ -48,6 +53,21 @@ export interface Issue {
    dependsOn?: IssueDependencyRef[];
    /** Tasks waiting on this one. */
    blocks?: IssueDependencyRef[];
+   /** The task this one is a sub-task of. */
+   parentId?: string | null;
+   /** Ordered barrier among siblings: stage N+1 waits for stage N. */
+   stage?: number | null;
+   /** A workspace status refining `status`. */
+   statusId?: string | null;
+   /**
+    * Who filed the task. Null for one the server did not attribute — a task
+    * created before authorship was recorded, or by something that is not a
+    * person — and absent on a task this client built locally.
+    */
+   createdById?: string | null;
+   childProgress?: { total: number; done: number };
+   /** Who filed it. Absent on a task created before the field was carried. */
+   createdBy?: User | null;
 }
 
 /**
@@ -73,12 +93,6 @@ const generateIssuesRanks = () => {
    }
 };
 generateIssuesRanks();
-
-/* -------------------------------------------------------------------------- */
-/*                                   Issues                                   */
-/* -------------------------------------------------------------------------- */
-
-export const issues: Issue[] = [];
 
 /* -------------------------------------------------------------------------- */
 /*                                  Helpers                                   */
@@ -116,26 +130,15 @@ export function sortIssuesByPriority(issues: Issue[]): Issue[] {
       );
 }
 
-export function filterIssuesByCycle(allIssues: Issue[], cycleId: string): Issue[] {
-   return allIssues.filter((issue) => issue.cycleId === cycleId);
-}
-
-export function filterIssuesByCategories(
-   allIssues: Issue[],
-   categories: StatusCategory[]
-): Issue[] {
-   return allIssues.filter((issue) => categories.includes(issue.status.category));
-}
-
 /**
- * Deterministic pseudo-creator for an issue (the data model has no author
- * field). Used by the member profile "Created" tab.
+ * The tasks a given person filed.
+ *
+ * This used to be a hash of the identifier modulo the member count, which
+ * attributed every task in the workspace to whoever happened to sit at that
+ * index — a different person as soon as somebody joined or left. The API has
+ * carried `createdBy` all along; this reads it, and a task with no recorded
+ * author belongs to nobody rather than to an arbitrary member.
  */
-export function issueCreatorIndex(issue: Issue, memberCount: number): number {
-   if (memberCount <= 0) return 0;
-   let hash = 0;
-   for (let i = 0; i < issue.identifier.length; i++) {
-      hash = (hash * 31 + issue.identifier.charCodeAt(i)) >>> 0;
-   }
-   return hash % memberCount;
+export function issuesCreatedBy(issues: Issue[], memberId: string): Issue[] {
+   return issues.filter((issue) => issue.createdById === memberId);
 }

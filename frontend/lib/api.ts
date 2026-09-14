@@ -209,6 +209,30 @@ export async function apiFetch<T>(
    return (await response.json()) as T;
 }
 
+/** Text fetch against Berry, for a body that is not JSON — a diff. */
+export async function apiText(
+   path: string,
+   init?: RequestInit,
+   options: ApiFetchOptions = {}
+): Promise<string> {
+   const headers = new Headers(init?.headers);
+   if (!headers.has('accept')) {
+      headers.set('accept', 'text/plain');
+   }
+   const response = await berryResponse(path, { ...init, headers }, options);
+   return response.text();
+}
+
+/** Binary fetch against Berry, for a body that is a file — an uploaded avatar. */
+export async function apiBlob(
+   path: string,
+   init?: RequestInit,
+   options: ApiFetchOptions = {}
+): Promise<Blob> {
+   const response = await berryResponse(path, init, options);
+   return response.blob();
+}
+
 /** Authenticated streaming fetch for SSE endpoints. */
 export async function apiStream(
    path: string,

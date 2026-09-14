@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { PlanGenerator, PlannerUnavailable } from './generator.ts';
 import type { Sql } from '../db/pool.ts';
+import { CompletionFailed, CompletionInvalid, type RuntimeCompletion } from '../runtime/completion.ts';
 
 /**
  * The pipeline: generate, validate, repair, critic.
@@ -18,25 +19,18 @@ import type { Sql } from '../db/pool.ts';
 /** Every role resolves to one model; the table is not what is under test. */
 const NO_ROLES = (() => Promise.resolve([])) as unknown as Sql;
 
-/** Answers each chat completion in order, and records what it was asked. */
+/** Answers each model call in order, and records what it was asked. */
 function scripted(answers: unknown[]) {
    const prompts: Array<{ system: string; user: string }> = [];
    let index = 0;
-   const fetch = (async (_url: unknown, init: { body: string }) => {
-      const sent = JSON.parse(init.body) as {
-         messages: Array<{ role: string; content: string }>;
-      };
-      prompts.push({
-         system: sent.messages[0]!.content,
-         user: sent.messages[1]!.content,
-      });
-      const answer = answers[index++] ?? {};
-      return Response.json({
-         choices: [{ message: { content: JSON.stringify(answer) } }],
-         usage: { prompt_tokens: 10, completion_tokens: 20 },
-      });
-   }) as unknown as typeof globalThis.fetch;
-   return { fetch, prompts, calls: () => index };
+   const completion = {
+      async structured(input: { system: string; user: string }) {
+         prompts.push({ system: input.system, user: input.user });
+         const value = answers[index++] ?? {};
+         return { value, text: JSON.stringify(value), inputTokens: 10, outputTokens: 20, durationMs: 1 };
+      },
+   } as unknown as Pick<RuntimeCompletion, 'structured'>;
+   return { completion, prompts, calls: () => index };
 }
 
 function generator(answers: unknown[], options: Record<string, unknown> = {}) {
@@ -45,10 +39,8 @@ function generator(answers: unknown[], options: Record<string, unknown> = {}) {
       script,
       planner: new PlanGenerator({
          sql: NO_ROLES,
-         apiKey: 'key',
-         baseUrl: 'https://models.example/v1',
-         defaultModel: 'test/model',
-         fetch: script.fetch,
+                  defaultModel: 'test/model',
+         completion: script.completion,
          ...options,
       }),
    };
@@ -67,7 +59,7 @@ const ACCEPT = { verdict: 'accept', problems: [] };
 
 test('a good plan goes straight to the critic', async () => {
    const { planner, script } = generator([GOOD, ACCEPT]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.critique?.verdict, 'accept');
@@ -80,7 +72,7 @@ test('a good plan goes straight to the critic', async () => {
 
 test('a broken plan is sent back with its errors, and fixed', async () => {
    const { planner, script } = generator([BROKEN, GOOD, ACCEPT]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.exhausted, false);
@@ -100,7 +92,7 @@ test('repairs are bounded, and the last document is kept', async () => {
    // returned: named errors are something a person can fix, and throwing it
    // away would leave them with the prompt and nothing else.
    const { planner, script } = generator([BROKEN, BROKEN, BROKEN, BROKEN], { maxRepairs: 2 });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'invalid');
    assert.equal(result.exhausted, true);
@@ -124,7 +116,7 @@ test('a blocked plan is not sent to repair, because nothing is broken', async ()
          assumptions: [{ id: 'a1', description: 'Which repository?', blocking: true }],
       },
    ]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'blocked');
    assert.equal(result.exhausted, false);
@@ -150,7 +142,7 @@ test('a critic asking for a revision gets one round', async () => {
       ],
    };
    const { planner, script } = generator([GOOD, revise, better], { maxCriticRounds: 1 });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.plan.issues.length, 2, 'the revision was not taken');
    assert.deepEqual(
@@ -168,7 +160,7 @@ test("a revision that breaks the plan is discarded, not accepted", async () => {
       problems: [{ code: 'style', path: '/issues/0', message: 'Rename it.', severity: 'warning' }],
    };
    const { planner } = generator([GOOD, revise, BROKEN], { maxCriticRounds: 1 });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.plan.issues[0]!.title, 'Do the work');
@@ -179,7 +171,7 @@ test('the critic is asked once per round, and the rounds are bounded', async () 
    const { planner, script } = generator([GOOD, revise, GOOD, revise, GOOD, revise, GOOD], {
       maxCriticRounds: 2,
    });
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
 
    assert.deepEqual(
       result.stages.map((stage) => stage.stage),
@@ -193,14 +185,14 @@ test('an unreadable critique is an accept, not a lost plan', async () => {
    // The document already passed the checks that decide whether it can be
    // compiled. Losing it because a reviewer answered badly is the wrong trade.
    const { planner } = generator([GOOD, 'not json at all']);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
    assert.equal(result.validation.status, 'valid');
    assert.equal(result.critique?.verdict, 'accept');
 });
 
 test('every stage is costed, so the pipeline does not look free', async () => {
    const { planner } = generator([BROKEN, GOOD, ACCEPT]);
-   const result = await planner.generate({ prompt: 'ship it' });
+   const result = await planner.generate({ workspaceId: 'w', prompt: 'ship it' });
    // Three calls at 10 in / 20 out.
    assert.equal(result.usage.inputTokens, 30);
    assert.equal(result.usage.outputTokens, 60);
@@ -214,23 +206,29 @@ test('every stage is costed, so the pipeline does not look free', async () => {
 test('the caller is told which stage is running, as it starts', async () => {
    const seen: string[] = [];
    const { planner } = generator([BROKEN, GOOD, ACCEPT]);
-   await planner.generate({ prompt: 'ship it', onStage: (stage) => seen.push(stage) });
+   await planner.generate({ workspaceId: 'w', prompt: 'ship it', onStage: (stage) => seen.push(stage) });
    assert.deepEqual(seen, ['generate', 'validate', 'repair', 'critic']);
 });
 
 test('a refusal names the stage it happened at', async () => {
    // "The critic timed out" and "the planner was never reachable" are
    // different things to tell someone.
-   const fetch = (async () => new Response('rate limited', { status: 429 })) as unknown as typeof globalThis.fetch;
+   const throttle = Object.assign(new Error('bedrock test/model failed: ThrottlingException 429'), {
+      name: 'ThrottlingException',
+      $metadata: { httpStatusCode: 429 },
+   });
+   const completion = {
+      async structured() {
+         throw new CompletionFailed({ code: 'MODEL_THROTTLED', message: throttle.message, retryable: true });
+      },
+   };
    const planner = new PlanGenerator({
       sql: NO_ROLES,
-      apiKey: 'key',
-      baseUrl: 'https://models.example/v1',
-      defaultModel: 'test/model',
-      fetch,
+            defaultModel: 'test/model',
+      completion,
    });
    await assert.rejects(
-      () => planner.generate({ prompt: 'ship it' }),
+      () => planner.generate({ workspaceId: 'w', prompt: 'ship it' }),
       (error: unknown) => {
          assert.ok(error instanceof PlannerUnavailable);
          assert.equal(error.stage, 'generate');
@@ -240,25 +238,25 @@ test('a refusal names the stage it happened at', async () => {
    );
 });
 
-test('fenced JSON is recovered, because models fence it anyway', async () => {
-   const fetch = (async () =>
-      Response.json({
-         choices: [
-            {
-               message: {
-                  content: 'Here you go:\n```json\n{"goal":{"title":"Ship it"},"issues":[]}\n```',
-               },
-            },
-         ],
-         usage: {},
-      })) as unknown as typeof globalThis.fetch;
+test('a model that will not answer in the schema names the stage', async () => {
+   // The structured answer is enforced by the model now, so a refusal is a
+   // typed failure rather than a fence to dig through — and it is reported
+   // as the planner's, at the stage it happened.
+   const completion = {
+      async structured() {
+         throw new CompletionInvalid('no shape', 'I would rather write prose.');
+      },
+   };
    const planner = new PlanGenerator({
       sql: NO_ROLES,
-      apiKey: 'key',
-      baseUrl: 'https://models.example/v1',
-      defaultModel: 'test/model',
-      fetch,
+            defaultModel: 'test/model',
+      completion,
    });
-   const result = await planner.generate({ prompt: 'ship it' });
-   assert.equal(result.plan.goal.title, 'Ship it');
+   await assert.rejects(
+      () => planner.generate({ workspaceId: 'w', prompt: 'ship it' }),
+      (error: unknown) =>
+         error instanceof PlannerUnavailable &&
+         error.stage === 'generate' &&
+         /did not answer with a plan/.test(error.message)
+   );
 });

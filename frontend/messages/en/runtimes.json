@@ -1,0 +1,17 @@
+{
+   "header": {
+      "title": "Runtimes",
+      "description": "Execution ledger for agent work — status, events, usage, and cost per run."
+   },
+   "overview": {
+      "label": "Runtimes",
+      "caption": "Delegated runtimes",
+      "agentFallback": "agent",
+      "cancel": "Cancel run",
+      "cancelling": "Cancelling…",
+      "cancelled": "Run cancelled",
+      "cancelFailed": "Could not cancel run",
+      "waiting": "Waiting for output…",
+      "openTranscript": "Open transcript"
+   }
+}

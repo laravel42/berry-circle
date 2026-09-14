@@ -4,13 +4,18 @@ import { Issue } from '@/data/issues';
 import { getStatusesByCategory, StatusCategory, displayOrderedStatus } from '@/data/status';
 import { useFilterStore } from '@/store/filter-store';
 import { useIssuesStore } from '@/store/issues-store';
-import { applyIssueFilters } from './issue-filter-columns';
+import { applyIssueFilters, usePropertyFilterMatches } from './issue-filter-columns';
 import { IssueFilterBar } from './issue-filter-bar';
+import { BatchToolbar } from './batch-toolbar';
+import { QuickCreate } from './quick-create';
 import { useRightPanelStore } from '@/store/right-panel-store';
 import { useSearchStore } from '@/store/search-store';
 import { useViewStore } from '@/store/view-store';
 import { useMemo } from 'react';
 import { GroupedIssuesView } from './grouped-issues-view';
+import { IssueGantt } from './issue-gantt';
+import { IssueSwimlanes } from './issue-swimlanes';
+import { IssueTable } from './issue-table';
 import { InsightsPanel } from './insights-panel';
 import { SearchIssues } from './search-issues';
 
@@ -39,15 +44,15 @@ export default function AllIssues({ categories }: AllIssuesProps) {
 
    const scopedIssues = useMemo<Issue[]>(
       () =>
-         categories
-            ? issues.filter((issue) => categories.includes(issue.status.category))
-            : issues,
+         categories ? issues.filter((issue) => categories.includes(issue.status.category)) : issues,
       [issues, categories]
    );
 
+   const propertyMatches = usePropertyFilterMatches(filters);
+
    const displayedIssues = useMemo(
-      () => applyIssueFilters(scopedIssues, filters),
-      [scopedIssues, filters]
+      () => applyIssueFilters(scopedIssues, filters, propertyMatches),
+      [scopedIssues, filters, propertyMatches]
    );
 
    if (isSearching) {
@@ -63,14 +68,28 @@ export default function AllIssues({ categories }: AllIssuesProps) {
    return (
       <div className="w-full h-full flex flex-col overflow-hidden">
          <IssueFilterBar />
+         <QuickCreate />
+         <BatchToolbar visibleIds={displayedIssues.map((issue) => issue.id)} />
          <div className="flex-1 min-h-0 w-full flex overflow-hidden">
             <div className="flex-1 min-w-0 h-full overflow-hidden">
-               <GroupedIssuesView
-                  issues={displayedIssues}
-                  totalIssues={scopedIssues}
-                  statuses={statuses}
-                  isViewTypeGrid={isViewTypeGrid}
-               />
+               {viewType === 'table' ? (
+                  <IssueTable
+                     issues={displayedIssues}
+                     statuses={statuses}
+                     totalIssues={scopedIssues}
+                  />
+               ) : viewType === 'swimlane' ? (
+                  <IssueSwimlanes issues={displayedIssues} statuses={statuses} />
+               ) : viewType === 'gantt' ? (
+                  <IssueGantt issues={displayedIssues} />
+               ) : (
+                  <GroupedIssuesView
+                     issues={displayedIssues}
+                     totalIssues={scopedIssues}
+                     statuses={statuses}
+                     isViewTypeGrid={isViewTypeGrid}
+                  />
+               )}
             </div>
 
             {openPanel === 'insights' && (

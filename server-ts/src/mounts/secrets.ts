@@ -18,6 +18,7 @@ import {
    serializeMember,
 } from './shared.ts';
 import type { Mount } from '../http/registry.ts';
+import { API_SCOPES, parseScopes, type ApiScope } from '../public-api/scopes.ts';
 
 /**
  * `/api/v1/tokens` and `/api/v1/invitations`, plus the invitation routes that
@@ -72,10 +73,14 @@ function tokenRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariables }
 
    route.post('/', async (context) => {
       const userId = context.get('user').id;
-      const { value, raw } = await decodeBody<{ name?: string; expiresAt?: string }>(context, {
-         name: 'string',
-         expiresAt: 'string',
-      });
+      const { value, raw } = await decodeBody<{ name?: string; expiresAt?: string; scopes?: unknown }>(
+         context,
+         {
+            name: 'string',
+            expiresAt: 'string',
+            scopes: 'raw',
+         }
+      );
       const idempotencyKey = requireIdempotencyKey(context.req.raw.headers);
 
       const fields: FieldError[] = [];
@@ -95,6 +100,15 @@ function tokenRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariables }
          'out_of_range',
          'Expiry must be an RFC 3339 time within the next 365 days.',
       ]);
+      let scopes: ApiScope[] | null = null;
+      if (value.scopes !== undefined && value.scopes !== null) {
+         scopes = parseScopes(value.scopes);
+         if (scopes === null) {
+            fields.push(
+               fieldError('/scopes', 'invalid_enum_value', `Scopes must be a list of: ${API_SCOPES.join(', ')}.`)
+            );
+         }
+      }
       assertValid(fields);
 
       // Set before the call, as Go does: a 409 from the store is still a
@@ -108,6 +122,7 @@ function tokenRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariables }
             expiresAt,
             idempotencyKey,
             fingerprint: fingerprintJSON(raw),
+            scopes,
          })
       ));
 
@@ -160,20 +175,63 @@ function invitationRoutes(options: SecretsOptions): Hono<{ Variables: AuthVariab
       requireIdempotencyKey(context.req.raw.headers);
       void raw;
 
-      // 53 = the ten-character prefix plus a 43-character secret. Checked here
-      // so a token of the wrong shape never reaches the lookup.
-      if (value.token === undefined || !boundedLength(value.token, 53, 53)) {
+      // The token proves the invitation reached whoever holds the link, and a
+      // link still carries one. It is optional because an invitation addressed
+      // to the signed-in account needs no such proof: the repository requires
+      // the invited address to equal the caller's own, so the account *is* the
+      // recipient. That is what lets someone accept the invitations waiting for
+      // them from a list, which cannot hand out tokens it never had.
+      //
+      // 53 = the ten-character prefix plus a 43-character secret. A token of
+      // any other shape is refused rather than reaching the lookup.
+      if (value.token !== undefined && !boundedLength(value.token, 53, 53)) {
          assertValid([fieldError('/token', 'invalid', 'Invitation token is invalid.')]);
       }
 
       const member = await withHeaders({ 'Cache-Control': 'no-store' }, () =>
          domain('Invitation', () =>
-            secrets.acceptInvitation(context.get('user').id, invitationId, value.token as string)
+            secrets.acceptInvitation(context.get('user').id, invitationId, value.token ?? null)
          )
       );
       const response = json(serializeMember(member));
       response.headers.set('Cache-Control', 'no-store');
       return response;
+   });
+
+   /**
+    * The same open invitations, named, for a switcher that offers them inline.
+    * Unpaged: an account with more than a screenful of pending invitations is
+    * not a case worth a cursor.
+    */
+   route.get('/pending', async (context) => {
+      const found = await domain('Invitation', () =>
+         secrets.listPendingInvitations(context.get('user').id, 50)
+      );
+      return json({ nodes: found });
+   });
+
+   /** Accept from that list — the session is the proof, not a token. */
+   route.post('/:invitationId/join', async (context) => {
+      const invitationId = pathId(context.req.param('invitationId'), 'Invitation');
+      requireIdempotencyKey(context.req.raw.headers);
+
+      const member = await domain('Invitation', () =>
+         secrets.joinInvitation(context.get('user').id, invitationId)
+      );
+      const response = json(serializeMember(member));
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+   });
+
+   /** Decline it. A foreign or absent id is the same 404 as a made-up one. */
+   route.post('/:invitationId/decline', async (context) => {
+      const invitationId = pathId(context.req.param('invitationId'), 'Invitation');
+      requireIdempotencyKey(context.req.raw.headers);
+
+      await domain('Invitation', () =>
+         secrets.declineInvitation(context.get('user').id, invitationId)
+      );
+      return new Response(null, { status: 204 });
    });
 
    return route;
@@ -353,6 +411,7 @@ function serializePersonalToken(token: PersonalToken): Record<string, unknown> {
       lastUsedAt: token.lastUsedAt,
       revokedAt: token.revokedAt,
       createdAt: token.createdAt,
+      scopes: token.scopes,
    };
 }
 
@@ -367,6 +426,10 @@ function serializeInvitation(invitation: Invitation): Record<string, unknown> {
       acceptedAt: invitation.acceptedAt,
       revokedAt: invitation.revokedAt,
       createdAt: invitation.createdAt,
+      // Appended, so the fields verified against the Go baselines keep their
+      // order. Someone reading their own invitations is not a member yet and
+      // cannot look the workspace up, so its name travels with the invitation.
+      workspaceName: invitation.workspaceName,
    };
 }
 

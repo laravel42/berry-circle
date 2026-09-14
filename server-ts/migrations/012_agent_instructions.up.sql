@@ -1,7 +1,7 @@
 -- Berry migration 012: authored agent instructions.
 --
 -- The instructions are the system prompt applied to every task an agent runs.
--- OpenFang owns execution, and its PATCH /api/agents/{id} accepts
+-- The runtime owns execution, and its PATCH /api/agents/{id} accepts
 -- `system_prompt`, so upstream remains authoritative for what the agent
 -- actually runs with.
 --
@@ -30,5 +30,5 @@ END
 $$;
 
 -- Records when Berry last pushed instructions upstream, so a local edit that
--- never reached OpenFang is distinguishable from one that did.
+-- never reached the runtime is distinguishable from one that did.
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS instructions_synced_at timestamptz;

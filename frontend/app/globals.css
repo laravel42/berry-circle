@@ -5,12 +5,14 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-   --font-sans: var(--font-geist-mono);
-   --font-mono: var(--font-geist-mono);
+   --font-sans: var(--font-jetbrains-mono);
+   --font-mono: var(--font-jetbrains-mono);
    --font-display: var(--font-dm-serif);
    --font-weight-normal: 300;
-   --text-xs: 0.75rem;
-   --text-xs--line-height: 1rem;
+   /* The body size. 13px with 1.2 line spacing, per the house style; every
+      other step below keeps its own measure. */
+   --text-xs: 0.8125rem;
+   --text-xs--line-height: 1.2;
    --text-sm: 0.8125rem;
    --text-sm--line-height: 1.25rem;
    --text-base: 0.875rem;
@@ -51,8 +53,11 @@
       inverting them with the content theme would make the frame compete with
       what sits inside it. Values come from the prototype verbatim so the
       implementation and the design file cannot drift apart silently. */
-   --shell-rail: #18181b;
-   --shell-canvas: #111113;
+   /* Inverted against the prototype on purpose: the rail and the tab strip
+      take the darker value and the content canvas the lighter one, so the
+      workspace reads as lit and its chrome recedes. */
+   --shell-rail: #111113;
+   --shell-canvas: #18181b;
    --shell-surface: #1a1a1d;
    --shell-hover: #222226;
    --shell-line: #26262b;
@@ -259,8 +264,8 @@
       than merely the default. */
    body {
       @apply bg-background text-foreground font-sans text-xs;
-      --font-sans: var(--font-geist-mono);
-      --font-mono: var(--font-geist-mono);
+      --font-sans: var(--font-jetbrains-mono);
+      --font-mono: var(--font-jetbrains-mono);
       --font-display: var(--font-dm-serif);
       /* 400, not the 300 that `font-normal` resolves to: this weight used to
          ride along with `.text-xs` (below) on the elements that opted into the
@@ -359,15 +364,27 @@
       off, and a structural selector would break the first time a list is
       rewrapped. Note this is the sidebar in the app: `[data-slot='sidebar']`
       above belongs to the shadcn sidebar, which the shell does not render, so
-      its overrides do not reach here and the token resolves to the content
-      scale -- 0.8125rem, one step off the 0.75rem default.
+      its overrides do not reach here.
+
+      14px, a step above the 13px body: `--text-sm` now matches the body size
+      exactly, so it no longer sets the rail apart. Line spacing stays at the
+      1.2 the body uses.
 
       The items size to their content (`py-1.5`, no fixed height), so the type
       just makes the rail taller. Section headings stay at the default -- they
       label the groups, they are not destinations. */
    [data-shell-nav] {
-      font-size: var(--text-sm);
-      line-height: var(--text-sm--line-height);
+      font-size: var(--text-base);
+      line-height: 1.2;
+   }
+
+   /* Tab titles match the rail's items. The strip and the rail are one piece
+      of chrome, and a tab that read smaller than the menu beside it would
+      look like a caption rather than a place you can go back to. The strip is
+      a fixed 34px, which 14px at 1.2 still clears. */
+   .tabstrip [role='tab'] {
+      font-size: var(--text-base);
+      line-height: 1.2;
    }
 
    :where(.text-xs) {
@@ -534,4 +551,114 @@ input[type='search'] {
    background: linear-gradient(90deg, #f472b6, #a78bfa, #60a5fa, #34d399, #fbbf24, #f472b6);
    background-size: 300% 100%;
    animation: ai-border-flow 4s linear infinite;
+}
+
+.ai-prompt-pill {
+   display: inline-flex;
+   width: 100%;
+   max-width: 36rem;
+   padding: 1px;
+   border-radius: 9999px;
+   background: linear-gradient(90deg, #c4b5fd, #a78bfa, #93c5fd, #c4b5fd);
+   background-size: 300% 100%;
+   animation: ai-border-flow 4s linear infinite;
+   box-shadow: 0 0 0 1px color-mix(in oklab, #a78bfa 25%, transparent),
+      0 10px 30px color-mix(in oklab, #a78bfa 18%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+   .ai-animated-border,
+   .ai-prompt-pill {
+      animation: none;
+      background-position: 50% 50%;
+   }
+}
+
+.tiptap-ai-editor .ProseMirror {
+   min-height: 6rem;
+   outline: none;
+   color: var(--foreground);
+   -webkit-text-fill-color: var(--foreground);
+   white-space: pre-wrap;
+}
+
+.tiptap-ai-editor .ProseMirror p + p {
+   margin-top: 0.75rem;
+}
+
+.tiptap-ai-editor .ProseMirror h1,
+.tiptap-ai-editor .ProseMirror h2,
+.tiptap-ai-editor .ProseMirror h3 {
+   font-weight: 500;
+   line-height: 1.3;
+}
+
+.tiptap-ai-editor .ProseMirror h1 {
+   font-size: 1.25rem;
+   margin-top: 0.75rem;
+}
+
+.tiptap-ai-editor .ProseMirror h2 {
+   font-size: 1.125rem;
+   margin-top: 0.75rem;
+}
+
+.tiptap-ai-editor .ProseMirror h3 {
+   font-size: 1rem;
+   margin-top: 0.5rem;
+}
+
+.tiptap-ai-editor .ProseMirror ul,
+.tiptap-ai-editor .ProseMirror ol {
+   margin: 0.5rem 0;
+   padding-left: 1.25rem;
+}
+
+.tiptap-ai-editor .ProseMirror ul {
+   list-style: disc;
+}
+
+.tiptap-ai-editor .ProseMirror ol {
+   list-style: decimal;
+}
+
+.tiptap-ai-editor .ProseMirror code {
+   border-radius: 0.25rem;
+   background: color-mix(in oklab, var(--muted) 80%, transparent);
+   padding: 0.1rem 0.3rem;
+   font-size: 0.9em;
+}
+
+.tiptap-ai-editor .ProseMirror pre {
+   margin: 0.75rem 0;
+   overflow-x: auto;
+   border-radius: 0.375rem;
+   background: color-mix(in oklab, var(--muted) 80%, transparent);
+   padding: 0.75rem 1rem;
+}
+
+.tiptap-ai-editor .ProseMirror pre code {
+   background: transparent;
+   padding: 0;
+}
+
+.tiptap-ai-editor .ProseMirror blockquote {
+   margin: 0.75rem 0;
+   border-left: 2px solid var(--border);
+   padding-left: 0.75rem;
+   color: var(--muted-foreground);
+}
+
+.tiptap-ai-editor .ProseMirror a {
+   color: var(--primary);
+   text-decoration: underline;
+   text-underline-offset: 2px;
+}
+
+.tiptap-ai-editor .ProseMirror p.is-editor-empty:first-child::before {
+   color: var(--placeholder-default);
+   content: attr(data-placeholder);
+   float: left;
+   height: 0;
+   pointer-events: none;
 }

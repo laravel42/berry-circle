@@ -2,7 +2,6 @@ import React from 'react';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { CreateIssueModalProvider } from '@/components/common/issues/create-issue-modal-provider';
 import { IssuesHydrator } from '@/components/common/issues/issues-hydrator';
-import { CreateGoalModalProvider } from '@/components/common/goals/create-goal-modal-provider';
 import { CreatePlanModalProvider } from '@/components/common/plans/create-plan-modal-provider';
 import { CommandPalette } from '@/components/layout/command-palette';
 import { cn } from '@/lib/utils';
@@ -35,7 +34,6 @@ export default function MainLayout({ children, header }: MainLayoutProps) {
          <IssuesHydrator />
          <CreateIssueModalProvider />
          <CreatePlanModalProvider />
-         <CreateGoalModalProvider />
          <CommandPalette />
          {/* No sidebar here: BerryShell owns the rail and the tab strip. The
              provider stays because sidebar preference stores are still used

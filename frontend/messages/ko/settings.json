@@ -1,0 +1,19 @@
+{
+   "header": {
+      "title": "설정"
+   },
+   "preferences": {
+      "title": "환경설정",
+      "general": "일반",
+      "language": "언어",
+      "languageDescription": "Berry 화면에 표시할 언어입니다. 계정에 저장됩니다.",
+      "timezone": "시간대",
+      "timezoneDescription": "Berry 전체의 날짜와 시간이 이 시간대로 표시됩니다.",
+      "interface": "인터페이스 및 테마",
+      "sidebar": "앱 사이드바",
+      "sidebarDescription": "사이드바 항목을 고정, 숨기기, 재정렬합니다. 이 브라우저에 저장됩니다.",
+      "customize": "사용자 지정",
+      "reduceMotion": "동작 줄이기",
+      "reduceMotionDescription": "작업 진행을 보여 주는 애니메이션을 끕니다."
+   }
+}

@@ -44,6 +44,19 @@ export class Conflict extends Error {
    }
 }
 
+/**
+ * A server misconfiguration surfaced at request time — e.g. a session TTL
+ * outside the accepted bounds. It is not an {@link ApiError}, so it falls
+ * through to the shell's `app.onError` and answers 500 `INTERNAL` rather than
+ * describing the misconfiguration to the caller.
+ */
+export class ConfigError extends Error {
+   constructor(message: string) {
+      super(message);
+      this.name = 'ConfigError';
+   }
+}
+
 /** The same Idempotency-Key arrived with a different body. */
 export class IdempotencyConflict extends Error {
    constructor() {

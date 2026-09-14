@@ -1,12 +1,14 @@
 'use client';
 
-import { DeleteProjectDialog, useProjectDeletion } from '@/components/common/projects/delete-project';
+import {
+   DeleteProjectDialog,
+   useProjectDeletion,
+} from '@/components/common/projects/delete-project';
 import { CapacityRing } from '@/components/common/cycles/capacity-ring';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Issue } from '@/data/issues';
-import { getCycleById } from '@/data/cycles';
 import { priorities } from '@/data/priorities';
 import { ProjectDetail } from '@/data/project-details';
 import { Project } from '@/data/projects';
@@ -17,8 +19,21 @@ import { useProjectsStore } from '@/store/projects-store';
 import { cn } from '@/lib/utils';
 import { format, parseISO } from 'date-fns';
 import { ProjectProgressChart } from './project-progress-chart';
-import { ArrowRight, Calendar, Check, Compass, Plus, Slack, Tag, Trash2, UserPlus } from 'lucide-react';
+import {
+   ArrowRight,
+   Calendar,
+   Check,
+   Link as LinkIcon,
+   Plus,
+   Tag,
+   Trash2,
+   UserPlus,
+} from 'lucide-react';
+import { useParams } from 'next/navigation';
 import { useMemo } from 'react';
+import { toast } from 'sonner';
+import { PinToggle } from '@/components/common/issues/details/issue-pin-button';
+import { WORKSPACE_SLUG } from '@/lib/config';
 import { ProjectDetailLeadPicker } from '../project-detail-lead-picker';
 import { ProjectDetailStatusSelector } from '../project-detail-status-selector';
 import { PrioritySelector } from '../priority-selector';
@@ -137,12 +152,9 @@ function ProjectPropertiesPanelCompact({
    onDeleted?: () => void;
 }) {
    const members = useMembersStore((state) => state.members);
-   const {
-      updateProjectStatus,
-      updateProjectPriority,
-      updateProjectLead,
-   } = useProjectsStore();
+   const { updateProjectStatus, updateProjectPriority, updateProjectLead } = useProjectsStore();
    const deletion = useProjectDeletion(onDeleted);
+   const { orgId } = useParams<{ orgId?: string }>();
 
    return (
       <>
@@ -208,7 +220,25 @@ function ProjectPropertiesPanelCompact({
                )}
             </div>
 
-            <div className="flex shrink-0 justify-end">
+            {/* The three things done to a project from its own page: put it in
+                the rail, hand someone the link, or remove it. */}
+            <div className="flex shrink-0 items-center justify-end">
+               <PinToggle targetType="project" targetId={project.id} />
+               <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8"
+                  aria-label="Copy link"
+                  title="Copy link"
+                  onClick={() => {
+                     void navigator.clipboard.writeText(
+                        `${window.location.origin}/${orgId ?? WORKSPACE_SLUG}/project/${project.id}/overview`
+                     );
+                     toast.success('Link copied to clipboard');
+                  }}
+               >
+                  <LinkIcon className="size-4" />
+               </Button>
                <Button
                   variant="ghost"
                   size="icon"
@@ -304,28 +334,9 @@ export function ProjectPropertiesPanel({
       [issues]
    );
 
-   const cycleRows = useMemo(
-      () =>
-         buildRows(
-            issues,
-            (issue) => (issue.cycleId === '' ? undefined : issue.cycleId),
-            (key) => ({
-               key: String(key),
-               label: getCycleById(String(key))?.name ?? `Cycle ${key}`,
-               leading: null,
-               target: { columnId: 'cycle', value: String(key) },
-            })
-         ),
-      [issues]
-   );
-
    if (compact) {
       return (
-         <ProjectPropertiesPanelCompact
-            project={project}
-            detail={detail}
-            onDeleted={onDeleted}
-         />
+         <ProjectPropertiesPanelCompact project={project} detail={detail} onDeleted={onDeleted} />
       );
    }
 
@@ -383,22 +394,6 @@ export function ProjectPropertiesPanel({
                      <Calendar className="size-3.5 text-muted-foreground" />
                      {project.targetDate ? formatDay(project.targetDate) : 'Target'}
                   </span>
-               </PropertyRow>
-               <PropertyRow label="Slack">
-                  <button className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
-                     <Slack className="size-3.5" />
-                     Connect channel
-                  </button>
-               </PropertyRow>
-               <PropertyRow label="Initiatives">
-                  {project.initiative ? (
-                     <span className="truncate max-w-44">{project.initiative}</span>
-                  ) : (
-                     <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-                        <Compass className="size-3.5" />
-                        No initiative
-                     </span>
-                  )}
                </PropertyRow>
                <PropertyRow label="Labels">
                   <div className="flex items-center gap-1.5">
@@ -517,18 +512,12 @@ export function ProjectPropertiesPanel({
                   <TabsTrigger value="labels" className="px-2.5 rounded-full">
                      Labels
                   </TabsTrigger>
-                  <TabsTrigger value="cycles" className="px-2.5 rounded-full">
-                     Cycles
-                  </TabsTrigger>
                </TabsList>
                <TabsContent value="assignees">
                   <BreakdownList rows={assigneeRows} panelFilter={panelFilter} />
                </TabsContent>
                <TabsContent value="labels">
                   <BreakdownList rows={labelRows} panelFilter={panelFilter} />
-               </TabsContent>
-               <TabsContent value="cycles">
-                  <BreakdownList rows={cycleRows} panelFilter={panelFilter} />
                </TabsContent>
             </Tabs>
          </div>

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { PERMISSIONS, ROLES, allows, validRole } from './roles.ts';
+import { PERMISSIONS, ROLES, allows, validPermission, validRole } from './roles.ts';
 
 /**
  * Extracted from Go's `rolePermissions` table itself, not transcribed from
@@ -97,4 +97,21 @@ test('an unknown role grants nothing', () => {
    assert.ok(!allows('', 'workspace.read'));
    assert.ok(!validRole('superuser'));
    assert.ok(validRole('owner'));
+});
+
+test('Object.prototype names are neither roles nor permissions and grant nothing', () => {
+   // A plain-object lookup would resolve these to inherited functions and
+   // read them as grants (Property 4 found 'toString' and 'valueOf').
+   const inherited = ['toString', 'valueOf', '__proto__', 'constructor', 'hasOwnProperty'];
+   for (const name of inherited) {
+      assert.equal(validRole(name), false, `${name} is not a role`);
+      assert.equal(validPermission(name), false, `${name} is not a permission`);
+      for (const permission of PERMISSIONS) {
+         assert.equal(allows(name, permission), false, `${name} grants ${permission}`);
+      }
+      for (const role of ROLES) {
+         assert.equal(allows(role, name as never), false, `${role} grants ${name}`);
+      }
+   }
+   assert.ok(validPermission('workspace.read'));
 });

@@ -1,4 +1,6 @@
+import { FloatingChat } from '@/components/common/chat/floating-chat';
 import { BerryShell } from '@/components/layout/shell/berry-shell';
+import { WorkspaceAccess } from '@/components/common/workspace-access';
 
 /**
  * Workspace layout: the shell frames every workspace route.
@@ -20,8 +22,16 @@ export default function OrgLayout({
 }) {
    return (
       <BerryShell>
-         {children}
-         {drawer}
+         {/* An address this account cannot open never reaches the pages
+             below, and never says which of the two reasons it is. */}
+         <WorkspaceAccess>
+            {children}
+            {drawer}
+         </WorkspaceAccess>
+         {/* Chat from anywhere except the chat page, which is this window's
+             full-size counterpart. Outside the access gate on purpose: it is
+             shell, not a page, and it hides itself when there is no workspace. */}
+         <FloatingChat />
       </BerryShell>
    );
 }

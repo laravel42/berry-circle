@@ -4,6 +4,7 @@ import { Conflict, Forbidden, IdempotencyConflict, LastOwner, NotFound } from '.
 import { allows, type Role } from './roles.ts';
 import type { NameCursor, TimeCursor } from '../http/cursor.ts';
 import type { Workspace, WorkspaceSettings } from './repository.ts';
+import { installStarterLabels } from '../core/starter-labels.ts';
 
 /**
  * Workspaces and memberships.
@@ -15,7 +16,8 @@ import type { Workspace, WorkspaceSettings } from './repository.ts';
  */
 
 const WORKSPACE_COLUMNS = `w.id, w.name, w.slug, w.description, w.settings,
-                           m.role::text AS role, w.created_at, w.updated_at`;
+                           m.role::text AS role, w.created_at, w.updated_at,
+                           w.logo_url, w.agent_context`;
 
 const MEMBER_COLUMNS = `m.workspace_id, m.user_id, m.role::text AS role,
                         u.email, u.name, u.avatar_url, m.joined_at, m.updated_at`;
@@ -36,6 +38,10 @@ export interface WorkspacePatch {
    slug?: string;
    descriptionSet: boolean;
    description?: string | null;
+   logoUrlSet: boolean;
+   logoUrl?: string | null;
+   agentContextSet: boolean;
+   agentContext?: string | null;
 }
 
 export interface WorkspaceSettingsPatch {
@@ -132,6 +138,10 @@ export class WorkspaceRepository {
             await tx`
                UPDATE users SET last_workspace_id = ${id}, updated_at = ${now}
                 WHERE id = ${params.actorId}`;
+            // The starter labels, so the first task filed here has something
+            // to be labelled with. In the same transaction: a workspace that
+            // exists without them is the state a person saw as "no labels".
+            await installStarterLabels(tx, id, params.actorId, now);
             return { workspace: await getWorkspaceIn(tx, id, params.actorId), replayed: false };
          }
 
@@ -161,11 +171,12 @@ export class WorkspaceRepository {
             SET name = CASE WHEN ${patch.name !== undefined} THEN ${patch.name ?? null}::text ELSE name END,
                 slug = CASE WHEN ${patch.slug !== undefined} THEN ${patch.slug ?? null}::text ELSE slug END,
                 description = CASE WHEN ${patch.descriptionSet} THEN ${patch.description ?? null}::text ELSE description END,
+                logo_url = CASE WHEN ${patch.logoUrlSet} THEN ${patch.logoUrl ?? null}::text ELSE logo_url END,
+                agent_context = CASE WHEN ${patch.agentContextSet} THEN ${patch.agentContext ?? null}::text ELSE agent_context END,
                 updated_at = ${this.now()}
           WHERE id = ${workspaceId} AND deleted_at IS NULL
-          RETURNING id, name, slug, description, settings, created_at, updated_at`.catch(
-         classifyWrite
-      );
+          RETURNING id, name, slug, description, settings, created_at, updated_at,
+                    logo_url, agent_context`.catch(classifyWrite);
       if (!row) throw new NotFound();
       return toWorkspace({ ...row, role: current.role });
    }
@@ -250,6 +261,51 @@ export class WorkspaceRepository {
    }
 
    /**
+    * The agents that have run most on this member's work.
+    *
+    * "This member's work" is the tasks they filed or hold, because that is the
+    * only link a run has to a person: `runs` records the agent and the task,
+    * never who asked. So this answers the question the hover card is really
+    * asking — which agents turn up on the things this person is responsible
+    * for — rather than pretending to a requester column that does not exist.
+    *
+    * The membership check runs first, so the caller must be in the workspace
+    * and a member of another workspace gets the same 404 as an absent one.
+    */
+   async topAgentsForMember(
+      userId: string,
+      workspaceId: string,
+      memberId: string,
+      limit = 2
+   ): Promise<{ agentId: string; name: string; runCount: number }[]> {
+      await this.get(workspaceId, userId);
+      // 404 rather than an empty list for somebody who is not in here: the
+      // absence of a membership is not a fact about their agents.
+      const [member] = await this.sql`
+         SELECT 1 FROM workspace_memberships
+          WHERE workspace_id = ${workspaceId} AND user_id = ${memberId}`;
+      if (!member) throw new NotFound();
+
+      const rows = await this.sql`
+         SELECT agent.id AS agent_id, agent.name AS name, count(*)::int AS run_count
+           FROM runs AS run
+           JOIN issues AS issue ON issue.id = run.issue_id
+           JOIN agents AS agent ON agent.id = run.agent_id
+          WHERE run.workspace_id = ${workspaceId}
+            AND agent.workspace_id = ${workspaceId}
+            AND (issue.created_by = ${memberId}
+                 OR (issue.assignee_type = 'user' AND issue.assignee_id = ${memberId}))
+          GROUP BY agent.id, agent.name
+          ORDER BY run_count DESC, lower(agent.name), agent.id
+          LIMIT ${limit}`;
+      return rows.map((row) => ({
+         agentId: row.agent_id as string,
+         name: row.name as string,
+         runCount: Number(row.run_count),
+      }));
+   }
+
+   /**
     * Changes one member's role under a row lock.
     *
     * The lock is what makes the last-owner rule hold: two concurrent
@@ -294,6 +350,40 @@ export class WorkspaceRepository {
             RETURNING ${tx.unsafe(MEMBER_COLUMNS)}`;
          if (!row) throw new NotFound();
          return toMembership(row);
+      });
+   }
+
+   /**
+    * The caller removes their own membership.
+    *
+    * Separate from {@link removeMember} because it is a different act with a
+    * different rule: removing someone else needs `members.manage`, which a
+    * plain member does not have — so routing "leave" through that method left
+    * most of a workspace unable to leave it. What does carry over is the
+    * last-owner rule, under the same lock: a sole owner leaving would abandon
+    * a workspace nobody can administer, so they must hand it over or delete it.
+    */
+   async leave(userId: string, workspaceId: string): Promise<void> {
+      await this.sql.begin(async (tx) => {
+         const [row] = await tx`
+            SELECT m.role::text AS role
+              FROM workspace_memberships AS m
+              JOIN workspaces AS w ON w.id = m.workspace_id AND w.deleted_at IS NULL
+             WHERE m.workspace_id = ${workspaceId} AND m.user_id = ${userId}
+             FOR UPDATE OF m`;
+         // A non-member and an absent workspace are the same 404, as everywhere.
+         if (!row) throw new NotFound();
+         if ((row.role as string) === 'owner' && (await lockOwners(tx, workspaceId)) < 2) {
+            throw new LastOwner();
+         }
+
+         const deleted = await tx`
+            DELETE FROM workspace_memberships
+             WHERE workspace_id = ${workspaceId} AND user_id = ${userId}`;
+         if (deleted.count !== 1) throw new NotFound();
+         await tx`
+            UPDATE users SET last_workspace_id = NULL
+             WHERE id = ${userId} AND last_workspace_id = ${workspaceId}`;
       });
    }
 
@@ -389,6 +479,8 @@ function toWorkspace(row: Record<string, unknown>): Workspace {
       role: row.role as string,
       createdAt: toRFC3339(row.created_at as string) ?? '',
       updatedAt: toRFC3339(row.updated_at as string) ?? '',
+      logoUrl: (row.logo_url as string | null) ?? null,
+      agentContext: (row.agent_context as string | null) ?? null,
    };
 }
 

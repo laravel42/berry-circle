@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { BerryApiError, apiFetch } from './api';
-import { clearSessionToken, persistSessionToken } from './session';
+
+import { apiFetch } from './api';
+import { authClient } from './auth-client';
 
 const userSchema = z.object({
    id: z.string(),
@@ -12,11 +13,7 @@ const userSchema = z.object({
    updatedAt: z.string(),
 });
 
-const loginResponseSchema = z.object({
-   token: z.string().min(1),
-   expiresAt: z.string(),
-   user: userSchema,
-});
+const devLoginResponseSchema = z.object({ user: userSchema });
 
 const workspaceSchema = z.object({
    id: z.string(),
@@ -34,27 +31,51 @@ const bootstrapSchema = z.object({
          theme: z.string(),
          timezone: z.string(),
          reducedMotion: z.boolean(),
+         locale: z.string().default('en'),
       }),
    }),
    workspaces: z.array(workspaceSchema),
    currentWorkspaceId: z.string().nullable(),
 });
 
+const configSchema = z.object({
+   capabilities: z.object({ githubSignIn: z.boolean().optional() }).passthrough(),
+});
+
 export type LoginUser = z.infer<typeof userSchema>;
 export type BootstrapWorkspace = z.infer<typeof workspaceSchema>;
 export type BootstrapPayload = z.infer<typeof bootstrapSchema>;
 
-/** Passwordless known-email login used by the development prototype. */
-export async function loginWithEmail(email: string): Promise<LoginUser> {
-   const json: unknown = await apiFetch('/api/v1/auth/login', {
+/**
+ * Starts GitHub sign-in. The browser leaves for GitHub and comes back through
+ * the server's callback, which sets the session cookie and lands on `/`; a
+ * refusal lands on `/sign-in?error=<code>` instead.
+ */
+export async function signInWithGitHub(): Promise<void> {
+   const origin = window.location.origin;
+   const { error } = await authClient().signIn.social({
+      provider: 'github',
+      callbackURL: `${origin}/`,
+      errorCallbackURL: `${origin}/sign-in`,
+   });
+   if (error) {
+      throw new Error(error.message || 'GitHub sign-in could not start');
+   }
+}
+
+/**
+ * Development-only sign-in as an existing account. The server registers the
+ * route only in development and test, so this 404s anywhere else.
+ */
+export async function devLogin(email: string): Promise<LoginUser> {
+   const json: unknown = await apiFetch('/api/v1/auth/dev-login', {
       method: 'POST',
       body: JSON.stringify({ email: email.trim() }),
    });
-   const parsed = loginResponseSchema.safeParse(json);
+   const parsed = devLoginResponseSchema.safeParse(json);
    if (!parsed.success) {
       throw new Error('Login response was not recognized');
    }
-   persistSessionToken(parsed.data.token);
    return parsed.data.user;
 }
 
@@ -67,14 +88,17 @@ export async function fetchBootstrap(): Promise<BootstrapPayload> {
    return parsed.data;
 }
 
+/** Whether this server can sign anyone in with GitHub (an OAuth App is configured). */
+export async function fetchGitHubSignInAvailable(): Promise<boolean> {
+   const json: unknown = await apiFetch('/api/v1/config');
+   const parsed = configSchema.safeParse(json);
+   return parsed.success && parsed.data.capabilities.githubSignIn === true;
+}
+
+/** Ends the session on the server; the cookie is cleared by the response. */
 export async function logoutSession(): Promise<void> {
-   try {
-      await apiFetch('/api/v1/auth/logout', { method: 'POST' });
-   } catch (error) {
-      if (!(error instanceof BerryApiError) || error.status !== 401) {
-         throw error;
-      }
-   } finally {
-      clearSessionToken();
+   const { error } = await authClient().signOut();
+   if (error && error.status !== 401) {
+      throw new Error(error.message || 'Sign-out failed');
    }
 }

@@ -37,12 +37,14 @@ export class NoAgentAssigned extends Error {
    }
 }
 
-const RUN_COLUMNS = `r.id, r.issue_id, r.board_id, b.workspace_id, r.agent_id, r.status,
+const RUN_COLUMNS = `r.id, r.issue_id, r.board_id, COALESCE(r.workspace_id, b.workspace_id) AS workspace_id, r.agent_id, r.status,
    r.sequence, r.summary, r.input_tokens, r.output_tokens, r.total_tokens, r.cost_micros,
    r.currency, r.failure_code, r.failure_message, r.failure_retryable, r.dispatch_state,
+   r.source, r.requested_by,
    r.created_at, r.started_at, r.completed_at`;
 
-const RUN_SOURCE = `FROM runs r JOIN boards b ON b.id = r.board_id`;
+// LEFT: a chat or completion run has no board.
+const RUN_SOURCE = `FROM runs r LEFT JOIN boards b ON b.id = r.board_id`;
 
 export class RunRepository {
    readonly #sql: Sql;
@@ -94,6 +96,23 @@ export class RunRepository {
       const rows = await this.#sql`
          SELECT ${this.#sql.unsafe(RUN_COLUMNS)} ${this.#sql.unsafe(RUN_SOURCE)}
           WHERE r.issue_id = ${issueId}
+            AND (${filter.status == null} OR r.status = ${filter.status ?? null}::run_status)
+            AND (${after === null} OR (r.created_at, r.id) < (${after?.createdAt ?? null}::timestamptz, ${after?.id ?? null}::uuid))
+          ORDER BY r.created_at DESC, r.id DESC
+          LIMIT ${limit}`;
+      return rows.map(toRun);
+   }
+
+   /** One agent's runs across its workspace, newest first — the agent's task list. */
+   async listByAgent(
+      agentId: string,
+      after: RunCursor | null,
+      limit: number,
+      filter: RunFilter = {}
+   ): Promise<Run[]> {
+      const rows = await this.#sql`
+         SELECT ${this.#sql.unsafe(RUN_COLUMNS)} ${this.#sql.unsafe(RUN_SOURCE)}
+          WHERE r.agent_id = ${agentId}
             AND (${filter.status == null} OR r.status = ${filter.status ?? null}::run_status)
             AND (${after === null} OR (r.created_at, r.id) < (${after?.createdAt ?? null}::timestamptz, ${after?.id ?? null}::uuid))
           ORDER BY r.created_at DESC, r.id DESC
@@ -239,6 +258,8 @@ function toRun(row: Record<string, unknown>): Run {
                  message: (row.failure_message as string | null) ?? '',
                  retryable: Boolean(row.failure_retryable),
               },
+      source: (row.source as string | null) ?? 'assignment',
+      requestedBy: (row.requested_by as string | null) ?? null,
       dispatchState: row.dispatch_state as string,
       createdAt: toRFC3339(row.created_at as string)!,
       startedAt: toRFC3339(row.started_at as string | null),

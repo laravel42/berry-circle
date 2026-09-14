@@ -98,7 +98,7 @@ CREATE TRIGGER berry_agents_block_protected_unprotect
 -- ------------------------------------------------------- orchestrator creation
 
 -- Status starts 'unknown', not 'available'. The row asserts that Berry intends
--- this agent to exist; only a successful reconciliation against OpenFang proves
+-- this agent to exist; only a successful reconciliation against the runtime proves
 -- it can actually execute. Intake requires 'available', so an unprovisioned
 -- orchestrator is skipped rather than dispatched into a failure.
 CREATE OR REPLACE FUNCTION berry_ensure_workspace_orchestrator(target_workspace uuid)
@@ -110,7 +110,7 @@ BEGIN
         RETURN;
     END IF;
     INSERT INTO agents (
-        id, workspace_id, board_id, openfang_agent_id, name, description,
+        id, workspace_id, board_id, runtime_agent_id, name, description,
         status, capabilities, protected, created_at, updated_at
     )
     VALUES (

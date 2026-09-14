@@ -1,4 +1,4 @@
-import ProjectOverview from '@/components/common/projects/details/project-overview';
+import ProjectIssues from '@/components/common/projects/details/project-issues';
 import Header from '@/components/layout/headers/project/header';
 import MainLayout from '@/components/layout/main-layout';
 
@@ -10,8 +10,8 @@ export default async function ProjectIssuesPage({ params }: ProjectPageProps) {
    const { projectId } = await params;
 
    return (
-      <MainLayout header={<Header projectId={projectId} />}>
-         <ProjectOverview projectId={projectId} />
+      <MainLayout header={<Header projectId={projectId} listControls />}>
+         <ProjectIssues projectId={projectId} />
       </MainLayout>
    );
 }

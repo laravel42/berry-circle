@@ -7,6 +7,7 @@ import type { Project } from '@/data/projects';
 import { useProjectsFilterStore } from '@/store/projects-filter-store';
 import { useCreateProjectStore } from '@/store/create-project-store';
 import { ChevronDown, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useState } from 'react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
@@ -46,22 +47,18 @@ function EmptyBoard() {
 }
 
 function HiddenByFiltersFooter({ hiddenCount }: { hiddenCount: number }) {
+   const t = useTranslations('projects');
    const { clearFilters } = useProjectsFilterStore();
 
    return (
       <div className="flex items-center justify-center gap-3 py-4 text-muted-foreground">
-         <span>
-            <span className="font-medium text-foreground">
-               {hiddenCount} {hiddenCount === 1 ? 'project' : 'projects'}
-            </span>{' '}
-            hidden by filters
-         </span>
+         <span>{t('states.hiddenByFilters', { count: hiddenCount })}</span>
          <button
             type="button"
             onClick={clearFilters}
             className="flex items-center gap-1 hover:text-foreground transition-colors"
          >
-            Clear filters
+            {t('states.clearFilters')}
             <X className="size-3" />
          </button>
       </div>

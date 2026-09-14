@@ -1,0 +1,11 @@
+{
+   "header": {
+      "title": "Projects",
+      "description": "Group related tasks into a shared plan with status, health, and a target date."
+   },
+   "toggleInsights": "Toggle projects insights panel",
+   "states": {
+      "hiddenByFilters": "{count, plural, =1 {1 project} other {# projects}} hidden by filters",
+      "clearFilters": "Clear filters"
+   }
+}

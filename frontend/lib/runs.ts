@@ -27,6 +27,13 @@ const runSchema = z.object({
          retryable: z.boolean(),
       })
       .nullable(),
+   /**
+    * What asked for this run, and who. Defaulted rather than required so a
+    * server that predates the field still parses — an execution log missing
+    * one run's trigger is better than a log that fails to load.
+    */
+   source: z.string().default('assignment'),
+   requestedBy: z.object({ type: z.string(), id: z.string() }).nullish(),
    createdAt: z.string(),
    startedAt: z.string().nullable(),
    completedAt: z.string().nullable(),
@@ -65,6 +72,62 @@ export function isTerminalRunStatus(status: string): boolean {
 
 export function isTerminalRunEvent(type: string): boolean {
    return type === 'run.completed' || type === 'run.failed' || type === 'run.cancelled';
+}
+
+/**
+ * The message key naming why a run started.
+ *
+ * The server's vocabulary is `assignment | mention | chat | autopilot | squad |
+ * quick_action | builder | completion`; the catalogue spells the two-word ones
+ * in camel case. An unknown value falls back to "assigned" rather than to
+ * nothing, because a run always started somehow.
+ */
+export function runTriggerKey(source: string): string {
+   switch (source) {
+      case 'mention':
+         return 'mention';
+      case 'chat':
+         return 'chat';
+      case 'autopilot':
+         return 'autopilot';
+      case 'squad':
+         return 'squad';
+      case 'quick_action':
+         return 'quickAction';
+      case 'builder':
+         return 'builder';
+      case 'completion':
+         return 'completion';
+      default:
+         return 'assignment';
+   }
+}
+
+/**
+ * How many times this run repeats an earlier one.
+ *
+ * There is no retry counter on a run: a retry is simply another run started
+ * the same way on the same task, so the count is the number of runs before it
+ * that share its trigger. 0 means this is the first, which reads as the
+ * trigger's own name rather than "retry #0".
+ */
+export function retryOrdinal(runs: RunRecord[], run: RunRecord): number {
+   return runs.filter(
+      (candidate) =>
+         candidate.issueId === run.issueId &&
+         candidate.source === run.source &&
+         candidate.createdAt < run.createdAt
+   ).length;
+}
+
+/** Active runs first (newest first), then finished ones, newest first. */
+export function orderRunsForLog(runs: RunRecord[]): { active: RunRecord[]; past: RunRecord[] } {
+   const byNewest = (left: RunRecord, right: RunRecord) =>
+      right.createdAt.localeCompare(left.createdAt);
+   return {
+      active: runs.filter((run) => !isTerminalRunStatus(run.status)).sort(byNewest),
+      past: runs.filter((run) => isTerminalRunStatus(run.status)).sort(byNewest),
+   };
 }
 
 export function runDurationMs(run: RunRecord): number | null {
@@ -368,7 +431,9 @@ export function deliveryFromRunEvent(event: RunEvent): RunDelivery | null {
          ? payload.files.filter((file): file is string => typeof file === 'string')
          : [],
       pullRequest:
-         typeof pull === 'object' && pull !== null && typeof (pull as Record<string, unknown>).url === 'string'
+         typeof pull === 'object' &&
+         pull !== null &&
+         typeof (pull as Record<string, unknown>).url === 'string'
             ? {
                  number: numberOr((pull as Record<string, unknown>).number, 0),
                  url: (pull as Record<string, unknown>).url as string,
@@ -380,7 +445,9 @@ export function deliveryFromRunEvent(event: RunEvent): RunDelivery | null {
 }
 
 function payloadOf(event: RunEvent): Record<string, unknown> | null {
-   return typeof event.payload === 'object' && event.payload !== null && !Array.isArray(event.payload)
+   return typeof event.payload === 'object' &&
+      event.payload !== null &&
+      !Array.isArray(event.payload)
       ? (event.payload as Record<string, unknown>)
       : null;
 }
@@ -486,9 +553,7 @@ export type AutoReview = z.infer<typeof autoReviewSchema>;
  */
 export async function loadAutoReviews(issueRef: string): Promise<AutoReview[]> {
    if (!issueRef) return [];
-   const json: unknown = await apiFetch(
-      `/api/v1/issues/${encodeURIComponent(issueRef)}/reviews`
-   );
+   const json: unknown = await apiFetch(`/api/v1/issues/${encodeURIComponent(issueRef)}/reviews`);
    const parsed = z.object({ reviews: z.array(autoReviewSchema) }).safeParse(json);
    return parsed.success ? parsed.data.reviews : [];
 }

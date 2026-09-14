@@ -1,0 +1,17 @@
+{
+   "header": {
+      "title": "ランタイム",
+      "description": "エージェント作業の実行台帳。実行ごとの状態、イベント、使用量、コストを表示します。"
+   },
+   "overview": {
+      "label": "ランタイム",
+      "caption": "委任されたランタイム",
+      "agentFallback": "エージェント",
+      "cancel": "実行をキャンセル",
+      "cancelling": "キャンセル中…",
+      "cancelled": "実行をキャンセルしました",
+      "cancelFailed": "実行をキャンセルできませんでした",
+      "waiting": "出力を待っています…",
+      "openTranscript": "実行記録を開く"
+   }
+}

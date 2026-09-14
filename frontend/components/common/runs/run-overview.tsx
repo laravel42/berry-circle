@@ -3,6 +3,7 @@
 import { parseISO } from 'date-fns';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
 import { GitBranch, GitPullRequest } from 'lucide-react';
@@ -15,7 +16,6 @@ import {
    isTerminalRunStatus,
    loadBoardRuns,
    streamRunEvents,
-   textFromRunEvent,
    type RunDelivery,
    type RunRecord,
 } from '@/lib/runs';
@@ -23,6 +23,7 @@ import { cn } from '@/lib/utils';
 import { useAgentsStore } from '@/store/agents-store';
 import { useIssuesStore } from '@/store/issues-store';
 import { useRunsStore } from '@/store/runs-store';
+import { RunTranscriptDialog } from '@/components/common/runs/transcript-dialog';
 import { useSessionStore } from '@/store/session-store';
 import { toast } from 'sonner';
 
@@ -107,6 +108,7 @@ function DeliveryStrip({ delivery }: { delivery: RunDelivery }) {
 }
 
 export default function RunOverview() {
+   const t = useTranslations('runtimes.overview');
    const { orgId } = useParams<{ orgId: string }>();
    const router = useRouter();
    const searchParams = useSearchParams();
@@ -119,7 +121,7 @@ export default function RunOverview() {
    const upsertRun = useRunsStore((state) => state.upsertRun);
 
    const [selectedRunId, setSelectedRunId] = useState<string | null>(searchParams.get('run'));
-   const [transcript, setTranscript] = useState('');
+   const [transcriptOpen, setTranscriptOpen] = useState(false);
    const [delivery, setDelivery] = useState<RunDelivery | null>(null);
    const [streamStatus, setStreamStatus] = useState<string>('');
    const [cancelling, setCancelling] = useState(false);
@@ -144,23 +146,15 @@ export default function RunOverview() {
 
    useEffect(() => {
       if (!selectedRunId) {
-         setTranscript('');
          setStreamStatus('');
          return;
       }
       const controller = new AbortController();
-      let output = '';
-      setTranscript('');
       setDelivery(null);
       setStreamStatus('listening');
       void (async () => {
          try {
             for await (const event of streamRunEvents(selectedRunId, controller.signal)) {
-               const chunk = textFromRunEvent(event);
-               if (chunk) {
-                  output += chunk;
-                  setTranscript(output);
-               }
                // What the run left behind. Read from the frame rather than
                // from the run record, because the run resource carries no
                // branch or pull request — the ledger is where they are.
@@ -201,22 +195,22 @@ export default function RunOverview() {
          const updated = await cancelRun(selectedRun.id);
          upsertRun(updated);
          setStreamStatus('cancelled');
-         toast.success('Run cancelled');
+         toast.success(t('cancelled'));
       } catch (error) {
-         toast.error(error instanceof BerryApiError ? error.message : 'Could not cancel run');
+         toast.error(error instanceof BerryApiError ? error.message : t('cancelFailed'));
       } finally {
          setCancelling(false);
       }
    };
 
    return (
-      <section className="flex h-full w-full flex-col" aria-label="Runtimes">
+      <section className="flex h-full w-full flex-col" aria-label={t('label')}>
          {selectedRun ? (
             <div className="border-b bg-muted/20 px-6 py-5 sm:px-8">
                <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-muted-foreground">
                      {issueById.get(selectedRun.issueId)?.identifier ?? selectedRun.issueId} ·{' '}
-                     {getAgentById(selectedRun.agentId)?.name ?? 'agent'} ·{' '}
+                     {getAgentById(selectedRun.agentId)?.name ?? t('agentFallback')} ·{' '}
                      {streamStatus || selectedRun.status}
                   </p>
                   {!isTerminalRunStatus(selectedRun.status) ? (
@@ -227,23 +221,31 @@ export default function RunOverview() {
                         disabled={cancelling}
                         onClick={() => void onCancelSelected()}
                      >
-                        {cancelling ? 'Cancelling…' : 'Cancel run'}
+                        {cancelling ? t('cancelling') : t('cancel')}
                      </Button>
                   ) : null}
                </div>
-               <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap leading-6">
-                  {transcript ||
-                     selectedRun.summary ||
-                     selectedRun.failure?.message ||
-                     'Waiting for output…'}
-               </pre>
+               {/* The one shared transcript, rather than this page's own copy
+                   of it: a blob can only be scrolled, and "what did the agent
+                   actually do" must not have two answers. */}
+               <p className="mt-3 leading-6">
+                  {selectedRun.summary || selectedRun.failure?.message || t('waiting')}
+               </p>
+               <Button
+                  variant="secondary"
+                  size="xs"
+                  className="mt-3"
+                  onClick={() => setTranscriptOpen(true)}
+               >
+                  {t('openTranscript')}
+               </Button>
                {delivery ? <DeliveryStrip delivery={delivery} /> : null}
             </div>
          ) : null}
 
          <div className="min-h-0 flex-1 overflow-auto">
             <table className="w-full table-fixed text-left">
-               <caption className="sr-only">Delegated runtimes</caption>
+               <caption className="sr-only">{t('caption')}</caption>
                <colgroup>
                   <col />
                   <col className="w-[120px]" />
@@ -328,7 +330,7 @@ export default function RunOverview() {
                                  </button>
                               </td>
                               <td className="w-[120px] truncate px-6 py-2.5 text-muted-foreground sm:px-8">
-                                 {agent?.name ?? 'agent'}
+                                 {agent?.name ?? t('agentFallback')}
                               </td>
                               <td className="w-[200px] px-6 py-2.5 text-muted-foreground sm:px-8">
                                  <span className="inline-flex w-fit items-baseline gap-1.5 whitespace-nowrap">
@@ -348,6 +350,13 @@ export default function RunOverview() {
                </tbody>
             </table>
          </div>
+
+         <RunTranscriptDialog
+            runId={selectedRunId}
+            open={transcriptOpen}
+            onOpenChange={setTranscriptOpen}
+            agentName={selectedRun ? getAgentById(selectedRun.agentId)?.name : undefined}
+         />
       </section>
    );
 }

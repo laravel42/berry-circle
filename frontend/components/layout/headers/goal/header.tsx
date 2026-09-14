@@ -18,53 +18,35 @@ import {
    DropdownMenu,
    DropdownMenuContent,
    DropdownMenuItem,
-   DropdownMenuSeparator,
    DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { GOAL_STATUS, statusLook } from '@/lib/catalog';
 import { WORKSPACE_SLUG } from '@/lib/config';
-import {
-   archiveGoal,
-   describeGoalFailure,
-   describeGoalStatus,
-   goalTransitions,
-   patchGoal,
-   type GoalStatus,
-} from '@/lib/goals';
-import { useCreatePlanStore } from '@/store/create-plan-store';
+import { archiveGoal, describeGoalFailure } from '@/lib/goals';
 import { useGoalsStore } from '@/store/goals-store';
-import { ChevronRight, MoreHorizontal, Sparkles } from 'lucide-react';
+import { ChevronRight, MoreHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
-/** Goal header: goals › mark + title, status, and the moves a person may make. */
+/**
+ * Goal header: goals › mark + title, and the status its tasks put it in.
+ *
+ * There are no status moves. A goal's state is read off its tasks, so the only
+ * thing a person decides here is whether the grouping still belongs in the list.
+ */
 export default function Header({ goalId }: { goalId: string }) {
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId || WORKSPACE_SLUG;
    const router = useRouter();
    const closeDrawer = useDetailDrawerClose();
    const goal = useGoalsStore((state) => state.goals.find((candidate) => candidate.id === goalId));
-   const upsertGoal = useGoalsStore((state) => state.upsertGoal);
    const removeGoal = useGoalsStore((state) => state.removeGoal);
-   const openCreatePlan = useCreatePlanStore((state) => state.openModal);
    const [busy, setBusy] = useState(false);
    const [archiveOpen, setArchiveOpen] = useState(false);
 
    const look = goal ? statusLook(GOAL_STATUS, goal.status) : null;
-   const transitions = goal ? goalTransitions(goal.status) : [];
-
-   const move = (status: GoalStatus) => {
-      setBusy(true);
-      void patchGoal(goalId, { status })
-         .then((updated) => {
-            upsertGoal(updated);
-            toast.success(`Goal ${describeGoalStatus(updated.status).toLowerCase()}`);
-         })
-         .catch((error: unknown) => toast.error(describeGoalFailure(error)))
-         .finally(() => setBusy(false));
-   };
 
    const onArchive = () => {
       setBusy(true);
@@ -94,15 +76,6 @@ export default function Header({ goalId }: { goalId: string }) {
          </nav>
          <div className="flex shrink-0 items-center gap-2">
             {goal && <GoalStatusBadge status={goal.status} className="hidden sm:inline-flex" />}
-            <Button
-               size="xs"
-               variant="secondary"
-               disabled={!goal}
-               onClick={() => openCreatePlan({ goalId, projectId: goal?.projectId ?? undefined })}
-            >
-               <Sparkles className="size-4" />
-               <span className="hidden sm:inline">Plan</span>
-            </Button>
             <DropdownMenu>
                <DropdownMenuTrigger asChild>
                   <Button
@@ -116,15 +89,6 @@ export default function Header({ goalId }: { goalId: string }) {
                   </Button>
                </DropdownMenuTrigger>
                <DropdownMenuContent align="end" className="min-w-48">
-                  {transitions.map((transition) => (
-                     <DropdownMenuItem
-                        key={transition.status}
-                        onClick={() => move(transition.status)}
-                     >
-                        {transition.label}
-                     </DropdownMenuItem>
-                  ))}
-                  {transitions.length > 0 && <DropdownMenuSeparator />}
                   <DropdownMenuItem
                      className="text-status-danger focus:text-status-danger"
                      onClick={() => setArchiveOpen(true)}

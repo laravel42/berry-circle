@@ -14,6 +14,7 @@ import { getEmptyImage } from 'react-dnd-html5-backend';
 import { AssigneeUser } from './assignee-user';
 import { LabelBadge } from './label-badge';
 import { ProjectBadge } from './project-badge';
+import { SelectionCheckbox } from './selection-checkbox';
 import { ContextMenu, ContextMenuTrigger } from '@/components/ui/context-menu';
 import { IssueContextMenu } from './issue-context-menu';
 import { WORKSPACE_SLUG } from '@/lib/config';
@@ -26,6 +27,8 @@ type IssueGridProps = {
    index: number;
    columnIssueIds: string[];
    columnStatus?: Status;
+   /** Applies the column's grouped value to a card dropped onto this one. */
+   onDropIssue?: (issue: Issue) => void;
 };
 
 function IssueDragPreview({ issue }: { issue: Issue }) {
@@ -77,7 +80,13 @@ export function CustomDragLayer() {
    );
 }
 
-export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueGridProps) {
+export function IssueGrid({
+   issue,
+   index,
+   columnIssueIds,
+   columnStatus,
+   onDropIssue,
+}: IssueGridProps) {
    const cardRef = useRef<HTMLDivElement>(null);
    const insertBeforeIdRef = useRef<string | null | undefined>(undefined);
    const { orgId } = useParams<{ orgId: string }>();
@@ -135,6 +144,9 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                targetStatus: columnStatus,
                insertBeforeId,
             });
+            // A card dropped from another column lands in this one's group, so
+            // whatever the board is grouped by takes this column's value.
+            onDropIssue?.(draggedItem);
             insertBeforeIdRef.current = undefined;
             setDropEdge(null);
          },
@@ -142,7 +154,7 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
             isOver: monitor.isOver() && monitor.canDrop(),
          }),
       }),
-      [issue.id, index, columnKey, columnStatus, moveIssue]
+      [issue.id, index, columnKey, columnStatus, moveIssue, onDropIssue]
    );
 
    drag(drop(cardRef));
@@ -189,20 +201,21 @@ export function IssueGrid({ issue, index, columnIssueIds, columnStatus }: IssueG
                         <GripVertical className="size-3.5 opacity-0 transition-opacity group-hover:opacity-100" />
                      </div>
                      <div className="min-w-0 flex-1">
-                        {displayProperties.id || displayProperties.assignee ? (
-                           <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                           <span className="flex min-w-0 items-center gap-1.5">
+                              <SelectionCheckbox issueId={issue.id} order={columnIssueIds} />
                               {displayProperties.id ? (
-                                 <span className="text-subtle-foreground">
-                                    {issue.identifier}
-                                 </span>
-                              ) : (
-                                 <span />
-                              )}
-                              {displayProperties.assignee ? (
-                                 <AssigneeUser user={issue.assignee} issueId={issue.id} placeholderForAgents />
+                                 <span className="text-subtle-foreground">{issue.identifier}</span>
                               ) : null}
-                           </div>
-                        ) : null}
+                           </span>
+                           {displayProperties.assignee ? (
+                              <AssigneeUser
+                                 user={issue.assignee}
+                                 issueId={issue.id}
+                                 placeholderForAgents
+                              />
+                           ) : null}
+                        </div>
                         <Link
                            href={`/${orgId ?? WORKSPACE_SLUG}/issue/${issue.identifier}`}
                            className="rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"

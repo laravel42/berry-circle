@@ -42,17 +42,80 @@ services:
       DATABASE_URL: "${BERRY_DATABASE_URL:-postgres://berry:berry@postgres:5432/berry?sslmode=disable}"
       SESSION_TTL: "${SESSION_TTL:-720h}"
       AUTH_ALLOW_PASSWORDLESS_LOGIN: "${AUTH_ALLOW_PASSWORDLESS_LOGIN:-true}"
+      # Sign-in (Better Auth, GitHub only). A separate GitHub OAuth App from
+      # GITHUB_CLIENT_ID below, with callback <BERRY_APP_URL>/api/auth/callback/github.
+      # Server-side only: never mirror these into a NEXT_PUBLIC_* variable.
+      BERRY_AUTH_SECRET: "${BERRY_AUTH_SECRET:-}"
+      BERRY_AUTH_GITHUB_CLIENT_ID: "${BERRY_AUTH_GITHUB_CLIENT_ID:-}"
+      BERRY_AUTH_GITHUB_CLIENT_SECRET: "${BERRY_AUTH_GITHUB_CLIENT_SECRET:-}"
+      BERRY_GITHUB_APP_SLUG: "${BERRY_GITHUB_APP_SLUG:-}"
+      # Origins besides BERRY_APP_URL a browser may arrive from, comma separated.
+      BERRY_AUTH_TRUSTED_ORIGINS: "${BERRY_AUTH_TRUSTED_ORIGINS:-}"
+      # Set to false to seed the identity and board but no demo tasks or
+      # projects — and to stop them reappearing on every boot once deleted.
+      BERRY_SEED_DEMO_WORK: "${BERRY_SEED_DEMO_WORK:-true}"
+      # AutoGate: how many times a peer reviewer may send a task back before
+      # a person decides. Media: where Nova Reel writes a rendered video (a
+      # real S3 bucket the Bedrock credential can read and write); empty
+      # means agents can make speech but not video.
+      BERRY_AUTOGATE_MAX_ATTEMPTS: "${BERRY_AUTOGATE_MAX_ATTEMPTS:-2}"
+      BERRY_MEDIA_VIDEO_S3_URI: "${BERRY_MEDIA_VIDEO_S3_URI:-}"
       REALTIME_BUFFER: "${REALTIME_BUFFER:-64}"
       # Agent execution: the model credential and the bucket an agent's files
       # land in. Without both, this server reports agentExecution false and
       # refuses run requests rather than accepting ones it cannot serve.
       #
-      # BERRY_-prefixed first: a stale OPENROUTER_API_KEY exported in the
-      # launching shell outranks .env for Compose substitution, and has twice
-      # revived a spent key. Nothing exports the namespaced name.
-      # Server-side only: never mirror this into a NEXT_PUBLIC_* variable.
-      BERRY_OPENROUTER_API_KEY: "${BERRY_OPENROUTER_API_KEY:-${OPENROUTER_API_KEY:-}}"
-      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-anthropic/claude-sonnet-4.5}"
+      # Bedrock is reached with SigV4, so there is no model API key here. On
+      # EC2, ECS or Lambda the instance role supplies the credential and the
+      # deployment holds no long-lived model secret at all.
+      BERRY_BEDROCK_REGION: "${BERRY_BEDROCK_REGION:-${AWS_REGION:-us-east-1}}"
+      # Deliberately not AWS_ACCESS_KEY_ID: that name already carries MinIO's
+      # `minioadmin` for object storage below, and sharing it would send
+      # MinIO's credentials to AWS. Leave empty to use the instance role.
+      BERRY_BEDROCK_ACCESS_KEY_ID: "${BERRY_BEDROCK_ACCESS_KEY_ID:-}"
+      BERRY_BEDROCK_SECRET_ACCESS_KEY: "${BERRY_BEDROCK_SECRET_ACCESS_KEY:-}"
+      BERRY_BEDROCK_SESSION_TOKEN: "${BERRY_BEDROCK_SESSION_TOKEN:-}"
+      # An inference profile, not a bare model id: Anthropic models on Bedrock
+      # are only invocable through a cross-region profile in most regions.
+      # Haiku 4.5 rather than Sonnet: a third of the price ($1/$5 per million
+      # against $3/$15) and still reliable at a tool-calling loop, which is what
+      # a run is. This is the fallback for an agent naming no model of its own.
+      BERRY_AGENT_DEFAULT_MODEL: "${BERRY_AGENT_DEFAULT_MODEL:-us.anthropic.claude-haiku-4-5-20251001-v1:0}"
+      # Signs and verifies inbound GitHub webhooks. Empty disables the route
+      # outright rather than leaving it unauthenticated: anyone who could reach
+      # it would otherwise be able to close every task in the deployment.
+      #
+      # Webhooks stay direct from GitHub: the gateway carries outbound calls,
+      # and AgentCore offers no inbound event stream to replace this.
+      BERRY_GITHUB_WEBHOOK_SECRET: "${BERRY_GITHUB_WEBHOOK_SECRET:-}"
+      # GitHub through AgentCore Gateway. `legacy` falls back to Berry's own
+      # client and GitHub App, so a rollback is one variable rather than a
+      # revert.
+      GITHUB_PROVIDER: "${GITHUB_PROVIDER:-agentcore}"
+      AWS_AGENTCORE_REGION: "${AWS_AGENTCORE_REGION:-${AWS_REGION:-us-east-1}}"
+      # The gateway's MCP endpoint. Empty leaves the gateway unconfigured and
+      # Berry falls back rather than failing.
+      AWS_AGENTCORE_GATEWAY_URL: "${AWS_AGENTCORE_GATEWAY_URL:-}"
+      # The OAuth2 credential provider AgentCore Identity holds GitHub in.
+      # This is what replaces Berry's own OAuth and App private key.
+      AWS_AGENTCORE_GITHUB_PROVIDER: "${AWS_AGENTCORE_GITHUB_PROVIDER:-}"
+      AWS_AGENTCORE_WORKLOAD_NAME: "${AWS_AGENTCORE_WORKLOAD_NAME:-berry}"
+      # Only for a gateway whose tool names defeat discovery. Normally empty:
+      # names come from tools/list, never from here.
+      BERRY_AGENTCORE_TOOL_MAP: "${BERRY_AGENTCORE_TOOL_MAP:-}"
+      # AgentCore, when an agent's commands should run there rather than in the
+      # Docker sandbox. Set BERRY_RUNTIME_DRIVER=agentcore to switch.
+      BERRY_AGENTCORE_REGION: "${BERRY_AGENTCORE_REGION:-}"
+      BERRY_AGENTCORE_CODE_INTERPRETER_ID: "${BERRY_AGENTCORE_CODE_INTERPRETER_ID:-aws.codeinterpreter.v1}"
+      BERRY_AGENTCORE_RUNTIME_ARN: "${BERRY_AGENTCORE_RUNTIME_ARN:-}"
+      BERRY_AGENTCORE_MEMORY_ID: "${BERRY_AGENTCORE_MEMORY_ID:-}"
+      # Deliberately not AWS_ACCESS_KEY_ID, for the same reason Bedrock is not:
+      # that name holds MinIO's credentials below, so an AgentCore client left
+      # on the default chain authenticates to AWS as the object store and is
+      # refused. Falls back to the Bedrock pair, which is already AWS's.
+      BERRY_AGENTCORE_ACCESS_KEY_ID: "${BERRY_AGENTCORE_ACCESS_KEY_ID:-}"
+      BERRY_AGENTCORE_SECRET_ACCESS_KEY: "${BERRY_AGENTCORE_SECRET_ACCESS_KEY:-}"
+      BERRY_AGENTCORE_SESSION_TOKEN: "${BERRY_AGENTCORE_SESSION_TOKEN:-}"
       STORAGE_MAX_BYTES: "${STORAGE_MAX_BYTES:-26214400}"
       S3_BUCKET: "${S3_BUCKET:-berry-artifacts}"
       S3_REGION: "${S3_REGION:-us-east-1}"
@@ -63,12 +126,20 @@ services:
       AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-berryminio}"
       AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-berryminio}"
       AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
-      # Where an agent's commands run. The API reaches the runtime over HTTP
-      # with a shared secret and never touches the Docker socket itself — that
-      # is the whole reason `runtime` is a separate service.
+      # Where an agent's commands run: `docker` (the runtime service over HTTP —
+      # the API never touches the Docker socket itself, which is why `runtime`
+      # is separate), `agentcore` (Bedrock AgentCore Code Interpreter), or
+      # `agentcore-runtime` (a deployed AgentCore Runtime by ARN). URL and token
+      # are read only by the `docker` driver.
       BERRY_RUNTIME_DRIVER: "${BERRY_RUNTIME_DRIVER:-docker}"
       BERRY_RUNTIME_URL: "${BERRY_RUNTIME_URL:-http://runtime:4300}"
       BERRY_RUNTIME_TOKEN: "${BERRY_RUNTIME_TOKEN:-}"
+      # The agent runtime berry-api dispatches tasks to when no AgentCore
+      # runtime ARN is configured: the same image, run by the service below.
+      BERRY_AGENT_RUNTIME_URL: "${BERRY_AGENT_RUNTIME_URL:-http://agent-runtime:8080}"
+      # Where the runtime calls Berry back. Inside that container "localhost"
+      # is itself, so this is the service name rather than the public URL.
+      BERRY_RUNTIME_CALLBACK_URL: "${BERRY_RUNTIME_CALLBACK_URL:-http://berry-api:4000}"
       # Seals provider credentials at rest. Empty leaves integrations off, so a
       # run never gets a repository — which is a working deployment, rather
       # than one that fails at the clone with a decryption error.
@@ -112,8 +183,11 @@ services:
     # intact. berry-api talks to this over HTTP with a shared secret, exactly
     # as it would talk to a remote substrate.
     build:
-      context: ./runtime
-      dockerfile: Dockerfile
+      # The runtime source moved under server-ts (one package to reason about),
+      # but it still ships as its own image and runs as its own service so the
+      # Docker socket stays out of berry-api.
+      context: ./server-ts
+      dockerfile: sandbox/docker/Dockerfile.runtime
     image: berry-runtime:local
     depends_on:
       # The image runs happen in has to exist before the first run asks for
@@ -161,11 +235,39 @@ services:
     # a pull, because the image needs git and a package manager that the stock
     # node image does not carry.
     build:
-      context: ./runtime/sandbox
+      context: ./server-ts/sandbox/docker
       dockerfile: Dockerfile
     image: "${BERRY_SANDBOX_IMAGE:-berry-sandbox:local}"
     command: ["true"]
     restart: "no"
+
+  agent-runtime:
+    # The AgentCore Runtime image, run locally (ADR-0014): the agent loop and
+    # its tools. The same /ping and /invocations contract AgentCore calls.
+    # Bedrock credentials use the BERRY_BEDROCK_* names; AWS_* here is MinIO's.
+    build:
+      context: ./server-ts
+      dockerfile: sandbox/agentcore/Dockerfile
+      args:
+        BERRY_RUNTIME_PLATFORM: "${BERRY_RUNTIME_PLATFORM:-linux/arm64}"
+    image: berry-agent-runtime:local
+    environment:
+      BERRY_BEDROCK_REGION: "${BERRY_BEDROCK_REGION:-}"
+      BERRY_BEDROCK_ACCESS_KEY_ID: "${BERRY_BEDROCK_ACCESS_KEY_ID:-}"
+      BERRY_BEDROCK_SECRET_ACCESS_KEY: "${BERRY_BEDROCK_SECRET_ACCESS_KEY:-}"
+      BERRY_BEDROCK_SESSION_TOKEN: "${BERRY_BEDROCK_SESSION_TOKEN:-}"
+      BERRY_RUNTIME_LOCAL_CONTROL: "true"
+      # A real S3 prefix the video tool writes into; empty means no video tool.
+      BERRY_MEDIA_VIDEO_S3_URI: "${BERRY_MEDIA_VIDEO_S3_URI:-}"
+    ports:
+      - "127.0.0.1:${AGENT_RUNTIME_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      start_period: 10s
+      retries: 6
+    restart: unless-stopped
 
   minio:
     # S3-compatible object storage for artifacts (ADR-0006). Development runs the

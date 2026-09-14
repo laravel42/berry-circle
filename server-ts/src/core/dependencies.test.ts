@@ -5,6 +5,7 @@ import { closeDatabase, openDatabase, type Sql } from '../db/pool.ts';
 import { DependencyCycle, DependencyRepository } from './dependencies.ts';
 import { ReviewRepository } from './reviews.ts';
 import { NotFound } from '../identity/errors.ts';
+import { deleteWorkspaceAgents } from '../test-support/protected-agents.ts';
 
 /**
  * Dependencies and AutoGate verdicts against a real PostgreSQL. Almost every
@@ -228,12 +229,7 @@ async function cleanup(sql: Sql, fixture: Record<string, string>): Promise<void>
    if (!fixture.workspaceId) return;
    await sql`DELETE FROM outbox_events WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM issues WHERE board_id = ${fixture.boardId!}`;
-   await sql`ALTER TABLE agents DISABLE TRIGGER berry_agents_block_protected_delete`;
-   try {
-      await sql`DELETE FROM agents WHERE workspace_id = ${fixture.workspaceId}`;
-   } finally {
-      await sql`ALTER TABLE agents ENABLE TRIGGER berry_agents_block_protected_delete`;
-   }
+   await deleteWorkspaceAgents(sql, [fixture.workspaceId]);
    await sql`DELETE FROM boards WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspace_memberships WHERE workspace_id = ${fixture.workspaceId}`;
    await sql`DELETE FROM workspaces WHERE id = ${fixture.workspaceId}`;

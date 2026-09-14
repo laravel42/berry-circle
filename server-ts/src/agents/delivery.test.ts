@@ -85,7 +85,7 @@ test('changes are committed, pushed, and reported with a diffstat', async () => 
    assert.ok(calls.every((call) => call.cwd === 'frontend'));
 });
 
-test('the token never appears in a command, only on the push environment', async () => {
+test('the token never appears in a command, only on the environment of the fetch and the push', async () => {
    // The same rule as the checkout, and for the same reason: commands are
    // recorded verbatim and streamed to everyone watching the run.
    const { session, calls } = fakeSession({
@@ -104,9 +104,11 @@ test('the token never appears in a command, only on the push environment', async
       assert.ok(!call.command.includes(TOKEN), `token leaked into: ${call.command}`);
    }
    const withToken = calls.filter((call) => call.env?.BERRY_GIT_TOKEN !== undefined);
-   assert.equal(withToken.length, 1);
-   assert.match(withToken[0]!.command, /push/);
-   assert.match(withToken[0]!.command, /\$BERRY_GIT_TOKEN/);
+   assert.deepEqual(
+      withToken.map((call) => (call.command.includes('push') ? 'push' : 'fetch')),
+      ['fetch', 'push']
+   );
+   for (const call of withToken) assert.match(call.command, /\$BERRY_GIT_TOKEN/);
 });
 
 test('a retried run updates its own branch but refuses to clobber someone else', async () => {
@@ -122,7 +124,32 @@ test('a retried run updates its own branch but refuses to clobber someone else',
       message: 'work',
    });
    const push = calls.find((call) => call.command.includes('push'))!;
-   assert.match(push.command, /--force-with-lease/);
+   // The lease names the value it expects — the sha the fetch brought back —
+   // because the implicit lease is refused on a shallow clone.
+   assert.match(push.command, /--force-with-lease='b:abc'/);
+   // The lease has to have something to compare with: a fresh clone knows
+   // nothing about the branch the earlier attempt pushed, and was refused
+   // with "stale info" until the branch was fetched first.
+   const fetch = calls.findIndex((call) => /fetch origin '\+refs\/heads\/b:refs\/remotes\/origin\/b'/.test(call.command));
+   const pushAt = calls.findIndex((call) => call.command.includes('push'));
+   assert.ok(fetch >= 0 && fetch < pushAt, 'the branch is fetched before it is pushed');
+   assert.equal(calls[fetch]!.env?.BERRY_GIT_TOKEN, TOKEN, 'the fetch authenticates the same way');
+});
+
+test('a branch that does not exist yet fails to fetch, and is pushed anyway', async () => {
+   const { session, calls } = fakeSession({
+      numstat: { stdout: CHANGES },
+      // Listed before `rev-parse`: the fake answers by the first key a command
+      // contains, and the remote-ref probe is a `rev-parse --verify`.
+      '--verify': { exitCode: 1, stdout: '' },
+      'rev-parse': { stdout: 'abc\n' },
+      fetch: { exitCode: 128, stderr: "fatal: couldn't find remote ref b\n" },
+   });
+   const delivery = await commitAndPush({ session, directory: 'frontend', branch: 'b', token: TOKEN, message: 'work' });
+   assert.equal(delivery.committed, true);
+   const push = calls.find((call) => call.command.includes('push'))!;
+   // An empty expectation: create the branch, and refuse if one appeared.
+   assert.match(push.command, /--force-with-lease='b:'/);
 });
 
 test('a commit message with a body survives the shell', async () => {

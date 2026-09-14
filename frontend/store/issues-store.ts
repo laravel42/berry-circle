@@ -1,4 +1,4 @@
-import { groupIssuesByStatus, Issue, issues as mockIssues } from '@/data/issues';
+import { groupIssuesByStatus, Issue } from '@/data/issues';
 import { LabelInterface } from '@/data/labels';
 import { Priority } from '@/data/priorities';
 import { Project } from '@/data/projects';
@@ -20,20 +20,20 @@ import { createElement } from 'react';
 import { toast } from 'sonner';
 import { create } from 'zustand';
 
-interface FilterOptions {
-   status?: string[];
-   assignee?: string[];
-   priority?: string[];
-   labels?: string[];
-   project?: string[];
-   cycle?: string[];
-   statusType?: string[];
-}
+/** Where the first load of the task list got to. */
+export type IssuesLoadState = 'loading' | 'ready' | 'error';
 
 interface IssuesState {
    // Data
    issues: Issue[];
    issuesByStatus: Record<string, Issue[]>;
+   /** The list's own load state, so a view can show a skeleton or a retry. */
+   loadState: IssuesLoadState;
+   loadError: string | null;
+   /** Bumped by `retryLoad`; the hydrating hook watches it and fetches again. */
+   retryToken: number;
+   setLoadState: (state: IssuesLoadState, error?: string | null) => void;
+   retryLoad: () => void;
 
    //
    getAllIssues: () => Issue[];
@@ -50,9 +50,7 @@ interface IssuesState {
    filterByAssignee: (userId: string | null) => Issue[];
    filterByLabel: (labelId: string) => Issue[];
    filterByProject: (projectId: string) => Issue[];
-   filterByCycle: (cycleId: string) => Issue[];
    searchIssues: (query: string) => Issue[];
-   filterIssues: (filters: FilterOptions) => Issue[];
 
    // Status management
    updateIssueStatus: (issueId: string, newStatus: Status) => void;
@@ -125,8 +123,19 @@ function commitPatch(
 
 export const useIssuesStore = create<IssuesState>((set, get) => ({
    // Initial state
-   issues: mockIssues.sort((a, b) => b.rank.localeCompare(a.rank)),
-   issuesByStatus: groupIssuesByStatus(mockIssues),
+   issues: [],
+   issuesByStatus: {},
+   loadState: 'loading',
+   loadError: null,
+   retryToken: 0,
+
+   setLoadState: (loadState, loadError = null) => set({ loadState, loadError }),
+   retryLoad: () =>
+      set((state) => ({
+         loadState: 'loading',
+         loadError: null,
+         retryToken: state.retryToken + 1,
+      })),
 
    //
    getAllIssues: () => get().issues,
@@ -196,10 +205,6 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
       return get().issues.filter((issue) => issue.project?.id === projectId);
    },
 
-   filterByCycle: (cycleId: string) => {
-      return get().issues.filter((issue) => issue.cycleId === cycleId);
-   },
-
    searchIssues: (query: string) => {
       const lowerCaseQuery = query.toLowerCase();
       return get().issues.filter(
@@ -207,71 +212,6 @@ export const useIssuesStore = create<IssuesState>((set, get) => ({
             issue.title.toLowerCase().includes(lowerCaseQuery) ||
             issue.identifier.toLowerCase().includes(lowerCaseQuery)
       );
-   },
-
-   filterIssues: (filters: FilterOptions) => {
-      let filteredIssues = get().issues;
-
-      // Filter by status
-      if (filters.status && filters.status.length > 0) {
-         filteredIssues = filteredIssues.filter((issue) =>
-            filters.status!.includes(issue.status.id)
-         );
-      }
-
-      // Filter by assignee
-      if (filters.assignee && filters.assignee.length > 0) {
-         filteredIssues = filteredIssues.filter((issue) => {
-            if (filters.assignee!.includes('unassigned')) {
-               // If 'unassigned' is selected and the issue has no assignee
-               if (issue.assignee === null) {
-                  return true;
-               }
-            }
-            // Check if the issue's assignee is in the selected assignees
-            return issue.assignee && filters.assignee!.includes(issue.assignee.id);
-         });
-      }
-
-      // Filter by priority
-      if (filters.priority && filters.priority.length > 0) {
-         filteredIssues = filteredIssues.filter((issue) =>
-            filters.priority!.includes(issue.priority.id)
-         );
-      }
-
-      // Filter by labels
-      if (filters.labels && filters.labels.length > 0) {
-         filteredIssues = filteredIssues.filter((issue) =>
-            issue.labels.some((label) => filters.labels!.includes(label.id))
-         );
-      }
-
-      // Filter by project
-      if (filters.project && filters.project.length > 0) {
-         filteredIssues = filteredIssues.filter(
-            (issue) => issue.project && filters.project!.includes(issue.project.id)
-         );
-      }
-
-      // Filter by cycle ('no-cycle' matches issues outside any cycle)
-      if (filters.cycle && filters.cycle.length > 0) {
-         filteredIssues = filteredIssues.filter((issue) => {
-            if (filters.cycle!.includes('no-cycle') && issue.cycleId === '') {
-               return true;
-            }
-            return filters.cycle!.includes(issue.cycleId);
-         });
-      }
-
-      // Filter by status type (status category)
-      if (filters.statusType && filters.statusType.length > 0) {
-         filteredIssues = filteredIssues.filter((issue) =>
-            filters.statusType!.includes(issue.status.category)
-         );
-      }
-
-      return filteredIssues;
    },
 
    // Status management

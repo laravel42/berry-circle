@@ -1,0 +1,105 @@
+{
+   "title": "受信箱",
+   "description": "離れている間にあなたの作業に起きたこと。",
+   "views": {
+      "active": "受信箱",
+      "archived": "アーカイブ"
+   },
+   "list": {
+      "unread": "未読",
+      "shortcutHint": "上下キーで移動、E でアーカイブ",
+      "selectHint": "通知を選択すると内容が表示されます。"
+   },
+   "filters": {
+      "status": "ステータス",
+      "priority": "優先度",
+      "sender": "送信者",
+      "unreadOnly": "未読のみ",
+      "clear": "フィルターをクリア",
+      "anySender": "すべての送信者",
+      "unknownSender": "不明な送信者",
+      "agents": "エージェント",
+      "system": "Berry",
+      "active": "{count} 件のフィルター"
+   },
+   "states": {
+      "loading": "通知を読み込んでいます…",
+      "empty": "まだ何もありません。",
+      "emptyBody": "フォロー中の作業への割り当て、コメント、エージェントの結果がここに届きます。",
+      "noMatches": "条件に一致する通知はありません。",
+      "emptyArchive": "アーカイブは空です。",
+      "emptyArchiveBody": "アーカイブした通知はここに保管されます。",
+      "error": "アーカイブを読み込めませんでした。",
+      "errorBody": "応答がありませんでした。データは失われていません。",
+      "retry": "再試行"
+   },
+   "actions": {
+      "markRead": "既読にする",
+      "markUnread": "未読にする",
+      "archive": "アーカイブ",
+      "unarchive": "受信箱に戻す",
+      "openInNewTab": "新しいタブで開く",
+      "rowMenu": "通知の操作",
+      "bulkMenu": "すべてに適用",
+      "markAllRead": "すべて既読にする",
+      "archiveAll": "すべてアーカイブ",
+      "archiveRead": "既読をアーカイブ",
+      "archiveCompleted": "完了分をアーカイブ",
+      "back": "一覧に戻る",
+      "retryRun": "元のコンテキストで再実行"
+   },
+   "detail": {
+      "prompt": "元のプロンプト",
+      "comment": "対象のコメント",
+      "noBody": "この通知にはこれ以上の詳細はありません。",
+      "issueDeleted": "そのタスクはありません。",
+      "issueDeletedBody": "この通知が指すタスクは削除されました。",
+      "backToInbox": "受信箱に戻る"
+   },
+   "toasts": {
+      "archived": "アーカイブしました",
+      "unarchived": "受信箱に戻しました",
+      "archivedMany": "{count} 件をアーカイブしました",
+      "allRead": "すべて既読にしました",
+      "failed": "実行できませんでした。もう一度お試しください。",
+      "retryStarted": "タスクを再実行しています。",
+      "retryFailed": "実行を開始できませんでした。"
+   },
+   "drawer": {
+      "title": "通知",
+      "description": "離れている間にあなたの作業に起きたこと。",
+      "markAllRead": "すべて既読にする",
+      "empty": "まだ何もありません。",
+      "unread": "未読",
+      "openInbox": "受信箱を開く"
+   },
+   "toast": {
+      "open": "開く",
+      "more": "ほか {count} 件"
+   },
+   "types": {
+      "comment": "新しいコメント",
+      "mention": "メンションされました",
+      "assignment": "あなたに割り当て",
+      "unassigned": "割り当て解除",
+      "subscribed": "購読に追加されました",
+      "fieldChange": "項目の変更",
+      "reviewRequested": "レビュー依頼",
+      "reaction": "新しいリアクション",
+      "status": "ステータス変更",
+      "reopened": "再オープン",
+      "closed": "クローズ",
+      "edited": "編集",
+      "created": "作成",
+      "upload": "ファイル添付",
+      "approval": "承認",
+      "goal": "ゴール",
+      "workflow": "ワークフロー",
+      "plan": "プラン",
+      "runCompleted": "実行完了",
+      "runFailed": "実行失敗",
+      "agentBlocked": "エージェント停止中",
+      "agentCompleted": "エージェント完了",
+      "autopilotPaused": "オートパイロット一時停止"
+   }
+}

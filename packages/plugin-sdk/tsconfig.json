@@ -1,0 +1,25 @@
+{
+   "compilerOptions": {
+      "target": "ES2023",
+      "module": "NodeNext",
+      "moduleResolution": "NodeNext",
+      "lib": ["ES2023", "DOM"],
+      "strict": true,
+      "noUncheckedIndexedAccess": true,
+      "exactOptionalPropertyTypes": true,
+      "noImplicitOverride": true,
+      "verbatimModuleSyntax": true,
+      // Node 22 strips types at runtime, so imports keep their .ts extension
+      // and resolve to the file that is actually there.
+      "allowImportingTsExtensions": true,
+      // Node runs this by stripping types, never compiling, so anything that
+      // emits code — parameter properties, enums, namespaces — must fail here
+      // rather than at startup.
+      "erasableSyntaxOnly": true,
+      "rewriteRelativeImportExtensions": true,
+      "skipLibCheck": true,
+      "noEmit": true,
+      "types": ["node"]
+   },
+   "include": ["src/**/*.ts"]
+}

@@ -30,20 +30,16 @@ export interface View {
    createdAt: string;
    updatedAt: string;
    filter: ViewFilter;
-}
-
-/** Saved views of the workspace. Empty until the gateway provides them. */
-export const views: View[] = [];
-
-export const issueViews = views.filter((view) => view.type === 'issue');
-export const projectViews = views.filter((view) => view.type === 'project');
-
-export function getViewsByTeam(teamId: string): View[] {
-   return views.filter((view) => view.teamId === teamId);
-}
-
-export function getViewById(id: string): View | undefined {
-   return views.find((view) => view.id === id);
+   /** Who can see it. Private views are the owner's alone. */
+   visibility: 'private' | 'workspace';
+   /** Optimistic-concurrency counter; a save must send the one it read. */
+   revision: number;
+   /** The saved filter chips, exactly as the filter bar stores them. */
+   savedFilters: unknown[];
+   /** Saved layout and display defaults (`layout`, `grouping`, `ordering`, …). */
+   display: Record<string, unknown>;
+   /** The scope the view was saved from (`all`, `assigned`, …). */
+   scope?: string;
 }
 
 /** Apply an issue view's declarative filter to the issue list. */

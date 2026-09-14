@@ -3,7 +3,7 @@
 Berry is a self-hosted workspace where humans and AI coding agents plan, execute, and
 review work together. Berry owns the browser-facing product, its durable state, and — since
 [ADR-0008](docs/adr/0008-adk-agent-runtime.md) — agent execution itself: agents run
-in-process on the Google Agent Development Kit rather than on a separate substrate.
+in-process on the Strands Agents SDK rather than on a separate substrate.
 
 | Path | What |
 | --- | --- |
@@ -11,7 +11,6 @@ in-process on the Google Agent Development Kit rather than on a separate substra
 | `frontend` | Next.js App Router UI, vendored from the MIT Circle template |
 | `docs` | Product brief, ADRs, API contract |
 | `docker-compose.yml` | Server + PostgreSQL + MinIO local stack |
-| `deploy/multica.pin.json` | Reuse provenance pin (engineering metadata only) |
 
 Each workspace keeps its own validation commands; both are pnpm packages under
 `pnpm-workspace.yaml`.
@@ -60,7 +59,6 @@ cp .env.example .env
 # reports agentExecution false and refuses run requests rather than accepting
 # ones it cannot serve.
 
-python3 scripts/check-deploy-pins.py
 python3 scripts/check-compose-config.py
 docker compose up -d --build
 
@@ -151,11 +149,39 @@ See [`frontend/README.md`](frontend/README.md) for the UI contract and env table
 
 ### Models
 
-Agents call OpenRouter. `BERRY_OPENROUTER_API_KEY` is the credential and
-`BERRY_AGENT_DEFAULT_MODEL` is used when an agent row names no model of its own. The
-`BERRY_`-prefixed name is read first on purpose: a stale `OPENROUTER_API_KEY` exported in
-the launching shell outranks `.env` for Compose substitution, and has twice revived a
-spent key.
+Agents call Amazon Bedrock. `BERRY_BEDROCK_ACCESS_KEY_ID` /
+`BERRY_BEDROCK_SECRET_ACCESS_KEY` are the credentials, and
+`BERRY_AGENT_DEFAULT_MODEL` is used when an agent row names no model of its own.
+It takes a Bedrock **inference profile** id, not an OpenRouter-style name: the
+`us.` prefix is the cross-region profile Anthropic models need in most regions,
+and a bare model id fails with a `ValidationException` that reads like a typo.
+The default is `us.anthropic.claude-haiku-4-5-20251001-v1:0`, chosen for cost per
+unit of useful work — a third of Sonnet 4.5's price, and still reliable at the
+tool-calling loop a run performs.
+
+The `BERRY_`-prefixed names are read first on purpose: a stale `AWS_ACCESS_KEY_ID`
+exported in the launching shell — or set for MinIO, which uses that name in the
+Compose stack — outranks `.env` for Compose substitution.
+
+### GitHub
+
+Berry creates its own GitHub App rather than reading one from the environment.
+In **Settings → Integrations**, *Create GitHub App* posts a manifest to GitHub;
+GitHub shows what the App will be allowed to do, and the conversion hands back
+the app id, both halves of the OAuth credential, the private key and the webhook
+secret. Berry seals all of it with `INTEGRATION_ENCRYPTION_KEY` — the one
+credential that has to stay in the environment, because it is what everything
+else is encrypted with and so cannot live in the database it protects. Without
+it the deployment holds no provider credential at all, rather than holding one
+in the clear.
+
+The manifest declares its own callback URLs, so there is nothing to register by
+hand. Installing the App on an account is a second step, and it is where the
+repositories are chosen. Repository work then runs on installation tokens minted
+per run, so nothing expires between one unattended run and the next.
+
+`GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` still work, as the older
+user-token path, and are ignored once an App exists.
 
 ## Operating the stack
 

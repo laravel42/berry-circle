@@ -1,4 +1,6 @@
 import type { Sql } from '../db/pool.ts';
+import { z } from 'zod';
+import { CompletionInvalid, type RuntimeCompletion } from '../runtime/completion.ts';
 import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationReport } from './schema.ts';
 
 /**
@@ -25,18 +27,23 @@ import { readPlan, validatePlan, type FieldProblem, type Plan, type ValidationRe
  * "should it be" and is allowed to be wrong. Only the first can block a plan.
  */
 
-const GENERATE_SYSTEM = `You turn a request into a Berry plan: the tasks a team
-would create to do it, and the order they depend on each other in.
+const GENERATE_SYSTEM = `You turn a request into a Berry plan: the milestones a
+team would deliver it in, the tasks that reach each milestone, and the order
+they depend on each other in.
 
-Answer with JSON only — no prose, no code fence. The shape is:
+The shape of the answer is:
 
 {
   "goal": { "tempId": "goal-1", "title": "...", "description": "..." },
+  "milestones": [
+    { "tempId": "m1", "title": "...", "description": "..." }
+  ],
   "assumptions": [
-    { "id": "a1", "description": "...", "confidence": "low|medium|high", "blocking": false }
+    { "id": "a1", "description": "...", "confidence": "low|medium|high", "blocking": false,
+      "options": [ { "id": "a1-o1", "label": "...", "detail": "..." } ] }
   ],
   "issues": [
-    { "tempId": "t1", "title": "...", "description": "...",
+    { "tempId": "t1", "title": "...", "description": "...", "milestone": "m1",
       "requiredCapabilities": ["typescript"], "dependsOn": ["t2"],
       "requiresReview": false, "requiresApproval": false, "priority": "medium" }
   ],
@@ -47,8 +54,23 @@ Answer with JSON only — no prose, no code fence. The shape is:
 }
 
 Rules:
-- Each task is one piece of work one agent or person could finish. Not
-  "build the feature"; not "rename a variable" either.
+- The goal is the whole request in one line. It is not a milestone and it
+  has no tasks of its own.
+- Decompose the request into 2 to 6 milestones, in delivery order. Each
+  milestone is an outcome somebody could see working on its own — "people
+  can sign in", "a ticket can be created and assigned" — not a layer of the
+  system, not a phase name like "backend" or "testing". Do not restate the
+  request as a single milestone: if the request has several parts, it has
+  several milestones.
+- Every task belongs to exactly one milestone, named in \`milestone\` by its
+  \`tempId\`, and every milestone has 3 to 8 tasks.
+- Each task has one responsibility: one thing to build, change or decide, so
+  that finishing it can be checked without asking what "done" meant. Not
+  "build the feature"; not "rename a variable" either. A task that needs
+  "and" to describe is usually two tasks.
+- Order the milestones so that each one builds on the ones before it, and
+  keep dependencies inside a milestone where you can; a task that waits on
+  an earlier milestone names the specific task it waits on.
 - \`dependsOn\` names tasks in this plan by \`tempId\`, and never forms a
   circle.
 - Set \`requiresApproval\` only where starting the task is a commitment a
@@ -57,6 +79,16 @@ Rules:
 - If the request is too vague to plan, say so with a blocking assumption
   (\`"blocking": true\`) whose description is the question you need answered,
   and propose no tasks.
+- Every blocking assumption MUST carry 2-4 \`options\`: the concrete answers you
+  would accept, mutually exclusive, in the vocabulary of the request rather
+  than of software. "Nightly batch" and "Real-time (under 500ms)" are options;
+  "Yes" and "No" to a question that is not yes-or-no are not. Add \`detail\`
+  only where the label alone would not tell someone what they are choosing.
+  Someone is going to pick one of these without being able to ask you what you
+  meant, so do not offer an option you could not plan from.
+- Offer options on a non-blocking assumption too when there is a real choice
+  behind it. You are guessing either way; the options are how someone corrects
+  the guess without having to know they needed to.
 - Berry has no rules engine. A condition that must be respected goes in the
   task's description, where the agent doing the work will read it.`;
 
@@ -75,18 +107,43 @@ const CRITIC_SYSTEM = `You are reviewing a Berry plan before a person is asked
 to start it. The plan is already known to be structurally valid; your job is
 whether it is any good.
 
-Answer with JSON only:
+The shape of the answer is:
 
 { "verdict": "accept" | "revise",
   "problems": [ { "code": "...", "path": "/issues/0", "message": "...",
                   "severity": "error" | "warning" } ] }
 
 Say "revise" only for something a person would actually send back: a task too
-big for one agent to finish, a missing step the rest depends on, an ordering
-that cannot work, a task that will silently do something destructive. Style,
-wording and preference are "accept" with a warning at most.
+big for one agent to finish, a task that does two unrelated things, a request
+with several parts squeezed into one milestone, a milestone that is a layer or
+a phase rather than an outcome, a missing step the rest depends on, an
+ordering that cannot work, a task that will silently do something
+destructive. Style, wording and preference are "accept" with a warning at
+most.
 
 An empty problem list with "accept" is a good answer, and the common one.`;
+
+/**
+ * The shape the planner and the repair role answer in.
+ *
+ * Top-level keys are named so the model's structured-output tool advertises
+ * them — an open object tempted it to wrap the plan under a key of its own.
+ * Everything inside stays loose on purpose: `readPlan` reads leniently and
+ * names what is wrong, and the repair loop is built on those names. A strict
+ * schema here would refuse the document the repair role exists to fix.
+ */
+const PLAN_SHAPE = z.looseObject({
+   goal: z.looseObject({}).optional(),
+   milestones: z.array(z.looseObject({})).optional(),
+   assumptions: z.array(z.looseObject({})).optional(),
+   issues: z.array(z.looseObject({})).optional(),
+   approvals: z.array(z.looseObject({})).optional(),
+});
+
+const CRITIQUE_SHAPE = z.looseObject({
+   verdict: z.string().optional(),
+   problems: z.array(z.looseObject({})).optional(),
+});
 
 export type Stage = 'generate' | 'validate' | 'repair' | 'critic';
 
@@ -131,10 +188,9 @@ export class PlannerUnavailable extends Error {
 
 export interface PlanGeneratorOptions {
    sql: Sql;
-   apiKey: string;
-   baseUrl: string;
    defaultModel: string;
-   fetch?: typeof globalThis.fetch;
+   /** Runs each call as a completion task on the runtime (ADR-0014). */
+   completion: Pick<RuntimeCompletion, 'structured'>;
    timeoutMs?: number;
    /** How many times a document may be sent back to be fixed. */
    maxRepairs?: number;
@@ -146,20 +202,16 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class PlanGenerator {
    readonly #sql: Sql;
-   readonly #apiKey: string;
-   readonly #baseUrl: string;
+   readonly #completion: Pick<RuntimeCompletion, 'structured'>;
    readonly #defaultModel: string;
-   readonly #fetch: typeof globalThis.fetch;
    readonly #timeoutMs: number;
    readonly #maxRepairs: number;
    readonly #maxCriticRounds: number;
 
    constructor(options: PlanGeneratorOptions) {
       this.#sql = options.sql;
-      this.#apiKey = options.apiKey;
-      this.#baseUrl = options.baseUrl.replace(/\/$/, '');
+      this.#completion = options.completion;
       this.#defaultModel = options.defaultModel;
-      this.#fetch = options.fetch ?? globalThis.fetch;
       this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       this.#maxRepairs = options.maxRepairs ?? 2;
       this.#maxCriticRounds = options.maxCriticRounds ?? 1;
@@ -179,7 +231,7 @@ export class PlanGenerator {
           ORDER BY updated_at DESC LIMIT 1`;
       return row
          ? { provider: row.model_provider as string, model: row.model_name as string }
-         : { provider: 'openrouter', model: this.#defaultModel };
+         : { provider: 'bedrock', model: this.#defaultModel };
    }
 
    /**
@@ -190,7 +242,17 @@ export class PlanGenerator {
     * plan is instead of a spinner.
     */
    async generate(input: {
+      /** The workspace the plan is for; its completion tasks run there. */
+      workspaceId: string;
       prompt: string;
+      /**
+       * What the asker has already answered, when this is a second attempt.
+       *
+       * Appended to the request rather than merged into it: the original
+       * prompt is what someone typed, and rewriting it to contain answers
+       * would leave no record of what was asked versus what was learned.
+       */
+      answers?: AnsweredQuestion[];
       signal?: AbortSignal;
       onStage?: (stage: Stage) => void;
    }): Promise<Generated> {
@@ -200,11 +262,13 @@ export class PlanGenerator {
       input.onStage?.('generate');
       const planner = await this.role('planner');
       const first = await this.#call({
+         workspaceId: input.workspaceId,
          role: 'planner',
          stage: 'generate',
          model: planner,
          system: GENERATE_SYSTEM,
-         user: input.prompt,
+         user: withAnswers(input.prompt, input.answers ?? []),
+         shape: PLAN_SHAPE,
          signal: input.signal,
       });
       account(usage, first);
@@ -223,7 +287,7 @@ export class PlanGenerator {
          while (validation.status === 'invalid' && repairs < this.#maxRepairs) {
             repairs += 1;
             input.onStage?.('repair');
-            const repaired = await this.#repair(plan, validation.errors, input.signal);
+            const repaired = await this.#repair(input.workspaceId, plan, validation.errors, input.signal);
             account(usage, repaired.result);
             plan = repaired.plan;
             validation = repaired.validation;
@@ -235,7 +299,7 @@ export class PlanGenerator {
             while (rounds < this.#maxCriticRounds) {
                rounds += 1;
                input.onStage?.('critic');
-               const reviewed = await this.#critique(plan, input.signal);
+               const reviewed = await this.#critique(input.workspaceId, plan, input.signal);
                account(usage, reviewed.result);
                stages.push(reviewed.record);
                if (reviewed.critique.verdict === 'accept') {
@@ -253,6 +317,7 @@ export class PlanGenerator {
 
                input.onStage?.('repair');
                const repaired = await this.#repair(
+                  input.workspaceId,
                   plan,
                   reviewed.critique.problems.map((problem) => ({
                      path: problem.path,
@@ -299,17 +364,20 @@ export class PlanGenerator {
    }
 
    async #repair(
+      workspaceId: string,
       plan: Plan,
       problems: Array<{ path: string; code: string; message: string }>,
       signal: AbortSignal | undefined
    ) {
       const role = await this.role('repair');
       const result = await this.#call({
+         workspaceId,
          role: 'repair',
          stage: 'repair',
          model: role,
          system: REPAIR_SYSTEM,
          user: `Plan:\n${JSON.stringify(plan)}\n\nProblems:\n${JSON.stringify(problems)}`,
+         shape: PLAN_SHAPE,
          signal,
       });
       const { plan: repaired, problems: readingProblems } = readPlan(result.json);
@@ -324,14 +392,16 @@ export class PlanGenerator {
       };
    }
 
-   async #critique(plan: Plan, signal: AbortSignal | undefined) {
+   async #critique(workspaceId: string, plan: Plan, signal: AbortSignal | undefined) {
       const role = await this.role('critic');
       const result = await this.#call({
+         workspaceId,
          role: 'critic',
          stage: 'critic',
          model: role,
          system: CRITIC_SYSTEM,
          user: JSON.stringify(plan),
+         shape: CRITIQUE_SHAPE,
          signal,
       });
       const critique = readCritique(result.json);
@@ -353,61 +423,40 @@ export class PlanGenerator {
    }
 
    async #call(input: {
+      workspaceId: string;
       role: 'planner' | 'repair' | 'critic';
       stage: Stage;
       model: { provider: string; model: string };
       system: string;
       user: string;
+      shape: z.ZodType;
       signal: AbortSignal | undefined;
    }) {
-      const started = Date.now();
-      const response = await this.#fetch(`${this.#baseUrl}/chat/completions`, {
-         method: 'POST',
-         signal: input.signal ?? AbortSignal.timeout(this.#timeoutMs),
-         headers: {
-            authorization: `Bearer ${this.#apiKey}`,
-            'content-type': 'application/json',
-            'x-title': 'Berry',
-         },
-         body: JSON.stringify({
+      const result = await this.#completion
+         .structured({
+            workspaceId: input.workspaceId,
+            purpose: input.role,
             model: input.model.model,
-            messages: [
-               { role: 'system', content: input.system },
-               { role: 'user', content: input.user },
-            ],
-            // Asked for, not relied on: some models ignore it, which is why
-            // the answer is still parsed defensively below.
-            response_format: { type: 'json_object' },
-         }),
-      }).catch((cause: unknown) => {
-         throw new PlannerUnavailable(
-            `the ${input.role} could not be reached: ${String(cause)}`,
-            input.stage
-         );
-      });
-
-      if (!response.ok) {
-         const detail = await response.text().catch(() => '');
-         throw new PlannerUnavailable(
-            `the ${input.role} refused the request: ${response.status} ${detail.slice(0, 200)}`,
-            input.stage
-         );
-      }
-
-      const body = (await response.json().catch(() => null)) as {
-         choices?: Array<{ message?: { content?: unknown } }>;
-         usage?: { prompt_tokens?: number; completion_tokens?: number };
-      } | null;
-      const content = body?.choices?.[0]?.message?.content;
-      if (typeof content !== 'string' || content.trim() === '') {
-         throw new PlannerUnavailable(`the ${input.role} returned nothing`, input.stage);
-      }
+            system: input.system,
+            user: input.user,
+            schema: input.shape,
+            ...(input.signal ? { signal: input.signal } : {}),
+         })
+         .catch((cause: unknown) => {
+            if (cause instanceof CompletionInvalid) {
+               throw new PlannerUnavailable(`the ${input.role} did not answer with a plan`, input.stage);
+            }
+            throw new PlannerUnavailable(
+               `the ${input.role} could not be reached: ${cause instanceof Error ? cause.message : String(cause)}`,
+               input.stage
+            );
+         });
 
       return {
-         json: parseJson(content),
-         inputTokens: Number(body?.usage?.prompt_tokens ?? 0),
-         outputTokens: Number(body?.usage?.completion_tokens ?? 0),
-         durationMs: Date.now() - started,
+         json: result.value,
+         inputTokens: result.inputTokens,
+         outputTokens: result.outputTokens,
+         durationMs: result.durationMs,
       };
    }
 }
@@ -422,6 +471,37 @@ function account(
    // and reporting only the last would make the pipeline look free.
    usage.inputTokens += result.inputTokens;
    usage.outputTokens += result.outputTokens;
+}
+
+/** A question the planner asked and the answer it was given. */
+export interface AnsweredQuestion {
+   question: string;
+   answer: string;
+}
+
+/**
+ * The request, with what has since been answered.
+ *
+ * The answers are named as answers rather than folded into the prose so the
+ * planner cannot mistake them for more of the original request — and so it is
+ * told, in as many words, not to ask them again. A planner that re-asks an
+ * answered question blocks the plan a second time on the thing the person
+ * just resolved, which reads as the feature not working at all.
+ */
+export function withAnswers(prompt: string, answers: AnsweredQuestion[]): string {
+   if (answers.length === 0) return prompt;
+   const answered = answers
+      .map((entry, index) => `${index + 1}. ${entry.question}\n   ${entry.answer}`)
+      .join('\n');
+   return `${prompt}
+
+---
+
+You asked these questions and they have been answered. Treat each answer as
+settled fact and plan accordingly. Do not raise them again as assumptions, and
+do not block on them:
+
+${answered}`;
 }
 
 function stageOf(
@@ -477,40 +557,6 @@ function readCritique(raw: unknown): Critique {
          ];
       }),
    };
-}
-
-/**
- * JSON out of whatever the model said.
- *
- * Models fence their JSON, prefix it with "Here you go:", or both, however
- * firmly they are told not to. Finding the outermost braces recovers the
- * answer instead of failing a generation over punctuation.
- */
-function parseJson(content: string): unknown {
-   const direct = tryParse(content);
-   if (direct !== undefined) return direct;
-
-   const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-   if (fenced?.[1]) {
-      const parsed = tryParse(fenced[1]);
-      if (parsed !== undefined) return parsed;
-   }
-
-   const start = content.indexOf('{');
-   const end = content.lastIndexOf('}');
-   if (start >= 0 && end > start) {
-      const parsed = tryParse(content.slice(start, end + 1));
-      if (parsed !== undefined) return parsed;
-   }
-   return {};
-}
-
-function tryParse(text: string): unknown {
-   try {
-      return JSON.parse(text.trim());
-   } catch {
-      return undefined;
-   }
 }
 
 export type { FieldProblem };

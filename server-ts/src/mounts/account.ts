@@ -63,46 +63,42 @@ export function accountRoutes(options: AccountOptions): Hono<{ Variables: AuthVa
    const { sql } = options;
 
    /**
-    * Where this account is signed in.
+    * Where this account is signed in: live Better Auth sessions.
     *
-    * Live sessions only: an expired or revoked one is not a device someone
-    * needs to think about, and a list padded with them makes the real ones
-    * hard to see.
+    * `lastUsedAt` is when Better Auth last refreshed the session (it does so
+    * at most once a day of use), which is coarser than the old per-request
+    * stamp and is what the column can honestly say.
     */
    route.get('/sessions', async (context) => {
       const rows = await sql`
-         SELECT id, user_agent, ip, created_at, last_used_at, expires_at
-           FROM sessions
+         SELECT id, user_agent, ip_address, created_at, updated_at, expires_at
+           FROM auth_sessions
           WHERE user_id = ${context.get('user').id}
-            AND revoked_at IS NULL AND expires_at > now()
-          ORDER BY COALESCE(last_used_at, created_at) DESC, id DESC
+            AND expires_at > now()
+          ORDER BY updated_at DESC, id DESC
           LIMIT 100`;
       return json({
          nodes: rows.map((row) => ({
             id: row.id as string,
             userAgent: (row.user_agent as string | null) ?? null,
-            ip: (row.ip as string | null) ?? null,
+            ip: (row.ip_address as string | null) ?? null,
             createdAt: toRFC3339(row.created_at as string)!,
-            lastUsedAt: toRFC3339(row.last_used_at as string | null),
+            lastUsedAt: toRFC3339(row.updated_at as string | null),
             expiresAt: toRFC3339(row.expires_at as string)!,
          })),
       });
    });
 
    /**
-    * Signs a device out.
-    *
-    * Revoked rather than deleted: the row is the record that the access
-    * existed, and a security page whose history disappears when you use it is
-    * not much of one. Scoped to the caller in the statement, so an id
-    * belonging to someone else updates nothing.
+    * Signs a device out. Deleted, because a Better Auth session has no revoked
+    * state: a row that exists is a live session. Scoped to the caller in the
+    * statement, so an id belonging to someone else deletes nothing.
     */
    route.delete('/sessions/:sessionId', async (context) => {
       const sessionId = pathId(context.req.param('sessionId'), 'Session');
       const rows = await sql`
-         UPDATE sessions SET revoked_at = now()
+         DELETE FROM auth_sessions
           WHERE id = ${sessionId} AND user_id = ${context.get('user').id}
-            AND revoked_at IS NULL
           RETURNING id`;
       if (rows.length === 0) throw ApiError.notFound('Session');
       return new Response(null, { status: 204 });

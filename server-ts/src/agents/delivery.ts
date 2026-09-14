@@ -1,4 +1,5 @@
 import type { ExecutionSession } from '../execution/driver.ts';
+import { withTrailers } from '../scm/commit-trailer.ts';
 import { CheckoutFailed, shellQuote } from './checkout.ts';
 
 /**
@@ -24,6 +25,8 @@ export interface DeliveryOptions {
    /** The commit subject. A body is appended after a blank line when given. */
    message: string;
    body?: string;
+   /** Trailer lines (`Key: value`) appended after the body. */
+   trailers?: string[];
 }
 
 export interface Delivery {
@@ -57,7 +60,10 @@ export async function commitAndPush(options: DeliveryOptions): Promise<Delivery>
       return { committed: false, commit: null, ...stat };
    }
 
-   const message = options.body ? `${options.message}\n\n${options.body}` : options.message;
+   const message = withTrailers(
+      options.body ? `${options.message}\n\n${options.body}` : options.message,
+      options.trailers ?? []
+   );
    await run(
       options.session,
       // Single-quoted, which sh preserves newlines inside — so a message with
@@ -73,11 +79,31 @@ export async function commitAndPush(options: DeliveryOptions): Promise<Delivery>
       await run(options.session, 'git rev-parse HEAD', at, 'read the commit')
    ).trim();
 
+   // What the remote has on this branch right now, so the push can say what
+   // it expects to replace. A retried run's earlier attempt already pushed
+   // the branch; a fresh shallow clone knows nothing about it, and the
+   // implicit lease was refused with "stale info" even once the branch had
+   // been fetched — reproduced against a bare repository, and specific to a
+   // shallow clone. An explicit lease is honoured in both. The refspec is
+   // spelled out because `clone --branch` is a single-branch clone whose
+   // remote covers only the default branch.
+   await options.session.exec(
+      `git -c credential.helper=${shellQuote(CREDENTIAL_HELPER)} fetch origin ${shellQuote(`+refs/heads/${options.branch}:refs/remotes/origin/${options.branch}`)}`,
+      { ...at, env: { [TOKEN_VARIABLE]: options.token } }
+   );
+   const remote = await options.session.exec(
+      `git rev-parse --verify --quiet ${shellQuote(`refs/remotes/origin/${options.branch}`)}`,
+      at
+   );
+   // Empty when the branch does not exist yet: the lease then means "create
+   // it, and refuse if somebody made one meanwhile".
+   const expected = remote.exitCode === 0 ? remote.stdout.trim() : '';
+
    await run(
       options.session,
-      // `--force-with-lease` so a retried run updates its own branch, and
-      // still refuses if someone else has pushed to it in the meantime.
-      `git -c credential.helper=${shellQuote(CREDENTIAL_HELPER)} push --force-with-lease --set-upstream origin ${shellQuote(options.branch)}`,
+      // The lease names what it expects, so a retried run updates its own
+      // branch and still refuses if someone else has pushed to it meanwhile.
+      `git -c credential.helper=${shellQuote(CREDENTIAL_HELPER)} push --force-with-lease=${shellQuote(`${options.branch}:${expected}`)} --set-upstream origin ${shellQuote(options.branch)}`,
       { ...at, env: { [TOKEN_VARIABLE]: options.token } },
       'push the branch'
    );

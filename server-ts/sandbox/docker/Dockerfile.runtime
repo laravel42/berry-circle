@@ -1,0 +1,33 @@
+# The runtime service.
+#
+# It holds the Docker socket so Berry's API does not have to: talking to the
+# daemon is root-equivalent on the host, and the API container runs read-only
+# with every capability dropped. This one is small enough to read end to end.
+#
+# It builds from the server-ts context (for the package manifest and lockfile)
+# and runs `sandbox/docker/runtime/index.ts`. Everything that is the local
+# Docker sandbox — this service, the image runs happen in, their Dockerfiles —
+# lives under `sandbox/docker/`, beside `sandbox/agentcore/` for the managed
+# substrate. It is still shipped as its own image and run as its own service —
+# the socket stays out of berry-api.
+FROM node:22-alpine
+
+WORKDIR /app
+
+# pnpm, pinned through corepack to match the workspace, exactly as the API image.
+RUN corepack enable && corepack prepare pnpm@10.12.1 --activate
+
+# The runtime needs only hono and its node server, both already in server-ts's
+# dependencies, so it installs the same production deps as the API image rather
+# than carrying a package manifest of its own.
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --prod --frozen-lockfile --ignore-workspace
+
+COPY tsconfig.json ./
+COPY sandbox/docker/runtime ./sandbox/docker/runtime
+
+ENV NODE_ENV=production
+ENV RUNTIME_ADDR=0.0.0.0:4300
+EXPOSE 4300
+
+CMD ["node", "--experimental-strip-types", "sandbox/docker/runtime/index.ts"]
