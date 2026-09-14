@@ -4,6 +4,7 @@ import { Conflict, Forbidden, IdempotencyConflict, LastOwner, NotFound } from '.
 import { allows, type Role } from './roles.ts';
 import type { NameCursor, TimeCursor } from '../http/cursor.ts';
 import type { Workspace, WorkspaceSettings } from './repository.ts';
+import { installStarterLabels } from '../core/starter-labels.ts';
 
 /**
  * Workspaces and memberships.
@@ -137,6 +138,10 @@ export class WorkspaceRepository {
             await tx`
                UPDATE users SET last_workspace_id = ${id}, updated_at = ${now}
                 WHERE id = ${params.actorId}`;
+            // The starter labels, so the first task filed here has something
+            // to be labelled with. In the same transaction: a workspace that
+            // exists without them is the state a person saw as "no labels".
+            await installStarterLabels(tx, id, params.actorId, now);
             return { workspace: await getWorkspaceIn(tx, id, params.actorId), replayed: false };
          }
 

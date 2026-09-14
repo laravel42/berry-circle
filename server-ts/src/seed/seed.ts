@@ -1,5 +1,6 @@
 import type { Sql } from '../db/pool.ts';
 import { withinTx } from '../db/pool.ts';
+import { installStarterLabels } from '../core/starter-labels.ts';
 import {
    AgentModelName,
    AgentModelProvider,
@@ -303,69 +304,34 @@ async function upsertBoard(tx: Sql, now: string): Promise<void> {
 }
 
 /**
- * The workspace's starting label set.
+ * The starter labels, into every workspace that exists.
  *
- * A catalogue rather than demo data — like the media agents, it is there in
- * an otherwise empty product, because a task with no label to pick is a
- * task nobody can file properly. Fixed ids so a re-seed updates the colour
- * and description in place; a label somebody already created under the same
- * name, with another id, is left alone rather than duplicated or renamed.
+ * Creation installs them for new workspaces; the seed backfills the ones
+ * from before that, so a developer's own workspace has them too and not only
+ * the demo one.
  */
-const LABELS = [
-   { id: '11111111-1111-4111-8111-111111111401', name: 'bug', color: '#dc2626', description: 'Something is broken and has to be fixed.' },
-   { id: '11111111-1111-4111-8111-111111111402', name: 'feature', color: '#2563eb', description: 'New capability the product does not have yet.' },
-   { id: '11111111-1111-4111-8111-111111111403', name: 'improvement', color: '#0891b2', description: 'Makes something that exists better.' },
-   { id: '11111111-1111-4111-8111-111111111404', name: 'documentation', color: '#7c3aed', description: 'Docs, guides, comments and examples.' },
-   { id: '11111111-1111-4111-8111-111111111405', name: 'research', color: '#d97706', description: 'Find out before deciding; the result is an answer, not code.' },
-   { id: '11111111-1111-4111-8111-111111111406', name: 'design', color: '#db2777', description: 'Interface, flow and visual work.' },
-   { id: '11111111-1111-4111-8111-111111111407', name: 'chore', color: '#6b7280', description: 'Upkeep: dependencies, tooling, housekeeping.' },
-   { id: '11111111-1111-4111-8111-111111111408', name: 'security', color: '#b91c1c', description: 'Affects who can do or see what.' },
-   { id: '11111111-1111-4111-8111-111111111409', name: 'performance', color: '#059669', description: 'Faster, smaller or cheaper.' },
-   { id: '11111111-1111-4111-8111-111111111410', name: 'media', color: '#9333ea', description: 'Video, audio and other generated content.' },
-   { id: '11111111-1111-4111-8111-111111111411', name: 'blocked', color: '#f97316', description: 'Cannot move until something outside it does.' },
-   { id: '11111111-1111-4111-8111-111111111412', name: 'good first task', color: '#16a34a', description: 'Small, self-contained, a good place to start.' },
-] as const;
-
 async function upsertLabels(tx: Sql, now: string): Promise<void> {
-   for (const label of LABELS) {
-      // INSERT ... SELECT so the guard can look at the table: the partial
-      // unique index on lower(name) would otherwise reject the seed when a
-      // person already made a label of that name, and a failed seed stops
-      // the server from starting.
-      await tx`
-         INSERT INTO issue_labels (id, workspace_id, name, description, color, created_by, created_at, updated_at)
-         SELECT ${label.id}, ${WorkspaceID}, ${label.name}, ${label.description}, ${label.color},
-                ${UserID}, ${now}, ${now}
-          WHERE NOT EXISTS (
-                SELECT 1 FROM issue_labels
-                 WHERE workspace_id = ${WorkspaceID}
-                   AND lower(name) = lower(${label.name})
-                   AND archived_at IS NULL
-                   AND id <> ${label.id})
-         ON CONFLICT (id) DO UPDATE SET
-            name = EXCLUDED.name,
-            description = EXCLUDED.description,
-            color = EXCLUDED.color,
-            archived_at = NULL,
-            updated_at = EXCLUDED.updated_at
-      `;
+   const workspaces = await tx`SELECT id, created_by FROM workspaces WHERE deleted_at IS NULL`;
+   for (const workspace of workspaces) {
+      await installStarterLabels(tx, workspace.id as string, (workspace.created_by as string | null) ?? null, now);
    }
 }
 
-/** Which starting labels the demo tasks carry, by issue id. */
+/** Which starter labels the demo tasks carry, by issue id and label name. */
 const ISSUE_LABELS: Record<string, readonly string[]> = {
-   '11111111-1111-4111-8111-111111111201': ['11111111-1111-4111-8111-111111111402', '11111111-1111-4111-8111-111111111409'],
-   '11111111-1111-4111-8111-111111111202': ['11111111-1111-4111-8111-111111111403', '11111111-1111-4111-8111-111111111406'],
-   '11111111-1111-4111-8111-111111111203': ['11111111-1111-4111-8111-111111111407', '11111111-1111-4111-8111-111111111412'],
+   '11111111-1111-4111-8111-111111111201': ['feature', 'performance'],
+   '11111111-1111-4111-8111-111111111202': ['improvement', 'design'],
+   '11111111-1111-4111-8111-111111111203': ['chore', 'good first task'],
 };
 
 async function labelIssues(tx: Sql, now: string): Promise<void> {
-   for (const [issueId, labelIds] of Object.entries(ISSUE_LABELS)) {
-      for (const labelId of labelIds) {
+   for (const [issueId, names] of Object.entries(ISSUE_LABELS)) {
+      for (const name of names) {
          await tx`
             INSERT INTO issue_label_memberships (workspace_id, issue_id, label_id, assigned_by, created_at)
-            SELECT ${WorkspaceID}, ${issueId}, ${labelId}, ${UserID}, ${now}
-             WHERE EXISTS (SELECT 1 FROM issue_labels WHERE id = ${labelId} AND workspace_id = ${WorkspaceID})
+            SELECT ${WorkspaceID}, ${issueId}, id, ${UserID}, ${now}
+              FROM issue_labels
+             WHERE workspace_id = ${WorkspaceID} AND lower(name) = ${name} AND archived_at IS NULL
             ON CONFLICT DO NOTHING
          `;
       }
