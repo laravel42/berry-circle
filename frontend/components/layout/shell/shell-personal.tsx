@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -11,6 +11,7 @@ import { useNotificationsDrawerStore } from '@/store/notifications-drawer-store'
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useSessionStore } from '@/store/session-store';
 import { ShellIcon } from './shell-icon';
+import { isMyTasks, MY_TASKS_HREF } from './shell-routes';
 
 /** Past this the exact figure stops being information. */
 const BADGE_CAP = 99;
@@ -94,7 +95,10 @@ export function ShellPersonal({ orgId }: { orgId: string }) {
             : 'text-[var(--shell-text-muted)] hover:bg-[var(--shell-hover)] hover:text-[var(--shell-text)]',
       ].join(' ');
 
-   const onIssues = pathname.startsWith(`/${orgId}/my-issues`);
+   // Personal's entry is the assigned tab of the tasks page; the page with
+   // every task is Work's Tasks, and only one of the two lights at a time.
+   const search = useSearchParams()?.toString() ?? '';
+   const onIssues = pathname.startsWith(`/${orgId}/my-issues`) && isMyTasks(pathname, search);
    const onChat = pathname.startsWith(`/${orgId}/chat`);
 
    return (
@@ -121,7 +125,7 @@ export function ShellPersonal({ orgId }: { orgId: string }) {
             <li>
                <Link
                   data-shell-nav
-                  href={`/${orgId}/my-issues`}
+                  href={`/${orgId}${MY_TASKS_HREF}`}
                   aria-current={onIssues ? 'page' : undefined}
                   className={rowClass(onIssues)}
                >

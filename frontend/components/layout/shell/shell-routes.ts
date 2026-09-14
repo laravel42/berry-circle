@@ -77,6 +77,18 @@ export interface ShellRouteDef {
 
 const WORK: ShellRouteDef[] = [
    {
+      // The workspace's tasks, every one. Personal's "My tasks" opens the
+      // same page on its assigned tab, and the shell lights whichever of the
+      // two the URL names rather than both.
+      id: 'issues',
+      label: 'tasks',
+      labelKey: 'tasks',
+      href: '/my-issues',
+      match: ['/issue/'],
+      prefsKey: 'my-issues',
+      icon: '<path d="M4 7a2 2 0 012-2h4l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />',
+   },
+   {
       id: 'reviews',
       label: 'reviews',
       labelKey: 'reviews',
@@ -193,6 +205,13 @@ const BY_ID = new Map<string, ShellRouteDef>(
    [...WORK, ...MANAGE].map((route) => [route.id, route])
 );
 
+/** The tasks page filtered to what is assigned to the person: Personal's view of it. */
+export const MY_TASKS_HREF = '/my-issues?tab=assigned';
+
+export function isMyTasks(pathname: string, search?: string): boolean {
+   return pathname.includes('/my-issues') && /(?:^|[?&])tab=assigned(?:&|$)/.test(search ?? '');
+}
+
 export function shellRoute(id: string): ShellRouteDef | undefined {
    return BY_ID.get(id);
 }
@@ -206,7 +225,10 @@ export function shellRoute(id: string): ShellRouteDef | undefined {
  * through a bare `pathname.includes`, which would hand any path containing
  * a shorter route's name to the wrong item.
  */
-export function activeShellRoute(pathname: string): ShellRoute | null {
+export function activeShellRoute(pathname: string, search?: string): ShellRoute | null {
+   // The assigned tab of the tasks page is Personal's "My tasks", not the
+   // workspace's Tasks; lighting the rail entry too would mark two items.
+   if (isMyTasks(pathname, search)) return null;
    let match: ShellRouteDef | null = null;
    // Tracked beside the match: `href` is optional on the type, so comparing
    // against `match.href` would need a non-null assertion even though a match

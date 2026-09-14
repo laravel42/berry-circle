@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo } from 'react';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { INDEX_TAB, useShellStore, type ShellTab } from '@/store/shell-store';
 import { activeShellRoute, type ShellRoute } from './shell-routes';
 import { describeRoute } from './shell-tab-model';
@@ -27,6 +27,7 @@ import { ShellShortcuts } from './shell-shortcuts';
  */
 export function BerryShell({ children }: { children: React.ReactNode }) {
    const pathname = usePathname() ?? '';
+   const search = useSearchParams()?.toString() ?? '';
    const params = useParams<{ orgId?: string }>();
    const orgId = params?.orgId ?? '';
    const router = useRouter();
@@ -45,7 +46,7 @@ export function BerryShell({ children }: { children: React.ReactNode }) {
    // describeRoute is pure, so memoising gives the effect below a stable
    // dependency instead of a fresh object every render.
    const current = useMemo(() => describeRoute(pathname, orgId), [pathname, orgId]);
-   const activeRoute: ShellRoute | null = activeShellRoute(pathname);
+   const activeRoute: ShellRoute | null = activeShellRoute(pathname, search);
    // Settings replaces the rail's contents rather than sitting inside it, the
    // way AppSidebar swapped its whole body on settings routes.
    const settingsMode = pathname.includes('/settings');
